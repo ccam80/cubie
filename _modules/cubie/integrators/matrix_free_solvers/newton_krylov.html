@@ -1,0 +1,489 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.matrix_free_solvers.newton_krylov &mdash; cubie 0.0.4 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=1b720227" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=8c5712d9"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../user_guide/index.html">User Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/drivers.html">Drivers (Time-dependent functions)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/speed.html">Making it Faster</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/userfunctions.html">User functions and derivatives</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../API_reference/index.html">Reference Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/batchsolving/index.html">Batch solving</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solver.html">Solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_ivp.html">solve_ivp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_result.html">SolveResult</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_spec.html">SolveSpec</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_grid_builder.html">BatchGridBuilder</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_solver_config.html">BatchSolverConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_solver_kernel.html">BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/system_interface.html">SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator.html">cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator_2d.html">cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator_3d.html">cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator.html">optional_cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator_2d.html">optional_cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator_3d.html">optional_cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/arrays.html">Arrays</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/array_container.html">ArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/base_array_manager.html">BaseArrayManager</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/managed_array.html">ManagedArray</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/input_array_container.html">InputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/input_arrays.html">InputArrays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/output_array_container.html">OutputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/active_outputs.html">ActiveOutputs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/output_arrays.html">OutputArrays</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/odesystems/index.html">ODE systems</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/create_ode_system.html">create_ODE_system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/symbolic_ode.html">SymbolicODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/base_ode.html">BaseODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/ode_data.html">ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/system_values.html">SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/system_sizes.html">SystemSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/ode_cache.html">ODECache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/symbolic.html">Symbolic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/integrators/index.html">Integrators</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/single_integrator_run.html">SingleIntegratorRun</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/integrator_return_codes.html">IntegratorReturnCodes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/algorithms.html">Algorithms</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/base_step_config.html">BaseStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/base_algorithm_step.html">BaseAlgorithmStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/step_cache.html">StepCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/explicit_step_config.html">ExplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/explicit_euler_step.html">ExplicitEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/implicit_step_config.html">ImplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/backwards_euler_step.html">BackwardsEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/backwards_euler_pc_step.html">BackwardsEulerPCStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/crank_nicolson_step.html">CrankNicolsonStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_erk_step.html">ERKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_erk_tableaus.html">ERK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_dirk_step.html">DIRKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_dirk_tableaus.html">DIRK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/get_algorithm_step.html">get_algorithm_step</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/loops.html">Loops</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/ivp_loop.html">IVPLoop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/ode_loop_config.html">ODELoopConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/loop_shared_indices.html">LoopSharedIndices</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/loop_local_indices.html">LoopLocalIndices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers.html">Matrix-free solvers</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/linear_solver_factory.html">linear_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/newton_krylov_solver_factory.html">newton_krylov_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/solver_ret_codes.html">SolverRetCodes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/step_control.html">Step control</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/get_controller.html">get_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_step_controller.html">BaseStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_adaptive_step_controller.html">BaseAdaptiveStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/fixed_step_controller.html">FixedStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_i_controller.html">AdaptiveIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_pi_controller.html">AdaptivePIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_pid_controller.html">AdaptivePIDController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/gustafsson_controller.html">GustafssonController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_step_controller_config.html">BaseStepControllerConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_step_control_config.html">AdaptiveStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/fixed_step_control_config.html">FixedStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/pi_step_control_config.html">PIStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/pid_step_control_config.html">PIDStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/gustafsson_step_control_config.html">GustafssonStepControlConfig</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/outputhandling/index.html">Output handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_functions.html">OutputFunctions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_config.html">OutputConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_compile_flags.html">OutputCompileFlags</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summaries_buffer_sizes.html">SummariesBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/loop_buffer_sizes.html">LoopBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_array_heights.html">OutputArrayHeights</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/single_run_output_sizes.html">SingleRunOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/batch_input_sizes.html">BatchInputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/batch_output_sizes.html">BatchOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_function_cache.html">OutputFunctionCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics.html">Summary metrics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/summary_metric.html">SummaryMetric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/summary_metrics.html">SummaryMetrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/metric_func_cache.html">MetricFuncCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/mean.html">Mean</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/max.html">Max</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/rms.html">RMS</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/peaks.html">Peaks</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/memory.html">Memory</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/default_memmgr.html">default_memmgr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/memory_manager.html">MemoryManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/array_request.html">ArrayRequest</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/array_response.html">ArrayResponse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/stream_groups.html">StreamGroups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/current_cupy_stream.html">current_cupy_stream</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/cupy_async_numba_manager.html">CuPyAsyncNumbaManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/cupy_sync_numba_manager.html">CuPySyncNumbaManager</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../../integrators.html">cubie.integrators</a></li>
+          <li class="breadcrumb-item"><a href="../matrix_free_solvers.html">cubie.integrators.matrix_free_solvers</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.matrix_free_solvers.newton_krylov</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.matrix_free_solvers.newton_krylov</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Newton--Krylov solver factories for matrix-free integrators.</span>
+
+<span class="sd">The helpers in this module wrap the linear solver provided by</span>
+<span class="sd">:mod:`cubie.integrators.matrix_free_solvers.linear_solver` to build damped</span>
+<span class="sd">Newton iterations suitable for CUDA device execution.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">int32</span><span class="p">,</span> <span class="n">from_dtype</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">ALLOWED_PRECISIONS</span><span class="p">,</span> <span class="n">PrecisionDType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.cuda_simsafe</span><span class="w"> </span><span class="kn">import</span> <span class="n">activemask</span><span class="p">,</span> <span class="n">all_sync</span><span class="p">,</span> <span class="n">selp</span>
+
+
+<div class="viewcode-block" id="newton_krylov_solver_factory">
+<a class="viewcode-back" href="../../../../API_reference/integrators/matrix_free_solvers/newton_krylov_solver_factory.html#cubie.integrators.newton_krylov_solver_factory">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">newton_krylov_solver_factory</span><span class="p">(</span>
+    <span class="n">residual_function</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
+    <span class="n">linear_solver</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">tolerance</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">max_iters</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">damping</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">max_backtracks</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span><span class="p">,</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="n">PrecisionDType</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a damped Newton--Krylov solver device function.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    residual_function</span>
+<span class="sd">        Matrix-free residual evaluator with signature</span>
+<span class="sd">        ``(stage_increment, parameters, drivers, t, h, a_ij, base_state,</span>
+<span class="sd">        residual)``.</span>
+<span class="sd">    linear_solver</span>
+<span class="sd">        Matrix-free linear solver created by :func:`linear_solver_factory`.</span>
+<span class="sd">    n</span>
+<span class="sd">        Size of the flattened residual and state vectors.</span>
+<span class="sd">    tolerance</span>
+<span class="sd">        Residual norm threshold for convergence.</span>
+<span class="sd">    max_iters</span>
+<span class="sd">        Maximum number of Newton iterations performed.</span>
+<span class="sd">    damping</span>
+<span class="sd">        Step shrink factor used during backtracking.</span>
+<span class="sd">    max_backtracks</span>
+<span class="sd">        Maximum number of damping attempts per Newton step.</span>
+<span class="sd">    precision</span>
+<span class="sd">        Floating-point precision used when compiling the device function.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Callable</span>
+<span class="sd">        CUDA device function implementing the damped Newton--Krylov scheme.</span>
+<span class="sd">        The return value encodes the iteration count in the upper 16 bits and</span>
+<span class="sd">        a :class:`~cubie.integrators.matrix_free_solvers.SolverRetCodes`</span>
+<span class="sd">        value in the lower 16 bits.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The lower 16 bits of the returned status report the convergence outcome:</span>
+<span class="sd">    ``0`` for success, ``1`` when backtracking cannot find a suitable step,</span>
+<span class="sd">    ``2`` when the Newton iteration limit is exceeded, and ``4`` when the</span>
+<span class="sd">    inner linear solver signals failure. The upper 16 bits hold the number of</span>
+<span class="sd">    Newton iterations performed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">precision_dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">precision_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ALLOWED_PRECISIONS</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;precision must be float16, float32, or float64.&quot;</span><span class="p">)</span>
+
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="n">precision_dtype</span><span class="p">)</span>
+    <span class="n">tol_squared</span> <span class="o">=</span> <span class="n">dtype</span><span class="p">(</span><span class="n">tolerance</span> <span class="o">*</span> <span class="n">tolerance</span><span class="p">)</span>
+    <span class="n">typed_zero</span> <span class="o">=</span> <span class="n">dtype</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">typed_one</span> <span class="o">=</span> <span class="n">dtype</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+    <span class="n">typed_damping</span> <span class="o">=</span> <span class="n">dtype</span><span class="p">(</span><span class="n">damping</span><span class="p">)</span>
+    <span class="n">status_active</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="c1"># no cover: start</span>
+    <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">inline</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">newton_krylov_solver</span><span class="p">(</span>
+        <span class="n">stage_increment</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="p">,</span>
+        <span class="n">drivers</span><span class="p">,</span>
+        <span class="n">t</span><span class="p">,</span>
+        <span class="n">h</span><span class="p">,</span>
+        <span class="n">a_ij</span><span class="p">,</span>
+        <span class="n">base_state</span><span class="p">,</span>
+        <span class="n">shared_scratch</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Solve a nonlinear system with a damped Newton--Krylov iteration.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        stage_increment</span>
+<span class="sd">            Current Newton iterate representing the stage increment.</span>
+<span class="sd">        parameters</span>
+<span class="sd">            Model parameters forwarded to the residual evaluation.</span>
+<span class="sd">        drivers</span>
+<span class="sd">            External drivers forwarded to the residual evaluation.</span>
+<span class="sd">        t</span>
+<span class="sd">            Stage time forwarded to the residual and linear solver.</span>
+<span class="sd">        h</span>
+<span class="sd">            Timestep scaling factor supplied by the outer integrator.</span>
+<span class="sd">        a_ij</span>
+<span class="sd">            Stage weight used by multi-stage integrators.</span>
+<span class="sd">        base_state</span>
+<span class="sd">            Reference state used when evaluating the residual.</span>
+<span class="sd">        shared_scratch</span>
+<span class="sd">            Shared scratch buffer providing Newton direction, residual, and</span>
+<span class="sd">            evaluation state storage. The first ``n`` entries store the Newton</span>
+<span class="sd">            direction, the next ``n`` entries store the residual, and the final</span>
+<span class="sd">            ``n`` entries store the stage state ``base_state + a_ij *</span>
+<span class="sd">            stage_increment``.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Status word with convergence information and iteration count.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Scratch space requirements total three vectors of length ``n`` drawn</span>
+<span class="sd">        from ``shared_scratch``. No need to zero scratch space before</span>
+<span class="sd">        passing - it&#39;s write-first in this function.</span>
+<span class="sd">        ``delta`` is reset to zero before the first linear solve so it can be</span>
+<span class="sd">        reused as the Newton direction buffer. ``eval_state`` stores the stage</span>
+<span class="sd">        state ``base_state + a_ij * stage_increment`` for the Jacobian</span>
+<span class="sd">        evaluations. The linear solver is invoked on the Jacobian system</span>
+<span class="sd">        ``J * delta = rhs`` with ``rhs`` stored in ``residual``. The tentative</span>
+<span class="sd">        state updates are reverted if no acceptable backtracking step is found.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">delta</span> <span class="o">=</span> <span class="n">shared_scratch</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">residual</span> <span class="o">=</span> <span class="n">shared_scratch</span><span class="p">[</span><span class="n">n</span><span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">n</span><span class="p">]</span>
+        <span class="n">eval_state</span> <span class="o">=</span> <span class="n">shared_scratch</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="n">n</span><span class="p">:</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">n</span><span class="p">]</span>
+
+        <span class="n">residual_function</span><span class="p">(</span>
+            <span class="n">stage_increment</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="p">,</span>
+            <span class="n">drivers</span><span class="p">,</span>
+            <span class="n">t</span><span class="p">,</span>
+            <span class="n">h</span><span class="p">,</span>
+            <span class="n">a_ij</span><span class="p">,</span>
+            <span class="n">base_state</span><span class="p">,</span>
+            <span class="n">residual</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">norm2_prev</span> <span class="o">=</span> <span class="n">typed_zero</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">residual_value</span> <span class="o">=</span> <span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">residual_value</span>
+            <span class="n">delta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">typed_zero</span>
+            <span class="n">norm2_prev</span> <span class="o">+=</span> <span class="n">residual_value</span> <span class="o">*</span> <span class="n">residual_value</span>
+
+        <span class="n">status</span> <span class="o">=</span> <span class="n">status_active</span>
+        <span class="k">if</span> <span class="n">norm2_prev</span> <span class="o">&lt;=</span> <span class="n">tol_squared</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="n">iters_count</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">activemask</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iters</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">all_sync</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">status</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">):</span>
+                <span class="k">break</span>
+
+            <span class="n">iters_count</span> <span class="o">+=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">status</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                    <span class="n">eval_state</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">base_state</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">a_ij</span> <span class="o">*</span> <span class="n">stage_increment</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">lin_return</span> <span class="o">=</span> <span class="n">linear_solver</span><span class="p">(</span>
+                    <span class="n">eval_state</span><span class="p">,</span>
+                    <span class="n">parameters</span><span class="p">,</span>
+                    <span class="n">drivers</span><span class="p">,</span>
+                    <span class="n">t</span><span class="p">,</span>
+                    <span class="n">h</span><span class="p">,</span>
+                    <span class="n">a_ij</span><span class="p">,</span>
+                    <span class="n">residual</span><span class="p">,</span>
+                    <span class="n">delta</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="k">if</span> <span class="n">lin_return</span> <span class="o">!=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">0</span><span class="p">):</span>
+                    <span class="n">status</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="n">lin_return</span><span class="p">)</span>
+
+            <span class="n">scale</span> <span class="o">=</span> <span class="n">typed_one</span>
+            <span class="n">scale_applied</span> <span class="o">=</span> <span class="n">typed_zero</span>
+            <span class="n">found_step</span> <span class="o">=</span> <span class="kc">False</span>
+
+            <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_backtracks</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">status</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">delta_scale</span> <span class="o">=</span> <span class="n">scale</span> <span class="o">-</span> <span class="n">scale_applied</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                        <span class="n">stage_increment</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">delta_scale</span> <span class="o">*</span> <span class="n">delta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                    <span class="n">scale_applied</span> <span class="o">=</span> <span class="n">scale</span>
+
+                    <span class="n">residual_function</span><span class="p">(</span>
+                        <span class="n">stage_increment</span><span class="p">,</span>
+                        <span class="n">parameters</span><span class="p">,</span>
+                        <span class="n">drivers</span><span class="p">,</span>
+                        <span class="n">t</span><span class="p">,</span>
+                        <span class="n">h</span><span class="p">,</span>
+                        <span class="n">a_ij</span><span class="p">,</span>
+                        <span class="n">base_state</span><span class="p">,</span>
+                        <span class="n">residual</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+                    <span class="n">norm2_new</span> <span class="o">=</span> <span class="n">typed_zero</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                        <span class="n">residual_value</span> <span class="o">=</span> <span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                        <span class="n">norm2_new</span> <span class="o">+=</span> <span class="n">residual_value</span> <span class="o">*</span> <span class="n">residual_value</span>
+
+                    <span class="k">if</span> <span class="n">norm2_new</span> <span class="o">&lt;=</span> <span class="n">tol_squared</span><span class="p">:</span>
+                        <span class="n">status</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+                    <span class="n">accept</span> <span class="o">=</span> <span class="p">(</span><span class="n">status</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">norm2_new</span> <span class="o">&lt;</span> <span class="n">norm2_prev</span><span class="p">)</span>
+                    <span class="n">found_step</span> <span class="o">=</span> <span class="n">found_step</span> <span class="ow">or</span> <span class="n">accept</span>
+
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                        <span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">selp</span><span class="p">(</span>
+                            <span class="n">accept</span><span class="p">,</span>
+                            <span class="o">-</span><span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">],</span>
+                            <span class="n">residual</span><span class="p">[</span><span class="n">i</span><span class="p">],</span>
+                        <span class="p">)</span>
+                    <span class="n">norm2_prev</span> <span class="o">=</span> <span class="n">selp</span><span class="p">(</span><span class="n">accept</span><span class="p">,</span> <span class="n">norm2_new</span><span class="p">,</span> <span class="n">norm2_prev</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">all_sync</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">found_step</span> <span class="ow">or</span> <span class="n">status</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">):</span>
+                    <span class="k">break</span>
+                <span class="n">scale</span> <span class="o">*=</span> <span class="n">typed_damping</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="n">status</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">found_step</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                    <span class="n">stage_increment</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-=</span> <span class="n">scale_applied</span> <span class="o">*</span> <span class="n">delta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">status</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">status</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">int32</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">status</span> <span class="o">|=</span> <span class="p">(</span><span class="n">iters_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">16</span>
+        <span class="k">return</span> <span class="n">status</span>
+
+
+
+    <span class="c1"># no cover: end</span>
+    <span class="k">return</span> <span class="n">newton_krylov_solver</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

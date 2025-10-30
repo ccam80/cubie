@@ -1,0 +1,1767 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.memory.mem_manager &mdash; cubie 0.0.4 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=1b720227" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=8c5712d9"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../user_guide/index.html">User Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/drivers.html">Drivers (Time-dependent functions)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/speed.html">Making it Faster</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../user_guide/userfunctions.html">User functions and derivatives</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../API_reference/index.html">Reference Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../API_reference/batchsolving/index.html">Batch solving</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/solver.html">Solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/solve_ivp.html">solve_ivp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/solve_result.html">SolveResult</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/solve_spec.html">SolveSpec</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/batch_grid_builder.html">BatchGridBuilder</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/batch_solver_config.html">BatchSolverConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/batch_solver_kernel.html">BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/system_interface.html">SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/cuda_array_validator.html">cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/cuda_array_validator_2d.html">cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/cuda_array_validator_3d.html">cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/optional_cuda_array_validator.html">optional_cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/optional_cuda_array_validator_2d.html">optional_cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/optional_cuda_array_validator_3d.html">optional_cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/batchsolving/arrays.html">Arrays</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/array_container.html">ArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/base_array_manager.html">BaseArrayManager</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/managed_array.html">ManagedArray</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/input_array_container.html">InputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/input_arrays.html">InputArrays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/output_array_container.html">OutputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/active_outputs.html">ActiveOutputs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/batchsolving/output_arrays.html">OutputArrays</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../API_reference/odesystems/index.html">ODE systems</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/create_ode_system.html">create_ODE_system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/symbolic_ode.html">SymbolicODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/base_ode.html">BaseODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/ode_data.html">ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/system_values.html">SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/system_sizes.html">SystemSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/ode_cache.html">ODECache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/odesystems/symbolic.html">Symbolic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../API_reference/integrators/index.html">Integrators</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/single_integrator_run.html">SingleIntegratorRun</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/integrator_return_codes.html">IntegratorReturnCodes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/algorithms.html">Algorithms</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/base_step_config.html">BaseStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/base_algorithm_step.html">BaseAlgorithmStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/step_cache.html">StepCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/explicit_step_config.html">ExplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/explicit_euler_step.html">ExplicitEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/implicit_step_config.html">ImplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/backwards_euler_step.html">BackwardsEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/backwards_euler_pc_step.html">BackwardsEulerPCStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/crank_nicolson_step.html">CrankNicolsonStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/generic_erk_step.html">ERKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/generic_erk_tableaus.html">ERK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/generic_dirk_step.html">DIRKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/generic_dirk_tableaus.html">DIRK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/algorithms/get_algorithm_step.html">get_algorithm_step</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/loops.html">Loops</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/loops/ivp_loop.html">IVPLoop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/loops/ode_loop_config.html">ODELoopConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/loops/loop_shared_indices.html">LoopSharedIndices</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/loops/loop_local_indices.html">LoopLocalIndices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/matrix_free_solvers.html">Matrix-free solvers</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/matrix_free_solvers/linear_solver_factory.html">linear_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/matrix_free_solvers/newton_krylov_solver_factory.html">newton_krylov_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/matrix_free_solvers/solver_ret_codes.html">SolverRetCodes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/integrators/step_control.html">Step control</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/get_controller.html">get_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/base_step_controller.html">BaseStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/base_adaptive_step_controller.html">BaseAdaptiveStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/fixed_step_controller.html">FixedStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/adaptive_i_controller.html">AdaptiveIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/adaptive_pi_controller.html">AdaptivePIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/adaptive_pid_controller.html">AdaptivePIDController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/gustafsson_controller.html">GustafssonController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/base_step_controller_config.html">BaseStepControllerConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/adaptive_step_control_config.html">AdaptiveStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/fixed_step_control_config.html">FixedStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/pi_step_control_config.html">PIStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/pid_step_control_config.html">PIDStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/integrators/step_control/gustafsson_step_control_config.html">GustafssonStepControlConfig</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../API_reference/outputhandling/index.html">Output handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/output_functions.html">OutputFunctions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/output_config.html">OutputConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/output_compile_flags.html">OutputCompileFlags</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/summaries_buffer_sizes.html">SummariesBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/loop_buffer_sizes.html">LoopBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/output_array_heights.html">OutputArrayHeights</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/single_run_output_sizes.html">SingleRunOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/batch_input_sizes.html">BatchInputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/batch_output_sizes.html">BatchOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/output_function_cache.html">OutputFunctionCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics.html">Summary metrics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/summary_metric.html">SummaryMetric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/summary_metrics.html">SummaryMetrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/metric_func_cache.html">MetricFuncCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/mean.html">Mean</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/max.html">Max</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/rms.html">RMS</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../API_reference/outputhandling/summarymetrics/metrics/peaks.html">Peaks</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../API_reference/memory.html">Memory</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/default_memmgr.html">default_memmgr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/memory_manager.html">MemoryManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/array_request.html">ArrayRequest</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/array_response.html">ArrayResponse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/stream_groups.html">StreamGroups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/current_cupy_stream.html">current_cupy_stream</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/cupy_async_numba_manager.html">CuPyAsyncNumbaManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../API_reference/memory/cupy_sync_numba_manager.html">CuPySyncNumbaManager</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.memory.mem_manager</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.memory.mem_manager</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;GPU memory management utilities for coordinating cubie allocations.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">warn</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">copy</span><span class="w"> </span><span class="kn">import</span> <span class="n">deepcopy</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs.validators</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">val</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">attrs</span><span class="w"> </span><span class="kn">import</span> <span class="n">Factory</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">math</span><span class="w"> </span><span class="kn">import</span> <span class="n">prod</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.cuda_simsafe</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">BaseCUDAMemoryManager</span><span class="p">,</span>
+    <span class="n">NumbaCUDAMemoryManager</span><span class="p">,</span>
+    <span class="n">current_mem_info</span><span class="p">,</span>
+    <span class="n">set_cuda_memory_manager</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.memory.cupy_emm</span><span class="w"> </span><span class="kn">import</span> <span class="n">current_cupy_stream</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.memory.stream_groups</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamGroups</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.memory.array_requests</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayRequest</span><span class="p">,</span> <span class="n">ArrayResponse</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.memory.cupy_emm</span><span class="w"> </span><span class="kn">import</span> <span class="n">CuPyAsyncNumbaManager</span><span class="p">,</span> <span class="n">CuPySyncNumbaManager</span>
+
+
+<span class="c1"># Recognised configuration parameters for memory manager settings.</span>
+<span class="c1"># These keys mirror the solver API so helpers can filter keyword</span>
+<span class="c1"># arguments consistently.</span>
+<span class="n">ALL_MEMORY_MANAGER_PARAMETERS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;memory_manager&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;stream_group&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;mem_proportion&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;allocator&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="n">MIN_AUTOPOOL_SIZE</span> <span class="o">=</span> <span class="mf">0.05</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">placeholder_invalidate</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Default invalidate hook placeholder that performs no operations.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">placeholder_dataready</span><span class="p">(</span><span class="n">response</span><span class="p">:</span> <span class="n">ArrayResponse</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Default placeholder data ready hook that performs no operations.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    response</span>
+<span class="sd">        Array response object (unused).</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+
+<span class="c1"># These will be keys to a dict, so must be hashable: eq=False</span>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">InstanceMemorySettings</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Memory registry information for a registered instance.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    proportion</span>
+<span class="sd">        Proportion of total VRAM assigned to this instance.</span>
+<span class="sd">    allocations</span>
+<span class="sd">        Dictionary of current allocations keyed by label.</span>
+<span class="sd">    invalidate_hook</span>
+<span class="sd">        Function to call when CUDA memory system changes occur.</span>
+<span class="sd">    allocation_ready_hook</span>
+<span class="sd">        Function to call when allocations are ready.</span>
+<span class="sd">    cap</span>
+<span class="sd">        Maximum allocatable bytes for this instance.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    proportion : float</span>
+<span class="sd">        Proportion of total VRAM assigned to this instance.</span>
+<span class="sd">    allocations : dict</span>
+<span class="sd">        Dictionary of current allocations keyed by array label.</span>
+<span class="sd">    invalidate_hook : callable</span>
+<span class="sd">        Function to call when CUDA memory system changes.</span>
+<span class="sd">    allocation_ready_hook : callable</span>
+<span class="sd">        Function to call when allocations are ready.</span>
+<span class="sd">    cap : int or None</span>
+<span class="sd">        Maximum allocatable bytes for this instance.</span>
+
+<span class="sd">    Properties</span>
+<span class="sd">    ----------</span>
+<span class="sd">    allocated_bytes : int</span>
+<span class="sd">        Total number of bytes across all allocated arrays for the instance.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The allocations dictionary serves both as a &quot;keepalive&quot; reference and a way</span>
+<span class="sd">    to calculate total allocated memory. The invalidate_hook is called when the</span>
+<span class="sd">    allocator/memory manager changes, requiring arrays and kernels to be</span>
+<span class="sd">    re-allocated or redefined.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">proportion</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">allocations</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">invalidate_hook</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">placeholder_invalidate</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Callable</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">allocation_ready_hook</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">ArrayResponse</span><span class="p">],</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">placeholder_dataready</span>
+    <span class="p">)</span>
+    <span class="n">cap</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_allocation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arr</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add an allocation to the instance&#39;s allocations list.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        key</span>
+<span class="sd">            Label for the allocation.</span>
+<span class="sd">        arr</span>
+<span class="sd">            Allocated array object.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This will overwrite any previous allocation with the same key, which</span>
+<span class="sd">        should function as intended but suggests the previous batch has not</span>
+<span class="sd">        been properly deallocated. A warning is emitted in this case.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Overwriting previous allocation for </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> at a &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;settings level - this suggests that the previous &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;array wasn&#39;t deallocated properly using the &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;memory manager.&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">arr</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">free</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Free an allocation by key.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        key</span>
+<span class="sd">            Label of the allocation to free.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Emits a warning if the key is not found in allocations.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="p">:</span>
+            <span class="n">newalloc</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="n">key</span><span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Attempted to free allocation for </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">, but &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;it was not found in the allocations list.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">newalloc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span> <span class="o">=</span> <span class="n">newalloc</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">free_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Drop all references to allocated arrays.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">free</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">allocated_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Total bytes allocated across tracked arrays.&quot;&quot;&quot;</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">arr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocations</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">total</span> <span class="o">+=</span> <span class="n">arr</span><span class="o">.</span><span class="n">nbytes</span>
+        <span class="k">return</span> <span class="n">total</span>
+
+
+<div class="viewcode-block" id="MemoryManager">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MemoryManager</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Singleton interface coordinating GPU memory allocation and stream usage.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    totalmem</span>
+<span class="sd">        Total GPU memory in bytes. Determined automatically when omitted.</span>
+<span class="sd">    registry</span>
+<span class="sd">        Registry mapping instance identifiers to their memory settings.</span>
+<span class="sd">    stream_groups</span>
+<span class="sd">        Manager for organizing instances into stream groups.</span>
+<span class="sd">    _mode</span>
+<span class="sd">        Memory management mode, either ``&quot;passive&quot;`` or ``&quot;active&quot;``.</span>
+<span class="sd">    _allocator</span>
+<span class="sd">        Memory allocator class registered with Numba.</span>
+<span class="sd">    _auto_pool</span>
+<span class="sd">        List of instance identifiers using automatic memory allocation.</span>
+<span class="sd">    _manual_pool</span>
+<span class="sd">        List of instance identifiers using manual memory allocation.</span>
+<span class="sd">    _stride_order</span>
+<span class="sd">        Default stride ordering for three-dimensional arrays.</span>
+<span class="sd">    _queued_allocations</span>
+<span class="sd">        Queued allocation requests organized by stream group.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The manager accepts :class:`ArrayRequest` objects and returns</span>
+<span class="sd">    :class:`ArrayResponse` instances that reference allocated arrays and</span>
+<span class="sd">    chunking information. Active mode enforces per-instance VRAM proportions</span>
+<span class="sd">    while passive mode mirrors standard allocation behaviour using chunking</span>
+<span class="sd">    only when necessary.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">totalmem</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="n">registry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">InstanceMemorySettings</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="n">stream_groups</span><span class="p">:</span> <span class="n">StreamGroups</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="n">StreamGroups</span><span class="p">))</span>
+    <span class="n">_mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">in_</span><span class="p">([</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span> <span class="s2">&quot;active&quot;</span><span class="p">])</span>
+    <span class="p">)</span>
+    <span class="n">_allocator</span><span class="p">:</span> <span class="n">BaseCUDAMemoryManager</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">NumbaCUDAMemoryManager</span><span class="p">,</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">object</span><span class="p">)),</span>
+    <span class="p">)</span>
+    <span class="n">_auto_pool</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">_manual_pool</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">_stride_order</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">_queued_allocations</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__attrs_post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialise the manager with current GPU memory information.&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">free</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_info</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;not enough values to unpack&quot;</span><span class="p">):</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="s2">&quot;memory manager was initialised in a cuda-less &quot;</span>
+                    <span class="s2">&quot;environment - memory manager will allow import but not&quot;</span>
+                    <span class="s2">&quot;provide any memory (1 byte)&quot;</span>
+                <span class="p">)</span>
+                <span class="n">total</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Unexpected exception </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2"> encountered while instantiating &quot;</span>
+                <span class="s2">&quot;memory manager&quot;</span>
+            <span class="p">)</span>
+            <span class="n">total</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">totalmem</span> <span class="o">=</span> <span class="n">total</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">registry</span> <span class="o">=</span> <span class="p">{}</span>
+
+<div class="viewcode-block" id="MemoryManager.register">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.register">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="n">proportion</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">invalidate_cache_hook</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">=</span> <span class="n">placeholder_invalidate</span><span class="p">,</span>
+        <span class="n">allocation_ready_hook</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">=</span> <span class="n">placeholder_dataready</span><span class="p">,</span>
+        <span class="n">stream_group</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;default&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register an instance and configure its memory allocation settings.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to register for memory management.</span>
+<span class="sd">        proportion</span>
+<span class="sd">            Proportion of VRAM to allocate (0.0 to 1.0). When omitted, the</span>
+<span class="sd">            instance joins the automatic allocation pool.</span>
+<span class="sd">        invalidate_cache_hook</span>
+<span class="sd">            Function to call when CUDA memory system changes occur.</span>
+<span class="sd">        allocation_ready_hook</span>
+<span class="sd">            Function to call when allocations are ready.</span>
+<span class="sd">        stream_group</span>
+<span class="sd">            Name of the stream group to assign the instance to.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If instance is already registered or proportion is not between 0</span>
+<span class="sd">            and 1.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Instance already registered&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">add_instance</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">stream_group</span><span class="p">)</span>
+
+        <span class="n">settings</span> <span class="o">=</span> <span class="n">InstanceMemorySettings</span><span class="p">(</span>
+            <span class="n">invalidate_hook</span><span class="o">=</span><span class="n">invalidate_cache_hook</span><span class="p">,</span>
+            <span class="n">allocation_ready_hook</span><span class="o">=</span><span class="n">allocation_ready_hook</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">settings</span>
+
+        <span class="k">if</span> <span class="n">proportion</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">proportion</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Proportion must be between 0 and 1&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_manual_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">proportion</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_auto_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_allocator">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_allocator">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_allocator</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set the external memory allocator in Numba.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        name</span>
+<span class="sd">            Memory allocator type. Accepted values are ``&quot;cupy_async&quot;`` to use</span>
+<span class="sd">            CuPy&#39;s :class:`~cupy.cuda.memory.AsyncMemoryPool`, ``&quot;cupy&quot;`` to</span>
+<span class="sd">            use :class:`~cupy.cuda.memory.MemoryPool`, and ``&quot;default&quot;`` for</span>
+<span class="sd">            Numba&#39;s default manager.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If allocator name is not recognized.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            A change to the memory manager requires the CUDA context to be</span>
+<span class="sd">            closed and reopened. This invalidates all previously compiled</span>
+<span class="sd">            kernels and allocated arrays, requiring a full rebuild.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;cupy_async&quot;</span><span class="p">:</span>
+            <span class="c1"># use CuPy async memory pool</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">=</span> <span class="n">CuPyAsyncNumbaManager</span>
+        <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;cupy&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">=</span> <span class="n">CuPySyncNumbaManager</span>
+        <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;default&quot;</span><span class="p">:</span>
+            <span class="c1"># use numba&#39;s default allocator</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">=</span> <span class="n">NumbaCUDAMemoryManager</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown allocator: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">set_cuda_memory_manager</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span><span class="p">)</span>
+
+        <span class="c1"># Reset the context:</span>
+        <span class="c1"># https://nvidia.github.io/numba-cuda/user/</span>
+        <span class="c1"># external-memory.html#setting-emm-plugin</span>
+        <span class="c1"># WARNING - this will invalidate all prior streams, arrays, and funcs!</span>
+        <span class="c1"># CUDA_ERROR_INVALID_CONTEXT or CUDA_ERROR_CONTEXT_IS_DESTROYED</span>
+        <span class="c1"># suggests you&#39;re using an old reference.</span>
+        <span class="n">cuda</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">invalidate_all</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reinit_streams</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_limit_mode">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_limit_mode">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_limit_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set the memory allocation limiting mode.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        mode</span>
+<span class="sd">            Either ``&quot;passive&quot;`` or ``&quot;active&quot;`` memory management mode.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If mode is not &quot;passive&quot; or &quot;active&quot;.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;passive&quot;</span><span class="p">,</span> <span class="s2">&quot;active&quot;</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown mode: </span><span class="si">{</span><span class="n">mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">mode</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_stream">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_stream">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_stream</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the CUDA stream associated with an instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to retrieve the stream for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        object</span>
+<span class="sd">            CUDA stream associated with the instance.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.change_stream_group">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.change_stream_group">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">change_stream_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">new_group</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Move instance to another stream group.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to move.</span>
+<span class="sd">        new_group</span>
+<span class="sd">            Name of the new stream group.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">change_group</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">new_group</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.reinit_streams">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.reinit_streams">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reinit_streams</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Reinitialise all streams after a CUDA context reset.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">reinit_streams</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.invalidate_all">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.invalidate_all">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">invalidate_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Call each invalidate hook and release all allocations.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">free_all</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">registered_instance</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">registered_instance</span><span class="o">.</span><span class="n">invalidate_hook</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_manual_proportion">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_manual_proportion">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_manual_proportion</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">proportion</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set manual allocation proportion for an instance.</span>
+
+<span class="sd">        If instance is currently in the auto-allocation pool, shift it to</span>
+<span class="sd">        manual.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to update proportion for.</span>
+<span class="sd">        proportion</span>
+<span class="sd">            New proportion between 0 and 1.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If proportion is not between 0 and 1.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">proportion</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">proportion</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Proportion must be between 0 and 1&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_manual_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">proportion</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_manual_pool</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_manual_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">proportion</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">proportion</span> <span class="o">=</span> <span class="n">proportion</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_manual_limit_mode">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_manual_limit_mode">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_manual_limit_mode</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">proportion</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert an auto-limited instance to manual allocation mode.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to convert to manual mode.</span>
+<span class="sd">        proportion</span>
+<span class="sd">            Memory proportion to assign (0.0 to 1.0).</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If instance is already in manual allocation pool.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manual_pool</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Instance is already in manual allocation pool&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_manual_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="n">proportion</span><span class="p">)</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">proportion</span> <span class="o">=</span> <span class="n">proportion</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_auto_limit_mode">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_auto_limit_mode">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_auto_limit_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert a manual-limited instance to auto allocation mode.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to convert to auto mode.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If instance is already in auto allocation pool.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Instance is already in auto allocation pool&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_manual_pool</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+        <span class="n">settings</span><span class="o">.</span><span class="n">proportion</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_add_auto_proportion</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.proportion">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.proportion">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the maximum proportion of VRAM allocated to an instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to query.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Proportion of VRAM allocated to this instance.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">proportion</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.cap">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.cap">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">cap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the maximum allocatable bytes for an instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to query.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int or None</span>
+<span class="sd">            Maximum allocatable bytes for this instance.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">settings</span><span class="o">.</span><span class="n">cap</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">manual_pool_proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Total proportion of VRAM currently assigned manually.&quot;&quot;&quot;</span>
+        <span class="n">manual_settings</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span> <span class="k">for</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_manual_pool</span>
+        <span class="p">]</span>
+        <span class="n">pool_proportion</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">settings</span><span class="o">.</span><span class="n">proportion</span> <span class="k">for</span> <span class="n">settings</span> <span class="ow">in</span> <span class="n">manual_settings</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">pool_proportion</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">auto_pool_proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Total proportion of VRAM currently distributed automatically.&quot;&quot;&quot;</span>
+        <span class="n">auto_settings</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span> <span class="k">for</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span>
+        <span class="p">]</span>
+        <span class="n">pool_proportion</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">settings</span><span class="o">.</span><span class="n">proportion</span> <span class="k">for</span> <span class="n">settings</span> <span class="ow">in</span> <span class="n">auto_settings</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">pool_proportion</span>
+
+<div class="viewcode-block" id="MemoryManager._add_manual_proportion">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager._add_manual_proportion">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_add_manual_proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">proportion</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add an instance to the manual allocation pool with the specified proportion.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to add to manual allocation pool.</span>
+<span class="sd">        proportion</span>
+<span class="sd">            Memory proportion to assign (0.0 to 1.0).</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If manual proportion would exceed total available memory or leave</span>
+<span class="sd">            insufficient memory for auto-allocated processes.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If manual proportion leaves less than 5% of memory for auto allocation.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Updates the instance&#39;s proportion and cap, then rebalances the auto pool.</span>
+<span class="sd">        Enforces minimum auto pool size constraints.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">new_manual_pool_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">manual_pool_proportion</span> <span class="o">+</span> <span class="n">proportion</span>
+        <span class="k">if</span> <span class="n">new_manual_pool_size</span> <span class="o">&gt;</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Manual proportion would exceed total available memory&quot;</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">new_manual_pool_size</span> <span class="o">&gt;</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="n">MIN_AUTOPOOL_SIZE</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="s2">&quot;Manual proportion would leave less than 5% &quot;</span>
+                    <span class="s2">&quot;of memory for auto-allocated processes. If &quot;</span>
+                    <span class="s2">&quot;this is desired, adjust MIN_AUTOPOOL_SIZE in &quot;</span>
+                    <span class="s2">&quot;mem_manager.py.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="s2">&quot;Manual proportion leaves less than 5</span><span class="si">% o</span><span class="s2">f memory for &quot;</span>
+                    <span class="s2">&quot;auto allocation if management mode == &#39;active&#39;.&quot;</span>
+                <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_manual_pool</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">proportion</span> <span class="o">=</span> <span class="n">proportion</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">cap</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">proportion</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">totalmem</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebalance_auto_pool</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager._add_auto_proportion">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager._add_auto_proportion">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_add_auto_proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add an instance to the auto allocation pool with equal share.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to add to auto allocation pool.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Proportion assigned to this instance.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If available auto-allocation pool is less than minimum required size.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Splits the non-manually-allocated portion of VRAM equally among all</span>
+<span class="sd">        auto-allocated instances. Triggers rebalancing of the auto pool.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">autopool_available</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">manual_pool_proportion</span>
+        <span class="k">if</span> <span class="n">autopool_available</span> <span class="o">&lt;=</span> <span class="n">MIN_AUTOPOOL_SIZE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Available auto-allocation pool is less than &quot;</span>
+                <span class="s2">&quot;5</span><span class="si">% o</span><span class="s2">f total due to manual allocations. If &quot;</span>
+                <span class="s2">&quot;this is desired, adjust MIN_AUTOPOOL_SIZE in &quot;</span>
+                <span class="s2">&quot;mem_manager.py.&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebalance_auto_pool</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">proportion</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager._rebalance_auto_pool">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager._rebalance_auto_pool">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_rebalance_auto_pool</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Redistribute available memory equally among auto-allocated instances.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Calculates the available proportion after manual allocations and</span>
+<span class="sd">        divides it equally among all instances in the auto pool. Updates</span>
+<span class="sd">        both proportion and cap for each auto-allocated instance.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">available_proportion</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">manual_pool_proportion</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">each_proportion</span> <span class="o">=</span> <span class="n">available_proportion</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">)</span>
+        <span class="n">cap</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">each_proportion</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">totalmem</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_auto_pool</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">proportion</span> <span class="o">=</span> <span class="n">each_proportion</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">cap</span> <span class="o">=</span> <span class="n">cap</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.set_global_stride_ordering">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.set_global_stride_ordering">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_global_stride_ordering</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">ordering</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set the global memory stride ordering for arrays.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ordering</span>
+<span class="sd">            Tuple containing ``&quot;time&quot;``, ``&quot;run&quot;``, and ``&quot;variable&quot;`` in desired</span>
+<span class="sd">            order.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If ordering doesn&#39;t contain exactly &#39;time&#39;, &#39;run&#39;, and &#39;variable&#39;.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This invalidates all current allocations as arrays need to be</span>
+<span class="sd">        reallocated with new stride patterns.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">all</span><span class="p">(</span><span class="n">elem</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">)</span> <span class="k">for</span> <span class="n">elem</span> <span class="ow">in</span> <span class="n">ordering</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Invalid stride ordering - must containt &#39;time&#39;, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;&#39;run&#39;, &#39;variable&#39; but got </span><span class="si">{</span><span class="n">ordering</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span> <span class="o">=</span> <span class="n">ordering</span>
+        <span class="c1"># This will also override 2D arrays, which are unaffected, but the</span>
+        <span class="c1"># overhead is not significant compared to the 3D arrays.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">invalidate_all</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.free">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.free">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">free</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">array_label</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Free an allocation by label across all instances.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        array_label</span>
+<span class="sd">            Label of the allocation to free.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">settings</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">array_label</span> <span class="ow">in</span> <span class="n">settings</span><span class="o">.</span><span class="n">allocations</span><span class="p">:</span>
+                <span class="n">settings</span><span class="o">.</span><span class="n">free</span><span class="p">(</span><span class="n">array_label</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.free_all">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.free_all">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">free_all</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Free all allocations across all registered instances.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">settings</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">settings</span><span class="o">.</span><span class="n">free_all</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager._check_requests">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager._check_requests">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_check_requests</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">requests</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Validate that all requests are properly formatted.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        requests</span>
+<span class="sd">            Dictionary of requests to validate.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If requests is not a dict or contains invalid ArrayRequest objects.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">requests</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Expected dict for requests, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">requests</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">request</span> <span class="ow">in</span> <span class="n">requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Expected ArrayRequest for </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">request</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_strides">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_strides">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_strides</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="n">ArrayRequest</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate memory strides for a given access pattern (stride order).</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        request</span>
+<span class="sd">            Array request to calculate strides for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of int or None</span>
+<span class="sd">            Stride tuple for the array, or None if no custom strides needed.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Only 3D arrays get custom stride optimization. 2D arrays use</span>
+<span class="sd">        default strides as they are not performance-critical.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># 2D arrays (in the cubie sytem) are not hammered like the 3d ones,</span>
+        <span class="c1"># so they&#39;re not worth optimising.</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">strides</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">array_native_order</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">stride_order</span>
+            <span class="n">desired_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span>
+            <span class="n">shape</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">shape</span>
+            <span class="n">itemsize</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">dtype</span><span class="p">()</span><span class="o">.</span><span class="n">itemsize</span>
+
+            <span class="k">if</span> <span class="n">array_native_order</span> <span class="o">==</span> <span class="n">desired_order</span><span class="p">:</span>
+                <span class="n">strides</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dims</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="n">name</span><span class="p">:</span> <span class="n">size</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">size</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">array_native_order</span><span class="p">,</span> <span class="n">shape</span><span class="p">)</span>
+                <span class="p">}</span>
+                <span class="n">strides</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="n">current_stride</span> <span class="o">=</span> <span class="n">itemsize</span>
+
+                <span class="c1"># Iterate over the desired order reversed; the last dimension</span>
+                <span class="c1"># in the order changes fastest so it gets the smallest stride.</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">desired_order</span><span class="p">):</span>
+                    <span class="n">strides</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">current_stride</span>
+                    <span class="n">current_stride</span> <span class="o">*=</span> <span class="n">dims</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                <span class="n">strides</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">strides</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="k">for</span> <span class="n">dim</span> <span class="ow">in</span> <span class="n">array_native_order</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">strides</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_available_single">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_available_single">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_available_single</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get available memory for a single instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance_id</span>
+<span class="sd">            ID of the instance to check.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Available memory in bytes for this instance.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If instance has used more than 95% of allocated memory.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">free</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_info</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="s2">&quot;passive&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">free</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span>
+            <span class="n">cap</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">cap</span>
+            <span class="n">allocated</span> <span class="o">=</span> <span class="n">settings</span><span class="o">.</span><span class="n">allocated_bytes</span>
+            <span class="n">headroom</span> <span class="o">=</span> <span class="n">cap</span> <span class="o">-</span> <span class="n">allocated</span>
+            <span class="k">if</span> <span class="n">headroom</span> <span class="o">/</span> <span class="n">cap</span> <span class="o">&lt;</span> <span class="mf">0.05</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Instance </span><span class="si">{</span><span class="n">instance_id</span><span class="si">}</span><span class="s2"> has used more than 95% of it&#39;s &quot;</span>
+                    <span class="s2">&quot;allotted memory already, and future requests will run &quot;</span>
+                    <span class="s2">&quot;slowly/in many chunks&quot;</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">headroom</span><span class="p">,</span> <span class="n">free</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_available_group">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_available_group">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_available_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">group</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get available memory for an entire stream group.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        group</span>
+<span class="sd">            Name of the stream group.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Available memory in bytes for the group.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If group has used more than 95% of allocated memory.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">free</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_info</span><span class="p">()</span>
+        <span class="n">instances</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">get_instances_in_group</span><span class="p">(</span><span class="n">group</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="s2">&quot;passive&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">free</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">allocated</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">cap</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">instance_id</span> <span class="ow">in</span> <span class="n">instances</span><span class="p">:</span>
+                <span class="n">allocated</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">allocated_bytes</span>
+                <span class="n">cap</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">cap</span>
+            <span class="n">headroom</span> <span class="o">=</span> <span class="n">cap</span> <span class="o">-</span> <span class="n">allocated</span>
+            <span class="k">if</span> <span class="n">headroom</span> <span class="o">/</span> <span class="n">cap</span> <span class="o">&lt;</span> <span class="mf">0.05</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Stream group </span><span class="si">{</span><span class="n">group</span><span class="si">}</span><span class="s2"> has used more than 95% of it&#39;s &quot;</span>
+                    <span class="s2">&quot;allotted memory already, and future requests will run &quot;</span>
+                    <span class="s2">&quot;slowly/in many chunks&quot;</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">headroom</span><span class="p">,</span> <span class="n">free</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_chunks">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_chunks">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_chunks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">available</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate number of chunks needed for a memory request.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        request_size</span>
+<span class="sd">            Total size of the request in bytes.</span>
+<span class="sd">        available</span>
+<span class="sd">            Available memory in bytes. Defaults to 0.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of chunks needed to fit the request.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If request exceeds available VRAM by more than 20x.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">free</span><span class="p">,</span> <span class="n">total</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memory_info</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">request_size</span> <span class="o">/</span> <span class="n">free</span> <span class="o">&gt;</span> <span class="mi">20</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="s2">&quot;This request exceeds available VRAM by more than 20x. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Available VRAM = </span><span class="si">{</span><span class="n">free</span><span class="si">}</span><span class="s2">, request size = </span><span class="si">{</span><span class="n">request_size</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">,</span>
+                <span class="ne">UserWarning</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">request_size</span> <span class="o">/</span> <span class="n">available</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_memory_info">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_memory_info">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_memory_info</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get free and total GPU memory information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of int</span>
+<span class="sd">            (free_memory, total_memory) in bytes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">current_mem_info</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.get_stream_group">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.get_stream_group">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_stream_group</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the name of the stream group for an instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to query.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        str</span>
+<span class="sd">            Name of the stream group.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">get_group</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.is_grouped">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.is_grouped">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_grouped</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check if instance is grouped with others in a named stream.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance to check.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            True if instance shares a stream group with other instances.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream_group</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">group</span> <span class="o">==</span> <span class="s2">&quot;default&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">peers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">get_instances_in_group</span><span class="p">(</span><span class="n">group</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">return</span> <span class="kc">True</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.allocate_all">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.allocate_all">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">allocate_all</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">requests</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">],</span>
+        <span class="n">instance_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">stream</span><span class="p">:</span> <span class="s2">&quot;cuda.cudadrv.driver.Stream&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocate multiple arrays based on a dictionary of requests.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        requests</span>
+<span class="sd">            Dictionary mapping labels to array requests.</span>
+<span class="sd">        instance_id</span>
+<span class="sd">            ID of the requesting instance.</span>
+<span class="sd">        stream</span>
+<span class="sd">            CUDA stream for the allocations.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict of str to object</span>
+<span class="sd">            Dictionary mapping labels to allocated arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">responses</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">instance_settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">request</span> <span class="ow">in</span> <span class="n">requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">strides</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_strides</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocate</span><span class="p">(</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+                <span class="n">dtype</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                <span class="n">memory_type</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">memory</span><span class="p">,</span>
+                <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">,</span>
+                <span class="n">strides</span><span class="o">=</span><span class="n">strides</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">instance_settings</span><span class="o">.</span><span class="n">add_allocation</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">arr</span><span class="p">)</span>
+            <span class="n">responses</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">arr</span>
+        <span class="k">return</span> <span class="n">responses</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.allocate">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.allocate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">allocate</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">dtype</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
+        <span class="n">memory_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">stream</span><span class="p">:</span> <span class="s2">&quot;cuda.cudadrv.driver.Stream&quot;</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">strides</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocate a single array with specified parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        shape</span>
+<span class="sd">            Shape of the array to allocate.</span>
+<span class="sd">        dtype</span>
+<span class="sd">            Constructor returning the precision object for the array elements.</span>
+<span class="sd">        memory_type</span>
+<span class="sd">            Type of memory: &quot;device&quot;, &quot;mapped&quot;, &quot;pinned&quot;, or &quot;managed&quot;.</span>
+<span class="sd">        stream</span>
+<span class="sd">            CUDA stream for the allocation. Defaults to 0.</span>
+<span class="sd">        strides</span>
+<span class="sd">            Custom strides for the array. Defaults to None.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        object</span>
+<span class="sd">            Allocated GPU array.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If memory_type is not recognized.</span>
+<span class="sd">        NotImplementedError</span>
+<span class="sd">            If memory_type is &quot;managed&quot; (not yet supported).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">cp_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">==</span> <span class="n">CuPyAsyncNumbaManager</span>
+        <span class="k">with</span> <span class="n">current_cupy_stream</span><span class="p">(</span><span class="n">stream</span><span class="p">)</span> <span class="k">if</span> <span class="n">cp_</span> <span class="k">else</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">memory_type</span> <span class="o">==</span> <span class="s2">&quot;device&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">cuda</span><span class="o">.</span><span class="n">device_array</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="n">strides</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">memory_type</span> <span class="o">==</span> <span class="s2">&quot;mapped&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">cuda</span><span class="o">.</span><span class="n">mapped_array</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="n">strides</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">memory_type</span> <span class="o">==</span> <span class="s2">&quot;pinned&quot;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">cuda</span><span class="o">.</span><span class="n">pinned_array</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="n">strides</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">memory_type</span> <span class="o">==</span> <span class="s2">&quot;managed&quot;</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;Managed memory not implemented&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid memory type: </span><span class="si">{</span><span class="n">memory_type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.queue_request">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.queue_request">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">queue_request</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">requests</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">]</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Queue allocation requests for batched stream group processing.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            The instance making the request.</span>
+<span class="sd">        requests</span>
+<span class="sd">            Dictionary mapping labels to array requests.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Requests are queued per stream group, allowing multiple components</span>
+<span class="sd">        to contribute to a single coordinated allocation that can be</span>
+<span class="sd">        optimally chunked together.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_requests</span><span class="p">(</span><span class="n">requests</span><span class="p">)</span>
+        <span class="n">stream_group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream_group</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_queued_allocations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">stream_group</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_queued_allocations</span><span class="p">[</span><span class="n">stream_group</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_queued_allocations</span><span class="p">[</span><span class="n">stream_group</span><span class="p">]</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">instance_id</span><span class="p">:</span> <span class="n">requests</span><span class="p">})</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.chunk_arrays">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.chunk_arrays">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">chunk_arrays</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">requests</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">],</span>
+        <span class="n">numchunks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Divide array requests into smaller chunks along a specified axis.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        requests</span>
+<span class="sd">            Dictionary mapping labels to array requests.</span>
+<span class="sd">        numchunks</span>
+<span class="sd">            Number of chunks to divide arrays into.</span>
+<span class="sd">        axis</span>
+<span class="sd">            Axis name along which to chunk the arrays. Defaults to &quot;run&quot;.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict of str to ArrayRequest</span>
+<span class="sd">            New dictionary with modified array shapes for chunking.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        The axis must match a label in the stride ordering. Chunking is</span>
+<span class="sd">        done conservatively with ceiling division to ensure no data is lost.</span>
+
+<span class="sd">        Unchunkable requests (request.unchunkable == True) are left at full size.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">chunked_requests</span> <span class="o">=</span> <span class="n">deepcopy</span><span class="p">(</span><span class="n">requests</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">request</span> <span class="ow">in</span> <span class="n">chunked_requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="c1"># Skip chunking for explicitly unchunkable requests</span>
+            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="s2">&quot;unchunkable&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+                <span class="k">continue</span>
+            <span class="c1"># Divide all indices along selected axis by chunks</span>
+            <span class="n">run_index</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">stride_order</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">axis</span><span class="p">)</span>
+            <span class="n">newshape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+                <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">value</span> <span class="o">/</span> <span class="n">numchunks</span><span class="p">))</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="n">run_index</span> <span class="k">else</span> <span class="n">value</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">request</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">newshape</span>
+            <span class="n">chunked_requests</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">request</span>
+        <span class="k">return</span> <span class="n">chunked_requests</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.single_request">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.single_request">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">single_request</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">instance</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+        <span class="n">requests</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">],</span>
+        <span class="n">chunk_axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Process a single allocation request with automatic chunking.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            The requesting instance or its ID.</span>
+<span class="sd">        requests</span>
+<span class="sd">            Dictionary mapping labels to array requests.</span>
+<span class="sd">        chunk_axis</span>
+<span class="sd">            Axis along which to chunk if memory is insufficient. Defaults to &quot;run&quot;.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If requests is not a dict or contains invalid ArrayRequest objects.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This method calculates available memory, determines chunking needs,</span>
+<span class="sd">        allocates arrays with optimal strides, and calls the instance&#39;s</span>
+<span class="sd">        allocation_ready_hook with the results.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_requests</span><span class="p">(</span><span class="n">requests</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">instance</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="n">instance_id</span> <span class="o">=</span> <span class="n">instance</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">instance_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+
+        <span class="n">request_size</span> <span class="o">=</span> <span class="n">get_total_request_size</span><span class="p">(</span><span class="n">requests</span><span class="p">)</span>
+        <span class="n">available_memory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_available_single</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">instance</span><span class="p">))</span>
+        <span class="n">numchunks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_chunks</span><span class="p">(</span><span class="n">request_size</span><span class="p">,</span> <span class="n">available_memory</span><span class="p">)</span>
+        <span class="n">chunked_requests</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_arrays</span><span class="p">(</span>
+            <span class="n">requests</span><span class="p">,</span> <span class="n">numchunks</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="n">chunk_axis</span>
+        <span class="p">)</span>
+
+        <span class="n">arrays</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocate_all</span><span class="p">(</span>
+            <span class="n">chunked_requests</span><span class="p">,</span> <span class="n">instance_id</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">allocation_ready_hook</span><span class="p">(</span>
+            <span class="n">ArrayResponse</span><span class="p">(</span><span class="n">arr</span><span class="o">=</span><span class="n">arrays</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="n">numchunks</span><span class="p">,</span> <span class="n">chunk_axis</span><span class="o">=</span><span class="n">chunk_axis</span><span class="p">)</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.allocate_queue">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.allocate_queue">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">allocate_queue</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">triggering_instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="n">limit_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;group&quot;</span><span class="p">,</span>
+        <span class="n">chunk_axis</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Process all queued requests for a stream group with coordinated chunking.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        triggering_instance</span>
+<span class="sd">            The instance that triggered queue processing.</span>
+<span class="sd">        limit_type</span>
+<span class="sd">            Limiting strategy: &quot;group&quot; for aggregate limits or &quot;instance&quot; for</span>
+<span class="sd">            individual instance limits. Defaults to &quot;group&quot;.</span>
+<span class="sd">        chunk_axis</span>
+<span class="sd">            Axis along which to chunk arrays if needed. Defaults to &quot;run&quot;.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Processes all pending requests in the same stream group, applying</span>
+<span class="sd">        coordinated chunking based on the specified limit type. Calls</span>
+<span class="sd">        allocation_ready_hook for each instance with their results.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">stream_group</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream_group</span><span class="p">(</span><span class="n">triggering_instance</span><span class="p">)</span>
+        <span class="n">peers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stream_groups</span><span class="o">.</span><span class="n">get_instances_in_group</span><span class="p">(</span><span class="n">stream_group</span><span class="p">)</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">triggering_instance</span><span class="p">)</span>
+        <span class="n">queued_requests</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_queued_allocations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">stream_group</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="n">n_queued</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">queued_requests</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">queued_requests</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">elif</span> <span class="n">n_queued</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">instance_id</span><span class="p">,</span> <span class="n">requests_dict</span> <span class="ow">in</span> <span class="n">queued_requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">single_request</span><span class="p">(</span>
+                    <span class="n">instance</span><span class="o">=</span><span class="n">instance_id</span><span class="p">,</span>
+                    <span class="n">requests</span><span class="o">=</span><span class="n">requests_dict</span><span class="p">,</span>
+                    <span class="n">chunk_axis</span><span class="o">=</span><span class="n">chunk_axis</span><span class="p">,</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">numchunks</span> <span class="o">=</span> <span class="mi">1</span>  <span class="c1"># safe default</span>
+            <span class="k">if</span> <span class="n">limit_type</span> <span class="o">==</span> <span class="s2">&quot;group&quot;</span><span class="p">:</span>
+                <span class="n">available_memory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_available_group</span><span class="p">(</span><span class="n">stream_group</span><span class="p">)</span>
+                <span class="n">request_size</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span>
+                    <span class="p">[</span>
+                        <span class="n">get_total_request_size</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+                        <span class="k">for</span> <span class="n">request</span> <span class="ow">in</span> <span class="n">queued_requests</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+                    <span class="p">]</span>
+                <span class="p">)</span>
+                <span class="n">numchunks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_chunks</span><span class="p">(</span><span class="n">request_size</span><span class="p">,</span> <span class="n">available_memory</span><span class="p">)</span>
+
+            <span class="k">elif</span> <span class="n">limit_type</span> <span class="o">==</span> <span class="s2">&quot;instance&quot;</span><span class="p">:</span>
+                <span class="n">numchunks</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">for</span> <span class="n">instance_id</span><span class="p">,</span> <span class="n">requests_dict</span> <span class="ow">in</span> <span class="n">queued_requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="n">available_memory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_available_single</span><span class="p">(</span><span class="n">instance_id</span><span class="p">)</span>
+                    <span class="n">request_size</span> <span class="o">=</span> <span class="n">get_total_request_size</span><span class="p">(</span><span class="n">requests_dict</span><span class="p">)</span>
+                    <span class="n">chunks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_chunks</span><span class="p">(</span><span class="n">request_size</span><span class="p">,</span> <span class="n">available_memory</span><span class="p">)</span>
+                    <span class="c1"># Take the runnning maximum per-instance chunk size</span>
+                    <span class="n">numchunks</span> <span class="o">=</span> <span class="n">chunks</span> <span class="k">if</span> <span class="n">chunks</span> <span class="o">&gt;</span> <span class="n">numchunks</span> <span class="k">else</span> <span class="n">numchunks</span>
+
+            <span class="n">notaries</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">peers</span><span class="p">)</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">queued_requests</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+            <span class="k">for</span> <span class="n">instance_id</span><span class="p">,</span> <span class="n">requests_dict</span> <span class="ow">in</span> <span class="n">queued_requests</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">chunked_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_arrays</span><span class="p">(</span>
+                    <span class="n">requests_dict</span><span class="p">,</span> <span class="n">numchunks</span><span class="p">,</span> <span class="n">chunk_axis</span>
+                <span class="p">)</span>
+                <span class="n">arrays</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">allocate_all</span><span class="p">(</span>
+                    <span class="n">chunked_request</span><span class="p">,</span> <span class="n">instance_id</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span>
+                <span class="p">)</span>
+                <span class="n">response</span> <span class="o">=</span> <span class="n">ArrayResponse</span><span class="p">(</span>
+                    <span class="n">arr</span><span class="o">=</span><span class="n">arrays</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="n">numchunks</span><span class="p">,</span> <span class="n">chunk_axis</span><span class="o">=</span><span class="n">chunk_axis</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">instance_id</span><span class="p">]</span><span class="o">.</span><span class="n">allocation_ready_hook</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">peer</span> <span class="ow">in</span> <span class="n">notaries</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">registry</span><span class="p">[</span><span class="n">peer</span><span class="p">]</span><span class="o">.</span><span class="n">allocation_ready_hook</span><span class="p">(</span>
+                    <span class="n">ArrayResponse</span><span class="p">(</span>
+                        <span class="n">arr</span><span class="o">=</span><span class="p">{},</span> <span class="n">chunks</span><span class="o">=</span><span class="n">numchunks</span><span class="p">,</span> <span class="n">chunk_axis</span><span class="o">=</span><span class="n">chunk_axis</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.to_device">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.to_device">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_device</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="n">from_arrays</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span>
+        <span class="n">to_arrays</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Copy data to device arrays using the instance&#39;s stream.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance whose stream to use for copying.</span>
+<span class="sd">        from_arrays</span>
+<span class="sd">            Source arrays to copy from.</span>
+<span class="sd">        to_arrays</span>
+<span class="sd">            Destination device arrays to copy to.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">cp_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">==</span> <span class="n">CuPyAsyncNumbaManager</span>
+        <span class="k">with</span> <span class="n">current_cupy_stream</span><span class="p">(</span><span class="n">stream</span><span class="p">)</span> <span class="k">if</span> <span class="n">cp_</span> <span class="k">else</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">from_array</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">from_arrays</span><span class="p">):</span>
+                <span class="n">cuda</span><span class="o">.</span><span class="n">to_device</span><span class="p">(</span><span class="n">from_array</span><span class="p">,</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">,</span> <span class="n">to</span><span class="o">=</span><span class="n">to_arrays</span><span class="p">[</span><span class="n">i</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.from_device">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.from_device">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_device</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+        <span class="n">from_arrays</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span>
+        <span class="n">to_arrays</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Copy data from device arrays using the instance&#39;s stream.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance whose stream to use for copying.</span>
+<span class="sd">        from_arrays</span>
+<span class="sd">            Source device arrays to copy from.</span>
+<span class="sd">        to_arrays</span>
+<span class="sd">            Destination arrays to copy to.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">cp_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_allocator</span> <span class="o">==</span> <span class="n">CuPyAsyncNumbaManager</span>
+        <span class="k">with</span> <span class="n">current_cupy_stream</span><span class="p">(</span><span class="n">stream</span><span class="p">)</span> <span class="k">if</span> <span class="n">cp_</span> <span class="k">else</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">from_array</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">from_arrays</span><span class="p">):</span>
+                <span class="n">from_array</span><span class="o">.</span><span class="n">copy_to_host</span><span class="p">(</span><span class="n">to_arrays</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MemoryManager.sync_stream">
+<a class="viewcode-back" href="../../../API_reference/memory/memory_manager.html#cubie.memory.mem_manager.MemoryManager.sync_stream">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sync_stream</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">instance</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Synchronize the CUDA stream for an instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        instance</span>
+<span class="sd">            Instance whose stream to synchronize.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stream</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="n">stream</span><span class="o">.</span><span class="n">synchronize</span><span class="p">()</span></div>
+</div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_total_request_size</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ArrayRequest</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the total memory size of a request in bytes.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    request</span>
+<span class="sd">        Dictionary of array requests to sum.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    int</span>
+<span class="sd">        Total size in bytes across all requests.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span>
+        <span class="n">prod</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">*</span> <span class="n">request</span><span class="o">.</span><span class="n">dtype</span><span class="p">()</span><span class="o">.</span><span class="n">itemsize</span>
+        <span class="k">for</span> <span class="n">request</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+    <span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

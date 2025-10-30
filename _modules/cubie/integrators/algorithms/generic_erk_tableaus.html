@@ -1,0 +1,537 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.algorithms.generic_erk_tableaus &mdash; cubie 0.0.4 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/custom.css?v=1b720227" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=8c5712d9"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../user_guide/index.html">User Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/drivers.html">Drivers (Time-dependent functions)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/speed.html">Making it Faster</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../user_guide/userfunctions.html">User functions and derivatives</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../API_reference/index.html">Reference Manual</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/batchsolving/index.html">Batch solving</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solver.html">Solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_ivp.html">solve_ivp</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_result.html">SolveResult</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/solve_spec.html">SolveSpec</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_grid_builder.html">BatchGridBuilder</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_solver_config.html">BatchSolverConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/batch_solver_kernel.html">BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/system_interface.html">SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator.html">cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator_2d.html">cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/cuda_array_validator_3d.html">cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator.html">optional_cuda_array_validator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator_2d.html">optional_cuda_array_validator_2d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/optional_cuda_array_validator_3d.html">optional_cuda_array_validator_3d</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/batchsolving/arrays.html">Arrays</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/array_container.html">ArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/base_array_manager.html">BaseArrayManager</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/managed_array.html">ManagedArray</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/input_array_container.html">InputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/input_arrays.html">InputArrays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/output_array_container.html">OutputArrayContainer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/active_outputs.html">ActiveOutputs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/batchsolving/output_arrays.html">OutputArrays</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/odesystems/index.html">ODE systems</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/create_ode_system.html">create_ODE_system</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/symbolic_ode.html">SymbolicODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/base_ode.html">BaseODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/ode_data.html">ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/system_values.html">SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/system_sizes.html">SystemSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/ode_cache.html">ODECache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/odesystems/symbolic.html">Symbolic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/integrators/index.html">Integrators</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/single_integrator_run.html">SingleIntegratorRun</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/integrator_return_codes.html">IntegratorReturnCodes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/algorithms.html">Algorithms</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/base_step_config.html">BaseStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/base_algorithm_step.html">BaseAlgorithmStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/step_cache.html">StepCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/explicit_step_config.html">ExplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/explicit_euler_step.html">ExplicitEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/implicit_step_config.html">ImplicitStepConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/backwards_euler_step.html">BackwardsEulerStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/backwards_euler_pc_step.html">BackwardsEulerPCStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/crank_nicolson_step.html">CrankNicolsonStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_erk_step.html">ERKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_erk_tableaus.html">ERK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_dirk_step.html">DIRKStep</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/generic_dirk_tableaus.html">DIRK tableau registry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/algorithms/get_algorithm_step.html">get_algorithm_step</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/loops.html">Loops</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/ivp_loop.html">IVPLoop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/ode_loop_config.html">ODELoopConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/loop_shared_indices.html">LoopSharedIndices</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/loops/loop_local_indices.html">LoopLocalIndices</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers.html">Matrix-free solvers</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/linear_solver_factory.html">linear_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/newton_krylov_solver_factory.html">newton_krylov_solver_factory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/matrix_free_solvers/solver_ret_codes.html">SolverRetCodes</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/integrators/step_control.html">Step control</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/get_controller.html">get_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_step_controller.html">BaseStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_adaptive_step_controller.html">BaseAdaptiveStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/fixed_step_controller.html">FixedStepController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_i_controller.html">AdaptiveIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_pi_controller.html">AdaptivePIController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_pid_controller.html">AdaptivePIDController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/gustafsson_controller.html">GustafssonController</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/base_step_controller_config.html">BaseStepControllerConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/adaptive_step_control_config.html">AdaptiveStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/fixed_step_control_config.html">FixedStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/pi_step_control_config.html">PIStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/pid_step_control_config.html">PIDStepControlConfig</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/integrators/step_control/gustafsson_step_control_config.html">GustafssonStepControlConfig</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/outputhandling/index.html">Output handling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_functions.html">OutputFunctions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_config.html">OutputConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_compile_flags.html">OutputCompileFlags</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summaries_buffer_sizes.html">SummariesBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/loop_buffer_sizes.html">LoopBufferSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_array_heights.html">OutputArrayHeights</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/single_run_output_sizes.html">SingleRunOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/batch_input_sizes.html">BatchInputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/batch_output_sizes.html">BatchOutputSizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/output_function_cache.html">OutputFunctionCache</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics.html">Summary metrics</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summary_metrics.html">summary_metrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/register_metric.html">register_metric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/summary_metric.html">SummaryMetric</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/summary_metrics.html">SummaryMetrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/metric_func_cache.html">MetricFuncCache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/mean.html">Mean</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/max.html">Max</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/rms.html">RMS</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../API_reference/outputhandling/summarymetrics/metrics/peaks.html">Peaks</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../API_reference/memory.html">Memory</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/default_memmgr.html">default_memmgr</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/memory_manager.html">MemoryManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/array_request.html">ArrayRequest</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/array_response.html">ArrayResponse</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/stream_groups.html">StreamGroups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/current_cupy_stream.html">current_cupy_stream</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/cupy_async_numba_manager.html">CuPyAsyncNumbaManager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../API_reference/memory/cupy_sync_numba_manager.html">CuPySyncNumbaManager</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../../integrators.html">cubie.integrators</a></li>
+          <li class="breadcrumb-item"><a href="../algorithms.html">cubie.integrators.algorithms</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.algorithms.generic_erk_tableaus</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.algorithms.generic_erk_tableaus</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Explicit Runge--Kutta tableau definitions used by generic ERK steps.</span>
+
+<span class="sd">The tableaus collected here provide reusable coefficients for explicit</span>
+<span class="sd">Runge--Kutta methods with classical order of at least two. Each tableau lists</span>
+<span class="sd">the literature source describing the coefficients so integrators can reference</span>
+<span class="sd">the original derivations when validating implementations.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.algorithms.base_algorithm_step</span><span class="w"> </span><span class="kn">import</span> <span class="n">ButcherTableau</span>
+
+
+<div class="viewcode-block" id="ERKTableau">
+<a class="viewcode-back" href="../../../../API_reference/integrators/algorithms/generic_erk_tableaus.html#cubie.integrators.algorithms.generic_erk_tableaus.ERKTableau">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ERKTableau</span><span class="p">(</span><span class="n">ButcherTableau</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Coefficient tableau describing an explicit Runge--Kutta scheme.&quot;&quot;&quot;</span></div>
+
+
+
+<span class="c1">#: Heun&#39;s improved Euler method offering second-order accuracy.</span>
+<span class="c1">#: Heun, K. &quot;Neue Methoden zur approximativen Integration der</span>
+<span class="c1">#: Differentialgleichungen einer unabhängigen Veränderlichen.&quot; *Z.</span>
+<span class="c1">#: Math. Phys.* 45 (1900).</span>
+<span class="n">HEUN_21_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">((</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Ralston&#39;s third-order, three-stage explicit Runge--Kutta method.</span>
+<span class="c1">#: Ralston, A. &quot;Runge-Kutta methods with minimum error bounds.&quot; *Math. Comp.*</span>
+<span class="c1">#: 16.80 (1962).</span>
+<span class="n">RALSTON_33_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">((</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.75</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Bogacki--Shampine 3(2) tableau with an embedded error estimate.</span>
+<span class="c1">#: Bogacki, P. and Shampine, L. F. &quot;An efficient Runge-Kutta (4,5) pair.&quot; *J.</span>
+<span class="c1">#: Comput. Appl. Math.* 46.1 (1993).</span>
+<span class="n">BOGACKI_SHAMPINE_32_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">(</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.75</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">2.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span><span class="mf">2.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">b_hat</span><span class="o">=</span><span class="p">(</span><span class="mf">7.0</span> <span class="o">/</span> <span class="mf">24.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">8.0</span><span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Dormand--Prince 5(4) tableau with an embedded error estimate.</span>
+<span class="c1">#: Dormand, J. R. and Prince, P. J. &quot;A family of embedded Runge-Kutta</span>
+<span class="c1">#: formulae.&quot; *Journal of Computational and Applied Mathematics* 6.1 (1980).</span>
+<span class="n">DORMAND_PRINCE_54_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">(</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">3.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">9.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">44.0</span> <span class="o">/</span> <span class="mf">45.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">56.0</span> <span class="o">/</span> <span class="mf">15.0</span><span class="p">,</span>
+            <span class="mf">32.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">19372.0</span> <span class="o">/</span> <span class="mf">6561.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">25360.0</span> <span class="o">/</span> <span class="mf">2187.0</span><span class="p">,</span>
+            <span class="mf">64448.0</span> <span class="o">/</span> <span class="mf">6561.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">212.0</span> <span class="o">/</span> <span class="mf">729.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">9017.0</span> <span class="o">/</span> <span class="mf">3168.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">355.0</span> <span class="o">/</span> <span class="mf">33.0</span><span class="p">,</span>
+            <span class="mf">46732.0</span> <span class="o">/</span> <span class="mf">5247.0</span><span class="p">,</span>
+            <span class="mf">49.0</span> <span class="o">/</span> <span class="mf">176.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">5103.0</span> <span class="o">/</span> <span class="mf">18656.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">35.0</span> <span class="o">/</span> <span class="mf">384.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">500.0</span> <span class="o">/</span> <span class="mf">1113.0</span><span class="p">,</span>
+            <span class="mf">125.0</span> <span class="o">/</span> <span class="mf">192.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">2187.0</span> <span class="o">/</span> <span class="mf">6784.0</span><span class="p">,</span>
+            <span class="mf">11.0</span> <span class="o">/</span> <span class="mf">84.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">35.0</span> <span class="o">/</span> <span class="mf">384.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">500.0</span> <span class="o">/</span> <span class="mf">1113.0</span><span class="p">,</span>
+        <span class="mf">125.0</span> <span class="o">/</span> <span class="mf">192.0</span><span class="p">,</span>
+        <span class="o">-</span><span class="mf">2187.0</span> <span class="o">/</span> <span class="mf">6784.0</span><span class="p">,</span>
+        <span class="mf">11.0</span> <span class="o">/</span> <span class="mf">84.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">b_hat</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">5179.0</span> <span class="o">/</span> <span class="mf">57600.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">7571.0</span> <span class="o">/</span> <span class="mf">16695.0</span><span class="p">,</span>
+        <span class="mf">393.0</span> <span class="o">/</span> <span class="mf">640.0</span><span class="p">,</span>
+        <span class="o">-</span><span class="mf">92097.0</span> <span class="o">/</span> <span class="mf">339200.0</span><span class="p">,</span>
+        <span class="mf">187.0</span> <span class="o">/</span> <span class="mf">2100.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span>
+        <span class="mf">4.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="mf">8.0</span> <span class="o">/</span> <span class="mf">9.0</span><span class="p">,</span>
+        <span class="mf">1.0</span><span class="p">,</span>
+        <span class="mf">1.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Classical four-stage Runge--Kutta method introduced by Kutta (1901).</span>
+<span class="c1">#: Kutta, W. &quot;Beitrag zur näherungsweisen Integration totaler</span>
+<span class="c1">#: Differentialgleichungen.&quot; *Zeitschrift für Mathematik und Physik* 46 (1901).</span>
+<span class="n">CLASSICAL_RK4_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">(</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">6.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">3.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">6.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Cash--Karp 5(4) tableau with an embedded error estimate.</span>
+<span class="c1">#: Cash, J. R. and Karp, A. H. &quot;A variable order Runge-Kutta method for initial</span>
+<span class="c1">#: value problems with rapidly varying right-hand sides.&quot; *ACM Transactions on</span>
+<span class="c1">#: Mathematical Software* 16.3 (1990).</span>
+<span class="n">CASH_KARP_54_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">(</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">3.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">9.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">9.0</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span>
+            <span class="mf">6.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="o">-</span><span class="mf">11.0</span> <span class="o">/</span> <span class="mf">54.0</span><span class="p">,</span>
+            <span class="mf">5.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">70.0</span> <span class="o">/</span> <span class="mf">27.0</span><span class="p">,</span>
+            <span class="mf">35.0</span> <span class="o">/</span> <span class="mf">27.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">1631.0</span> <span class="o">/</span> <span class="mf">55296.0</span><span class="p">,</span>
+            <span class="mf">175.0</span> <span class="o">/</span> <span class="mf">512.0</span><span class="p">,</span>
+            <span class="mf">575.0</span> <span class="o">/</span> <span class="mf">13824.0</span><span class="p">,</span>
+            <span class="mf">44275.0</span> <span class="o">/</span> <span class="mf">110592.0</span><span class="p">,</span>
+            <span class="mf">253.0</span> <span class="o">/</span> <span class="mf">4096.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">37.0</span> <span class="o">/</span> <span class="mf">378.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">250.0</span> <span class="o">/</span> <span class="mf">621.0</span><span class="p">,</span>
+        <span class="mf">125.0</span> <span class="o">/</span> <span class="mf">594.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">512.0</span> <span class="o">/</span> <span class="mf">1771.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">b_hat</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">2825.0</span> <span class="o">/</span> <span class="mf">27648.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">18575.0</span> <span class="o">/</span> <span class="mf">48384.0</span><span class="p">,</span>
+        <span class="mf">13525.0</span> <span class="o">/</span> <span class="mf">55296.0</span><span class="p">,</span>
+        <span class="mf">277.0</span> <span class="o">/</span> <span class="mf">14336.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">10.0</span><span class="p">,</span>
+        <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="mf">1.0</span><span class="p">,</span>
+        <span class="mf">7.0</span> <span class="o">/</span> <span class="mf">8.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1">#: Runge--Kutta--Fehlberg 5(4) tableau with an embedded error estimate.</span>
+<span class="c1">#: Fehlberg, E. &quot;Low-order classical Runge-Kutta formulas with stepsize control</span>
+<span class="c1">#: and their application to some heat transfer problems.&quot; *NASA Technical</span>
+<span class="c1">#: Report* 315 (1969).</span>
+<span class="n">FEHLBERG_45_TABLEAU</span> <span class="o">=</span> <span class="n">ERKTableau</span><span class="p">(</span>
+    <span class="n">a</span><span class="o">=</span><span class="p">(</span>
+        <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span><span class="mf">3.0</span> <span class="o">/</span> <span class="mf">32.0</span><span class="p">,</span> <span class="mf">9.0</span> <span class="o">/</span> <span class="mf">32.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">1932.0</span> <span class="o">/</span> <span class="mf">2197.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">7200.0</span> <span class="o">/</span> <span class="mf">2197.0</span><span class="p">,</span>
+            <span class="mf">7296.0</span> <span class="o">/</span> <span class="mf">2197.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="mf">439.0</span> <span class="o">/</span> <span class="mf">216.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">8.0</span><span class="p">,</span>
+            <span class="mf">3680.0</span> <span class="o">/</span> <span class="mf">513.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">845.0</span> <span class="o">/</span> <span class="mf">4104.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="p">(</span>
+            <span class="o">-</span><span class="mf">8.0</span> <span class="o">/</span> <span class="mf">27.0</span><span class="p">,</span>
+            <span class="mf">2.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">3544.0</span> <span class="o">/</span> <span class="mf">2565.0</span><span class="p">,</span>
+            <span class="mf">1859.0</span> <span class="o">/</span> <span class="mf">4104.0</span><span class="p">,</span>
+            <span class="o">-</span><span class="mf">11.0</span> <span class="o">/</span> <span class="mf">40.0</span><span class="p">,</span>
+            <span class="mf">0.0</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">b</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">16.0</span> <span class="o">/</span> <span class="mf">135.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">6656.0</span> <span class="o">/</span> <span class="mf">12825.0</span><span class="p">,</span>
+        <span class="mf">28561.0</span> <span class="o">/</span> <span class="mf">56430.0</span><span class="p">,</span>
+        <span class="o">-</span><span class="mf">9.0</span> <span class="o">/</span> <span class="mf">50.0</span><span class="p">,</span>
+        <span class="mf">2.0</span> <span class="o">/</span> <span class="mf">55.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">b_hat</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">25.0</span> <span class="o">/</span> <span class="mf">216.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">1408.0</span> <span class="o">/</span> <span class="mf">2565.0</span><span class="p">,</span>
+        <span class="mf">2197.0</span> <span class="o">/</span> <span class="mf">4104.0</span><span class="p">,</span>
+        <span class="o">-</span><span class="mf">1.0</span> <span class="o">/</span> <span class="mf">5.0</span><span class="p">,</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">c</span><span class="o">=</span><span class="p">(</span>
+        <span class="mf">0.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">4.0</span><span class="p">,</span>
+        <span class="mf">3.0</span> <span class="o">/</span> <span class="mf">8.0</span><span class="p">,</span>
+        <span class="mf">12.0</span> <span class="o">/</span> <span class="mf">13.0</span><span class="p">,</span>
+        <span class="mf">1.0</span><span class="p">,</span>
+        <span class="mf">1.0</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="n">order</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">DEFAULT_ERK_TABLEAU</span> <span class="o">=</span> <span class="n">DORMAND_PRINCE_54_TABLEAU</span>
+<span class="sd">&quot;&quot;&quot;Default tableau used when constructing generic ERK integrators.&quot;&quot;&quot;</span>
+
+<span class="n">ERK_TABLEAU_REGISTRY</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ERKTableau</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;heun-21&quot;</span><span class="p">:</span> <span class="n">HEUN_21_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;ralston-33&quot;</span><span class="p">:</span> <span class="n">RALSTON_33_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;bogacki-shampine-32&quot;</span><span class="p">:</span> <span class="n">BOGACKI_SHAMPINE_32_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;dormand-prince-54&quot;</span><span class="p">:</span> <span class="n">DORMAND_PRINCE_54_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;dopri54&quot;</span><span class="p">:</span> <span class="n">DORMAND_PRINCE_54_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;classical-rk4&quot;</span><span class="p">:</span> <span class="n">CLASSICAL_RK4_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;cash-karp-54&quot;</span><span class="p">:</span> <span class="n">CASH_KARP_54_TABLEAU</span><span class="p">,</span>
+    <span class="s2">&quot;fehlberg-45&quot;</span><span class="p">:</span> <span class="n">FEHLBERG_45_TABLEAU</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="sd">&quot;&quot;&quot;Mapping from human readable identifiers to ERK tableaus.&quot;&quot;&quot;</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
