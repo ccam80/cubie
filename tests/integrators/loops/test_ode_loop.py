@@ -128,12 +128,12 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "l_stable_dirk_3", "step_controller": "pi"},
+        {"algorithm": "l_stable_dirk_3", "step_controller": "fixed"},
         id="dirk-l-stable-3",
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "l_stable_sdirk_4", "step_controller": "pi"},
+        {"algorithm": "l_stable_sdirk_4", "step_controller": "i"},
         id="dirk-l-stable-4",
         marks=pytest.mark.specific_algos,
     ),
