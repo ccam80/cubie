@@ -42,7 +42,7 @@ def _collect_saved_outputs(
         return np.zeros((output_length, 0), dtype=dtype)
     data = np.zeros((output_length, width), dtype=dtype)
     for row, sample in enumerate(save_history):
-        data[row, :len(save_history)] = sample[indices]
+        data[row, :width] = sample[indices]
     return data
 
 
