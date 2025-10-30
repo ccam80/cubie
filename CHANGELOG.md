@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.4...v0.1.0) (2025-10-30)
+
+
+### Features
+
+* "Instrumented" device steps added for diagnostics ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Algorithms now set their own step control defaults ([#139](https://github.com/ccam80/cubie/issues/139)) ([2a0efed](https://github.com/ccam80/cubie/commit/2a0efedd7a02a10be5179f0ef84fe72ebfddba84))
+* Array managers now support heterogeneous arrays within the same container ([0905422](https://github.com/ccam80/cubie/commit/0905422b8fbaf6c1b05f127d162a2f44bc40c53a))
+* Compile-settings updates now won't force a rebuild if the value hasn't changed. ([5a9e281](https://github.com/ccam80/cubie/commit/5a9e281bb16455c37ca70c85d56831d50f809fc7))
+* DIRK and DIRKTableaus added ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Explicit and Diagonally-Implicit Runge Kutta algorithms added ([#151](https://github.com/ccam80/cubie/issues/151)) ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Explicit RK and Tableau added, closes [#83](https://github.com/ccam80/cubie/issues/83) ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Generic Butcher Tableau implemented ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Generic Rosenbrock-W methods added ([#148](https://github.com/ccam80/cubie/issues/148)) ([6abfed2](https://github.com/ccam80/cubie/commit/6abfed2c0d051b597b11ea3601a4806eecfc7aac))
+* minimal FSAL caching added to DIRK, ERK, Rosenbrock ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* Parser now processes indexed arrays as variables ([#152](https://github.com/ccam80/cubie/issues/152)) ([7fe800b](https://github.com/ccam80/cubie/commit/7fe800b8328f28b26fab1492c9f0c30e63670553))
+* status codes now aggregated by batchSolverKernel ([0905422](https://github.com/ccam80/cubie/commit/0905422b8fbaf6c1b05f127d162a2f44bc40c53a))
+* Steps and step controllers now have a unified argument-filtering factory ([2a0efed](https://github.com/ccam80/cubie/commit/2a0efedd7a02a10be5179f0ef84fe72ebfddba84))
+* Tableau libraries and tableau resolvers/getters added ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* There are now auxiliary-cached jacobian functions for reusing some computational work. ([6abfed2](https://github.com/ccam80/cubie/commit/6abfed2c0d051b597b11ea3601a4806eecfc7aac))
+* Third and fourth order SDIRK tableaus added ([91ee1e9](https://github.com/ccam80/cubie/commit/91ee1e967d343b38ed521f52012ca4a414ecdbd2))
+* Very rough caching of jvp nodes implemented for rosenbrock solvers. ([7fe800b](https://github.com/ccam80/cubie/commit/7fe800b8328f28b26fab1492c9f0c30e63670553))
+* working arrays and quantities in algorithms and solvers now draw from a memory "pool", allowing easier reuse ([b0f5b6f](https://github.com/ccam80/cubie/commit/b0f5b6f879d82caa700c853042a860736da02714))
+
+
+### Bug Fixes
+
+* add error to sdirk 4, correct controllers for loop tests ([47a6cb1](https://github.com/ccam80/cubie/commit/47a6cb1fb20a53b55c38711668abd3b98fa33ba5))
+* Added (non-CI) testing for DIRK loops added. ([7fe800b](https://github.com/ccam80/cubie/commit/7fe800b8328f28b26fab1492c9f0c30e63670553))
+* batchgridbuilder class now has static wrappers for batchgridbuilder helper functions. ([74c08fa](https://github.com/ccam80/cubie/commit/74c08fa0a9846c988399e9893a1acee3193a62ca))
+* BatchsolverKernel's compile settings now features the compile-critical settings it always should have had. ([f383157](https://github.com/ccam80/cubie/commit/f383157a06180841071bf9df90d23c1081c907f2))
+* Buffer footprints reduced by aliasing vectors with disjoint lifetimes ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* correct off-by-one error and datatype discrepancy in cpu driver evaluator ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* DIRK now accumulates rhs's and scales after stages, reducing round-off ([7fe800b](https://github.com/ccam80/cubie/commit/7fe800b8328f28b26fab1492c9f0c30e63670553))
+* matplotlib now spelled correctly in pyproject.toml ([3773ff8](https://github.com/ccam80/cubie/commit/3773ff8c0a73fca8986794d82289f2d0e3a3c169))
+* Meaty loop tests confined to test_ode_loop.py ([7fe5677](https://github.com/ccam80/cubie/commit/7fe5677be087bff94a75e1c3e9843938f05c139a))
+* numerous numerical errors amended after instrumenting steps ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* precision type hints now correct; no more pesky yellow lines. ([2a0efed](https://github.com/ccam80/cubie/commit/2a0efedd7a02a10be5179f0ef84fe72ebfddba84))
+* settings passing from solver now less cramped and hopefully more robust ([2a0efed](https://github.com/ccam80/cubie/commit/2a0efedd7a02a10be5179f0ef84fe72ebfddba84))
+* Step controllers no longer mutate error vector ([7fe800b](https://github.com/ccam80/cubie/commit/7fe800b8328f28b26fab1492c9f0c30e63670553))
+
+
+### Documentation
+
+* Add autodocs subpages for manual project structure docs ([c2c0d7c](https://github.com/ccam80/cubie/commit/c2c0d7cd0c9173cccd38d84d3969d6e66406e4b4))
+* added "buffer map" comments to generic algorithms to demystify aliasing ([472f960](https://github.com/ccam80/cubie/commit/472f960ae7492520eb1b9c7d22a55f537afae753))
+* autodocs param lists now format one line per param ([cb3d74b](https://github.com/ccam80/cubie/commit/cb3d74bf4a578705abf31c797e0662aea3202879))
+* Batchsolving module source files now better documented in numpydocs format ([97a0ab8](https://github.com/ccam80/cubie/commit/97a0ab8a9510ea1e46f1aa6cc3a16f0a51ee9ae8))
+* de-computer some language in api reference, rejig indexes ([b558994](https://github.com/ccam80/cubie/commit/b5589943dbec791ee41b71c012b148e856352e83))
+* increase index depth, force one-param-per-line printing ([b822f4c](https://github.com/ccam80/cubie/commit/b822f4c402f3321c6a399163e5e0497433493a8e))
+* more docs organisation ([5631989](https://github.com/ccam80/cubie/commit/563198977c99f688549152feb798335a5eb3bf36))
+* more docs organisation ([cd98043](https://github.com/ccam80/cubie/commit/cd98043d02c663ddfe2f3df981cd218ddbc99c95))
+* refactor api structure; remove autosummary, implement manual docs ([881ce4a](https://github.com/ccam80/cubie/commit/881ce4ac81c8405f0a8cffe00788de7c987a3dce))
+* Refs in "getting started" are now actually refs not highlighted garbage. ([6abfed2](https://github.com/ccam80/cubie/commit/6abfed2c0d051b597b11ea3601a4806eecfc7aac))
+* top-level batchsolving docs added ([6cfddfa](https://github.com/ccam80/cubie/commit/6cfddfa8d86d656be4b79b34d068290680e60046))
+
 ## [0.0.4](https://github.com/ccam80/cubie/compare/v0.0.3...v0.0.4) (2025-10-05)
 
 
