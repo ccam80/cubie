@@ -1,6 +1,15 @@
 """Symbolic ODE system built from :mod:`sympy` expressions."""
 
-from typing import Any, Callable, Iterable, List, Optional, Set, Union
+from typing import (
+    Any,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Union,
+)
 
 import numpy as np
 import sympy as sp
@@ -19,6 +28,8 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_cached_jvp_code,
     generate_operator_apply_code,
+    generate_n_stage_linear_operator_code,
+    generate_n_stage_residual_code,
     generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.parser import (
@@ -366,22 +377,20 @@ class SymbolicODE(BaseODE):
         gamma: float = 1.0,
         preconditioner_order: int = 2,
         mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
+        stage_coefficients: Optional[
+            Sequence[Sequence[Union[float, sp.Expr]]]
+        ] = None,
+        stage_nodes: Optional[Sequence[Union[float, sp.Expr]]] = None,
     ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
-
-        Solvers use a linear operator, preconditioner, and residual function.
-        The operator is parameterised as
-        ``(beta * M + a_ij * h * gamma * J)(v)`` where ``M`` is an optional
-        mass matrix, ``J`` is the Jacobian, and ``a_ij`` and ``h`` are supplied
-        at runtime. Preconditioners and residual functions use subsets of these
-        parameters.
 
         Parameters
         ----------
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
             ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
-            ``"neumann_preconditioner_cached"``, ``"stage_residual"`,
+            ``"neumann_preconditioner_cached"``, ``"stage_residual"``,
+            ``"n_stage_residual"``, ``"n_stage_linear_operator"`,
             ``"prepare_jac"``, ``"cached_aux_count"`` and
             ``"calculate_cached_jvp"``.
         beta
@@ -393,11 +402,18 @@ class SymbolicODE(BaseODE):
         mass
             Mass matrix applied by the linear operator. When omitted the
             identity matrix is assumed.
+        stage_coefficients
+            FIRK tableau coefficients used to evaluate stage states. Required
+            for flattened helpers.
+        stage_nodes
+            FIRK stage nodes expressed as timestep fractions. The stage count
+            is inferred from ``len(stage_nodes)``.
 
         Returns
         -------
-        Callable
-            CUDA device function implementing the requested helper.
+        Callable or int
+            CUDA device function implementing the requested helper or the
+            cached auxiliary count for ``"cached_aux_count"``.
 
         Raises
         ------
@@ -425,6 +441,7 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
+        factory_name = func_type
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
@@ -460,12 +477,9 @@ class SymbolicODE(BaseODE):
             )
             self._jacobian_aux_count = aux_count
         elif func_type == "cached_aux_count":
-            # Not a callable but returned here as it is a "solver helper" and
-            # the only hook into symbolicODE that the step functions have.
             if self._jacobian_aux_count is None:
                 self.get_solver_helper("prepare_jac")
             return self._jacobian_aux_count
-
         elif func_type == "calculate_cached_jvp":
             code = generate_cached_jvp_code(
                 self.equations,
@@ -509,12 +523,45 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
+        elif func_type == "n_stage_residual":
+            helper_name = f"n_stage_residual_{len(stage_nodes)}"
+            code = generate_n_stage_residual_code(
+                equations=self.equations,
+                index_map=self.indices,
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+                M=mass,
+                func_name=helper_name,
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+            factory_name = helper_name
+        elif func_type == "n_stage_linear_operator":
+            helper_name = f"n_stage_linear_operator_{len(stage_nodes)}"
+            code = generate_n_stage_linear_operator_code(
+                equations=self.equations,
+                index_map=self.indices,
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+                M=mass,
+                func_name=helper_name,
+                jvp_exprs=self._get_jvp_exprs(),
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+            factory_name = helper_name
         else:
             raise NotImplementedError(
-                    f"Solver helper '{func_type}' is not implemented."
+                f"Solver helper '{func_type}' is not implemented."
             )
 
-        factory = self.gen_file.import_function(func_type, code)
+        factory = self.gen_file.import_function(factory_name, code)
         func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
         return func

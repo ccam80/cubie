@@ -5,7 +5,7 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 import sympy as sp
 
@@ -857,6 +857,55 @@ RESIDUAL_TEMPLATE = (
 )
 
 
+N_STAGE_RESIDUAL_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED N-STAGE RESIDUAL FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    '    """Auto-generated FIRK residual for flattened stage increments.\n'
+    "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
+    "    Order is ignored, included for compatibility with preconditioner API.\n"
+    '    """\n'
+    "{const_lines}"
+    "{metadata_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def residual(u, parameters, drivers, h, a_ij, base_state, out):\n"
+    "{body}\n"
+    "    return residual\n"
+)
+
+
+N_STAGE_OPERATOR_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    '    """Auto-generated FIRK linear operator for flattened stages.\n'
+    "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
+    "    Order is ignored, included for compatibility with preconditioner API.\n"
+    '    """\n'
+    "{const_lines}"
+    "{metadata_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def operator_apply(state, parameters, drivers, h, v, out):\n"
+    "{body}\n"
+    "    return operator_apply\n"
+)
+
+
 def _build_residual_lines(
     equations: ParsedEquations,
     index_map: IndexedBases,
@@ -966,6 +1015,300 @@ def _build_residual_lines(
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
+
+def _prepare_stage_data(
+    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
+    stage_nodes: Sequence[Union[float, sp.Expr]],
+) -> Tuple[sp.Matrix, Tuple[sp.Expr, ...], int]:
+    """Normalise FIRK tableau metadata for code generation."""
+
+    coeff_matrix = sp.Matrix(stage_coefficients).applyfunc(sp.S)
+    node_exprs = tuple(sp.S(node) for node in stage_nodes)
+    return coeff_matrix, node_exprs, coeff_matrix.rows
+
+
+def _build_stage_metadata(
+    stage_coefficients: sp.Matrix,
+    stage_nodes: Tuple[sp.Expr, ...],
+) -> Tuple[
+    List[Tuple[sp.Symbol, sp.Expr]],
+    List[List[sp.Symbol]],
+    List[sp.Symbol],
+]:
+    """Create symbol assignments for FIRK coefficients and nodes."""
+
+    stage_count = stage_coefficients.rows
+    coeff_symbols: List[List[sp.Symbol]] = []
+    node_symbols: List[sp.Symbol] = []
+    metadata_exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
+    for stage_idx in range(stage_count):
+        node_symbol = sp.Symbol(f"c_{stage_idx}")
+        node_symbols.append(node_symbol)
+        metadata_exprs.append((node_symbol, stage_nodes[stage_idx]))
+        stage_row: List[sp.Symbol] = []
+        for col_idx in range(stage_count):
+            coeff_symbol = sp.Symbol(f"a_{stage_idx}_{col_idx}")
+            stage_row.append(coeff_symbol)
+            metadata_exprs.append(
+                (coeff_symbol, stage_coefficients[stage_idx, col_idx])
+            )
+        coeff_symbols.append(stage_row)
+    return metadata_exprs, coeff_symbols, node_symbols
+
+
+def _build_n_stage_residual_lines(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    M: sp.Matrix,
+    stage_coefficients: sp.Matrix,
+    stage_nodes: Tuple[sp.Expr, ...],
+    cse: bool = True,
+) -> str:
+    """Construct CUDA statements for the FIRK n-stage residual."""
+
+    metadata_exprs, coeff_symbols, _ = _build_stage_metadata(
+        stage_coefficients, stage_nodes
+    )
+    eq_list = equations.to_equation_list()
+    state_symbols = list(index_map.states.index_map.keys())
+    dx_symbols = list(index_map.dxdt.index_map.keys())
+    observable_symbols = list(index_map.observable_symbols)
+    state_count = len(state_symbols)
+    stage_count = stage_coefficients.rows
+
+    beta_sym = sp.Symbol("beta")
+    gamma_sym = sp.Symbol("gamma")
+    h_sym = sp.Symbol("h")
+    total_states = sp.Integer(stage_count * state_count)
+    u = sp.IndexedBase("u", shape=(total_states,))
+    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
+    out = sp.IndexedBase("out", shape=(total_states,))
+
+    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
+
+    for stage_idx in range(stage_count):
+        stage_dx_symbols = [
+            sp.Symbol(f"dx_{stage_idx}_{idx}")
+            for idx in range(len(dx_symbols))
+        ]
+        dx_subs = dict(zip(dx_symbols, stage_dx_symbols))
+
+        if observable_symbols:
+            stage_obs_symbols = [
+                sp.Symbol(f"aux_{stage_idx}_{idx + 1}")
+                for idx in range(len(observable_symbols))
+            ]
+            obs_subs = dict(zip(observable_symbols, stage_obs_symbols))
+        else:
+            obs_subs = {}
+        substitution_map = {**dx_subs, **obs_subs}
+
+        stage_state_subs = {}
+        for state_idx, state_sym in enumerate(state_symbols):
+            expr = base_state[state_idx]
+            for contrib_idx in range(stage_count):
+                coeff_value = stage_coefficients[stage_idx, contrib_idx]
+                if coeff_value == 0:
+                    continue
+                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+                expr += coeff_sym * u[
+                    contrib_idx * state_count + state_idx
+                ]
+            stage_state_subs[state_sym] = expr
+
+        substituted = [
+            (
+                lhs.subs(substitution_map),
+                rhs.subs(substitution_map).subs(stage_state_subs),
+            )
+            for lhs, rhs in eq_list
+        ]
+        eval_exprs.extend(substituted)
+
+        stage_offset = stage_idx * state_count
+        for comp_idx in range(state_count):
+            mv = sp.S.Zero
+            for col_idx in range(state_count):
+                entry = M[comp_idx, col_idx]
+                if entry == 0:
+                    continue
+                mv += entry * u[stage_offset + col_idx]
+            residual_expr = (
+                beta_sym * mv
+                - gamma_sym * h_sym * stage_dx_symbols[comp_idx]
+            )
+            eval_exprs.append((out[stage_offset + comp_idx], residual_expr))
+
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update(
+        {
+            "u": u,
+            "base_state": base_state,
+            "out": out,
+            "beta": beta_sym,
+            "gamma": gamma_sym,
+            "h": h_sym,
+        }
+    )
+
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
+
+def _build_n_stage_operator_lines(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    M: sp.Matrix,
+    stage_coefficients: sp.Matrix,
+    stage_nodes: Tuple[sp.Expr, ...],
+    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    cse: bool = True,
+) -> str:
+    """Construct CUDA statements for the FIRK n-stage linear operator."""
+
+    metadata_exprs, coeff_symbols, _ = _build_stage_metadata(
+        stage_coefficients, stage_nodes
+    )
+    eq_list = equations.to_equation_list()
+    state_symbols = list(index_map.states.index_map.keys())
+    dx_symbols = list(index_map.dxdt.index_map.keys())
+    observable_symbols = list(index_map.observable_symbols)
+    state_count = len(state_symbols)
+    stage_count = stage_coefficients.rows
+
+    beta_sym = sp.Symbol("beta")
+    gamma_sym = sp.Symbol("gamma")
+    h_sym = sp.Symbol("h")
+    total_states = sp.Integer(stage_count * state_count)
+    state_vec = sp.IndexedBase("state", shape=(total_states,))
+    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
+    direction_vec = sp.IndexedBase("v", shape=(total_states,))
+    out = sp.IndexedBase("out", shape=(total_states,))
+
+    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
+
+    for stage_idx in range(stage_count):
+        stage_dx_symbols = [
+            sp.Symbol(f"dx_{stage_idx}_{idx}")
+            for idx in range(len(dx_symbols))
+        ]
+        dx_subs = dict(zip(dx_symbols, stage_dx_symbols))
+
+        if observable_symbols:
+            stage_obs_symbols = [
+                sp.Symbol(f"aux_{stage_idx}_{idx + 1}")
+                for idx in range(len(observable_symbols))
+            ]
+            obs_subs = dict(zip(observable_symbols, stage_obs_symbols))
+        else:
+            obs_subs = {}
+        substitution_map = {**dx_subs, **obs_subs}
+
+        stage_state_subs = {}
+        for state_idx, state_sym in enumerate(state_symbols):
+            expr = base_state[state_idx]
+            for contrib_idx in range(stage_count):
+                coeff_value = stage_coefficients[stage_idx, contrib_idx]
+                if coeff_value == 0:
+                    continue
+                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+                expr += coeff_sym * state_vec[
+                    contrib_idx * state_count + state_idx
+                ]
+            stage_state_subs[state_sym] = expr
+
+        substituted = [
+            (
+                lhs.subs(substitution_map),
+                rhs.subs(substitution_map).subs(stage_state_subs),
+            )
+            for lhs, rhs in eq_list
+        ]
+        eval_exprs.extend(substituted)
+
+        direction_combos = []
+        for comp_idx in range(state_count):
+            combo = sp.S.Zero
+            for contrib_idx in range(stage_count):
+                coeff_value = stage_coefficients[stage_idx, contrib_idx]
+                if coeff_value == 0:
+                    continue
+                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+                combo += coeff_sym * direction_vec[
+                    contrib_idx * state_count + comp_idx
+                ]
+            direction_combos.append(combo)
+        v_indexed = sp.IndexedBase("v")
+        v_subs = {
+            v_indexed[idx]: direction_combos[idx] for idx in range(state_count)
+        }
+
+        stage_aux_assignments: List[Tuple[sp.Symbol, sp.Expr]] = []
+        for lhs, rhs in cached_aux:
+            stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
+            substituted_rhs = rhs.subs(substitution_map).subs(stage_state_subs)
+            stage_aux_assignments.append(
+                (stage_symbol, substituted_rhs.subs(v_subs))
+            )
+        for lhs, rhs in runtime_aux:
+            stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
+            substituted_rhs = rhs.subs(substitution_map).subs(stage_state_subs)
+            stage_aux_assignments.append(
+                (stage_symbol, substituted_rhs.subs(v_subs))
+            )
+        eval_exprs.extend(stage_aux_assignments)
+
+        stage_jvp_symbols: Dict[int, sp.Symbol] = {}
+        for idx, expr in jvp_terms.items():
+            stage_symbol = sp.Symbol(f"jvp_{stage_idx}_{idx}")
+            stage_jvp_symbols[idx] = stage_symbol
+            substituted_expr = expr.subs(substitution_map)
+            substituted_expr = substituted_expr.subs(stage_state_subs)
+            eval_exprs.append((stage_symbol, substituted_expr.subs(v_subs)))
+
+        stage_offset = stage_idx * state_count
+        for comp_idx in range(state_count):
+            mv = sp.S.Zero
+            for col_idx in range(state_count):
+                entry = M[comp_idx, col_idx]
+                if entry == 0:
+                    continue
+                mv += entry * direction_vec[stage_offset + col_idx]
+            jvp_value = stage_jvp_symbols.get(comp_idx, sp.S.Zero)
+            update_expr = beta_sym * mv - gamma_sym * h_sym * jvp_value
+            eval_exprs.append((out[stage_offset + comp_idx], update_expr))
+
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update(
+        {
+            "state": state_vec,
+            "base_state": base_state,
+            "v": direction_vec,
+            "out": out,
+            "beta": beta_sym,
+            "gamma": gamma_sym,
+            "h": h_sym,
+        }
+    )
+
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
 def generate_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
@@ -1048,4 +1391,88 @@ def generate_stage_residual_code(
         M=M,
         func_name=func_name,
         cse=cse,
+    )
+
+
+def generate_n_stage_residual_code(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
+    stage_nodes: Sequence[Union[float, sp.Expr]],
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    func_name: str = "n_stage_residual",
+    cse: bool = True,
+) -> str:
+    """Generate a flattened n-stage FIRK residual factory."""
+
+    coeff_matrix, node_values, stage_count = _prepare_stage_data(
+        stage_coefficients, stage_nodes
+    )
+    if M is None:
+        state_dim = len(index_map.states.index_map)
+        mass_matrix = sp.eye(state_dim)
+    else:
+        mass_matrix = sp.Matrix(M)
+    body = _build_n_stage_residual_lines(
+        equations=equations,
+        index_map=index_map,
+        M=mass_matrix,
+        stage_coefficients=coeff_matrix,
+        stage_nodes=node_values,
+        cse=cse,
+    )
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    return N_STAGE_RESIDUAL_TEMPLATE.format(
+        func_name=func_name,
+        const_lines=const_block,
+        metadata_lines="",
+        body=body,
+        stage_count=stage_count,
+    )
+
+
+def generate_n_stage_linear_operator_code(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
+    stage_nodes: Sequence[Union[float, sp.Expr]],
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    func_name: str = "n_stage_linear_operator",
+    cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+) -> str:
+    """Generate a flattened n-stage FIRK linear operator factory."""
+
+    coeff_matrix, node_values, stage_count = _prepare_stage_data(
+        stage_coefficients, stage_nodes
+    )
+    if M is None:
+        state_dim = len(index_map.states.index_map)
+        mass_matrix = sp.eye(state_dim)
+    else:
+        mass_matrix = sp.Matrix(M)
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
+    body = _build_n_stage_operator_lines(
+        equations=equations,
+        index_map=index_map,
+        M=mass_matrix,
+        stage_coefficients=coeff_matrix,
+        stage_nodes=node_values,
+        jvp_exprs=jvp_exprs,
+        cse=cse,
+    )
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    return N_STAGE_OPERATOR_TEMPLATE.format(
+        func_name=func_name,
+        const_lines=const_block,
+        metadata_lines="",
+        body=body,
+        stage_count=stage_count,
     )
