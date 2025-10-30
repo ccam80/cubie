@@ -28,10 +28,22 @@ class RosenbrockTableau(ButcherTableau):
         Lower-triangular matrix containing Jacobian update coefficients.
     gamma
         Diagonal shift applied to the stage Jacobian solves.
+    gamma_stages
+        Optional per-stage diagonal shifts applied to the Jacobian solves.
+
     """
 
     C: Tuple[Tuple[float, ...], ...] = attrs.field(factory=tuple)
     gamma: float = attrs.field(default=0.25)
+    gamma_stages: Tuple[float, ...] = attrs.field(factory=tuple)
+
+    def typed_gamma_stages(
+        self,
+        numba_precision: type,
+    ) -> Tuple[float, ...]:
+        """Return stage-specific gamma shifts typed to ``numba_precision``."""
+
+        return self.typed_vector(self.gamma_stages, numba_precision)
 
 
 def _ros3p_tableau() -> RosenbrockTableau:
@@ -69,6 +81,7 @@ def _ros3p_tableau() -> RosenbrockTableau:
         c=(0.0, 1.0, 1.0),
         order=3,
         gamma=gamma,
+        gamma_stages=(gamma, gamma, gamma),
     )
     return tableau
 
