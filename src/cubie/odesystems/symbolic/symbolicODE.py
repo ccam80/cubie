@@ -548,7 +548,7 @@ class SymbolicODE(BaseODE):
                 stage_nodes=stage_nodes,
                 M=mass,
                 func_name=helper_name,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,

@@ -5,7 +5,7 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import sympy as sp
 
@@ -1168,7 +1168,7 @@ def _build_n_stage_operator_lines(
     M: sp.Matrix,
     stage_coefficients: sp.Matrix,
     stage_nodes: Tuple[sp.Expr, ...],
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    jvp_equations: JVPEquations,
     cse: bool = True,
 ) -> str:
     """Construct CUDA statements for the FIRK n-stage linear operator."""
@@ -1192,7 +1192,9 @@ def _build_n_stage_operator_lines(
     direction_vec = sp.IndexedBase("v", shape=(total_states,))
     out = sp.IndexedBase("out", shape=(total_states,))
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    jvp_terms = jvp_equations.jvp_terms
+    aux_order = jvp_equations.non_jvp_order
+    aux_exprs = jvp_equations.non_jvp_exprs
     eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
 
     for stage_idx in range(stage_count):
@@ -1252,18 +1254,17 @@ def _build_n_stage_operator_lines(
         }
 
         stage_aux_assignments: List[Tuple[sp.Symbol, sp.Expr]] = []
-        for lhs, rhs in cached_aux:
+        aux_subs: Dict[sp.Symbol, sp.Symbol] = {}
+        for lhs in aux_order:
             stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
-            substituted_rhs = rhs.subs(substitution_map).subs(stage_state_subs)
-            stage_aux_assignments.append(
-                (stage_symbol, substituted_rhs.subs(v_subs))
-            )
-        for lhs, rhs in runtime_aux:
-            stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
-            substituted_rhs = rhs.subs(substitution_map).subs(stage_state_subs)
-            stage_aux_assignments.append(
-                (stage_symbol, substituted_rhs.subs(v_subs))
-            )
+            rhs = aux_exprs[lhs]
+            substituted_rhs = rhs.subs(substitution_map)
+            substituted_rhs = substituted_rhs.subs(stage_state_subs)
+            if aux_subs:
+                substituted_rhs = substituted_rhs.subs(aux_subs)
+            substituted_rhs = substituted_rhs.subs(v_subs)
+            stage_aux_assignments.append((stage_symbol, substituted_rhs))
+            aux_subs[lhs] = stage_symbol
         eval_exprs.extend(stage_aux_assignments)
 
         stage_jvp_symbols: Dict[int, sp.Symbol] = {}
@@ -1272,7 +1273,11 @@ def _build_n_stage_operator_lines(
             stage_jvp_symbols[idx] = stage_symbol
             substituted_expr = expr.subs(substitution_map)
             substituted_expr = substituted_expr.subs(stage_state_subs)
-            eval_exprs.append((stage_symbol, substituted_expr.subs(v_subs)))
+            if aux_subs:
+                substituted_expr = substituted_expr.subs(aux_subs)
+            eval_exprs.append(
+                (stage_symbol, substituted_expr.subs(v_subs))
+            )
 
         stage_offset = stage_idx * state_count
         for comp_idx in range(state_count):
@@ -1439,7 +1444,7 @@ def generate_n_stage_linear_operator_code(
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "n_stage_linear_operator",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK linear operator factory."""
 
@@ -1451,8 +1456,8 @@ def generate_n_stage_linear_operator_code(
         mass_matrix = sp.eye(state_dim)
     else:
         mass_matrix = sp.Matrix(M)
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
@@ -1465,7 +1470,7 @@ def generate_n_stage_linear_operator_code(
         M=mass_matrix,
         stage_coefficients=coeff_matrix,
         stage_nodes=node_values,
-        jvp_exprs=jvp_exprs,
+        jvp_equations=jvp_equations,
         cse=cse,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
