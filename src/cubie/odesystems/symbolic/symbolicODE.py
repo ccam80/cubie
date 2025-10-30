@@ -9,6 +9,9 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
+from cubie.odesystems.symbolic.time_derivative import (
+    generate_time_derivative_fac_code,
+)
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.odefile import ODEFile
@@ -321,10 +324,10 @@ class SymbolicODE(BaseODE):
         )
         observables_func = observables_factory(constants, numba_precision)
 
-        self._cache = ODECache(dxdt=dxdt_func, observables=observables_func)
-        self._cache_valid = True
-        self._cache_valid = False
-        return self._cache
+        return ODECache(
+            dxdt=dxdt_func,
+            observables=observables_func,
+        )
 
 
     def set_constants(
@@ -508,6 +511,12 @@ class SymbolicODE(BaseODE):
                 beta=beta,
                 gamma=gamma,
                 order=preconditioner_order,
+            )
+        elif func_type == "time_derivative_rhs":
+            code = generate_time_derivative_fac_code(
+                self.equations,
+                self.indices,
+                func_name=func_type,
             )
         else:
             raise NotImplementedError(
