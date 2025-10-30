@@ -49,7 +49,7 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
-enable_tempdir = "0"
+enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
@@ -339,6 +339,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "precision": precision,
         "driverspline_order": 3,
         "driverspline_wrap": False,
+        "driverspline_boundary_condition": "clamped",
         "krylov_tolerance": precision(1e-6),
         "correction_type": "minimal_residual",
         "newton_tolerance": precision(1e-6),
@@ -431,6 +432,9 @@ def driver_settings(
     drivers_dict["dt"] = precision(dt_sample)
     drivers_dict["wrap"] = solver_settings["driverspline_wrap"]
     drivers_dict["order"] = order
+    drivers_dict["boundary_condition"] = solver_settings[
+        "driverspline_boundary_condition"
+    ]
     drivers_dict["t0"] = t0
 
     if driver_settings_override:

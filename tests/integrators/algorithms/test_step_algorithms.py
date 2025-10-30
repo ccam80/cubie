@@ -1130,7 +1130,11 @@ def test_stage_cache_reuse(
     delta = np.abs(gpu_result.second_state - gpu_result.first_state)
     assert np.any(delta > precision(1e-10))
 
-
+# @pytest.mark.parametrize("system_override",
+#                          ["threecm"],
+#                          ids = [""],
+#                          indirect=True
+#                          )
 @pytest.mark.parametrize(
         "solver_settings_override2",
         [STEP_OVERRIDES],

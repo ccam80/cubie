@@ -1,13 +1,14 @@
 ## Style
 Follow PEP8; max line length 79 characters, comment length 71 characters. Do not add comments that explain what you are doing 
 to the user; write comments that explain unconventional or complex operations to future developers. Write numpydocs-style
-docstrings for all functions and classes. Write type hints for all functions and methods.
+docstrings for all functions and classes. Write type hints for function and method
+signatures only; do not add inline variable annotations in implementations or
+classes.
 Use descriptive variable names rather than minimal ones.
 Use descriptive function names rather than minimal ones.
-Don't type hint variables inside functions.
 Never call build() directly on a CUDAFactory subclass. These objects automatially cache or build when you request the result through the object's property.
 Don't import from __future__ import annotations, assume Python 3.7+.
-The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
+The repository is in development, do not enforce backwards compatibility; breaking changes are expected. Never retain an obsolete feature or argument for API compatibility.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
 Never add comments or docstrings that form part of the conversation with the user, e.g. "this part now does this". Comments only serve
 to explain what a complex piece of code is doing. They are always addressed to future developers.

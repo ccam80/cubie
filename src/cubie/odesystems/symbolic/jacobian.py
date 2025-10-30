@@ -10,8 +10,12 @@ from sympy import IndexedBase
 
 from cubie.odesystems.symbolic.parser import ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import cse_and_stack, topological_sort
+from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 
-CacheValue = Dict[str, Union[sp.Matrix, List[Tuple[sp.Symbol, sp.Expr]]]]
+CacheValue = Dict[
+    str,
+    Union[sp.Matrix, List[Tuple[sp.Symbol, sp.Expr]], JVPEquations],
+]
 CacheKey = Tuple[
     Tuple[Tuple[sp.Symbol, sp.Expr], ...],
     Tuple[Tuple[sp.Symbol, int], ...],
@@ -266,7 +270,7 @@ def generate_analytical_jvp(
     output_order: Dict[sp.Symbol, int],
     observables: Optional[Iterable[sp.Symbol]] = None,
     cse: bool = True,
-) -> List[Tuple[sp.Symbol, sp.Expr]]:
+) -> JVPEquations:
     """Return symbolic assignments for the Jacobian-vector product (JVP).
 
     Parameters
@@ -284,8 +288,8 @@ def generate_analytical_jvp(
 
     Returns
     -------
-    List[Tuple[sp.Symbol, sp.Expr]]
-        Symbolic assignments that compute the JVP for each output entry.
+    JVPEquations
+        Structured assignments and dependency metadata for the JVP.
 
     Notes
     -----
@@ -380,9 +384,10 @@ def generate_analytical_jvp(
 
     # Store in cache and return
     entry = _cache.get(cache_key)
+    equations_obj = JVPEquations(all_exprs)
     if isinstance(entry, dict):
-        entry["jvp"] = all_exprs
+        entry["jvp"] = equations_obj
     else:
-        _cache[cache_key] = {"jvp": all_exprs}
-    return all_exprs
+        _cache[cache_key] = {"jvp": equations_obj}
+    return equations_obj
 

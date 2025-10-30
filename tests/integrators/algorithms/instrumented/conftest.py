@@ -127,15 +127,19 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 3
+    return 35
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
     """random time."""
-    twenty_randoms = (1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3, 5e-4,
-                      5e-5, 1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3,
-                      5e-4, 5e-5)
-    twenty_randoms = tuple(precision(step) for step in twenty_randoms)
+    forty_randoms = (solver_settings['dt'], 1e-3, 1e-4, 1e-5, 1e-2, 1e-2,
+                     1e-3,
+                     5e-3, 5e-4,
+                     5e-5, 1e-2, 1e-3, 1e-7, 1e-6, 1e-7, 1e-2, 1e-3, 5e-3,
+                     5e-4, 5e-5, 1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3, 5e-4,
+                     5e-5, 1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3,
+                     5e-4, 5e-5)
+    forty_randoms = tuple(precision(step) for step in forty_randoms)
     haserror=True
     hastableau = getattr(instrumented_step_object, "tableau")
     if hastableau is not None:
@@ -150,7 +154,7 @@ def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tupl
         dt_value = precision(solver_settings["dt"])
         dts = tuple(dt_value for _ in range(num_steps))
     else:
-        dts = twenty_randoms[:num_steps]
+        dts = forty_randoms[:num_steps]
     return dts
 
 INSTRUMENTATION_DEVICE_FIELDS = (

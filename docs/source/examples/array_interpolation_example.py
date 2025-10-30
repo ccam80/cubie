@@ -93,7 +93,7 @@ def main() -> None:
     scipy_values = {}
     device_values = {}
     times, samples = build_wiggly_driver(precision=precision)
-    dense_times = np.linspace(times[0], times[-1], 8192, dtype=np.float64)
+    dense_times = np.linspace(times[0], times[-1]*2, 8192, dtype=np.float64)
 
     for boundary_condition in boundary_conditions:
         interp = ArrayInterpolator(

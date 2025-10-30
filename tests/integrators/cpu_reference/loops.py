@@ -16,6 +16,7 @@ from tests._utils import calculate_expected_summaries
 
 def _collect_saved_outputs(
     save_history: list[Array],
+    output_length: int,
     indices: Sequence[int],
     dtype: np.dtype,
 ) -> Array:
@@ -38,10 +39,10 @@ def _collect_saved_outputs(
 
     width = len(indices)
     if width == 0:
-        return np.zeros((len(save_history), 0), dtype=dtype)
-    data = np.zeros((len(save_history), width), dtype=dtype)
+        return np.zeros((output_length, 0), dtype=dtype)
+    data = np.zeros((output_length, width), dtype=dtype)
     for row, sample in enumerate(save_history):
-        data[row, :] = sample[indices]
+        data[row, :width] = sample[indices]
     return data
 
 
@@ -121,9 +122,9 @@ def run_reference_loop(
     max_save_samples = int(np.ceil(duration / dt_save))
 
     state = initial_state.copy()
-    state_history = [state.copy()]
-    observable_history: list[Array] = []
-    time_history: list[float] = []
+    state_history = []
+    observable_history = []
+    time_history = []
     t = precision(0.0)
     drivers_initial = driver_evaluator(precision(t))
     observables = evaluator.observables(
@@ -150,9 +151,10 @@ def run_reference_loop(
         else precision(1e-14)
     )
     status_flags = 0
+    save_idx = 0
 
-    while t < end_time - equality_breaker:
-        dt = precision(min(controller.dt, end_time - t))
+    while save_idx < max_save_samples:
+        dt = controller.dt
         do_save = False
         if controller.is_adaptive:
             if t + dt + equality_breaker >= next_save_time:
@@ -191,17 +193,20 @@ def run_reference_loop(
             if len(state_history) < max_save_samples:
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
-                time_history.append(precision(next_save_time - warmup))
+                time_history.append(precision(t - warmup))
             next_save_time += dt_save
+            save_idx += 1
 
     state_output = _collect_saved_outputs(
         state_history,
+        max_save_samples,
         saved_state_indices,
         precision,
     )
 
     observables_output = _collect_saved_outputs(
         observable_history,
+        max_save_samples,
         saved_observable_indices,
         precision,
     )

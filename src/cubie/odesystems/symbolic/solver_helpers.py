@@ -5,12 +5,13 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import sympy as sp
 
 from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.parser import IndexedBases, ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
@@ -126,73 +127,29 @@ CACHED_JVP_TEMPLATE = (
 )
 
 
-def _split_jvp_expressions(
-    exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]
+
+def _partition_cached_assignments(
+    equations: JVPEquations,
 ) -> Tuple[
     List[Tuple[sp.Symbol, sp.Expr]],
     List[Tuple[sp.Symbol, sp.Expr]],
-    Dict[int, sp.Expr],
+    List[Tuple[sp.Symbol, sp.Expr]],
 ]:
-    """Split expressions into cached auxiliaries, runtime terms, and outputs.
+    """Partition assignments into cached, runtime, and preparation subsets.
 
     Parameters
     ----------
-    exprs
-        Expression pairs ordered for evaluation.
+    equations
+        Structured representation of the Jacobian-vector product assignments.
 
     Returns
     -------
-    tuple of list, list, and dict
-        Cached auxiliary assignments, runtime-only assignments, and the indexed
-        JVP expressions.
+    tuple of list, list, list
+        Cached auxiliary assignments, runtime assignments, and preparation
+        assignments required to populate cached intermediates.
     """
-    ordered_exprs = list(exprs)
-    assigned_symbols = {lhs for lhs, _ in ordered_exprs}
 
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]] = {}
-    downstream: Dict[sp.Symbol, Set[sp.Symbol]] = {}
-    for lhs, rhs in ordered_exprs:
-        deps = {
-            sym
-            for sym in rhs.free_symbols
-            if sym in assigned_symbols and not str(sym).startswith("jvp[")
-        }
-        dependencies[lhs] = deps
-        downstream[lhs] = set()
-
-    for lhs, _ in ordered_exprs:
-        lhs_str = str(lhs)
-        if lhs_str.startswith("j_") or lhs_str.startswith("jvp["):
-            downstream[lhs].add(lhs)
-
-    for lhs, _ in reversed(ordered_exprs):
-        targets = downstream[lhs]
-        for dep in dependencies[lhs]:
-            downstream[dep].update(targets)
-
-    cached_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
-    runtime_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
-    jvp_terms: Dict[int, sp.Expr] = {}
-
-    for lhs, rhs in ordered_exprs:
-        lhs_str = str(lhs)
-        if lhs_str.startswith("jvp["):
-            idx = int(lhs_str.split("[")[1].split("]")[0])
-            jvp_terms[idx] = rhs
-            continue
-        if lhs_str.startswith("j_"):
-            runtime_aux.append((lhs, rhs))
-            continue
-
-        dependent_jacobians = {
-            sym for sym in downstream[lhs] if str(sym).startswith("j_")
-        }
-        if not dependencies[lhs] and len(dependent_jacobians) > 1:
-            cached_aux.append((lhs, rhs))
-        else:
-            runtime_aux.append((lhs, rhs))
-
-    return cached_aux, runtime_aux, jvp_terms
+    return equations.cached_partition()
 
 def _build_operator_body(
     cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
@@ -201,6 +158,7 @@ def _build_operator_body(
     index_map: IndexedBases,
     M: sp.Matrix,
     use_cached_aux: bool = False,
+    prepare_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``.
 
@@ -219,11 +177,21 @@ def _build_operator_body(
     use_cached_aux
         When ``True`` load auxiliary values from ``cached_aux`` instead of
         recomputing them.
+    prepare_assigns
+        Optional assignments required to populate cached auxiliaries. These are
+        included when building the uncached operator so dependencies remain
+        defined.
 
     Returns
     -------
     str
         Indented CUDA code statements implementing the operator body.
+
+    Notes
+    -----
+    Constructs SymPy assignments for mass-matrix multiplications and auxiliary
+    loads, renders them through the CUDA printer, and indents the result to fit
+    within the generated device function.
     """
     n_out = len(index_map.dxdt.ref_map)
     n_in = len(index_map.states.index_map)
@@ -258,7 +226,14 @@ def _build_operator_body(
             (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
         ] + runtime_assigns
     else:
-        aux_assignments = cached_assigns + runtime_assigns
+        combined = list(prepare_assigns or []) + cached_assigns + runtime_assigns
+        seen = set()
+        aux_assignments = []
+        for lhs, rhs in combined:
+            if lhs in seen:
+                continue
+            seen.add(lhs)
+            aux_assignments.append((lhs, rhs))
 
     exprs = mass_assigns + aux_assignments + out_updates
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
@@ -268,12 +243,32 @@ def _build_operator_body(
 
 
 def _build_cached_neumann_body(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: JVPEquations,
     index_map: IndexedBases,
 ) -> str:
-    """Build the cached Neumann-series Jacobian-vector body."""
+    """Build the cached Neumann-series Jacobian-vector body.
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    Parameters
+    ----------
+    equations
+        Structured representation of the Jacobian-vector product assignments.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements implementing the cached JVP body.
+
+    Notes
+    -----
+    Partitions auxiliary assignments using :class:`JVPEquations`, maps cached
+    values to buffer loads, and reuses the CUDA printer to generate the
+    Neumann-series update statements.
+    """
+
+    cached_aux, runtime_aux, _ = _partition_cached_assignments(equations)
+    jvp_terms = equations.jvp_terms
     if cached_aux:
         cached = sp.IndexedBase(
             "cached_aux", shape=(sp.Integer(len(cached_aux)),)
@@ -282,11 +277,11 @@ def _build_cached_neumann_body(
         cached = sp.IndexedBase("cached_aux")
 
     aux_assignments = [
-          (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
+        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
     ] + runtime_aux
 
     n_out = len(index_map.dxdt.ref_map)
-    exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(aux_assignments)
+    exprs = list(aux_assignments)
     for i in range(n_out):
         rhs = jvp_terms.get(i, sp.S.Zero)
         exprs.append((sp.Symbol(f"jvp[{i}]"), rhs))
@@ -304,7 +299,29 @@ def _build_cached_jvp_body(
     jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
 ) -> str:
-    """Build the CUDA body computing ``J·v`` with optional cached auxiliaries."""
+    """Build the CUDA body computing ``J·v`` with optional cached auxiliaries.
+
+    Parameters
+    ----------
+    cached_assigns
+        Auxiliary assignments stored in the cache.
+    runtime_assigns
+        Auxiliary assignments evaluated on demand.
+    jvp_terms
+        Mapping from output indices to Jacobian-vector expressions.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements implementing the cached JVP body.
+
+    Notes
+    -----
+    Materializes cached intermediates from buffer slots, appends runtime
+    assignments, and emits CUDA-formatted statements for each output update.
+    """
 
     n_out = len(index_map.dxdt.ref_map)
 
@@ -332,9 +349,32 @@ def _build_cached_jvp_body(
 
 
 def _build_prepare_body(
-    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]], index_map: IndexedBases
+    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    prepare_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
 ) -> str:
-    """Build the CUDA body populating the cached Jacobian auxiliaries."""
+    """Build the CUDA body populating the cached Jacobian auxiliaries.
+
+    Parameters
+    ----------
+    cached_assigns
+        Auxiliary assignments stored in the cache.
+    prepare_assigns
+        Assignments executed during cache population.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements storing computed auxiliaries into the
+        cache buffer.
+
+    Notes
+    -----
+    Walks the preparation order, renders assignments via the CUDA printer, and
+    writes cached values into their corresponding buffer indices.
+    """
 
     if cached_assigns:
         cached = sp.IndexedBase(
@@ -342,10 +382,13 @@ def _build_prepare_body(
         )
     else:
         cached = sp.IndexedBase("cached_aux")
-    exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
-    for idx, (lhs, rhs) in enumerate(cached_assigns):
+    exprs = []
+    cached_slots = {lhs: idx for idx, (lhs, _) in enumerate(cached_assigns)}
+    for lhs, rhs in prepare_assigns:
         exprs.append((lhs, rhs))
-        exprs.append((cached[idx], lhs))
+        idx = cached_slots.get(lhs)
+        if idx is not None:
+            exprs.append((cached[idx], lhs))
 
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
@@ -354,7 +397,7 @@ def _build_prepare_body(
 
 
 def generate_operator_apply_code_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: JVPEquations,
     index_map: IndexedBases,
     M: sp.Matrix,
     func_name: str = "operator_apply_factory",
@@ -364,8 +407,8 @@ def generate_operator_apply_code_from_jvp(
 
     Parameters
     ----------
-    jvp_exprs
-        Topologically ordered Jacobian-vector product expressions.
+    equations
+        Structured Jacobian-vector product assignments.
     index_map
         Symbol indexing helpers produced by the parser.
     M
@@ -386,14 +429,17 @@ def generate_operator_apply_code_from_jvp(
     and embeds each constant as a standalone variable in the generated device
     function.
     """
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, prepare_assigns = _partition_cached_assignments(
+        equations
+    )
     body = _build_operator_body(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
-        jvp_terms=jvp_terms,
+        jvp_terms=equations.jvp_terms,
         index_map=index_map,
         M=M,
         use_cached_aux=False,
+        prepare_assigns=prepare_assigns,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     return OPERATOR_APPLY_TEMPLATE.format(
@@ -402,20 +448,22 @@ def generate_operator_apply_code_from_jvp(
 
 
 def generate_cached_operator_apply_code_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: JVPEquations,
     index_map: IndexedBases,
     M: sp.Matrix,
     func_name: str = "linear_operator_cached",
 ) -> str:
     """Emit the cached linear operator factory from JVP expressions."""
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    body = _build_operator_body(cached_assigns=cached_aux,
-                                runtime_assigns=runtime_aux,
-                                jvp_terms=jvp_terms,
-                                index_map=index_map,
-                                M=M,
-                                use_cached_aux=True)
+    cached_aux, runtime_aux, _ = _partition_cached_assignments(equations)
+    body = _build_operator_body(
+        cached_assigns=cached_aux,
+        runtime_assigns=runtime_aux,
+        jvp_terms=equations.jvp_terms,
+        index_map=index_map,
+        M=M,
+        use_cached_aux=True,
+    )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     return CACHED_OPERATOR_APPLY_TEMPLATE.format(
         func_name=func_name,
@@ -425,14 +473,14 @@ def generate_cached_operator_apply_code_from_jvp(
 
 
 def generate_prepare_jac_code_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: JVPEquations,
     index_map: IndexedBases,
     func_name: str = "prepare_jac",
 ) -> Tuple[str, int]:
     """Emit the auxiliary preparation factory from JVP expressions."""
 
-    cached_aux, _, _ = _split_jvp_expressions(jvp_exprs)
-    body = _build_prepare_body(cached_aux, index_map)
+    cached_aux, _, prepare_assigns = _partition_cached_assignments(equations)
+    body = _build_prepare_body(cached_aux, prepare_assigns, index_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     code = PREPARE_JAC_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
@@ -441,17 +489,17 @@ def generate_prepare_jac_code_from_jvp(
 
 
 def generate_cached_jvp_code_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: JVPEquations,
     index_map: IndexedBases,
     func_name: str = "calculate_cached_jvp",
 ) -> str:
     """Emit the cached JVP factory from precomputed JVP expressions."""
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, _ = _partition_cached_assignments(equations)
     body = _build_cached_jvp_body(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
-        jvp_terms=jvp_terms,
+        jvp_terms=equations.jvp_terms,
         index_map=index_map,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -467,7 +515,7 @@ def generate_operator_apply_code(
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "operator_apply_factory",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the linear operator factory from system equations.
 
@@ -484,7 +532,9 @@ def generate_operator_apply_code(
         Name assigned to the emitted factory.
     cse
         Apply common subexpression elimination before emission.
-
+    jvp_equations
+        Optional precomputed :class:`JVPEquations` reused across helper
+        generation.
     Returns
     -------
     str
@@ -495,8 +545,8 @@ def generate_operator_apply_code(
         M_mat = sp.eye(n)
     else:
         M_mat = sp.Matrix(M)
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
@@ -504,7 +554,7 @@ def generate_operator_apply_code(
             cse=cse,
         )
     return generate_operator_apply_code_from_jvp(
-        jvp_exprs=jvp_exprs,
+        equations=jvp_equations,
         index_map=index_map,
         M=M_mat,
         func_name=func_name,
@@ -518,7 +568,7 @@ def generate_cached_operator_apply_code(
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "linear_operator_cached",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached linear operator factory."""
 
@@ -527,8 +577,8 @@ def generate_cached_operator_apply_code(
         M_mat = sp.eye(n)
     else:
         M_mat = sp.Matrix(M)
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
@@ -536,7 +586,7 @@ def generate_cached_operator_apply_code(
             cse=cse,
         )
     return generate_cached_operator_apply_code_from_jvp(
-        jvp_exprs=jvp_exprs,
+        equations=jvp_equations,
         index_map=index_map,
         M=M_mat,
         func_name=func_name,
@@ -548,12 +598,12 @@ def generate_prepare_jac_code(
     index_map: IndexedBases,
     func_name: str = "prepare_jac",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> Tuple[str, int]:
     """Generate the cached auxiliary preparation factory."""
 
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
@@ -561,7 +611,7 @@ def generate_prepare_jac_code(
             cse=cse,
         )
     return generate_prepare_jac_code_from_jvp(
-        jvp_exprs=jvp_exprs,
+        equations=jvp_equations,
         index_map=index_map,
         func_name=func_name,
     )
@@ -572,12 +622,12 @@ def generate_cached_jvp_code(
     index_map: IndexedBases,
     func_name: str = "calculate_cached_jvp",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached Jacobian-vector product factory."""
 
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
@@ -585,7 +635,7 @@ def generate_cached_jvp_code(
             cse=cse,
         )
     return generate_cached_jvp_code_from_jvp(
-        jvp_exprs=jvp_exprs,
+        equations=jvp_equations,
         index_map=index_map,
         func_name=func_name,
     )
@@ -687,7 +737,7 @@ def generate_neumann_preconditioner_code(
     index_map: IndexedBases,
     func_name: str = "neumann_preconditioner_factory",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the Neumann preconditioner factory.
 
@@ -702,6 +752,10 @@ def generate_neumann_preconditioner_code(
     cse
         Apply common subexpression elimination before emission.
 
+    jvp_equations
+        Optional precomputed :class:`JVPEquations` reused across helper
+        generation.
+
     Returns
     -------
     str
@@ -709,17 +763,18 @@ def generate_neumann_preconditioner_code(
     """
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
             observables=index_map.observable_symbols,
             cse=cse,
         )
+    assignments = jvp_equations.ordered_assignments
     # Emit using canonical names, then rewrite to drive JVP with `out` and
     # write into the caller-provided scratch buffer `jvp`.
-    lines = print_cuda_multiple(jvp_exprs, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(assignments, symbol_map=index_map.all_arrayrefs)
     if not lines:
         lines = ["pass"]
     else:
@@ -739,21 +794,21 @@ def generate_neumann_preconditioner_cached_code(
     index_map: IndexedBases,
     func_name: str = "neumann_preconditioner_cached",
     cse: bool = True,
-    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached Neumann preconditioner factory."""
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
-    if jvp_exprs is None:
-        jvp_exprs = generate_analytical_jvp(
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
             equations,
             input_order=index_map.states.index_map,
             output_order=index_map.dxdt.index_map,
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    jv_body = _build_cached_neumann_body(jvp_exprs, index_map)
+    jv_body = _build_cached_neumann_body(jvp_equations, index_map)
     return NEUMANN_CACHED_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
@@ -769,17 +824,21 @@ def generate_neumann_preconditioner_cached_code(
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, order=None):\n"
-    '    """Auto-generated residual function for Newton-Krylov ODE integration.\n'
+    "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, "
+    "order=None):\n"
+    '    """Auto-generated residual function for Newton-Krylov ODE '
+    'integration.\n'
     "    \n"
     "    Computes the stage-increment residual\n"
     "    beta * M @ u - gamma * h * f(base_state + a_ij * u)\n"
     "    where ``u`` is the increment solved for by Newton's method.\n"
     "    \n"
-    "    Uses dx_ numbered symbols for derivatives and aux_ symbols for observables,\n"
+    "    Uses dx_ numbered symbols for derivatives and aux_ symbols for "
+    "observables,\n"
     "    following the same pattern as JVP generation.\n"
     "    \n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
+    "    Order is ignored, included for compatibility with preconditioner "
+    "API.\n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
