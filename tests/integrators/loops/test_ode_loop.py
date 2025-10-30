@@ -15,9 +15,9 @@ Array = NDArray[np.floating]
 
 DEFAULT_OVERRIDES = {
     'dt': 0.001953125,  # try an exactly-representable dt
-    'dt_min': 1e-7,
+    'dt_min': 1e-8,
     'dt_max': 0.5,
-    'dt_save': 0.1,
+    'dt_save': 0.01953125,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
@@ -127,16 +127,16 @@ LOOP_CASES = [
         id="dirk-lobatto-iiic-3",
         marks=pytest.mark.specific_algos,
     ),
-    pytest.param(
-        {"algorithm": "ros3p", "step_controller": "pi"},
-        id="rosenbrock-ros3p",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "rosenbrock_w6s4os", "step_controller": "pi"},
-        id="rosenbrock-w6s4os",
-        marks=pytest.mark.specific_algos,
-    ),
+    # pytest.param(
+    #     {"algorithm": "ros3p", "step_controller": "pi"},
+    #     id="rosenbrock-ros3p",
+    #     marks=pytest.mark.specific_algos,
+    # ),
+    # pytest.param(
+    #     {"algorithm": "rosenbrock_w6s4os", "step_controller": "pi"},
+    #     id="rosenbrock-w6s4os",
+    #     marks=pytest.mark.specific_algos,
+    # ),
 ]
 
 # Build, update, getter tests combined

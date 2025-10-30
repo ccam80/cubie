@@ -172,11 +172,11 @@ class AdaptiveIController(BaseAdaptiveStepController):
             """
             nrm2 = precision(0.0)
             for i in range(n):
-                error[i] = max(abs(error[i]), precision(1e-12))
+                error_i = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                nrm2 += (tol * tol) / (error[i] * error[i])
+                nrm2 += (tol * tol) / (error_i * error_i)
 
             nrm2 = precision(nrm2/n)
             accept = nrm2 >= precision(1.0)

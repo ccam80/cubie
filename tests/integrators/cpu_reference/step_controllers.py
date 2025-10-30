@@ -96,7 +96,7 @@ class CPUAdaptiveController:
     ) -> bool:
         self._step_count += 1
         if not self.is_adaptive:
-            return True
+            return True 
         errornorm = self.error_norm(
             state_prev=prev_state,
             state_new=new_state,

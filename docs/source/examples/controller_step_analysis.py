@@ -82,64 +82,46 @@ SYSTEM_LABELS: Dict[str, str] = {
 SYSTEM_ORDER: Tuple[str, ...] = tuple(SYSTEM_BUILDERS.keys())
 
 
-FEHLBERG_DEFAULT_OVERRIDES: Dict[str, float] = {
-    "dt": 0.001953125,
-    "dt_min": 1e-12,
-    "newton_tolerance": 1e-7,
-    "krylov_tolerance": 1e-7,
-    "atol": 1e-5,
-    "rtol": 1e-6,
-}
-
 
 def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
-    """Return the Fehlberg-45 configuration used in the CPU tests.
+    """Return solver configuration aligned with `tests.conftest` and
+    `tests.integrators.loops.test_ode_loop` defaults.
 
-    Parameters
-    ----------
-    precision
-        Floating-point dtype used for the integration.
-
-    Returns
-    -------
-    dict
-        Default solver configuration mirroring ``tests.conftest`` with the
-        Fehlberg overrides from :mod:`tests.integrators.loops.test_ode_loop`.
     """
 
     defaults: Dict[str, Any] = {
         "algorithm": "sdirk_2_2",
-        "duration": precision(0.1),
+        "duration": precision(1.0),
         "warmup": precision(0.0),
-        "dt": precision(0.01),
-        "dt_min": precision(1e-12),
-        "dt_max": precision(1.0),
-        "dt_save": precision(0.1),
+        "dt": precision(0.001953125),
+        "dt_min": precision(1e-9),
+        "dt_max": precision(0.5),
+        "dt_save": precision(0.01),
         "dt_summarise": precision(0.2),
         "atol": precision(1e-5),
         "rtol": precision(1e-6),
-        "saved_state_indices": [0, 1],
+        "saved_state_indices": [0, 1, 2],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
         "summarised_observable_indices": [0, 1],
-        "output_types": ["state"],
+        "output_types": ["state", "time"],
         "blocksize": 32,
         "stream": 0,
         "profileCUDA": False,
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
-        "step_controller": "pi",
+        "step_controller": "fixed",
         "precision": precision,
         "driverspline_order": 3,
         "driverspline_wrap": False,
-        "driverspline_end_condition": "clamped",
+        "driverspline_boundary_condition": "clamped",
         "krylov_tolerance": precision(1e-7),
         "correction_type": "minimal_residual",
         "newton_tolerance": precision(1e-7),
         "preconditioner_order": 2,
-        "max_linear_iters": 5,
-        "max_newton_iters": 5,
+        "max_linear_iters": 500,
+        "max_newton_iters": 500,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,
         "min_gain": precision(0.2),
@@ -150,10 +132,6 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "deadband_min": precision(1.0),
         "deadband_max": precision(1.2),
     }
-    #
-    # for key, value in FEHLBERG_DEFAULT_OVERRIDES.items():
-    #     defaults[key] = precision(value)
-
     return defaults
 
 
@@ -280,13 +258,14 @@ def build_driver_settings(
         return None
 
     dt_sample = precision(solver_settings["dt_save"]) / 2.0
-    total_span = precision(solver_settings["duration"] / 2.0)
-    t0 = solver_settings["duration"] / 4.0
+    total_span = precision(solver_settings["duration"])  # match test fixtures
+    t0 = precision(solver_settings["warmup"])  # align with conftest driver t0
     order = int(solver_settings["driverspline_order"])
 
     samples = int(np.ceil(total_span / dt_sample)) + 1
     samples = max(samples, order + 1)
-    total_time = float(dt_sample) * max(samples - 1, 1)
+    # use precision arithmetic like the tests
+    total_time = precision(dt_sample) * max(samples - 1, 1)
 
     driver_matrix = _driver_sequence(
         samples=samples,
@@ -296,13 +275,16 @@ def build_driver_settings(
     )
 
     driver_names = list(system.indices.driver_names)
-    drivers_dict: Dict[str, ArrayFloat] = {
+    drivers_dict: Dict[str, Any] = {
         name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
         for idx, name in enumerate(driver_names)
     }
     drivers_dict["dt"] = precision(dt_sample)
     drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
-    drivers_dict["boundary_condition"] = solver_settings["driverspline_end_condition"]
+    drivers_dict["boundary_condition"] = solver_settings.get(
+        "driverspline_boundary_condition",
+        solver_settings.get("driverspline_end_condition", "clamped"),
+    )
     drivers_dict["order"] = order
     drivers_dict["t0"] = t0
 
@@ -455,65 +437,6 @@ def create_driver_evaluator(
         precision=precision,
         boundary_condition=boundary,
     )
-
-
-
-def generate_variants(
-    system: Any,
-    precision: type[np.floating[Any]],
-    *,
-    seed: int,
-    count: int = 1,
-) -> List[Tuple[ArrayFloat, ArrayFloat]]:
-    """Return ``count`` diverse (state, parameter) pairs for the system.
-
-    Parameters
-    ----------
-    system
-        Symbolic system providing baseline values.
-    precision
-        Floating-point dtype for generated samples.
-    seed
-        Seed used to initialise the random generator.
-    count
-        Number of variants to generate.
-
-    Returns
-    -------
-    list of tuple(ndarray, ndarray)
-        Randomised state and parameter pairs.
-    """
-
-    rng = np.random.default_rng(seed)
-    base_state = system.initial_values.values_array.astype(
-        precision, copy=True
-    )
-    base_params = system.parameters.values_array.astype(precision, copy=True)
-    sign_state = np.where(base_state == 0, 1.0, np.sign(base_state))
-    sign_params = np.where(base_params == 0, 1.0, np.sign(base_params))
-    variations: List[Tuple[ArrayFloat, ArrayFloat]] = []
-
-    for _ in range(count):
-        state_scale = rng.uniform(0.2, 1.8, size=base_state.shape)
-        param_scale = rng.uniform(0.3, 2.0, size=base_params.shape)
-        state_offset = rng.uniform(-0.6, 0.6, size=base_state.shape)
-        param_offset = rng.uniform(-0.2, 0.2, size=base_params.shape)
-        varied_state = sign_state * (
-            (np.abs(base_state) + 0.5) * state_scale + state_offset
-        )
-        varied_params = sign_params * (
-            (np.abs(base_params) + 0.1) * param_scale + param_offset
-        )
-        varied_state = np.clip(varied_state, -5.0, 5.0)
-        varied_params = np.clip(varied_params, -1, 1)
-        variations.append(
-            (
-                varied_state.astype(precision, copy=False),
-                varied_params.astype(precision, copy=False),
-            )
-        )
-
-    return variations
 
 
 def generate_inputs(
@@ -763,31 +686,25 @@ def plot_step_histories(
 ) -> None:
     """Render the controller-specific figure showing accepted and rejected steps.
 
-    Parameters
-    ----------
-    controller
-        Controller identifier (``"i"``, ``"pi"``, ``"pid"``, or
-        ``"gustafsson"``).
-    histories
-        Mapping from system name to recorded step histories.
+    Modified to produce two rows per system (step-size history above, states
+    + drivers below) and to add a grid to the state plot.
     """
 
-    # Arrange plots vertically: one row per system plus a bottom row for
-    # representative state histories.
     n_systems = len(SYSTEM_ORDER)
-    fig, axes = plt.subplots(n_systems + 1, 1, figsize=(10, 3 * (n_systems + 1)))
+    fig, axes = plt.subplots(2 * n_systems, 1, figsize=(10, 3 * 2 * n_systems))
     axes = np.atleast_1d(axes)
     controller_label = controller.upper()
 
-    # Top panels: per-system accepted/rejected step scatter
     for idx, system_name in enumerate(SYSTEM_ORDER):
-        axis = axes[idx]
+        top_ax = axes[2 * idx]
+        bottom_ax = axes[2 * idx + 1]
         records = histories.get(system_name, [])
         accepted = [record for record in records if record.accepted]
         rejected = [record for record in records if not record.accepted]
 
+        # Step-size history (top row)
         if rejected:
-            axis.scatter(
+            top_ax.scatter(
                 [record.time for record in rejected],
                 [record.step_size for record in rejected],
                 color="tab:red",
@@ -797,7 +714,7 @@ def plot_step_histories(
                 label="rejected",
             )
         if accepted:
-            axis.scatter(
+            top_ax.scatter(
                 [record.time for record in accepted],
                 [record.step_size for record in accepted],
                 color="tab:blue",
@@ -807,62 +724,60 @@ def plot_step_histories(
                 label="accepted",
             )
 
-        axis.set_title(SYSTEM_LABELS.get(system_name, system_name))
-        axis.set_xlabel("Time (s)")
-        axis.set_ylabel("Step size (s)")
-        axis.grid(True, linestyle=":", linewidth=0.6)
+        top_ax.set_title(SYSTEM_LABELS.get(system_name, system_name))
+        top_ax.set_xlabel("Time (s)")
+        top_ax.set_ylabel("Step size (s)")
+        top_ax.set_yscale('log')
+        top_ax.grid(True, linestyle=":", linewidth=0.6)
         if accepted and rejected:
-            axis.legend(loc="best")
+            top_ax.legend(loc="best")
 
-    # Bottom panel: plot all saved state variables (assumed 3) and overlay
-    # the driver(s) evaluated on the dt_save grid. ``state_histories`` is
-    # expected to be a mapping where each value is a dict containing keys
-    # 'variants' (list of (times, states) tuples), 'driver_times' and
-    # 'driver_values'. This keeps the plotting helper flexible while the
-    # caller constructs the evaluation grid.
-    bottom_ax = axes[-1]
-    if state_histories:
-        for system_name in SYSTEM_ORDER:
-            entry = state_histories.get(system_name, None)
-            if entry is None:
-                continue
+        # State + driver plot (bottom row)
+        entry = state_histories.get(system_name, None) if state_histories else None
+        if entry is not None:
             variants = entry.get("variants", [])
-            times, states = variants[0]
-            times_arr = np.asarray(times, dtype=float)
-            drivers_arr = np.zeros_like(times_arr)
-            for i in range(times_arr.shape[0]):
-                drivers_arr[i] = driver_evaluator(times_arr[i])
-            states_arr = np.asarray(states, dtype=float)
-            if states_arr.ndim == 2 and states_arr.shape[0] == times_arr.size:
-                n_states = states_arr.shape[1]
-                # choose a qualitative colormap for states
-                cmap = plt.get_cmap("tab10")
-                for si in range(n_states):
+            if variants:
+                times, states = variants[0]
+                times_arr = np.asarray(times, dtype=float)
+                states_arr = np.asarray(states, dtype=float)
+
+                # plot states if shape matches (saved per dt_save)
+                if states_arr.ndim == 2 and states_arr.shape[0] == times_arr.size:
+                    n_states = states_arr.shape[1]
+                    cmap = plt.get_cmap("tab10")
+                    for si in range(n_states):
+                        bottom_ax.plot(
+                            times_arr,
+                            states_arr[:, si],
+                            label=f"{SYSTEM_LABELS.get(system_name, system_name)} state {si}",
+                            color=cmap(si % 10),
+                            linewidth=1.2,
+                        )
+
+                # evaluate drivers across the saved times and overlay
+                n_drivers = driver_evaluator._width
+                drivers_arr = np.zeros((n_drivers, times_arr.shape[0]))
+                for i in range(times_arr.shape[0]):
+                    drivers_arr[:, i] = driver_evaluator(times_arr[i])
+
+                for di in range(drivers_arr.shape[0]):
+                    ydrv = drivers_arr[di, :]
                     bottom_ax.plot(
                         times_arr,
-                        states_arr[:, si],
-                        label=f"{SYSTEM_LABELS.get(system_name, system_name)} state {si}",
-                        color=cmap(si % 10),
-                        linewidth=1.2,
+                        ydrv,
+                        linestyle=":",
+                        marker=None,
+                        alpha=0.8,
+                        label=f"{SYSTEM_LABELS.get(system_name, system_name)} driver {di}",
                     )
 
-            n_drivers = drivers_arr.shape[1] if drivers_arr.ndim == 2 else 1
-            for di in range(n_drivers):
-                if drivers_arr.ndim == 1:
-                    ydrv = drivers_arr
-                else:
-                    ydrv = drivers_arr[:, di]
-                bottom_ax.plot(
-                    times_arr,
-                    ydrv,
-                    linestyle=":",
-                    marker=None,
-                    alpha=0.8,
-                    label=f"{SYSTEM_LABELS.get(system_name, system_name)} driver {di}",
-                )
-            plt.legend()
+        bottom_ax.set_xlabel("Time (s)")
+        bottom_ax.set_ylabel("Value")
+        bottom_ax.grid(True, linestyle=":", linewidth=0.6)  # add grid to state plot
+        bottom_ax.legend(loc="best")
+
     fig.suptitle(f"Step-size history for {controller_label} controller", fontsize=14)
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+    fig.tight_layout(rect=(0, 0.03, 1, 0.95))
 
     plt.show()
 
@@ -876,6 +791,7 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
         # per-system state + driver info used by the plotting helper
         controller_state_histories: Dict[str, dict] = {}
 
+        driver_evaluator = None
         for system_name, builder in SYSTEM_BUILDERS.items():
             print(
                 "Running analysis for "
@@ -910,70 +826,50 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
 
             histories: List[StepRecord] = []
             state_variants: List[tuple] = []
-            variants = generate_variants(
-                system,
-                precision,
-                seed=hash((controller, system_name)) & 0xFFFF,
+            # Use a single deterministic variant matching the test fixtures:
+            # initial values and parameters come from the symbolic system
+            print("  Running single deterministic variant (matches test_loop)")
+            initial_state = system.initial_values.values_array.astype(
+                precision, copy=True
             )
-            for variant_idx, variant in enumerate(variants):
-                print(
-                    f"  Running variant {variant_idx + 1}/{len(variants)}"
-                )
-                initial_state, parameters = variant
-                label = f"run{variant_idx + 1}"
-                inputs = generate_inputs(
-                    solver_settings=solver_settings,
-                    system=system,
-                    precision=precision,
-                    initial_state=initial_state,
-                    parameters=parameters,
-                    driver_array=driver_array,
-                )
-                controller_instance = create_controller(
-                    step_settings, precision
-                )
-                outputs, step_records = run_reference_loop_with_history(
-                    evaluator=cpu_system,
-                    inputs=inputs,
-                    solver_settings=solver_settings,
-                    implicit_step_settings=implicit_settings,
-                    controller=controller_instance,
-                    driver_evaluator=driver_evaluator,
-                    output_functions=output_functions,
-                    run_label=label,
-                )
-                histories.extend(step_records)
-                # collect raw saved state/time for plotting
-                state_variants.append((outputs.get("time_history", np.array([])), outputs.get("state_history", np.array([]))))
+            parameters = system.parameters.values_array.astype(precision, copy=True)
+            label = "run1"
+            print("    initial_state:", initial_state)
 
-            # Build a driver evaluation grid at dt_save spacing so the plotting
-            # helper can overlay driver signals. Use the configured driver
-            # evaluator coefficients to match the run.
-            dt_save = float(solver_settings.get("dt_save", 0.1))
-            duration = float(solver_settings.get("duration", 1.0))
-            if dt_save > 0.0:
-                driver_times = np.arange(0.0, duration + 1e-12, dt_save)
-            else:
-                driver_times = np.array([])
+            inputs = generate_inputs(
+                solver_settings=solver_settings,
+                system=system,
+                precision=precision,
+                initial_state=initial_state,
+                parameters=parameters,
+                driver_array=driver_array,
+            )
+            controller_instance = create_controller(
+                step_settings, precision
+            )
+            outputs, step_records = run_reference_loop_with_history(
+                evaluator=cpu_system,
+                inputs=inputs,
+                solver_settings=solver_settings,
+                implicit_step_settings=implicit_settings,
+                controller=controller_instance,
+                driver_evaluator=driver_evaluator,
+                output_functions=output_functions,
+                run_label=label,
+            )
+            histories.extend(step_records)
+            # collect raw saved state/time for plotting
+            state_variants.append((outputs.get("time_history", np.array([])), outputs.get("state_history", np.array([]))))
 
-            if driver_array is not None and driver_times.size:
-                # Ensure evaluator uses the same coefficients used for inputs
-                driver_eval_for_plot = driver_evaluator.with_coefficients(
-                    np.asarray(driver_array.coefficients, dtype=precision)
-                )
-                driver_values = np.vstack([driver_eval_for_plot(t) for t in driver_times]).astype(float)
-            else:
-                driver_values = np.array([])
 
             controller_histories[system_name] = histories
             controller_state_histories[system_name] = {
                 "variants": state_variants,
-                "driver_times": driver_times,
-                "driver_values": driver_values,
             }
 
         all_histories[controller] = controller_histories
-        plot_step_histories(controller, controller_histories, controller_state_histories)
+        plot_step_histories(controller, driver_evaluator,
+                            controller_histories, controller_state_histories)
 
 
 def main() -> Dict[str, Dict[str, List[StepRecord]]]:

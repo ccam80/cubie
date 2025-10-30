@@ -384,13 +384,8 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 rhs_value = stage_rhs[idx]
                 proposed_state[idx] += solution_weight * rhs_value
-                if not multistage:
-                    proposed_state[idx] *= dt_value
-                    proposed_state[idx] += state[idx]
                 if has_error:
                     error[idx] += error_weight * rhs_value
-                    if not multistage:
-                        error[idx] *= dt_value
                             
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -474,7 +469,8 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 proposed_state[idx] *= dt_value
                 proposed_state[idx] += state[idx]
-                error[idx] *= dt_value
+                if has_error:
+                    error[idx] *= dt_value
 
             if has_driver_function:
                 driver_function(
