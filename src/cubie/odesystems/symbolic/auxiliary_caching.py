@@ -1,4 +1,12 @@
-"""Auxiliary caching heuristics for symbolic solver helpers."""
+"""Auxiliary caching heuristics for symbolic solver helpers.
+
+This module was created to find an alternative to storing the whole Jacobian
+matrix for a Rosenbrock method, with the best of intentions and the eager
+collaboration of an AI agent. The problem is not straightforward to solve,
+and seemed an unecessary optimization when there were larger problems to
+fix. The bones remain here, but they are heavily AI-inflected, as I never
+got into the inner workings of the problem. They may save a few ops,
+here and there, in some sytems, but otherwise will just quietly do nothing."""
 
 from itertools import combinations
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
@@ -26,7 +34,9 @@ class CacheGroup:
     prepare
         Ordered tuple of symbols evaluated when populating the cache.
     saved
-        Estimated number of operations saved by caching the group.
+        Estimated number of runtime operations removed by caching the group.
+    fill_cost
+        Estimated number of operations required to populate the cache once.
     """
 
     seed = attrs.field()
@@ -34,6 +44,7 @@ class CacheGroup:
     removal = attrs.field(converter=tuple)
     prepare = attrs.field(converter=tuple)
     saved = attrs.field()
+    fill_cost = attrs.field()
 
 
 @attrs.frozen
@@ -47,12 +58,55 @@ class CacheSelection:
     runtime_nodes = attrs.field(converter=tuple)
     prepare_nodes = attrs.field(converter=tuple)
     saved = attrs.field()
+    fill_cost = attrs.field()
+
+
+@attrs.frozen
+class SeedSimulation:
+    """Capture the outcome of simulating a cached leaf combination."""
+
+    leaves = attrs.field(converter=tuple)
+    removal = attrs.field(converter=tuple)
+    prepare = attrs.field(converter=tuple)
+    saved = attrs.field()
+    fill_cost = attrs.field()
+    meets_threshold = attrs.field()
+
+
+@attrs.frozen
+class SeedDiagnostics:
+    """Collect diagnostics for a single seed symbol exploration."""
+
+    seed = attrs.field()
+    total_ops = attrs.field()
+    closure_uses = attrs.field()
+    reachable = attrs.field(converter=tuple)
+    simulations = attrs.field(converter=tuple)
+
+
 def _reachable_leaves(
     seed: sp.Symbol,
     dependents: Mapping[sp.Symbol, Set[sp.Symbol]],
     jvp_usage: Mapping[sp.Symbol, int],
+    total_cost: Mapping[sp.Symbol, int],
+    min_internal_cost: int,
 ) -> Set[sp.Symbol]:
-    """Return JVP-dependent leaves reachable from ``seed``."""
+    """Return high-value leaves reachable from ``seed``.
+
+    Parameters
+    ----------
+    seed
+        Starting auxiliary symbol.
+    dependents
+        Reverse dependency graph for auxiliary assignments.
+    jvp_usage
+        Direct JVP usage counts for auxiliary symbols.
+    total_cost
+        Cumulative operation counts for auxiliary symbols.
+    min_internal_cost
+        Minimum cumulative cost for treating an internal node as a cache
+        candidate.
+    """
 
     stack = [seed]
     visited = set()
@@ -62,7 +116,11 @@ def _reachable_leaves(
         if node in visited:
             continue
         visited.add(node)
-        if jvp_usage.get(node, 0) > 0:
+        if (
+            jvp_usage.get(node, 0) > 0
+            or total_cost.get(node, 0) >= min_internal_cost
+            or node == seed
+        ):
             leaves.add(node)
         for child in dependents.get(node, set()):
             stack.append(child)
@@ -89,8 +147,8 @@ def _prepare_nodes_for_leaves(
 def _simulate_cached_leaves(
     equations: JVPEquations,
     leaves: Sequence[sp.Symbol],
-) -> Optional[Tuple[int, Set[sp.Symbol]]]:
-    """Return saved operations and removed nodes for cached ``leaves``."""
+) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]]:
+    """Return savings metadata for cached ``leaves``."""
 
     dependencies = equations.dependencies
     dependents = equations.dependents
@@ -115,31 +173,55 @@ def _simulate_cached_leaves(
         for child in dependents.get(node, set()):
             if child not in removal:
                 return None
+    prepare = _prepare_nodes_for_leaves(leaves, dependencies)
     saved = sum(ops_cost.get(node, 0) for node in removal)
-    return saved, removal
+    fill_cost = sum(ops_cost.get(node, 0) for node in prepare)
+    return saved, removal, prepare, fill_cost
 
 
-def _collect_candidates(
-    equations: JVPEquations,
-) -> List[CacheGroup]:
-    """Return candidate cache groups explored from each seed symbol."""
+def gather_seed_diagnostics(equations: JVPEquations) -> Tuple[SeedDiagnostics, ...]:
+    """Return detailed simulation diagnostics for each caching seed."""
 
     order_idx = equations.order_index
+    total_cost = equations.total_ops_cost
     slot_limit = equations.cache_slot_limit
     if slot_limit <= 0:
-        return []
+        return tuple()
     dependents = equations.dependents
-    dependencies = equations.dependencies
     jvp_usage = equations.jvp_usage
     min_ops = equations.min_ops_threshold
-    candidate_map = {}
-    for seed in equations.non_jvp_order:
-        if equations.jvp_closure_usage.get(seed, 0) == 0:
+    min_internal_cost = max(min_ops, 1)
+    diagnostics = []
+    seeds = sorted(
+        equations.non_jvp_order,
+        key=lambda sym: (
+            -total_cost.get(sym, 0),
+            order_idx.get(sym, len(order_idx)),
+        ),
+    )
+    for seed in seeds:
+        closure_uses = equations.jvp_closure_usage.get(seed, 0)
+        if closure_uses == 0:
             continue
-        reachable = _reachable_leaves(seed, dependents, jvp_usage)
+        reachable = _reachable_leaves(
+            seed,
+            dependents,
+            jvp_usage,
+            total_cost,
+            min_internal_cost,
+        )
         if not reachable:
             continue
-        ordered_leaves = sorted(reachable, key=order_idx.get)
+        ordered_leaves = tuple(
+            sorted(
+                reachable,
+                key=lambda sym: (
+                    -total_cost.get(sym, 0),
+                    order_idx.get(sym, len(order_idx)),
+                ),
+            )
+        )
+        simulations = []
         max_size = min(len(ordered_leaves), slot_limit)
         for size in range(1, max_size + 1):
             for subset in combinations(ordered_leaves, size):
@@ -149,10 +231,87 @@ def _collect_candidates(
                 )
                 if simulation is None:
                     continue
-                saved, removal = simulation
+                saved, removal, prepare, fill_cost = simulation
+                meets_threshold = saved >= min_ops
+                simulations.append(
+                    SeedSimulation(
+                        leaves=tuple(subset),
+                        removal=tuple(
+                            sorted(removal, key=order_idx.get)
+                        ),
+                        prepare=tuple(
+                            sorted(prepare, key=order_idx.get)
+                        ),
+                        saved=saved,
+                        fill_cost=fill_cost,
+                        meets_threshold=meets_threshold,
+                    )
+                )
+        diagnostics.append(
+            SeedDiagnostics(
+                seed=seed,
+                total_ops=total_cost.get(seed, 0),
+                closure_uses=closure_uses,
+                reachable=ordered_leaves,
+                simulations=tuple(simulations),
+            )
+        )
+    return tuple(diagnostics)
+
+
+def _collect_candidates(
+    equations: JVPEquations,
+) -> List[CacheGroup]:
+    """Return candidate cache groups explored from each seed symbol."""
+
+    order_idx = equations.order_index
+    total_cost = equations.total_ops_cost
+    slot_limit = equations.cache_slot_limit
+    if slot_limit <= 0:
+        return []
+    dependents = equations.dependents
+    jvp_usage = equations.jvp_usage
+    min_ops = equations.min_ops_threshold
+    min_internal_cost = max(min_ops, 1)
+    candidate_map = {}
+    seeds = sorted(
+        equations.non_jvp_order,
+        key=lambda sym: (
+            -total_cost.get(sym, 0),
+            order_idx.get(sym, len(order_idx)),
+        ),
+    )
+    for seed in seeds:
+        if equations.jvp_closure_usage.get(seed, 0) == 0:
+            continue
+        reachable = _reachable_leaves(
+            seed,
+            dependents,
+            jvp_usage,
+            total_cost,
+            min_internal_cost,
+        )
+        if not reachable:
+            continue
+        ordered_leaves = sorted(
+            reachable,
+            key=lambda sym: (
+                -total_cost.get(sym, 0),
+                order_idx.get(sym, len(order_idx)),
+            ),
+        )
+        max_size = min(len(ordered_leaves), slot_limit)
+        for size in range(1, max_size + 1):
+            for subset in combinations(ordered_leaves, size):
+                simulation = _simulate_cached_leaves(
+                    equations,
+                    subset,
+                )
+                if simulation is None:
+                    continue
+                saved, removal, prepare, fill_cost = simulation
                 if saved < min_ops:
                     continue
-                prepare_nodes = _prepare_nodes_for_leaves(subset, dependencies)
                 group = CacheGroup(
                     seed=seed,
                     leaves=tuple(subset),
@@ -160,47 +319,66 @@ def _collect_candidates(
                         sorted(removal, key=order_idx.get)
                     ),
                     prepare=tuple(
-                        sorted(prepare_nodes, key=order_idx.get)
+                        sorted(prepare, key=order_idx.get)
                     ),
                     saved=saved,
+                    fill_cost=fill_cost,
                 )
-                key = frozenset(subset)
+                key = (
+                    frozenset(subset),
+                    frozenset(removal),
+                )
                 existing = candidate_map.get(key)
-                if existing is None or saved > existing.saved:
+                if existing is None:
+                    candidate_map[key] = group
+                    continue
+                if saved > existing.saved:
+                    candidate_map[key] = group
+                    continue
+                if saved == existing.saved and fill_cost < existing.fill_cost:
                     candidate_map[key] = group
     return sorted(
-        candidate_map.values(), key=lambda group: group.saved, reverse=True
+        candidate_map.values(),
+        key=lambda group: (
+            group.saved,
+            -len(group.leaves),
+            -group.fill_cost,
+        ),
+        reverse=True,
     )
 
 
 def _evaluate_leaves(
     equations: JVPEquations,
     leaves_key: frozenset,
-    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
-    memo: Dict[
-        frozenset,
-        Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]],
-    ],
-) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]]:
+    memo: Dict[str, Dict],
+) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]]:
     """Return cached evaluation metadata for the provided leaves."""
 
-    if leaves_key in memo:
-        return memo[leaves_key]
+    leaves_memo = memo.setdefault("leaves", {})
+    removal_memo = memo.setdefault("removal", {})
+    if leaves_key in leaves_memo:
+        return leaves_memo[leaves_key]
     if not leaves_key:
-        result = (0, set(), set())
-        memo[leaves_key] = result
+        result = (0, set(), set(), 0)
+        leaves_memo[leaves_key] = result
         return result
     simulation = _simulate_cached_leaves(
         equations,
         tuple(leaves_key),
     )
     if simulation is None:
-        memo[leaves_key] = None
+        leaves_memo[leaves_key] = None
         return None
-    saved, removal = simulation
-    prepare = _prepare_nodes_for_leaves(leaves_key, dependencies)
-    result = (saved, removal, prepare)
-    memo[leaves_key] = result
+    saved, removal, prepare, fill_cost = simulation
+    removal_key = frozenset(removal)
+    existing = removal_memo.get(removal_key)
+    if existing is not None:
+        leaves_memo[leaves_key] = existing
+        return existing
+    result = (saved, removal, prepare, fill_cost)
+    leaves_memo[leaves_key] = result
+    removal_memo[removal_key] = result
     return result
 
 
@@ -222,11 +400,11 @@ def _search_group_combinations(
             runtime_nodes=runtime_nodes,
             prepare_nodes=tuple(),
             saved=0,
+            fill_cost=0,
         )
 
-    dependencies = equations.dependencies
     min_ops = equations.min_ops_threshold
-    memo = {}
+    memo = {"leaves": {}, "removal": {}}
     best_state = None
     stack = [(0, frozenset(), tuple())]
     while stack:
@@ -234,12 +412,11 @@ def _search_group_combinations(
         evaluation = _evaluate_leaves(
             equations,
             leaves_key,
-            dependencies,
             memo,
         )
         if evaluation is None:
             continue
-        saved, removal_set, prepare_set = evaluation
+        saved, removal_set, prepare_set, fill_cost = evaluation
         if leaves_key and saved >= min_ops:
             if best_state is None:
                 best_state = (
@@ -248,19 +425,24 @@ def _search_group_combinations(
                     removal_set,
                     prepare_set,
                     saved,
+                    fill_cost,
                 )
             else:
                 best_leaves = best_state[0]
-                best_saved = best_state[-1]
+                best_saved = best_state[4]
+                best_fill = best_state[5]
                 if saved > best_saved:
                     improvement = saved - best_saved
-                    if improvement >= min_ops or len(leaves_key) <= len(best_leaves):
+                    if improvement >= min_ops or len(leaves_key) <= len(
+                        best_leaves
+                    ):
                         best_state = (
                             leaves_key,
                             chosen,
                             removal_set,
                             prepare_set,
                             saved,
+                            fill_cost,
                         )
                 elif saved == best_saved:
                     if len(leaves_key) < len(best_leaves):
@@ -270,6 +452,16 @@ def _search_group_combinations(
                             removal_set,
                             prepare_set,
                             saved,
+                            fill_cost,
+                        )
+                    elif len(leaves_key) == len(best_leaves) and fill_cost < best_fill:
+                        best_state = (
+                            leaves_key,
+                            chosen,
+                            removal_set,
+                            prepare_set,
+                            saved,
+                            fill_cost,
                         )
                 else:
                     deficit = best_saved - saved
@@ -280,6 +472,7 @@ def _search_group_combinations(
                             removal_set,
                             prepare_set,
                             saved,
+                            fill_cost,
                         )
         for idx in range(start, len(candidates)):
             group = candidates[idx]
@@ -298,9 +491,17 @@ def _search_group_combinations(
             runtime_nodes=runtime_nodes,
             prepare_nodes=tuple(),
             saved=0,
+            fill_cost=0,
         )
 
-    leaves_key, best_groups, removal_set, prepare_set, saved = best_state
+    (
+        leaves_key,
+        best_groups,
+        removal_set,
+        prepare_set,
+        saved,
+        fill_cost,
+    ) = best_state
     cached_order = tuple(sorted(leaves_key, key=order_idx.get))
     removal_order = tuple(sorted(removal_set, key=order_idx.get))
     prepare_order = tuple(sorted(prepare_set, key=order_idx.get))
@@ -315,6 +516,7 @@ def _search_group_combinations(
         runtime_nodes=runtime_nodes,
         prepare_nodes=prepare_order,
         saved=saved,
+        fill_cost=fill_cost,
     )
 
 
