@@ -1,0 +1,1339 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0 -- /opt/venv/bin/python
+cachedir: .pytest_cache
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-6.8.0-1024-aws-x86_64-with-glibc2.39', 'Packages': {'pytest': '8.4.1', 'pluggy': '1.6.0'}, 'Plugins': {'metadata': '3.1.1', 'cov': '6.2.1', 'json-report': '1.5.0', 'durations': '1.5.2'}}
+rootdir: /workspace/repo
+configfile: pyproject.toml
+testpaths: tests
+plugins: metadata-3.1.1, cov-6.2.1, json-report-1.5.0, durations-1.5.2
+collecting ... collected 907 items / 84 deselected / 823 selected
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_attach_existing_label PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_attach_nonexistent_label PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_existing_label PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_nonexistent_label PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_all PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialization PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_register_with_memory_manager PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_on_allocation_complete PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_single_force PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_group_force PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_auto_single PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_auto_group PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_invalidate_hook_functionality PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_both_none PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_one_none PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_same_arrays PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_different_arrays PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_no_change PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_shape_change PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_zero_shape PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_value_change PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_chunk_placeholders PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_returns_dict PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_all_correct PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_with_none_arrays PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_returns_dict PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_correct_shapes PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_wrong_shapes PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_with_chunking PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_invalid_location PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_all_pass PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_size_fail PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_type_fail PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestAttachExternalArrays::test_attach_external_arrays_success PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestAttachExternalArrays::test_attach_external_arrays_with_failures PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_success PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_shape_change PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_size_mismatch PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_nonexistent_array PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_no_change PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateSizes::test_update_sizes_success PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateSizes::test_update_sizes_wrong_type PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_registration PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides0] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides1] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides2] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_stream_group_management[arraytest_overrides0] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_stream_group_management[arraytest_overrides1] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_allocation_with_settings PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides0] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides1] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides2] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides3] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_allocation_response_matches_settings[arraytest_overrides0] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_allocation_response_matches_settings[arraytest_overrides1] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_memory_integration_with_settings[arraytest_overrides0] PASSED
+tests/batchsolving/arrays/test_basearraymanager.py::test_memory_integration_with_settings[arraytest_overrides1] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_container_arrays_after_init PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_container_stride_order PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_host_factory PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_device_factory PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_initialization_container_types PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_from_solver_factory PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_allocation_and_getters_not_none PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_call_method_updates_host_arrays PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_call_method_size_change_triggers_reallocation PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_update_from_solver PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_initialise_method PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_finalise_method PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_dtype[float32] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_dtype[float32] PASSED
+tests/batchsolving/test_solver.py::test_solver_precision_types[float32] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_operator_apply_dense[1.0-1.0-1.0-M0-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_operator_apply_dense[1.0-1.0-1.0-M1-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_operator_apply_dense[0.5-2.0-1.0-M2-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_cached_jvp_matches_jacobian[float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_cached_operator_apply_dense[1.0-1.0-0.25-M0-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_cached_operator_apply_dense[1.0-1.0-0.25-M1-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_cached_operator_apply_dense[0.5-1.7-0.15-M2-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_expression[1.0-1.0-0.25-0-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_expression[1.0-1.0-0.25-1-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_expression[1.0-1.0-0.25-2-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_expression[0.5-2.0-0.1-3-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_cached_expression[1.0-1.0-0.25-0-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_cached_expression[1.0-1.0-0.25-1-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_cached_expression[1.0-1.0-0.25-2-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_neumann_preconditioner_cached_expression[0.5-1.5-0.1-3-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_stage_residual[1.0-1.0-1.0-1.0-M0-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_stage_residual[1.0-1.0-1.0-0.5-M1-float64] PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_stage_residual[0.5-2.0-1.0-0.25-M2-float64] PASSED
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_run[large_dataset-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_window[large_dataset-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_memory_types[local_mem-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_memory_types[shared_mem-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[tiny_values-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[large_values-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[wide_range-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_no_summarys[state_obs-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_no_summarys[obs_only-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_no_summarys[obs_time-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_no_summarys[time_only-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_no_summarys[state_obs_time-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_various_summaries[basic_summaries-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_various_summaries[peaks_only-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_various_summaries[all-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_various_summaries[state_and_mean-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_various_summaries[obs_and_mean-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[1_1-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[10_5-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[50_20-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[100_100-float32] PASSED
+tests/outputhandling/test_output_functions.py::test_frequent_summaries[output_test_settings_overrides0-float32] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_dtype[float64] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_dtype[float64] PASSED
+tests/batchsolving/test_solver.py::test_solver_precision_types[float64] PASSED
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_run[large_dataset-float64] PASSED
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_window[large_dataset-float64] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides0] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides1] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides2] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[three_chamber] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[three_chamber-solver_settings_override0] PASSED
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test] PASSED
+tests/batchsolving/test_solver.py::test_solve_basic[default_system] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_time_domain_legend_from_solver[linear-solver_settings_override0] PASSED
+tests/integrators/algorithms/test_rosenbrock_tableaus.py::test_rosenbrock_step_accepts_registry_tableau[solver_settings_override0-system_override0] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-i] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_rejection_retains_previous_state[three_chamber-solver_settings_override0-i] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[erk-heun-21-cache-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[euler-] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[euler-solver_settings_override20] PASSED
+tests/integrators/step_control/test_controllers.py::test_pi_controller_uses_tableau_order[solver_settings_override0-solver_settings_override20] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[erk-ralston-33-cache-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[backwards_euler-] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[backwards_euler-solver_settings_override20] PASSED
+tests/batchsolving/test_SolverKernel.py::test_run[fire_test] PASSED
+tests/batchsolving/test_solver.py::test_solve_basic[three_chamber_system] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[stiff-solver_settings_override0] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[stiff] PASSED
+tests/batchsolving/test_solver.py::test_solver_with_different_systems[stiff] PASSED
+tests/integrators/test_SingleIntegratorRun.py::TestSingleIntegratorRun::test_build_getters_and_equivalence[solver_settings_override1] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[dirk-trapezoidal-cache-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[backwards_euler_pc-] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[backwards_euler_pc-solver_settings_override20] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[dirk-sdirk-2-2-cache-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[crank_nicolson-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[rosenbrock-ros3p-cache-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[rosenbrock-] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[crank_nicolson_pi-solver_settings_override20] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[erk-] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[dirk-] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[erk-solver_settings_override20] PASSED
+tests/integrators/loops/test_ode_loop.py::test_loop[dirk-solver_settings_override20] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[i] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-i] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-i] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-pi] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_rejection_retains_previous_state[three_chamber-solver_settings_override0-pi] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[pi] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-pi] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-pi] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-pid] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_rejection_retains_previous_state[three_chamber-solver_settings_override0-pid] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[pid] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-pid] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-pid] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-gustafsson] PASSED
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_rejection_retains_previous_state[three_chamber-solver_settings_override0-gustafsson] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[gustafsson] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-gustafsson] PASSED
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-gustafsson] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[linear-solver_settings_override0] PASSED
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[linear] PASSED
+tests/batchsolving/test_solver.py::test_solver_with_different_systems[linear] PASSED
+tests/batchsolving/test_solver.py::test_manual_proportion[solver_settings_override0] PASSED
+tests/batchsolving/test_solver.py::test_solve_with_different_grid_types[solver_settings_override0] PASSED
+tests/batchsolving/test_solver.py::test_solve_with_different_result_types[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_full_instantiation[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_numpy_instantiation[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_numpy_per_summary_instantiation[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_pandas_instantiation[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_summary_legend_from_solver[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_stride_order_from_solver[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_as_numpy_property[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_per_summary_arrays_property[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_as_pandas_property[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_active_outputs_property[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultPandasIntegration::test_pandas_shape_consistency[solver_settings_override0] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultPandasIntegration::test_pandas_time_indexing[solver_settings_override0] PASSED
+tests/integrators/loops/test_ode_loop.py::test_initial_observable_seed_matches_reference[solver_settings_override0] PASSED
+tests/integrators/test_SingleIntegratorRun.py::TestSingleIntegratorRun::test_build_getters_and_equivalence[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_from_output_fns_default[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_vs_from_output_fns[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_from_system_and_output_fns_default[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_vs_from_system_and_output_fns[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_from_output_fns_default[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_vs_from_output_fns[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_from_output_fns_and_run_settings_default[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_from_solver_with_nonzero[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_vs_from_solver[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestIntegrationScenarios::test_realistic_scenario_no_zeros[solver_settings_override0] PASSED
+tests/outputhandling/test_output_sizes.py::TestIntegrationScenarios::test_edge_case_all_zeros_with_nonzero[solver_settings_override0] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-dict-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-dict-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-dict-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-seq-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-seq-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-seq-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-array-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-array-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-dict-array-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-dict-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-dict-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-dict-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-seq-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-seq-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-seq-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-array-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-array-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-seq-array-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-dict-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-dict-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-dict-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-seq-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-seq-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-seq-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-array-dict] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-array-seq] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[linear-array-array-array] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_outputs[linear] PASSED
+tests/batchsolving/test_solver.py::test_solver_with_different_systems[three_chamber] PASSED
+tests/integrators/test_SingleIntegratorRun.py::test_update_routes_to_children[linear] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_arrays_after_init PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_stride_order PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_memory_type_default PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_host_factory PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_device_factory PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_active_outputs_initialization PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_update_from_outputarrays_all_active PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_update_from_outputarrays_size_one_arrays PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_initialization_container_types PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_from_solver_factory PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_allocation_and_getters_not_none PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_getters_return_none_before_allocation PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_call_method_allocates_arrays PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_reallocation_on_size_change PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_chunking_affects_device_array_size PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_active_outputs_property PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_update_from_solver PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_initialise_method PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_finalise_method_copies_device_to_host PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides0] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides1] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides2] PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArraysSpecialCases::test_allocation_with_different_solver_sizes PASSED
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArraysSpecialCases::test_active_outputs_after_allocation PASSED
+tests/batchsolving/test_SolverKernel.py::test_kernel_builds PASSED
+tests/batchsolving/test_SolverKernel.py::test_algorithm_change PASSED
+tests/batchsolving/test_SolverKernel.py::test_getters_get PASSED
+tests/batchsolving/test_SolverKernel.py::test_all_lower_plumbing PASSED
+tests/batchsolving/test_SolverKernel.py::test_bogus_update_fails PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_combinatorial_and_verbatim_grid PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_call_with_request PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_unique_cartesian_product PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_combinatorial_grid PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_verbatim_grid PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_generate_grid PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_size_errors PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_combine_grids PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_extend_grid_to_array PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_generate_array PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_1each[batch_settings0] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_1each[batch_settings1] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_2and2[batch_settings0] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_2and2[batch_settings1] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_verbatim_mismatch[batch_settings0] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_empty_inputs[batch_settings0] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_empty_inputs[batch_settings1] PASSED
+tests/batchsolving/test_batch_grid_builder.py::test_docstring_examples PASSED
+tests/batchsolving/test_solver.py::test_solver_initialization PASSED
+tests/batchsolving/test_solver.py::test_solver_properties PASSED
+tests/batchsolving/test_solver.py::test_variable_indices_methods PASSED
+tests/batchsolving/test_solver.py::test_saved_variables_properties PASSED
+tests/batchsolving/test_solver.py::test_summarised_variables_properties PASSED
+tests/batchsolving/test_solver.py::test_output_properties PASSED
+tests/batchsolving/test_solver.py::test_solve_info_property PASSED
+tests/batchsolving/test_solver.py::test_update_basic PASSED
+tests/batchsolving/test_solver.py::test_update_with_kwargs PASSED
+tests/batchsolving/test_solver.py::test_update_unrecognized_keys PASSED
+tests/batchsolving/test_solver.py::test_update_silent_mode PASSED
+tests/batchsolving/test_solver.py::test_update_saved_variables PASSED
+tests/batchsolving/test_solver.py::test_profiling_methods PASSED
+tests/batchsolving/test_solver.py::test_memory_settings_update PASSED
+tests/batchsolving/test_solver.py::test_data_properties_after_solve PASSED
+tests/batchsolving/test_solver.py::test_output_length_and_summaries_length PASSED
+tests/batchsolving/test_solver.py::test_chunk_related_properties PASSED
+tests/batchsolving/test_solver.py::test_variable_labels_properties PASSED
+tests/batchsolving/test_solver.py::test_solve_ivp_function PASSED
+tests/batchsolving/test_solver.py::test_solver_with_different_algorithms PASSED
+tests/batchsolving/test_solver.py::test_solver_output_types PASSED
+tests/batchsolving/test_solver.py::test_solver_summary_legend PASSED
+tests/batchsolving/test_solver.py::test_solver_save_time_property PASSED
+tests/batchsolving/test_solver.py::test_solver_state_and_observable_summaries PASSED
+tests/batchsolving/test_solver.py::test_solver_summaries_buffer_sizes PASSED
+tests/batchsolving/test_solver.py::test_solver_num_runs_property PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[True-True-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[True-False-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[False-True-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[False-False-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[True-True-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[True-False-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[False-True-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[False-False-<lambda>] PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_cleave_time_with_time_saved PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_cleave_time_without_time_saved PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultDefaultBehavior::test_default_instantiation PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultDefaultBehavior::test_custom_stride_order PASSED
+tests/batchsolving/test_solveresult.py::TestSolveResultErrorHandling::test_empty_summaries_per_summary_arrays PASSED
+tests/batchsolving/test_system_interface.py::test_from_system PASSED
+tests/batchsolving/test_system_interface.py::test_update[updates0-linear] PASSED
+tests/batchsolving/test_system_interface.py::test_update[updates1-linear] PASSED
+tests/batchsolving/test_system_interface.py::test_update[updates2-linear] PASSED
+tests/batchsolving/test_system_interface.py::test_update_invalid[updates0] PASSED
+tests/batchsolving/test_system_interface.py::test_update_invalid[updates1] PASSED
+tests/batchsolving/test_system_interface.py::test_state_indices PASSED
+tests/batchsolving/test_system_interface.py::test_observable_indices PASSED
+tests/batchsolving/test_system_interface.py::test_parameter_indices PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_zero PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_positive PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_negative PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_with_zeros PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_without_zeros PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_empty PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_single_zero PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_single_nonzero PASSED
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_other_types PASSED
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_cuda_array_detection PASSED
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_numpy_array_detection PASSED
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_non_array_detection PASSED
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_mock_array_like_in_cudasim PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_no_dimensions PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_correct_dimensions PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_wrong_dimensions PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_invalid_non_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_invalid_non_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_none_value PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_none_value_with_dimensions PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array_correct_dimensions PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array_wrong_dimensions PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_invalid_non_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_none_value PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_valid_3d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_invalid_2d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_invalid_non_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_none_value PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_valid_2d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_invalid_3d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_invalid_non_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_valid_3d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_invalid_2d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_invalid_non_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_valid_2d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_3d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_1d_cuda_array PASSED
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_non_array PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_tableau_registry_contains_expected_entries[implicit_midpoint] PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_tableau_registry_contains_expected_entries[trapezoidal_dirk] PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_tableau_registry_contains_expected_entries[lobatto_iiic_3] PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_tableau_registry_contains_expected_entries[sdirk_2_2] PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_tableau_default_matches_registry PASSED
+tests/integrators/algorithms/test_dirk_tableaus.py::test_dirk_step_accepts_tableau_instance PASSED
+tests/integrators/algorithms/test_generic_erk_tableaus.py::test_registry_contains_expected_tableaus PASSED
+tests/integrators/algorithms/test_generic_erk_tableaus.py::test_default_tableau_is_registered PASSED
+tests/integrators/algorithms/test_generic_erk_tableaus.py::test_step_accepts_registered_tableau[erk_step_settings_override0] PASSED
+tests/integrators/algorithms/test_rosenbrock_tableaus.py::test_rosenbrock_registry_contains_expected_tableaus PASSED
+tests/integrators/algorithms/test_rosenbrock_tableaus.py::test_rosenbrock_step_function_accepts_registry_key PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm_factory_resolves_tableau_alias[erk] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm_factory_resolves_tableau_alias[dirk] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm_factory_resolves_tableau_alias[rosenbrock] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_cpu_reference_resolves_tableau_alias[erk] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_cpu_reference_resolves_tableau_alias[dirk] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_cpu_reference_resolves_tableau_alias[rosenbrock] PASSED
+tests/integrators/algorithms/test_step_algorithms.py::test_rosenbrock_solver_helper_cache_refresh PASSED
+tests/integrators/cpu_reference/test_cpu_utils.py::test_cpu_driver_evaluator_matches_gpu_time_alignment[float32-5e-06-5e-06] PASSED
+tests/integrators/cpu_reference/test_cpu_utils.py::test_cpu_driver_evaluator_matches_gpu_time_alignment[float64-1e-12-1e-12] PASSED
+tests/integrators/loops/test_interp_vs_symbolic.py::test_time_driver_array_matches_function PASSED
+tests/integrators/loops/test_ode_loop.py::test_getters PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_neumann_preconditioner[linear-1] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_neumann_preconditioner[linear-2] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_placeholder[steepest_descent] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_placeholder[minimal_residual] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[0-steepest_descent-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[0-steepest_descent-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[0-minimal_residual-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[0-minimal_residual-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[1-steepest_descent-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[1-steepest_descent-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[1-minimal_residual-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[1-minimal_residual-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[2-steepest_descent-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[2-steepest_descent-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[2-minimal_residual-linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_symbolic[2-minimal_residual-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_max_iters_exceeded PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_placeholder PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[0-linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[0-nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[0-stiff] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[0-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[0-coupled_nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[1-linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[1-nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[1-stiff] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[1-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[1-coupled_nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[2-linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[2-nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[2-stiff] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[2-coupled_linear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_symbolic[2-coupled_nonlinear] PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_failure PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_max_newton_iters_exceeded PASSED
+tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_linear_solver_failure_propagates PASSED
+tests/integrators/test_SingleIntegratorRun.py::test_default_step_controller_settings_applied PASSED
+tests/integrators/test_SingleIntegratorRun.py::test_step_controller_overrides_take_precedence[crank_nicolson-overrides0] PASSED
+tests/integrators/test_array_interpolator.py::test_build_coefficients_matches_polynomial PASSED
+tests/integrators/test_array_interpolator.py::test_device_interpolation_matches_cpu PASSED
+tests/integrators/test_array_interpolator.py::test_get_interpolated_matches_kernel_output PASSED
+tests/integrators/test_array_interpolator.py::test_get_interpolated_requires_one_dimensional_input PASSED
+tests/integrators/test_array_interpolator.py::test_wrap_vs_clamp_evaluation PASSED
+tests/integrators/test_array_interpolator.py::test_non_wrap_returns_zero_outside_range PASSED
+tests/integrators/test_array_interpolator.py::test_non_wrap_defaults_to_clamped_boundary PASSED
+tests/integrators/test_array_interpolator.py::test_wrap_repeats_periodically PASSED
+tests/integrators/test_array_interpolator.py::test_polynomial_samples_are_reproduced[1] PASSED
+tests/integrators/test_array_interpolator.py::test_polynomial_samples_are_reproduced[2] PASSED
+tests/integrators/test_array_interpolator.py::test_polynomial_samples_are_reproduced[3] PASSED
+tests/integrators/test_array_interpolator.py::test_polynomial_samples_are_reproduced[4] PASSED
+tests/integrators/test_array_interpolator.py::test_polynomial_samples_are_reproduced[5] PASSED
+tests/integrators/test_array_interpolator.py::test_order_three_matches_scipy_reference[natural] PASSED
+tests/integrators/test_array_interpolator.py::test_order_three_matches_scipy_reference[periodic] PASSED
+tests/integrators/test_array_interpolator.py::test_order_three_matches_scipy_reference[clamped] PASSED
+tests/integrators/test_array_interpolator.py::test_order_three_matches_scipy_reference[not-a-knot] PASSED
+tests/integrators/test_array_interpolator.py::test_natural_boundary_supports_higher_orders PASSED
+tests/integrators/test_array_interpolator.py::test_periodic_boundary_respects_general_order PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override0] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override1] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override2] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_instantiation[array_request_override0] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_default_stride_ordering PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override0] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override1] PASSED
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override2] PASSED
+tests/memory/test_cupyemm.py::test_numba_stream_ptr PASSED
+tests/memory/test_cupyemm.py::test_cupy_stream_wrapper PASSED
+tests/memory/test_cupyemm.py::test_cupy_wrapper_mgr_check PASSED
+tests/memory/test_cupyemm.py::test_correct_memalloc PASSED
+tests/memory/test_cupyemm.py::test_allocation[NumbaCUDAMemoryManager] PASSED
+tests/memory/test_cupyemm.py::test_allocation[CuPySyncNumbaManager] PASSED
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager] PASSED
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_instantiation PASSED
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_add_allocation PASSED
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_free PASSED
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_free_all PASSED
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_allocated_bytes PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_instantiation PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_register PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_allocator PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_limit_mode PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_stream PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_change_stream_group PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_reinit_streams PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_invalidate_all PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_manual_limit_mode[registered_instance_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_auto_limit_mode PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_proportion[registered_instance_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_cap PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_pool_proportions[registered_instance_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_strides PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_global_stride_ordering PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_process_request PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_all PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_free PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_free_all PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_chunks PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_memory_info PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_strides PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_manual_pool_proportion[registered_instance_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_auto_pool_proportion PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_manual_proportion PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_rebalance_auto_pool PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_single PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_group PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_stream_group PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_check_requests PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_queue_request PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_chunk_arrays PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_single_request PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_single_instance PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_group_limit PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override0-instance-run] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override1-group-run] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override2-instance-time] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override3-group-time] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_empty_queue PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_is_grouped PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_single_low_memory_warning[fixed_mem_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_group_low_memory_warning[fixed_mem_override0] PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_to_device PASSED
+tests/memory/test_memmgmt.py::TestMemoryManager::test_from_device PASSED
+tests/memory/test_memmgmt.py::test_get_total_request_size PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_add_instance PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_group PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_change_group PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_stream PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_reinit_streams PASSED
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_instances_in_group PASSED
+tests/odesystems/symbolic/test_cellml.py::test_cellml_import_error PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_init_default PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_init_with_symbol_map PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_print_symbol_without_mapping PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_print_symbol_with_mapping PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_square_powers_simple PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_square_powers_indexed PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_square_powers_multiple PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_cube_powers_simple PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_cube_powers_indexed PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_powers_with_multiplication PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_replace_powers_ignores_higher_powers PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_doprint_simple_expression PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_doprint_with_symbol_mapping PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_ifelse_to_selp PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestCUDAPrinter::test_ifelse_to_selp_complex PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaFunction::test_print_cuda_simple PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaFunction::test_print_cuda_with_symbol_map PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaFunction::test_print_cuda_complex_expression PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaMultiple::test_print_cuda_multiple_simple PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaMultiple::test_print_cuda_multiple_with_symbol_map PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaMultiple::test_print_cuda_multiple_empty PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestPrintCudaMultiple::test_print_cuda_multiple_single PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestEdgeCases::test_power_replacement_with_whitespace PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestEdgeCases::test_power_replacement_with_tabs PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestEdgeCases::test_power_replacement_mixed_whitespace PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestEdgeCases::test_nested_indexed_variables PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::TestEdgeCases::test_symbol_map_with_complex_indexing PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::test_piecewise_assignment_is_wrapped_outside PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::test_piecewise_inside_expression_assignment PASSED
+tests/odesystems/symbolic/test_cuda_printer.py::test_functions PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestDxdtTemplate::test_dxdt_template_format PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestDxdtTemplate::test_dxdt_template_structure PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_simple_equations PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_custom_function_name PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_complex_equations PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_linear_system PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_nonlinear_equations PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_empty_equations PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_single_equation PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_equations_with_constants PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_equations_with_functions PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_code_contains_cuda_signatures PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_code_parameter_order PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateDxdtFacCode::test_constants_unpacked PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestDxdtIntegration::test_realistic_ode_system PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestDxdtIntegration::test_with_auxiliary_variables PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestDxdtIntegration::test_dxdt_reuses_observables_buffer PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateObservablesFacCode::test_observables_factory_structure PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestGenerateObservablesFacCode::test_observables_factory_includes_cse_dependencies PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestObservablesDeviceParity::test_dxdt_preserves_observables[state_values0-param_values0-0.25] PASSED
+tests/odesystems/symbolic/test_dxdt.py::TestObservablesDeviceParity::test_dxdt_preserves_observables[state_values1-param_values1--0.4] PASSED
+tests/odesystems/symbolic/test_dxdt.py::test_recompile_updates_constants PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_init_basic PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_init_with_defaults PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_init_with_custom_length PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_init_not_real PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_init_defaults_length_mismatch PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_pop_symbol PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_push_symbol PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_with_string_keys PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_with_symbol_keys PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_with_kwargs PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_kwargs_override_dict PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_ignores_unknown_keys PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBaseMap::test_update_values_empty_updates PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_init PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_from_user_inputs PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_from_user_inputs_with_defaults PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_getters PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_properties PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_getitem PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_all_symbols PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_with_dict PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_with_kwargs PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_kwargs_override_dict PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_ignores_unknown_keys PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_empty_updates PASSED
+tests/odesystems/symbolic/test_indexedbasemaps.py::TestIndexedBases::test_update_constants_only_affects_constants PASSED
+tests/odesystems/symbolic/test_jacobian.py::test_generate_jacobian_with_auxiliary PASSED
+tests/odesystems/symbolic/test_jacobian.py::test_generate_jacobian_coupled_nonlinear PASSED
+tests/odesystems/symbolic/test_jacobian.py::test_jacobian_caching PASSED
+tests/odesystems/symbolic/test_odefile.py::test_header_contains_notice PASSED
+tests/odesystems/symbolic/test_odefile.py::test_import_generates_and_returns PASSED
+tests/odesystems/symbolic/test_odefile.py::test_import_uses_cache PASSED
+tests/odesystems/symbolic/test_odefile.py::test_import_missing_without_code_raises PASSED
+tests/odesystems/symbolic/test_odefile.py::test_import_reinitialises_on_hash_change PASSED
+tests/odesystems/symbolic/test_odefile.py::test_creates_generated_dir_when_missing PASSED
+tests/odesystems/symbolic/test_odefile.py::test_cache_persists_across_instances_same_hash PASSED
+tests/odesystems/symbolic/test_odefile.py::test_multiple_factories_appended_and_importable PASSED
+tests/odesystems/symbolic/test_odefile.py::test_malformed_cached_function_triggers_regeneration PASSED
+tests/odesystems/symbolic/test_odefile.py::test_header_contains_required_imports PASSED
+tests/odesystems/symbolic/test_parser.py::TestInputCleaning::test_sanitise_input_math_simple_if PASSED
+tests/odesystems/symbolic/test_parser.py::TestInputCleaning::test_sanitise_input_math_nested_if PASSED
+tests/odesystems/symbolic/test_parser.py::TestInputCleaning::test_replace_if_simple PASSED
+tests/odesystems/symbolic/test_parser.py::TestInputCleaning::test_replace_if_complex_condition PASSED
+tests/odesystems/symbolic/test_parser.py::TestInputCleaning::test_replace_if_no_match PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessCalls::test_process_calls_sympy_functions PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessCalls::test_process_calls_user_functions PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessCalls::test_process_calls_unknown_function PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessCalls::test_process_calls_no_functions PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessParameters::test_process_parameters_basic PASSED
+tests/odesystems/symbolic/test_parser.py::TestProcessParameters::test_process_parameters_with_dicts PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_basic PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_strict_unlisted_auxiliary PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_relaxes_to_anonymous_aux_non_strict PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_state_derivative PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_observable_to_state_conversion PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_invalid_state_assignment PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_immutable_assignment PASSED
+tests/odesystems/symbolic/test_parser.py::TestLhsPass::test_lhs_pass_missing_observables PASSED
+tests/odesystems/symbolic/test_parser.py::TestRhsPass::test_rhs_pass_basic PASSED
+tests/odesystems/symbolic/test_parser.py::TestRhsPass::test_rhs_pass_undefined_symbol PASSED
+tests/odesystems/symbolic/test_parser.py::TestRhsPass::test_rhs_pass_with_if_else PASSED
+tests/odesystems/symbolic/test_parser.py::TestRhsPass::test_rhs_pass_recognises_time_symbol PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_string PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_list PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_tuple PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_consistency PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_different_content PASSED
+tests/odesystems/symbolic/test_parser.py::TestHashSystemDefinition::test_hash_system_definition_with_constants PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_basic PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_with_list PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_with_user_functions PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_includes_time_symbol PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_invalid_dxdt_type PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_empty_lines_filtered PASSED
+tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_indexed_variable_equivalence PASSED
+tests/odesystems/symbolic/test_parser.py::TestIntegrationWithFixtures::test_with_simple_system_defaults PASSED
+tests/odesystems/symbolic/test_parser.py::TestIntegrationWithFixtures::test_equation_parsing_with_fixture PASSED
+tests/odesystems/symbolic/test_parser.py::TestNonStrictInput::test_simple PASSED
+tests/odesystems/symbolic/test_parser.py::TestFunctions::test_sympyfuncs PASSED
+tests/odesystems/symbolic/test_parser.py::TestFunctions::test_userfunc_priority PASSED
+tests/odesystems/symbolic/test_parser.py::TestFunctions::test_device_userfunc_derivative_mapping PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_split_jvp_expressions_caches_high_cost_terms PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_split_jvp_expressions_limits_cache_size PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_split_jvp_expressions_groups_cse_dependents PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_split_jvp_expressions_limits_cse_depth_for_slots PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_cache_plan_shared_cse_with_slot_limit PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_build_expression_costs_tracks_jvp_dependencies PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_equations_track_dependency_levels_and_costs PASSED
+tests/odesystems/symbolic/test_solver_helpers.py::test_operator_apply_constant_unpacking PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_simple_list PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_dict_input PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_no_dependencies PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_complex_dependencies PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_circular_dependency PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_self_reference PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_external_symbols PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_empty_input PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_single_assignment PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestTopologicalSort::test_topological_sort_with_functions PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_simple PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_no_common_subexpressions PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_complex_expressions PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_custom_symbol_prefix PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_symbol_collision_warning PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_with_dependencies PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_empty_input PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_single_equation PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_with_functions PASSED
+tests/odesystems/symbolic/test_sym_utils.py::TestCseAndStack::test_cse_and_stack_maintains_expression_equivalence PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_create_ODE_system_strict PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_create_ODE_system_nonstrict PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_simple_strict_builds PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_simple_nonstrict_builds PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_solver_helper_cached PASSED
+tests/odesystems/symbolic/test_symbolicode.py::test_observables_helper_available PASSED
+tests/odesystems/test_SystemValues.py::test_init_edge_cases PASSED
+tests/odesystems/test_SystemValues.py::test_param_array_and_indices_match_supplied_dict PASSED
+tests/odesystems/test_SystemValues.py::test_get_index_of_key PASSED
+tests/odesystems/test_SystemValues.py::test_get_indices PASSED
+tests/odesystems/test_SystemValues.py::test_get_values_edge_cases PASSED
+tests/odesystems/test_SystemValues.py::test_set_values_edge_cases PASSED
+tests/odesystems/test_SystemValues.py::test_get_values_and_set_values PASSED
+tests/odesystems/test_SystemValues.py::test_update_from_dict PASSED
+tests/odesystems/test_SystemValues.py::test_indexing_as_array_or_dict PASSED
+tests/odesystems/test_SystemValues.py::test_init_with_invalid_precision PASSED
+tests/odesystems/test_SystemValues.py::test_set_values_with_mismatched_lengths PASSED
+tests/odesystems/test_SystemValues.py::test_set_values_with_non_list_values PASSED
+tests/odesystems/test_SystemValues.py::test_update_from_dict_with_empty_dict PASSED
+tests/odesystems/test_SystemValues.py::test_init_with_conflicting_keys PASSED
+tests/odesystems/test_SystemValues.py::test_with_large_dictionary PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_register_metrics_success PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_register_metric_duplicate_name_raises_error PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_buffer_offsets_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_output_offsets_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_buffer_sizes_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_output_sizes_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_tuple_ordering_alignment PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_with_valid_parameter PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_without_parameter_raises_error PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_with_invalid_parameter_raises_error PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_invalid_metric_name_raises_warning PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_mixed_valid_invalid_metrics_with_warning PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_empty_request_returns_empty_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parse_string_for_params_valid_formats PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parse_string_for_params_invalid_formats PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_save_functions_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_update_functions_returns_correct_tuple PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_complex_parameter_scenarios PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_edge_case_bracket_parsing PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_metrics_integration PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_available_metrics PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_simple_metrics_sizes PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_peaks_parametrized PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_peaks_without_parameter_raises_warning PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_offset_calculations PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_tuple_ordering_consistency PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_column_headings PASSED
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_summary_buffer_size_returns_correct_total PASSED
+tests/outputhandling/test_output_config.py::TestInitialization::test_minimal_initialization PASSED
+tests/outputhandling/test_output_config.py::TestInitialization::test_full_initialization PASSED
+tests/outputhandling/test_output_config.py::TestInitialization::test_no_output_raises_error PASSED
+tests/outputhandling/test_output_config.py::TestInitialization::test_out_of_bounds_indices_raise_error PASSED
+tests/outputhandling/test_output_config.py::TestInitialization::test_duplicate_indices_raise_error PASSED
+tests/outputhandling/test_output_config.py::TestProperties::test_max_dimensions_setters PASSED
+tests/outputhandling/test_output_config.py::TestProperties::test_saved_indices_setters PASSED
+tests/outputhandling/test_output_config.py::TestProperties::test_summarised_indices_setters PASSED
+tests/outputhandling/test_output_config.py::TestProperties::test_array_conversion PASSED
+tests/outputhandling/test_output_config.py::TestProperties::test_none_indices_conversion PASSED
+tests/outputhandling/test_output_config.py::TestFlagBehavior::test_flag_affects_returned_indices PASSED
+tests/outputhandling/test_output_config.py::TestFlagBehavior::test_indices_emptied_if_no_output PASSED
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_valid_summary_types PASSED
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_multiple_summary_types PASSED
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_empty_summary_types PASSED
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_summary_parameters PASSED
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_summary_memory_requirements PASSED
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_basic_output_types PASSED
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_summary_types PASSED
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_mixed_outputs PASSED
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_unknown_summary_type_warning PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_basic_creation PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_specified_indices PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_summary_metrics PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_parametrized_metrics PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_summarised_indices_default_to_saved PASSED
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_mixed_output_types PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_save_summaries_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_summarise_states_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_summarise_observables_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_saved_states_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_saved_observables_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_summarised_states_property PASSED
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_summarised_observables_property PASSED
+tests/outputhandling/test_output_functions.py::test_save_time[output_test_settings_overrides0] PASSED
+tests/outputhandling/test_output_functions.py::test_save_time[output_test_settings_overrides1] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[no_summaries] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[all_summaries] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[single_saved] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[saved_index_out_of_bounds] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[saved_empty] PASSED
+tests/outputhandling/test_output_functions.py::test_output_functions_build[no_output_types] PASSED
+tests/outputhandling/test_output_functions.py::test_summaries_buffer_sizes_property PASSED
+tests/outputhandling/test_output_functions.py::test_output_array_heights_property PASSED
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_int_values PASSED
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_tuple_values PASSED
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_preserves_original PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[larger_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_nonzero_functionality PASSED
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_nonzero_functionality PASSED
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_nonzero_functionality PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_nonzero_functionality PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_nonzero_functionality PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_stride_order_default PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_explicit_initialization[normal_values] PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_explicit_initialization[zeros] PASSED
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_nonzero_functionality PASSED
+tests/test_CUDAFactory.py::test_setup_compile_settings PASSED
+tests/test_CUDAFactory.py::test_update_compile_settings PASSED
+tests/test_CUDAFactory.py::test_update_compile_settings_reports_correct_key PASSED
+tests/test_CUDAFactory.py::test_cache_invalidation PASSED
+tests/test_CUDAFactory.py::test_build PASSED
+tests/test_CUDAFactory.py::test_build_with_dict_output PASSED
+tests/test_CUDAFactory.py::test_device_function_from_dict PASSED
+tests/test_CUDAFactory.py::test_get_cached_output_not_implemented_error PASSED
+tests/test_CUDAFactory.py::test_get_cached_output_not_implemented_error_multiple PASSED
+tests/test_utils.py::test_clamp_kernel_float64[float64] PASSED
+tests/test_utils.py::test_clamp_kernel_float32[float32] PASSED
+tests/test_utils.py::test_get_noise_64[float64] PASSED
+tests/test_utils.py::test_get_noise_32[float32] PASSED
+tests/test_utils.py::test_slice_variable_dimension PASSED
+tests/test_utils.py::test_in_attr PASSED
+tests/test_utils.py::test_is_attrs_class PASSED
+tests/test_utils.py::test_split_applicable_settings_with_class PASSED
+tests/test_utils.py::test_split_applicable_settings_with_function PASSED
+tests/test_utils.py::test_timing_decorator PASSED
+tests/test_utils.py::test_round_sf PASSED
+tests/test_utils.py::test_round_list_sf PASSED
+tests/test_utils.py::test_get_readonly_view PASSED
+tests/test_utils.py::test_is_devfnc PASSED
+
+=============================== warnings summary ===============================
+src/cubie/integrators/algorithms/generic_dirk_tableaus.py:178
+  /workspace/repo/src/cubie/integrators/algorithms/generic_dirk_tableaus.py:178: SyntaxWarning: invalid escape sequence '\g'
+    """Three-stage, third-order L-stable DIRK method with stiff accuracy.
+
+src/cubie/integrators/algorithms/generic_dirk_tableaus.py:236
+  /workspace/repo/src/cubie/integrators/algorithms/generic_dirk_tableaus.py:236: SyntaxWarning: invalid escape sequence '\g'
+    """Hairer--Wanner L-stable SDIRK tableau of order four.
+
+tests/batchsolving/arrays/test_basearraymanager.py:42
+  /workspace/repo/tests/batchsolving/arrays/test_basearraymanager.py:42: PytestCollectionWarning: cannot collect test class 'TestArrays' because it has a __init__ constructor (from: tests/batchsolving/arrays/test_basearraymanager.py)
+    @attrs.define(slots=False)
+
+tests/batchsolving/arrays/test_basearraymanager.py:79
+  /workspace/repo/tests/batchsolving/arrays/test_basearraymanager.py:79: PytestCollectionWarning: cannot collect test class 'TestArraysSimple' because it has a __init__ constructor (from: tests/batchsolving/arrays/test_basearraymanager.py)
+    @attrs.define(slots=False)
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array state_summaries not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array observable_summaries not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_basearraymanager.py: 2 warnings
+tests/batchsolving/arrays/test_batchinputarrays.py: 13 warnings
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:740: UserWarning: Provided arrays do not match the expected system sizes, ignoring update
+    warn(
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_size_mismatch
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:735: UserWarning: Host arrays '['state']' does not exist, ignoring update
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 7 warnings
+tests/batchsolving/arrays/test_batchoutputarrays.py: 4 warnings
+tests/batchsolving/test_SolverKernel.py: 7 warnings
+tests/batchsolving/test_solver.py: 11 warnings
+tests/batchsolving/test_solveresult.py: 4 warnings
+tests/integrators/loops/test_ode_loop.py: 2 warnings
+tests/integrators/test_SingleIntegratorRun.py: 4 warnings
+tests/outputhandling/test_output_sizes.py: 5 warnings
+tests/integrators/loops/test_interp_vs_symbolic.py: 1 warning
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:111: UserWarning: The following settings were ignored: {'max_linear_iters', 'max_newton_iters', 'newton_max_backtracks', 'preconditioner_order', 'newton_tolerance', 'newton_damping', 'krylov_tolerance'}
+    self._algo_step = get_algorithm_step(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 7 warnings
+tests/batchsolving/arrays/test_batchoutputarrays.py: 4 warnings
+tests/batchsolving/test_SolverKernel.py: 7 warnings
+tests/batchsolving/test_solver.py: 11 warnings
+tests/batchsolving/test_solveresult.py: 4 warnings
+tests/integrators/loops/test_ode_loop.py: 3 warnings
+tests/integrators/test_SingleIntegratorRun.py: 2 warnings
+tests/outputhandling/test_output_sizes.py: 5 warnings
+tests/integrators/loops/test_interp_vs_symbolic.py: 1 warning
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'max_newton_iters', 'max_gain', 'rtol', 'ki', 'dt_min', 'dt_max', 'deadband_min', 'atol', 'min_gain', 'kd', 'kp', 'deadband_max', 'algorithm_order'}
+    self._step_controller = get_controller(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 7 warnings
+tests/batchsolving/arrays/test_batchoutputarrays.py: 4 warnings
+tests/batchsolving/test_solver.py: 22 warnings
+tests/batchsolving/test_solveresult.py: 4 warnings
+tests/integrators/test_SingleIntegratorRun.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 1 warning
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:331: UserWarning: Parameters {algorithm_order} are not recognized by FixedStepController; updates have been ignored.
+    ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for driver_coefficients at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for parameters at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for initial_values at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_finalise_method
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_with_different_grid_types[solver_settings_override0]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array initial_values not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_finalise_method
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_with_different_grid_types[solver_settings_override0]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array parameters not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_finalise_method
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_with_different_grid_types[solver_settings_override0]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array driver_coefficients not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_solver.py::test_solver_precision_types[float32]
+tests/batchsolving/test_solver.py::test_solver_precision_types[float64]
+tests/batchsolving/test_solver.py::test_solver_with_different_algorithms
+tests/batchsolving/test_solver.py::test_solver_output_types
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'dt_max', 'algorithm_order', 'dt_min'}
+    self._step_controller = get_controller(
+
+tests/batchsolving/test_SolverKernel.py: 3 warnings
+tests/integrators/step_control/test_controller_equivalence_sequences.py: 4 warnings
+tests/integrators/algorithms/test_step_algorithms.py: 4 warnings
+tests/integrators/loops/test_ode_loop.py: 2 warnings
+tests/integrators/test_SingleIntegratorRun.py: 3 warnings
+tests/integrators/step_control/test_controllers.py: 12 warnings
+tests/outputhandling/test_output_sizes.py: 5 warnings
+tests/integrators/loops/test_interp_vs_symbolic.py: 1 warning
+  /workspace/repo/tests/conftest.py:778: UserWarning: The following settings were ignored: {'max_linear_iters', 'max_newton_iters', 'newton_max_backtracks', 'preconditioner_order', 'newton_tolerance', 'newton_damping', 'krylov_tolerance'}
+    return get_algorithm_step(precision, algorithm_settings)
+
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for status_codes at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for state at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for observables at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for observable_summaries at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 7 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:151: UserWarning: Overwriting previous allocation for state_summaries at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/integrators/algorithms/test_rosenbrock_tableaus.py::test_rosenbrock_step_accepts_registry_tableau[solver_settings_override0-system_override0]
+tests/integrators/step_control/test_controllers.py::test_pi_controller_uses_tableau_order[solver_settings_override0-solver_settings_override20]
+tests/integrators/algorithms/test_step_algorithms.py::test_stage_cache_reuse[rosenbrock-ros3p-cache-]
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[rosenbrock-]
+  /workspace/repo/tests/conftest.py:778: UserWarning: The following settings were ignored: {'newton_tolerance', 'max_newton_iters', 'newton_max_backtracks', 'newton_damping'}
+    return get_algorithm_step(precision, algorithm_settings)
+
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-i]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[i]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-i]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-i]
+  /workspace/repo/tests/conftest.py:666: UserWarning: The following settings were ignored: {'max_newton_iters', 'kd', 'ki', 'dt', 'kp'}
+    controller = get_controller(precision, step_controller_settings)
+
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[euler-]
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[erk-]
+tests/integrators/loops/test_ode_loop.py::test_getters
+  /workspace/repo/tests/conftest.py:787: UserWarning: The following settings were ignored: {'max_linear_iters', 'max_newton_iters', 'newton_max_backtracks', 'preconditioner_order', 'newton_tolerance', 'newton_damping', 'krylov_tolerance'}
+    return get_algorithm_step(precision, algorithm_settings)
+
+tests/integrators/loops/test_ode_loop.py::test_loop[euler-solver_settings_override20]
+tests/integrators/loops/test_ode_loop.py::test_loop[backwards_euler-solver_settings_override20]
+tests/integrators/loops/test_ode_loop.py::test_loop[backwards_euler_pc-solver_settings_override20]
+tests/integrators/loops/test_ode_loop.py::test_loop[dirk-solver_settings_override20]
+tests/integrators/loops/test_ode_loop.py::test_initial_observable_seed_matches_reference[solver_settings_override0]
+tests/integrators/test_SingleIntegratorRun.py::TestSingleIntegratorRun::test_build_getters_and_equivalence[solver_settings_override0]
+  /workspace/repo/tests/conftest.py:666: UserWarning: The following settings were ignored: {'max_newton_iters', 'max_gain', 'rtol', 'ki', 'dt_min', 'dt_max', 'deadband_min', 'atol', 'min_gain', 'kd', 'kp', 'deadband_max', 'algorithm_order'}
+    controller = get_controller(precision, step_controller_settings)
+
+tests/integrators/step_control/test_controllers.py::test_pi_controller_uses_tableau_order[solver_settings_override0-solver_settings_override20]
+tests/integrators/test_SingleIntegratorRun.py::TestSingleIntegratorRun::test_build_getters_and_equivalence[solver_settings_override1]
+tests/integrators/loops/test_ode_loop.py::test_loop[crank_nicolson_pi-solver_settings_override20]
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-pi]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[pi]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-pi]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-pi]
+  /workspace/repo/tests/conftest.py:666: UserWarning: The following settings were ignored: {'max_newton_iters', 'dt', 'kd'}
+    controller = get_controller(precision, step_controller_settings)
+
+tests/integrators/test_SingleIntegratorRun.py::TestSingleIntegratorRun::test_build_getters_and_equivalence[solver_settings_override1]
+tests/integrators/loops/test_ode_loop.py::test_loop[crank_nicolson_pi-solver_settings_override20]
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'max_newton_iters', 'dt', 'kd'}
+    self._step_controller = get_controller(
+
+tests/integrators/algorithms/test_step_algorithms.py::test_algorithm[rosenbrock-]
+  /workspace/repo/tests/conftest.py:787: UserWarning: The following settings were ignored: {'newton_tolerance', 'max_newton_iters', 'newton_max_backtracks', 'newton_damping'}
+    return get_algorithm_step(precision, algorithm_settings)
+
+tests/integrators/loops/test_ode_loop.py::test_loop[erk-solver_settings_override20]
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-pid]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[pid]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-pid]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-pid]
+  /workspace/repo/tests/conftest.py:666: UserWarning: The following settings were ignored: {'max_newton_iters', 'dt'}
+    controller = get_controller(precision, step_controller_settings)
+
+tests/integrators/loops/test_ode_loop.py::test_loop[erk-solver_settings_override20]
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'max_newton_iters', 'dt'}
+    self._step_controller = get_controller(
+
+tests/integrators/loops/test_ode_loop.py::test_loop[dirk-solver_settings_override20]
+tests/integrators/loops/test_ode_loop.py::test_initial_observable_seed_matches_reference[solver_settings_override0]
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'max_newton_iters', 'max_gain', 'rtol', 'ki', 'dt_min', 'dt_max', 'deadband_min', 'min_gain', 'kd', 'atol', 'kp', 'deadband_max', 'algorithm_order'}
+    self._step_controller = get_controller(
+
+tests/integrators/step_control/test_controller_equivalence_sequences.py::TestControllerEquivalence::test_sequential_acceptance_matches[three_chamber-solver_settings_override0-gustafsson]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_controller_builds[gustafsson]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[max_limit-gustafsson]
+tests/integrators/step_control/test_controllers.py::TestControllers::test_dt_clamps[min_limit-gustafsson]
+  /workspace/repo/tests/conftest.py:666: UserWarning: The following settings were ignored: {'kd', 'kp', 'dt', 'ki'}
+    controller = get_controller(precision, step_controller_settings)
+
+tests/batchsolving/test_batch_grid_builder.py::test_call_outputs[linear]
+tests/batchsolving/test_batch_grid_builder.py::test_docstring_examples
+  /workspace/repo/src/cubie/batchsolving/BatchGridBuilder.py:711: UserWarning: Provided input data has 2 columns, but there are 3 settable values. Missing values will be filled with default values, and extras ignored.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_algorithm_change
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:322: UserWarning: Parameters {algorithm} are not recognized by CrankNicolsonStep; updates have been ignored.
+    step_recognized |= self._algo_step.update(updates_dict, silent=True)
+
+tests/batchsolving/test_SolverKernel.py::test_algorithm_change
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:414: UserWarning: The following settings were ignored: {'dt'}
+    self._step_controller = get_controller(
+
+tests/batchsolving/test_SolverKernel.py::test_algorithm_change
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:331: UserWarning: Parameters {step_controller} are not recognized by AdaptivePIDController; updates have been ignored.
+    ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
+
+tests/batchsolving/test_SolverKernel.py::test_all_lower_plumbing
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:331: UserWarning: Parameters {algorithm_order, atol, dt_max, dt_min, rtol} are not recognized by FixedStepController; updates have been ignored.
+    ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
+
+tests/batchsolving/test_SolverKernel.py::test_bogus_update_fails
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:331: UserWarning: Parameters {algorithm_order, dt_min} are not recognized by FixedStepController; updates have been ignored.
+    ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
+
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array state not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array observables not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:295: UserWarning: Device array status_codes not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/integrators/test_SingleIntegratorRun.py::test_default_step_controller_settings_applied
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'algorithm_order'}
+    self._step_controller = get_controller(
+
+tests/integrators/loops/test_interp_vs_symbolic.py::test_time_driver_array_matches_function
+tests/integrators/loops/test_interp_vs_symbolic.py::test_time_driver_array_matches_function
+  /workspace/repo/tests/integrators/loops/test_interp_vs_symbolic.py:144: UserWarning: The following settings were ignored: {'dt_max', 'atol', 'rtol', 'dt_min'}
+    step_controller = get_controller(
+
+tests/integrators/loops/test_ode_loop.py::test_getters
+  /workspace/repo/tests/conftest.py:674: UserWarning: The following settings were ignored: {'max_newton_iters', 'max_gain', 'rtol', 'ki', 'dt_min', 'dt_max', 'deadband_min', 'atol', 'min_gain', 'kd', 'kp', 'deadband_max', 'algorithm_order'}
+    return get_controller(precision, step_controller_settings)
+
+tests/integrators/test_SingleIntegratorRun.py::test_step_controller_overrides_take_precedence[crank_nicolson-overrides0]
+  /workspace/repo/src/cubie/integrators/SingleIntegratorRunCore.py:122: UserWarning: The following settings were ignored: {'kd'}
+    self._step_controller = get_controller(
+
+tests/memory/test_cupyemm.py::test_cupy_wrapper_mgr_check
+tests/memory/test_cupyemm.py::test_correct_memalloc
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager]
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_register
+  /workspace/repo/src/cubie/memory/cupy_emm.py:387: FutureWarning: cupy.cuda.MemoryAsyncPool is experimental. The interface can change in the future.
+    self._mp = cp.cuda.MemoryAsyncPool()
+
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases
+  /workspace/repo/src/cubie/outputhandling/summarymetrics/metrics.py:337: UserWarning: Metric 'peaks' has a callable size but parameter is set to 0. This results in a sizeof 0, which is likely not what you want
+    self._get_size(metric, self._buffer_sizes)
+
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases
+  /workspace/repo/src/cubie/outputhandling/summarymetrics/metrics.py:506: UserWarning: Metric 'peaks' has a callable size but parameter is set to 0. This results in a sizeof 0, which is likely not what you want
+    self._get_size(metric, self._output_sizes)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+-------------- generated xml file: /artifacts/pytest-results.xml ---------------
+--------------------------------- JSON report ----------------------------------
+report saved to: tests/pytest_report.json
+=================================================== fixture duration top ====================================================
+total          name                                                               num  avg            min                    
+0:03:06.206008                                                device_loop_outputs    9 0:00:15.428831          0:00:04.286828
+0:01:33.744137                                                device_step_results   16 0:00:00.787672          0:00:00.565429
+0:00:48.979664                                                 solver_with_arrays   14 0:00:00.036954          0:00:00.035993
+0:00:47.692190                                               compare_input_output   24 0:00:01.270021          0:00:00.651693
+0:00:31.549470                                                       system_setup   29 0:00:01.201353          0:00:00.856421
+0:00:30.793024                                                               loop    9 0:00:03.424648          0:00:00.510007
+0:00:18.125175                                                             solver   20 0:00:00.693934          0:00:00.490252
+0:00:06.209315                                                   cpu_step_results    8 0:00:00.002379          0:00:00.000311
+0:00:05.131138                                               solved_solver_simple    2 0:00:02.565569          0:00:00.054965
+0:00:04.581770                                                 algorithm_settings   49 0:00:00.001019          0:00:00.000170
+0:00:03.506436                                                   cpu_loop_outputs    9 0:00:00.162391          0:00:00.011389
+0:00:03.180181                                                     solver_mutable    6 0:00:00.529259          0:00:00.527599
+0:00:00.637228                                       output_functions_test_kernel   24 0:00:00.001518          0:00:00.001346
+0:00:00.580806                                                             system   29 0:00:00.010703          0:00:00.009911
+0:00:00.460505                                                       loop_mutable    1 0:00:00.460505          0:00:00.460505
+0:00:00.435839                                                  cpu_batch_results    2 0:00:00.217919          0:00:00.216247
+0:00:00.430908                                                built_simple_strict    3 0:00:00.136029          0:00:00.131651
+0:00:00.406499                                                       driver_array   68 0:00:00.001846          0:00:00.001230
+0:00:00.329549                                                    residual_system    3 0:00:00.109495          0:00:00.106406
+0:00:00.322904                                                         cpu_system    6 0:00:00.029355          0:00:00.019153
+0:00:00.248041                                             built_simple_nonstrict    1 0:00:00.248041          0:00:00.248041
+0:00:00.079931                                                       solverkernel    8 0:00:00.011753          0:00:00.005036
+0:00:00.078597                                                 expected_summaries   24 0:00:00.000138          0:00:00.000100
+0:00:00.068478                                                     registered_mgr   24 0:00:00.000197          0:00:00.000182
+0:00:00.055812                                                    operator_system    8 0:00:00.004980          0:00:00.004937
+0:00:00.048344                                                      cached_system    8 0:00:00.005222          0:00:00.005146
+0:00:00.035455                                                  simple_ode_strict    4 0:00:00.008083          0:00:00.007186
+0:00:00.032361                                                   output_functions   51 0:00:00.000552          0:00:00.000393
+0:00:00.030649                                                        step_object   49 0:00:00.000612          0:00:00.000327
+0:00:00.023174                                                      indexed_bases   14 0:00:00.001644          0:00:00.001599
+0:08:04.449082                                                        grand total 3053 0:00:00.000082          0:00:00.000032
+================================================== test call duration top ===================================================
+total          name                                                               num  avg            min                    
+0:02:03.612423                                             test_stage_cache_reuse    5 0:00:18.020211          0:00:08.099288
+0:00:50.406137                                        test_newton_krylov_symbolic   15 0:00:02.954450          0:00:02.503644
+0:00:37.477371                                                           test_run    2 0:00:18.738685          0:00:13.655563
+0:00:25.863115                                                     test_algorithm    7 0:00:03.609668          0:00:00.466993
+0:00:22.936708                                                   test_solve_basic    2 0:00:11.468354          0:00:10.532184
+0:00:15.142746                                        test_linear_solver_symbolic   12 0:00:01.297159          0:00:00.892821
+0:00:13.695337      TestControllerEquivalence::test_sequential_acceptance_matches    4 0:00:03.395457          0:00:02.767665
+0:00:13.078191                               test_solve_with_different_grid_types    1 0:00:13.078191          0:00:13.078191
+0:00:11.660775                            test_time_driver_array_matches_function    1 0:00:11.660775          0:00:11.660775
+0:00:09.938483                                            test_solve_ivp_function    1 0:00:09.938483          0:00:09.938483
+0:00:07.739339                       test_newton_krylov_max_newton_iters_exceeded    1 0:00:07.739339          0:00:07.739339
+0:00:06.087741                                              test_algorithm_change    1 0:00:06.087741          0:00:06.087741
+0:00:05.005280                                                 test_kernel_builds    1 0:00:05.005280          0:00:05.005280
+0:00:03.132538                      test_neumann_preconditioner_cached_expression    4 0:00:00.755502          0:00:00.679032
+0:00:02.313439   TestControllerEquivalence::test_rejection_retains_previous_state    4 0:00:00.572676          0:00:00.469880
+0:00:02.015073                           test_order_three_matches_scipy_reference    4 0:00:00.387212          0:00:00.312664
+0:00:01.979014                                   test_cached_operator_apply_dense    3 0:00:00.603432          0:00:00.602865
+0:00:01.956459                             test_polynomial_samples_are_reproduced    5 0:00:00.391201          0:00:00.389269
+0:00:01.892387                                                  test_get_noise_64    1 0:00:01.892387          0:00:01.892387
+0:00:01.881437                                     test_newton_krylov_placeholder    1 0:00:01.881437          0:00:01.881437
+0:00:01.871152        TestSingleIntegratorRun::test_build_getters_and_equivalence    2 0:00:00.935576          0:00:00.476191
+0:00:01.839273                                         test_newton_krylov_failure    1 0:00:01.839273          0:00:01.839273
+0:00:01.836964                test_newton_krylov_linear_solver_failure_propagates    1 0:00:01.836964          0:00:01.836964
+0:00:01.696479                             test_neumann_preconditioner_expression    4 0:00:00.424192          0:00:00.420238
+0:00:01.519500                                     test_linear_solver_placeholder    2 0:00:00.759750          0:00:00.755985
+0:00:00.990332                                          test_operator_apply_dense    3 0:00:00.307225          0:00:00.299292
+0:00:00.891122                                        test_neumann_preconditioner    2 0:00:00.445561          0:00:00.442811
+0:00:00.885678       TestObservablesDeviceParity::test_dxdt_preserves_observables    2 0:00:00.442839          0:00:00.426830
+0:00:00.875935                                                test_stage_residual    3 0:00:00.285101          0:00:00.277752
+0:00:00.823564                        test_rosenbrock_solver_helper_cache_refresh    1 0:00:00.823564          0:00:00.823564
+0:06:24.267423                                                        grand total  823 0:00:00.000479          0:00:00.000134
+================================================== test setup duration top ==================================================
+total          name                                                               num  avg            min                    
+0:00:16.991783                                        test_newton_krylov_symbolic   15 0:00:01.210450          0:00:00.859852
+0:00:14.446665 TestSolveResultInstantiation::test_from_solver_numpy_instantiation    1 0:00:14.446665          0:00:14.446665
+0:00:12.804974                                        test_linear_solver_symbolic   12 0:00:01.061285          0:00:00.858051
+0:00:12.275355                                             test_various_summaries    5 0:00:02.071646          0:00:01.495412
+0:00:11.931937     TestSolveResultFromSolver::test_time_domain_legend_from_solver    1 0:00:11.931937          0:00:11.931937
+0:00:10.713403  TestSolveResultInstantiation::test_from_solver_full_instantiation    1 0:00:10.713403          0:00:10.713403
+0:00:10.291579  TestSolveResultInstantiation::test_instantiation_type_equivalence    1 0:00:10.291579          0:00:10.291579
+0:00:09.461762                                        test_all_summaries_long_run    2 0:00:04.730881          0:00:04.209114
+0:00:08.870723                                     test_all_summaries_long_window    2 0:00:04.435361          0:00:04.081035
+0:00:07.207589                                                  test_memory_types    2 0:00:03.603794          0:00:03.518069
+0:00:05.371932                                    TestControllers::test_dt_clamps    8 0:00:00.662691          0:00:00.567945
+0:00:05.077387                                   test_data_properties_after_solve    1 0:00:05.077387          0:00:05.077387
+0:00:04.092386                                                   test_no_summarys    5 0:00:00.778295          0:00:00.655472
+0:00:03.666894                                         test_big_and_small_systems    4 0:00:00.774452          0:00:00.729341
+0:00:02.165611                                            test_input_value_ranges    3 0:00:00.722414          0:00:00.719164
+0:00:01.774791                                        test_neumann_preconditioner    2 0:00:00.887395          0:00:00.857212
+0:00:00.728071                                            test_frequent_summaries    1 0:00:00.728071          0:00:00.728071
+0:00:00.629865                              test_pi_controller_uses_tableau_order    1 0:00:00.629865          0:00:00.629865
+0:00:00.534948                                      test_update_unrecognized_keys    1 0:00:00.534948          0:00:00.534948
+0:00:00.531973                                        test_memory_settings_update    1 0:00:00.531973          0:00:00.531973
+0:00:00.530522                                        test_update_saved_variables    1 0:00:00.530522          0:00:00.530522
+0:00:00.529146                                            test_update_with_kwargs    1 0:00:00.529146          0:00:00.529146
+0:00:00.528794                                            test_update_silent_mode    1 0:00:00.528794          0:00:00.528794
+0:00:00.528143                                                  test_update_basic    1 0:00:00.528143          0:00:00.528143
+0:00:00.463150                                                       test_getters    1 0:00:00.463150          0:00:00.463150
+0:00:00.333213                                                test_stage_residual    3 0:00:00.110699          0:00:00.107632
+0:00:00.258008                                       test_simple_nonstrict_builds    1 0:00:00.258008          0:00:00.258008
+0:00:00.170943                                          test_simple_strict_builds    1 0:00:00.170943          0:00:00.170943
+0:00:00.144730                                  test_observables_helper_available    1 0:00:00.144730          0:00:00.144730
+0:00:00.140221                                          test_solver_helper_cached    1 0:00:00.140221          0:00:00.140221
+0:02:23.878333                                                        grand total  823 0:00:00.000436 -1 day, 23:59:59.462923
+================================================ test teardown duration top =================================================
+total          name                                                               num  avg            min                    
+0:00:00.017423                                              test_call_input_types   27 0:00:00.000511          0:00:00.000491
+0:00:00.189209                                                        grand total  823 0:00:00.000137          0:00:00.000054
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.3-final-0 ________________
+
+Name                                                                  Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------------------------
+src/cubie/CUDAFactory.py                                                 93      5     40      5    92%   99, 164, 280, 282, 284
+src/cubie/__init__.py                                                    13      2      0      0    85%   28-30
+src/cubie/_utils.py                                                     139     15     50      9    87%   45, 59, 183, 232-233, 299-301, 428, 441, 443, 445, 464, 467, 481
+src/cubie/batchsolving/BatchGridBuilder.py                              144     26     60     16    75%   375, 408, 411, 584, 595-596, 604-605, 614-615, 617-620, 623-635, 666-667, 700, 702, 704, 708, 710->717, 718
+src/cubie/batchsolving/BatchSolverConfig.py                              20      0      0      0   100%
+src/cubie/batchsolving/BatchSolverKernel.py                             342     25     32      7    90%   120, 122, 333-334, 394-404, 448-452, 641, 680, 692, 712, 806, 816, 836, 981, 1005, 1017, 1023, 1029, 1035
+src/cubie/batchsolving/SystemInterface.py                                59      5     22      5    88%   108, 110, 112, 178, 277
+src/cubie/batchsolving/__init__.py                                       16      0      0      0   100%
+src/cubie/batchsolving/_utils.py                                         18      0      4      0   100%
+src/cubie/batchsolving/arrays/BaseArrayManager.py                       246     18    100     11    90%   412->415, 507-508, 513, 524-530, 542->554, 546->554, 688, 694-696, 697->709, 770, 798-801, 812-815
+src/cubie/batchsolving/arrays/BatchInputArrays.py                       102      6     18      6    90%   189->191, 274->272, 278->276, 301->306, 336, 345-349
+src/cubie/batchsolving/arrays/BatchOutputArrays.py                      124      1     14      1    99%   400
+src/cubie/batchsolving/arrays/__init__.py                                 0      0      0      0   100%
+src/cubie/batchsolving/solver.py                                        273     14     58     15    91%   83->86, 157->159, 159->161, 161->163, 163->165, 218-219, 289, 356->361, 409, 414, 480, 483, 485, 495-498, 504, 678, 683, 688
+src/cubie/batchsolving/solveresult.py                                   182      5     48      4    96%   236, 258-259, 290->302, 298, 317
+src/cubie/cuda_simsafe.py                                                25      3      6      2    84%   151, 160, 215
+src/cubie/integrators/IntegratorRunSettings.py                           12      1      0      0    92%   47
+src/cubie/integrators/SingleIntegratorRun.py                            322      5      4      1    98%   48, 168, 174, 345, 358
+src/cubie/integrators/SingleIntegratorRunCore.py                        144      8     48     14    89%   89, 91, 93, 178, 255->258, 297, 301, 303, 323->328, 332->343, 370, 371->374, 384->392, 409->419
+src/cubie/integrators/__init__.py                                        15      0      0      0   100%
+src/cubie/integrators/algorithms/__init__.py                             61     10     26      6    79%   73, 88, 130->132, 136, 141-148, 161-162
+src/cubie/integrators/algorithms/backwards_euler.py                      51      3      2      0    94%   311, 322, 326
+src/cubie/integrators/algorithms/backwards_euler_predict_correct.py       8      0      0      0   100%
+src/cubie/integrators/algorithms/base_algorithm_step.py                 182     14     28      7    89%   76, 113, 145-147, 238, 258, 270, 353, 356, 382, 399, 405, 416
+src/cubie/integrators/algorithms/crank_nicolson.py                       40      0      0      0   100%
+src/cubie/integrators/algorithms/explicit_euler.py                       41      0      2      0   100%
+src/cubie/integrators/algorithms/generic_dirk.py                         73      1      2      1    97%   515
+src/cubie/integrators/algorithms/generic_dirk_tableaus.py                30      0      0      0   100%
+src/cubie/integrators/algorithms/generic_erk.py                          41      0      0      0   100%
+src/cubie/integrators/algorithms/generic_erk_tableaus.py                 16      0      0      0   100%
+src/cubie/integrators/algorithms/generic_rosenbrock_w.py                 73      0      2      0   100%
+src/cubie/integrators/algorithms/generic_rosenbrockw_tableaus.py         21      0      0      0   100%
+src/cubie/integrators/algorithms/ode_explicitstep.py                     35      2      0      0    94%   114, 120
+src/cubie/integrators/algorithms/ode_implicitstep.py                    123     16      0      0    87%   123-140, 311, 317, 328, 334, 340, 346, 352, 358, 364, 370, 376, 382, 388
+src/cubie/integrators/array_interpolator.py                             306     25    112     24    88%   245-246, 251, 259, 265, 295, 302, 304, 309, 316, 319, 422, 425, 427, 434, 457, 490, 494, 639, 645, 673, 693, 698, 800->834, 804->834, 820, 835
+src/cubie/integrators/loops/__init__.py                                   2      0      0      0   100%
+src/cubie/integrators/loops/ode_loop.py                                 142     12      8      4    89%   132, 138, 572, 578, 584, 590, 596, 602, 627, 630, 632, 637
+src/cubie/integrators/loops/ode_loop_config.py                          137     10      4      0    90%   73-74, 230-236, 317, 463, 488
+src/cubie/integrators/matrix_free_solvers/__init__.py                     9      0      0      0   100%
+src/cubie/integrators/matrix_free_solvers/linear_solver.py               27      2      4      2    87%   67, 216
+src/cubie/integrators/matrix_free_solvers/newton_krylov.py               16      1      2      1    89%   69
+src/cubie/integrators/step_control/__init__.py                           29      3      6      3    83%   68->70, 74, 92-93
+src/cubie/integrators/step_control/adaptive_I_controller.py              21      0      0      0   100%
+src/cubie/integrators/step_control/adaptive_PID_controller.py            54      3      0      0    94%   142-152
+src/cubie/integrators/step_control/adaptive_PI_controller.py             44      0      0      0   100%
+src/cubie/integrators/step_control/adaptive_step_controller.py          100      8     12      5    87%   50-52, 106, 108-114, 117, 133
+src/cubie/integrators/step_control/base_step_controller.py               70      8     10      5    84%   56, 61, 121, 127, 201, 204, 206, 220->232, 233
+src/cubie/integrators/step_control/fixed_step_controller.py              45      0      0      0   100%
+src/cubie/integrators/step_control/gustafsson_controller.py              46      3      0      0    93%   48-51
+src/cubie/memory/__init__.py                                              4      0      0      0   100%
+src/cubie/memory/array_requests.py                                       26      0      6      0   100%
+src/cubie/memory/cupy_emm.py                                            115     11     20      6    87%   53, 56, 60-63, 122->125, 153->exit, 185-186, 286, 323->exit, 343-344
+src/cubie/memory/mem_manager.py                                         352     17    118     10    94%   49, 179-183, 272-285, 339, 498, 557, 652, 664, 701, 784->783, 969, 1295->1304
+src/cubie/memory/stream_groups.py                                        51      4     20      4    89%   64, 66, 94, 195
+src/cubie/odesystems/ODEData.py                                          64      2      0      0    97%   168, 173
+src/cubie/odesystems/SystemValues.py                                    129      7     70      9    92%   98, 143, 148->145, 194->exit, 259, 427, 429, 452, 494
+src/cubie/odesystems/__init__.py                                          5      0      0      0   100%
+src/cubie/odesystems/baseODE.py                                         109     14     18      8    81%   169, 203, 206, 208, 221-223, 254, 257, 259, 267, 318, 343, 395
+src/cubie/odesystems/symbolic/__init__.py                                 9      0      0      0   100%
+src/cubie/odesystems/symbolic/auxiliary_caching.py                      242     50    102     13    77%   119->125, 168, 185-259, 271, 286, 295, 336-337, 339, 371-372, 418, 439, 458-469, 485-486, 540-541
+src/cubie/odesystems/symbolic/cellml.py                                   8      5      0      0    38%   34-38
+src/cubie/odesystems/symbolic/dxdt.py                                    47      3     10      4    88%   88, 91->104, 141, 163
+src/cubie/odesystems/symbolic/indexedbasemaps.py                        156      4     30      4    96%   66-68, 87->90, 105->exit, 133
+src/cubie/odesystems/symbolic/jacobian.py                               149     12     64     11    87%   41->43, 43->38, 47-53, 90, 137->143, 169->171, 174, 192->199, 195, 380, 391
+src/cubie/odesystems/symbolic/jvp_equations.py                          216     18     68      5    89%   104->103, 113, 125->124, 140->135, 163, 200, 294-308
+src/cubie/odesystems/symbolic/numba_cuda_printer.py                      72      5     18      3    91%   99->exit, 271-273, 283-284
+src/cubie/odesystems/symbolic/odefile.py                                 46      1     12      1    97%   127
+src/cubie/odesystems/symbolic/parser.py                                 310     22    108     10    91%   144, 160, 172, 184, 201, 375-376, 428->432, 433, 436, 444, 589, 633-650, 758, 844, 906->910
+src/cubie/odesystems/symbolic/solver_helpers.py                         224     18     74     14    89%   220, 234, 241, 273, 291, 329, 347, 380, 388-391, 396, 576-577, 779, 962, 966
+src/cubie/odesystems/symbolic/sym_utils.py                               63      1     28      2    97%   154, 167->171
+src/cubie/odesystems/symbolic/symbolicODE.py                            112      7     28      4    92%   163, 167-170, 251, 277, 466
+src/cubie/outputhandling/__init__.py                                      5      0      0      0   100%
+src/cubie/outputhandling/output_config.py                               240      3     56      6    97%   45->exit, 47, 318->323, 350->355, 747, 749
+src/cubie/outputhandling/output_functions.py                            118      4     10      4    94%   154, 157, 159, 170
+src/cubie/outputhandling/output_sizes.py                                122      9      4      1    92%   56->54, 400-422
+src/cubie/outputhandling/save_state.py                                    9      0      0      0   100%
+src/cubie/outputhandling/save_summaries.py                               39      1      2      0    98%   56
+src/cubie/outputhandling/summarymetrics/__init__.py                       7      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/max.py                            9      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/mean.py                           9      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/metrics.py                      149      8     30      0    94%   383-391
+src/cubie/outputhandling/summarymetrics/peaks.py                          9      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/rms.py                           10      0      0      0   100%
+src/cubie/outputhandling/update_summaries.py                             32      1      2      0    97%   57
+-----------------------------------------------------------------------------------------------------------------
+TOTAL                                                                  7399    487   1622    273    91%
+Coverage XML written to file coverage.xml
+========= 823 passed, 84 deselected, 454 warnings in 880.27s (0:14:40) =========
