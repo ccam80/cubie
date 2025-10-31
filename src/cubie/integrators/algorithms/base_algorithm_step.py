@@ -270,6 +270,14 @@ class BaseStepConfig(ABC):
             return False
         return tableau.can_reuse_accepted_start
 
+    @property
+    def stage_count(self) -> int:
+        """Return the number of stages described by the tableau."""
+        tableau = getattr(self, "tableau", None)
+        if tableau is None:
+            return 1
+        return tableau.stage_count
+
 @attrs.define
 class StepCache:
     """Container for compiled device helpers used by an algorithm step.
@@ -553,3 +561,7 @@ class BaseAlgorithmStep(CUDAFactory):
         """
         return self.compile_settings.get_solver_helper_fn
 
+    @property
+    def stage_count(self) -> int:
+        """Return the number of stages described by the tableau."""
+        return self.compile_settings.stage_count
