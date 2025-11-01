@@ -1359,7 +1359,7 @@ class CPURosenbrockWStep(CPUStep):
         dt_value = self.precision(dt)
         current_time = self.precision(time)
         end_time = current_time + dt_value
-
+        idt = self.precision(1.0) / dt_value
         stage_count = int(self.stage_count)
 
         a_matrix = np.asarray(self.a_matrix, dtype=self.precision)
@@ -1401,7 +1401,8 @@ class CPURosenbrockWStep(CPUStep):
         time_derivative_now = self.evaluator.time_derivative(
             symbol_values_now,
             driver_rates_now,
-        )
+        ) * dt_value
+
         jacobian_now = self.evaluator.jacobian(
             state_vector,
             params_array,
@@ -1431,9 +1432,9 @@ class CPURosenbrockWStep(CPUStep):
             logging.stage_derivatives[0, :] = f_now
 
         rhs_vector = (
-                dt_value * f_now
-                + stage_gammas[0] * time_derivative_now * dt_value ** 2
-        )
+                f_now
+                + stage_gammas[0] * time_derivative_now
+        ) * gamma * dt_value
         if logging:
             logging.residuals[0, :] = rhs_vector
 
@@ -1495,9 +1496,9 @@ class CPURosenbrockWStep(CPUStep):
             )
             stage_derivatives[stage_index, :] = f_stage
             rhs_vector = (
-                    dt_value * f_stage
+                    f_stage
                     + stage_gammas[stage_index]
-                    * time_derivative_now * dt_value**2
+                    * time_derivative_now
             )
             correction = np.zeros(state_dim, dtype=self.precision)
             for predecessor in range(stage_index):
@@ -1506,7 +1507,7 @@ class CPURosenbrockWStep(CPUStep):
                     correction += (
                         coeff * stage_increments[predecessor]
                     )
-            rhs_vector = rhs_vector + correction
+            rhs_vector = (rhs_vector + correction * idt) * gamma * dt_value
 
             if logging:
                 logging.stage_states[stage_index, :] = stage_state

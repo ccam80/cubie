@@ -215,6 +215,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
+        gamma = tableau.gamma
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
@@ -359,7 +360,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         (f_value + gamma_stages[0] * time_derivative[idx])
                         * dt_scalar
                 )
-                stage_rhs[idx] = rhs_value
+                stage_rhs[idx] = rhs_value * gamma
 
 
             # Use final stage solution from previous step as initial guess.
@@ -444,7 +445,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
                     stage_rhs[idx] = (correction * idt + f_stage_val +
-                                      deriv_val) * dt_scalar
+                                      deriv_val) * dt_scalar * gamma
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_store[
