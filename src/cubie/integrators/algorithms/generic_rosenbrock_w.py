@@ -354,10 +354,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 # No accumulated contributions at stage 0.
-                stage_rhs[idx] = (
-                    (stage_rhs[idx] + gamma_stages[0] * time_derivative[idx])
-                    * dt_scalar
+                f_value = stage_rhs[idx]
+                rhs_value = (
+                        (f_value + gamma_stages[0] * time_derivative[idx])
+                        * dt_scalar
                 )
+                stage_rhs[idx] = rhs_value
+
 
             # Use final stage solution from previous step as initial guess.
             # Zerod on loop start
