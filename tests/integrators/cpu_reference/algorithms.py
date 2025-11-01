@@ -1432,7 +1432,7 @@ class CPURosenbrockWStep(CPUStep):
 
         rhs_vector = (
                 dt_value * f_now
-                + dt_value * stage_gammas[0] * time_derivative_now
+                + stage_gammas[0] * time_derivative_now * dt_value ** 2
         )
         if logging:
             logging.residuals[0, :] = rhs_vector
@@ -1496,18 +1496,17 @@ class CPURosenbrockWStep(CPUStep):
             stage_derivatives[stage_index, :] = f_stage
             rhs_vector = (
                     dt_value * f_stage
-                    + dt_value * dt_value * stage_gammas[stage_index]
-                    * time_derivative_now
+                    + stage_gammas[stage_index]
+                    * time_derivative_now * dt_value**2
             )
             correction = np.zeros(state_dim, dtype=self.precision)
             for predecessor in range(stage_index):
                 coeff = C_matrix[stage_index, predecessor]
                 if coeff != zero:
-                    correction = correction + (
+                    correction += (
                         coeff * stage_increments[predecessor]
                     )
-            if np.any(correction):
-                rhs_vector = rhs_vector + dt_value * correction
+            rhs_vector = rhs_vector + correction
 
             if logging:
                 logging.stage_states[stage_index, :] = stage_state
@@ -1518,7 +1517,7 @@ class CPURosenbrockWStep(CPUStep):
 
             lhs_matrix = (
                 self._identity
-                - dt_value * stage_gammas[stage_index] * jacobian_now
+                - dt_value * gamma * jacobian_now
             )
             initial_guess = stage_increments[stage_index - 1].copy()
             linear_kwargs = {}
