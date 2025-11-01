@@ -111,9 +111,9 @@ def _expected_memory_requirements(
         return shared, local
     if isinstance(step_object, GenericRosenbrockWStep):
         stage_count = tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * n_states
-        shared = 2 * accumulator_span + extra_shared
-        local = 4 * n_states
+        accumulator_span = stage_count * n_states
+        shared = accumulator_span + 3 * n_states
+        local = 0
         return shared, local
     if isinstance(
         step_object,
