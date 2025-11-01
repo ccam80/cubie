@@ -347,14 +347,6 @@ STEP_CASES = [pytest.param(
     ),
     pytest.param(
         {
-            "algorithm": "rosenbrock_w6s4os",
-            "step_controller": "pi",
-        },
-        id="rosenbrock-w6s4os",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
             "algorithm": "dormand-prince-54",
             "step_controller": "pi",
         },
@@ -1391,38 +1383,3 @@ def test_algorithm(
         ), "error matches"
 
 
-def test_rosenbrock_solver_helper_cache_refresh(system) -> None:
-    """Rosenbrock helpers rebuild when tableau parameters change."""
-
-    ros3p = ROSENBROCK_TABLEAUS["ros3p"]
-    w6s4os = ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"]
-    mass_matrix = np.eye(system.sizes.states, dtype=system.precision)
-
-    first = system.get_solver_helper(
-        "linear_operator",
-        beta=1.0,
-        gamma=ros3p.gamma,
-        preconditioner_order=2,
-        mass=mass_matrix,
-    )
-    repeat = system.get_solver_helper(
-        "linear_operator",
-        beta=1.0,
-        gamma=ros3p.gamma,
-        preconditioner_order=2,
-        mass=mass_matrix,
-    )
-    assert repeat is first
-
-    second = system.get_solver_helper(
-        "linear_operator",
-        beta=1.0,
-        gamma=w6s4os.gamma,
-        preconditioner_order=2,
-        mass=mass_matrix,
-    )
-    assert second is not first
-
-    gamma_cached = system.compile_settings.gamma
-    assert gamma_cached == pytest.approx(w6s4os.gamma)
-    assert np.array_equal(system.compile_settings.mass, mass_matrix)

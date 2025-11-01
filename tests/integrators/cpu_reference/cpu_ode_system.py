@@ -1,6 +1,6 @@
 """Symbolic evaluation helpers for CPU reference integrators."""
 
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import sympy as sp
@@ -59,6 +59,7 @@ class CPUODESystem:
         self._compile_expressions()
         # Prepare fast-path caches (symbol slots, evaluation plans, jacobian slots)
         self._prepare_fast_paths()
+        self._prepare_time_derivative_terms()
 
     def _compile_expressions(self) -> None:
         """Compile symbolic expressions into fast numerical functions."""
@@ -225,6 +226,31 @@ class CPUODESystem:
 
         self._sv_syms_with_obs, self._sv_slots_with_obs = sv_layout(True)
         self._sv_syms_no_obs, self._sv_slots_no_obs = sv_layout(False)
+
+    def _prepare_time_derivative_terms(self) -> None:
+        """Precompute ∂F/∂t and driver-partial expressions for ``dx/dt``."""
+
+        driver_symbols = list(self._driver_index.keys())
+        terms: List[
+            Optional[tuple[Optional[sp.Expr], tuple[tuple[int, sp.Expr], ...]]]
+        ]
+        terms = [None] * self.n_states
+
+        for lhs, rhs in self._equations:
+            if lhs not in self._dx_index:
+                continue
+            state_idx = self._dx_index[lhs]
+            time_expr = sp.diff(rhs, TIME_SYMBOL)
+            time_term = None if time_expr == 0 else time_expr
+            driver_terms: List[tuple[int, sp.Expr]] = []
+            for driver_symbol in driver_symbols:
+                partial = sp.diff(rhs, driver_symbol)
+                if partial == 0:
+                    continue
+                driver_terms.append((self._driver_index[driver_symbol], partial))
+            terms[state_idx] = (time_term, tuple(driver_terms))
+
+        self._time_derivative_terms = terms
 
     def _resolve_dependencies(
         self,
@@ -408,6 +434,39 @@ class CPUODESystem:
             symbol_values[sym] = work[lhs_slot]
 
         return dxdt, symbol_values
+
+    def time_derivative(
+        self,
+        symbol_values: Dict[sp.Symbol, float],
+        driver_dt: Array,
+    ) -> Array:
+        """Evaluate the time-derivative contribution of the RHS."""
+
+        result = np.zeros(self.n_states, dtype=self.precision)
+        if not getattr(self, "_time_derivative_terms", None):
+            return result
+
+        driver_rates = (
+            np.asarray(driver_dt, dtype=self.precision)
+            if len(driver_dt) > 0
+            else np.zeros(0, dtype=self.precision)
+        )
+        zero = self.precision(0.0)
+        for idx, terms in enumerate(self._time_derivative_terms):
+            if terms is None:
+                result[idx] = zero
+                continue
+            time_term, driver_terms = terms
+            value = zero
+            if time_term is not None:
+                value = self.precision(time_term.subs(symbol_values))
+            for driver_index, expr in driver_terms:
+                if driver_index >= driver_rates.shape[0]:
+                    continue
+                partial_value = self.precision(expr.subs(symbol_values))
+                value = value + partial_value * driver_rates[driver_index]
+            result[idx] = value
+        return result
 
     def jacobian(
         self,

@@ -24,7 +24,7 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 ALL_ALGORITHM_STEP_PARAMETERS = {
     'algorithm',
     'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function', 'get_solver_helper_fn',
+    'driver_function', 'get_solver_helper_fn', "driver_del_t",
     'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',

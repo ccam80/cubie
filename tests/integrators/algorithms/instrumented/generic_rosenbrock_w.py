@@ -17,7 +17,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
 )
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
-    ROSENBROCK_W6S4OS_TABLEAU,
     RosenbrockTableau,
 )
 from .matrix_free_solvers import inst_linear_solver_cached_factory
@@ -45,6 +44,8 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
     tableau: RosenbrockTableau = attrs.field(
         default=DEFAULT_ROSENBROCK_TABLEAU,
     )
+    time_derivative_fn: Optional[Callable] = attrs.field(default=None)
+    driver_del_t: Optional[Callable] = attrs.field(default=None)
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -64,6 +65,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
+        time_derivative_function: Optional[Callable] = None,
+        driver_del_t_function: Optional[Callable] = None,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration."""
 
@@ -76,6 +79,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
+            driver_del_t=driver_del_t_function,
+            time_derivative_fn=time_derivative_function,
             get_solver_helper_fn=get_solver_helper_fn,
             preconditioner_order=preconditioner_order,
             krylov_tolerance=krylov_tolerance,
@@ -91,7 +96,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     def build_implicit_helpers(
         self,
-    ) -> Tuple[Callable, Callable, Callable]:
+    ) -> Tuple[Callable, Callable, Callable, Callable]:
         """Construct the nonlinear solver chain used by implicit methods.
 
         Returns
@@ -145,14 +150,43 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = inst_linear_solver_cached_factory(linear_operator, n=n,
-                                                          preconditioner=preconditioner,
-                                                          correction_type=correction_type,
-                                                          tolerance=krylov_tolerance,
-                                                          max_iters=max_linear_iters,
-                                                          precision=config.precision)
+        linear_solver = inst_linear_solver_cached_factory(
+            linear_operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=correction_type,
+            tolerance=krylov_tolerance,
+            max_iters=max_linear_iters,
+            precision=config.precision,
+        )
 
-        return linear_solver, prepare_jacobian, cached_jvp
+        time_derivative_rhs = get_fn("time_derivative_rhs")
+
+        return linear_solver, prepare_jacobian, cached_jvp, time_derivative_rhs
+
+    def build(self) -> StepCache:
+        """Create and cache the device helpers for the implicit algorithm."""
+
+        solver_fn = self.build_implicit_helpers()
+        config = self.compile_settings
+        dxdt_fn = config.dxdt_function
+        driver_del_t = config.driver_del_t
+        numba_precision = config.numba_precision
+        n = config.n
+        dt = config.dt
+        observables_function = config.observables_function
+        driver_function = config.driver_function
+
+        return self.build_step(
+            solver_fn,
+            dxdt_fn,
+            observables_function,
+            driver_function,
+            driver_del_t,
+            numba_precision,
+            n,
+            dt,
+        )
 
     def build_step(
         self,
@@ -160,6 +194,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        driver_del_t: Optional[Callable],
         numba_precision: type,
         n: int,
         dt: Optional[float],
@@ -171,13 +206,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         (
             linear_solver,
             prepare_jacobian,
-            cached_jvp,
+            _cached_jvp,
+            time_derivative_rhs,
         ) = solver_fn
 
         stage_count = tableau.stage_count
-        multistage = stage_count > 1
         has_driver_function = driver_function is not None
-        first_same_as_last = self.first_same_as_last
         can_reuse_accepted_start = self.can_reuse_accepted_start
         has_error = self.is_adaptive
 
@@ -189,14 +223,22 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+        gamma_stages = tableau.typed_gamma_stages(numba_precision)
+        if not gamma_stages:
+            gamma_value = numba_precision(tableau.gamma)
+            gamma_stages = tuple(gamma_value for _ in range(stage_count))
 
-        accumulator_length = max(stage_count - 1, 0) * n
+        stage_buffer_n = stage_count * n
         cached_auxiliary_count = self.cached_auxiliary_count
-        acc_start = 0
-        acc_end = accumulator_length
-        jac_start = acc_end
-        jac_end = jac_start + accumulator_length
-        aux_start = jac_end
+        del_t_start = 0
+        del_t_end = n
+        stage_state_start = del_t_end
+        stage_state_end = stage_state_start + n
+        stage_rhs_start = stage_state_end
+        stage_rhs_end = stage_rhs_start + n
+        stage_store_start = stage_rhs_end
+        stage_store_end = stage_store_start + stage_buffer_n
+        aux_start = stage_store_end
         aux_end = aux_start + cached_auxiliary_count
 
         # no cover: start
@@ -272,27 +314,27 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            stage_rhs = cuda.local.array(n, numba_precision)
-            jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
+
 
             observable_count = proposed_observables.shape[0]
+            driver_count = proposed_drivers.shape[0]
 
             dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 
-            stage_accumulator = shared[acc_start:acc_end]
-            jacobian_product_accumulator = shared[jac_start:jac_end]
+            time_derivative = shared[del_t_start:del_t_end]
+            stage_state = shared[stage_state_start:stage_state_end]
+            stage_rhs = shared[stage_rhs_start:stage_rhs_end]
+            stage_store = shared[stage_store_start:stage_store_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
-            idt = numba_precision(1.0) / dt_value
+            first_step = first_step_flag != int16(0)
+            last_accepted = accepted_flag != int16(0)
 
-            if multistage:
-                # Alias "increment" array over first stage accumulator -
-                # their lifetimes are disjoint.
-                stage_increment = jacobian_product_accumulator[:n]
-            else:
-                stage_increment = cuda.local.array(n, numba_precision)
+            if first_step or not last_accepted:
+                for idx in range(stage_buffer_n):
+                    stage_store[idx] = typed_zero
 
             prepare_jacobian(
                 state,
@@ -302,68 +344,94 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 cached_auxiliaries,
             )
 
-            for idx in range(n):
-                if has_error:
-                    error[idx] = typed_zero
+            if has_driver_function and driver_del_t is not None:
+                driver_del_t(
+                    current_time,
+                    driver_coeffs,
+                    proposed_drivers,
+                )
+
+            time_derivative_rhs(
+                state,
+                parameters,
+                drivers_buffer,
+                proposed_drivers,
+                observables,
+                time_derivative,
+                current_time,
+            )
 
             for idx in range(n):
+                proposed_state[idx] = state[idx]
+                if has_error:
+                    error[idx] = typed_zero
                 stage_states[0, idx] = state[idx]
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = observables[obs_idx]
+            for driver_idx in range(driver_count):
+                stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
 
             status_code = int32(0)
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
 
-            # --------------------------------------------------------------- #
-            #            Stage 0: may use cached values                       #
-            # --------------------------------------------------------------- #
-            if can_reuse_accepted_start:
-                # Get dxdt at time=0 and use that to calculate gradient
+            if can_reuse_accepted_start and last_accepted:
                 dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        current_time,
+                    state,
+                    parameters,
+                    drivers_buffer,
+                    observables,
+                    stage_rhs,
+                    current_time,
                 )
-
             else:
-                # We're not at time = 0, recalculate rhs
-                stage_time = (
-                    current_time + dt_value * stage_time_fractions[0]
-                )
                 if has_driver_function:
                     driver_function(
                         current_time,
                         driver_coeffs,
+                        proposed_drivers,
                     )
+                    for driver_idx in range(driver_count):
+                        stage_drivers_out[0, driver_idx] = proposed_drivers[
+                            driver_idx
+                        ]
                 observables_function(
-                        state,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_time,
+                    state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_time,
                 )
-
+                for obs_idx in range(observable_count):
+                    proposed_value = proposed_observables[obs_idx]
+                    stage_observables[0, obs_idx] = proposed_value
                 dxdt_fn(
-                        state,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_rhs,
-                        stage_time,
+                    state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_rhs,
+                    stage_time,
                 )
 
             for idx in range(n):
-                stage_derivatives[0, idx] = stage_rhs[idx]
-                stage_states[0, idx] = state[idx]
-                stage_rhs[idx] = dt_value * stage_rhs[idx]
-                proposed_state[idx] = typed_zero
-                residuals[0, idx] = stage_rhs[idx]
-            for driver_idx in range(stage_drivers_out.shape[1]):
-                stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                derivative_value = stage_rhs[idx]
+                stage_derivatives[0, idx] = derivative_value
+                rhs_value = (
+                    dt_value * derivative_value
+                    + gamma_stages[0] * time_derivative[idx]
+                )
+                stage_rhs[idx] = rhs_value
+                residuals[0, idx] = rhs_value
+
+            stage_increment = stage_store[:n]
+            if first_step or not last_accepted:
+                for idx in range(n):
+                    stage_increment[idx] = typed_zero
+            else:
+                base = n * (stage_count - 1)
+                for idx in range(n):
+                    stage_increment[idx] = stage_store[base + idx]
 
             initial_linear_slot = int32(0)
             solver_ret = linear_solver(
@@ -373,7 +441,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 cached_auxiliaries,
                 stage_time,
                 dt_value,
-                numba_precision(1.0),
+                gamma_stages[0],
                 stage_rhs,
                 stage_increment,
                 initial_linear_slot,
@@ -386,73 +454,33 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             status_code |= solver_ret
 
             for idx in range(n):
-                stage_increments[0, idx] = stage_increment[idx]
-                jacobian_updates[0, idx] = stage_increment[idx]
-
-            for idx in range(n):
                 increment = stage_increment[idx]
-                # It's janky, but we're going to stash the increment
-                # here until the stage accumulator frees up again.
-                proposed_state[idx] = increment
+                stage_increments[0, idx] = increment
+                jacobian_updates[0, idx] = increment
+                proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
                     error[idx] += error_weights[0] * increment
 
-            cached_jvp(
-                state,
-                parameters,
-                drivers_buffer,
-                cached_auxiliaries,
-                stage_time,
-                stage_increment,
-                jacobian_stage_product,
-            )
-
-            for idx in range(n, accumulator_length):
-                # zero non-cache-aliased accumulator entries
-                stage_accumulator[idx] = typed_zero
-                jacobian_product_accumulator[idx] = typed_zero
-
-            # --------------------------------------------------------------- #
-            #            Stages 1-s: must refresh all values                  #
-            # --------------------------------------------------------------- #
-
             for stage_idx in range(1, stage_count):
-
-                # Fill accumulators with previous step's contributions
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
-
-                for idx in range(n):
-                    increment_n = stage_increment[idx]
-                    jacobian_value = jacobian_stage_product[idx]
-                    if prev_idx == 0:
-                        # Zero first-stage cache portions of accumulators
-                        stage_accumulator[idx] = typed_zero
-                        jacobian_product_accumulator[idx] = typed_zero
-                    for successor_offset in range(successor_range):
-                        succsr_idx = stage_idx + successor_offset
-                        state_coeff = stage_rhs_coeffs[succsr_idx][prev_idx]
-                        jacobian_coeff = jacobian_update_coeffs[succsr_idx][
-                            prev_idx
-                        ]
-                        base = (succsr_idx - 1) * n + idx
-                        stage_accumulator[base] += state_coeff * increment_n
-                        jacobian_product_accumulator[base] += (
-                            jacobian_coeff * jacobian_value
-                        )
-
-                stage_offset = (stage_idx - 1) * n
+                stage_gamma = gamma_stages[stage_idx]
                 stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time
+                    + dt_value * stage_time_fractions[stage_idx]
                 )
 
-                stage_state = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
-                    stage_state[idx] += state[idx]
+                    stage_state[idx] = state[idx]
+                for predecessor_idx in range(stage_idx):
+                    coeff = stage_rhs_coeffs[stage_idx][predecessor_idx]
+                    if coeff != typed_zero:
+                        base = predecessor_idx * n
+                        for idx in range(n):
+                            stage_state[idx] += (
+                                coeff * stage_store[base + idx]
+                            )
 
                 for idx in range(n):
                     stage_states[stage_idx, idx] = stage_state[idx]
-                    stage_increments[stage_idx, idx] = typed_zero
 
                 if has_driver_function:
                     driver_function(
@@ -460,8 +488,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         driver_coeffs,
                         proposed_drivers,
                     )
-                for driver_idx in range(stage_drivers_out.shape[1]):
-                    stage_drivers_out[stage_idx, driver_idx] = proposed_drivers[driver_idx]
+                    for driver_idx in range(driver_count):
+                        stage_drivers_out[stage_idx, driver_idx] = (
+                            proposed_drivers[driver_idx]
+                        )
+                else:
+                    for driver_idx in range(driver_count):
+                        stage_drivers_out[stage_idx, driver_idx] = (
+                            drivers_buffer[driver_idx]
+                        )
 
                 observables_function(
                     stage_state,
@@ -470,9 +505,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     proposed_observables,
                     stage_time,
                 )
-
                 for obs_idx in range(observable_count):
-                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[stage_idx, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
                 dxdt_fn(
                     stage_state,
@@ -484,27 +520,32 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 for idx in range(n):
-                    stage_derivatives[stage_idx, idx] = stage_rhs[idx]
+                    correction = typed_zero
+                    for predecessor_idx in range(stage_idx):
+                        c_coeff = jacobian_update_coeffs[stage_idx][
+                            predecessor_idx
+                        ]
+                        if c_coeff != typed_zero:
+                            base = predecessor_idx * n
+                            correction += (
+                                c_coeff * stage_store[base + idx]
+                            )
+                    derivative_value = stage_rhs[idx]
+                    stage_derivatives[stage_idx, idx] = derivative_value
+                    rhs_value = (
+                        dt_value * derivative_value
+                        + correction
+                        + stage_gamma * time_derivative[idx]
+                    )
+                    stage_rhs[idx] = rhs_value
+                    residuals[stage_idx, idx] = rhs_value
 
+                stage_increment = stage_store[
+                    stage_idx * n : (stage_idx + 1) * n
+                ]
+                previous_base = (stage_idx - 1) * n
                 for idx in range(n):
-                    rhs_value = stage_rhs[idx]
-                    jacobian_term = jacobian_product_accumulator[
-                        stage_offset + idx
-                    ]
-                    stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
-
-                    if prev_idx == 0:
-                        # Reclaim stage increment as a solver guess.
-                        # the lower n elements of stage accumulator are
-                        # only used for stage increment after stage 1
-                        stage_increment[idx] = proposed_state[idx]
-                        # Belatedly adjust solution with weight from tableau,
-                        # add state back in.
-                        proposed_state[idx] *= solution_weights[0]
-                        proposed_state[idx] += state[idx]
-
-                for idx in range(n):
-                    residuals[stage_idx, idx] = stage_rhs[idx]
+                    stage_increment[idx] = stage_store[previous_base + idx]
 
                 stage_linear_slot = int32(stage_idx)
                 solver_ret = linear_solver(
@@ -514,7 +555,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     cached_auxiliaries,
                     stage_time,
                     dt_value,
-                    numba_precision(1.0),
+                    stage_gamma,
                     stage_rhs,
                     stage_increment,
                     stage_linear_slot,
@@ -526,33 +567,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 status_code |= solver_ret
 
-                for idx in range(n):
-                    jacobian_updates[stage_idx, idx] = stage_increment[idx]
-                    stage_increments[stage_idx, idx] = stage_increment[idx]
-
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     increment = stage_increment[idx]
+                    stage_increments[stage_idx, idx] = increment
+                    jacobian_updates[stage_idx, idx] = increment
                     proposed_state[idx] += solution_weight * increment
                     if has_error:
                         error[idx] += error_weight * increment
 
-                if stage_idx < stage_count - 1:
-                    cached_jvp(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        cached_auxiliaries,
-                        stage_time,
-                        stage_increment,
-                        jacobian_stage_product,
-                    )
-            # ----------------------------------------------------------- #
-            final_time = end_time
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -562,7 +589,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
 
             return status_code
@@ -592,17 +619,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
-        tableau = self.tableau
-        stage_count = tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
+        stage_count = max(self.tableau.stage_count, 1)
+        state_len = self.compile_settings.n
+        stage_buffer = stage_count * state_len
+        shared_vectors = 3 * state_len
         cached_auxiliary_count = self.cached_auxiliary_count
-        return 2 * accumulator_span + cached_auxiliary_count
+        return stage_buffer + shared_vectors + cached_auxiliary_count
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
 
-        return 4 * self.compile_settings.n
+        return 0
 
     @property
     def persistent_local_required(self) -> int:
@@ -629,6 +657,5 @@ __all__ = [
     "GenericRosenbrockWStep",
     "RosenbrockWStepConfig",
     "RosenbrockTableau",
-    "ROSENBROCK_W6S4OS_TABLEAU",
 ]
 

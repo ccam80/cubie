@@ -103,36 +103,36 @@ class CPUStep:
         # Optional fields for Rosenbrock-W style tableaus
         self._C_matrix: Optional[Array] = None
         self._gamma: Optional[np.floating[Any]] = None
+        self._gamma_stages: Optional[Array] = None
 
         tb = self.tableau
         if tb is not None:
-            # Metadata
-            self._stage_count = getattr(tb, "stage_count", None)
-            self._first_same_as_last = getattr(tb, "first_same_as_last", None)
-            # Core RK vectors/matrices
-            a_values = getattr(tb, "a", None)
-            if a_values is not None:
-                typed_rows = tb.typed_rows(a_values, self.precision)
-                self._a_matrix = np.asarray(typed_rows, dtype=self.precision)
-            b_values = getattr(tb, "b", None)
-            if b_values is not None:
-                typed_vec = tb.typed_vector(b_values, self.precision)
-                self._b_weights = np.asarray(typed_vec, dtype=self.precision)
-            c_values = getattr(tb, "c", None)
-            if c_values is not None:
-                typed_vec = tb.typed_vector(c_values, self.precision)
-                self._c_nodes = np.asarray(typed_vec, dtype=self.precision)
-            # Embedded error weights
-            err = tb.error_weights(self.precision)
-            if err is not None:
-                self._error_weights = np.asarray(err, dtype=self.precision)
-            # Rosenbrock-W extensions if present
-            C_values = getattr(tb, "C", None)
-            if C_values is not None:
-                typed_rows = tb.typed_rows(C_values, self.precision)
-                self._C_matrix = np.asarray(typed_rows, dtype=self.precision)
-            if hasattr(tb, "gamma"):
-                self._gamma = self.precision(getattr(tb, "gamma"))
+            self._stage_count = tb.stage_count
+            self._first_same_as_last = tb.first_same_as_last
+            self._a_matrix = np.asarray(
+                tb.typed_rows(tb.a, self.precision), dtype=self.precision
+            )
+            self._b_weights = np.asarray(
+                tb.typed_vector(tb.b, self.precision), dtype=self.precision
+            )
+            self._c_nodes = np.asarray(
+                tb.typed_vector(tb.c, self.precision), dtype=self.precision
+            )
+            error_weights = tb.error_weights(self.precision)
+            if error_weights is not None:
+                self._error_weights = np.asarray(
+                    error_weights, dtype=self.precision
+                )
+            if isinstance(tb, RosenbrockTableau):
+                self._C_matrix = np.asarray(
+                    tb.typed_rows(tb.C, self.precision), dtype=self.precision
+                )
+                self._gamma = self.precision(tb.gamma)
+                gamma_stages = tb.typed_gamma_stages(self.precision)
+                if gamma_stages:
+                    self._gamma_stages = np.asarray(
+                        gamma_stages, dtype=self.precision
+                    )
 
     def _tableau_rows(
         self, values: Optional[Sequence[Sequence[float]]]
@@ -367,6 +367,11 @@ class CPUStep:
 
     def drivers(self, time: float) -> Array:
         return self.driver_evaluator(self.precision(time))
+
+    def driver_time_derivative(self, time: float) -> Array:
+        """Return driver time derivatives evaluated at ``time``."""
+
+        return self.driver_evaluator.derivative(self.precision(time))
 
     def mass_matrix_apply(self, vector: Array) -> Array:
         return vector
@@ -1339,21 +1344,6 @@ class CPURosenbrockWStep(CPUStep):
         )
         self._increment_cache = np.zeros(self._state_size, dtype=self.precision)
 
-    @property
-    def C_matrix(self) -> Optional[Array]:
-        """Return the Jacobian update coefficients (cached)."""
-
-        return super().C_matrix
-
-    @property
-    def gamma(self) -> Optional[np.floating[Any]]:
-        """Return the stage Jacobian shift (cached)."""
-
-        tableau = self.tableau
-        if tableau is None or not hasattr(tableau, "gamma"):
-            return None
-        return self.precision(getattr(tableau, "gamma"))
-
     def step(
         self,
         *,
@@ -1367,33 +1357,50 @@ class CPURosenbrockWStep(CPUStep):
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
-        idt = self.precision(1.0 / dt_value)
         current_time = self.precision(time)
         end_time = current_time + dt_value
 
+        stage_count = int(self.stage_count)
+
+        a_matrix = np.asarray(self.a_matrix, dtype=self.precision)
+        b_weights = np.asarray(self.b_weights, dtype=self.precision)
+        c_nodes = np.asarray(self.c_nodes, dtype=self.precision)
+        C_matrix = np.asarray(self.C_matrix, dtype=self.precision)
+        gamma = self.gamma
+        stage_gammas = (
+            self._gamma_stages
+            if self._gamma_stages is not None
+            else np.full(
+                stage_count, self._gamma, dtype=self.precision
+            )
+        )
+        stage_gammas = np.asarray(stage_gammas, dtype=self.precision)
+
+        error_weights = self.error_weights
+        if error_weights is not None:
+            error_weights = np.asarray(error_weights, dtype=self.precision)
+
+        state_dim = state_vector.shape[0]
         zero = self.precision(0.0)
 
-        stage_count = self.stage_count
-        a_matrix = self.a_matrix
-        b_weights = self.b_weights
-        c_nodes = self.c_nodes
-        error_weights = self.error_weights
-        C_matrix = self.C_matrix
-        gamma = self.gamma
-
         drivers_now = self.drivers(current_time)
+        driver_rates_now = self.driver_time_derivative(current_time)
         observables_now = self.observables(
             state_vector,
             params_array,
             drivers_now,
             current_time,
         )
-        derivative_now = self.rhs(
+        f_now, symbol_values_now = self.evaluator.rhs(
             state_vector,
             params_array,
             drivers_now,
             observables_now,
             current_time,
+        )
+        time_derivative_now = self.evaluator.time_derivative(
+            symbol_values_now,
+            driver_rates_now,
         )
         jacobian_now = self.evaluator.jacobian(
             state_vector,
@@ -1403,65 +1410,117 @@ class CPURosenbrockWStep(CPUStep):
             current_time,
         )
 
-        lhs = self._identity - dt_value * gamma * jacobian_now
-
-        state_accum = np.zeros_like(state_vector)
-        error_accum = np.zeros_like(state_vector)
-        state_dim = state_vector.shape[0]
-        state_shifts = np.zeros(
-            (stage_count, len(state_vector)),
-            dtype=self.precision,
-        )
-        jacobian_shifts = np.zeros_like(state_shifts)
-        rhs = np.zeros_like(state_vector)
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
 
-        drivers_stage = drivers_now
-        last_stage_derivative = derivative_now
-        for stage_index in range(stage_count):
-            stage_time = current_time + c_nodes[stage_index] * dt_value
-            if stage_index == 0:
-                stage_state = state_vector
-                derivative_stage = derivative_now
-            else:
-                drivers_stage = self.drivers(stage_time)
-                stage_state = state_vector + state_shifts[stage_index]
-                observables_stage = self.observables(
-                    stage_state,
-                    params_array,
-                    drivers_stage,
-                    stage_time,
-                )
-                derivative_stage = self.rhs(
-                    stage_state,
-                    params_array,
-                    drivers_stage,
-                    observables_stage,
-                    stage_time,
-                )
-                if logging:
-                    logging.stage_observables[stage_index, :] = (
-                        observables_stage
+        stage_increments = np.zeros(
+            (stage_count, state_dim),
+            dtype=self.precision,
+        )
+        stage_derivatives = np.zeros_like(stage_increments)
+        state_accum = np.zeros(state_dim, dtype=self.precision)
+        error_accum = np.zeros(state_dim, dtype=self.precision)
+
+        if logging:
+            logging.stage_states[0, :] = state_vector
+            logging.stage_drivers[0, :] = drivers_now
+            logging.stage_observables[0, :] = observables_now
+        stage_derivatives[0, :] = f_now
+        if logging:
+            logging.stage_derivatives[0, :] = f_now
+
+        rhs_vector = (
+                dt_value * f_now
+                + dt_value * stage_gammas[0] * time_derivative_now
+        )
+        if logging:
+            logging.residuals[0, :] = rhs_vector
+
+        linear_kwargs = {}
+        if logging:
+            linear_kwargs = {
+                "stage_index": 0,
+                "instrumented": True,
+                "logging_initial_guess": logging.linear_initial_guesses,
+                "logging_iteration_guesses": logging.linear_iteration_guesses,
+                "logging_residuals": logging.linear_residuals,
+                "logging_squared_norms": logging.linear_squared_norms,
+                "logging_preconditioned_vectors": (
+                    logging.linear_preconditioned_vectors
+                ),
+            }
+        lhs_matrix = (
+            self._identity - dt_value * gamma * jacobian_now
+        )
+        stage_increment, converged, niters = self.linear_solve(
+            lhs_matrix,
+            rhs_vector,
+            initial_guess=self._increment_cache,
+            **linear_kwargs,
+        )
+        stage_increments[0, :] = stage_increment
+        state_accum = state_accum + b_weights[0] * stage_increment
+        if error_weights is not None:
+            error_accum = error_accum + error_weights[0] * stage_increment
+        if logging:
+            logging.jacobian_updates[0, :] = stage_increment
+            logging.stage_increments[0, :] = stage_increment
+
+        all_converged = bool(converged)
+        total_iters = int(niters)
+
+        for stage_index in range(1, stage_count):
+            stage_state = state_vector.copy()
+            for predecessor in range(stage_index):
+                coeff = a_matrix[stage_index, predecessor]
+                if coeff != zero:
+                    stage_state = stage_state + (
+                        coeff * stage_increments[predecessor]
                     )
-            last_stage_derivative = derivative_stage
+            stage_time = current_time + c_nodes[stage_index] * dt_value
+            drivers_stage = self.drivers(stage_time)
+            observables_stage = self.observables(
+                stage_state,
+                params_array,
+                drivers_stage,
+                stage_time,
+            )
+            f_stage, _ = self.evaluator.rhs(
+                stage_state,
+                params_array,
+                drivers_stage,
+                observables_stage,
+                stage_time,
+            )
+            stage_derivatives[stage_index, :] = f_stage
+            rhs_vector = (
+                    dt_value * f_stage
+                    + dt_value * dt_value * stage_gammas[stage_index]
+                    * time_derivative_now
+            )
+            correction = np.zeros(state_dim, dtype=self.precision)
+            for predecessor in range(stage_index):
+                coeff = C_matrix[stage_index, predecessor]
+                if coeff != zero:
+                    correction = correction + (
+                        coeff * stage_increments[predecessor]
+                    )
+            if np.any(correction):
+                rhs_vector = rhs_vector + dt_value * correction
+
             if logging:
                 logging.stage_states[stage_index, :] = stage_state
-                logging.stage_derivatives[stage_index, :] = derivative_stage
                 logging.stage_drivers[stage_index, :] = drivers_stage
-                if stage_index == 0:
-                    logging.stage_observables[stage_index, :] = observables_now
+                logging.stage_observables[stage_index, :] = observables_stage
+                logging.stage_derivatives[stage_index, :] = f_stage
+                logging.residuals[stage_index, :] = rhs_vector
 
-            rhs[:] = dt_value * derivative_stage
-            if stage_index > 0 and np.any(
-                C_matrix[stage_index, :stage_index]
-            ):
-                jac_term = jacobian_now @ jacobian_shifts[stage_index]
-                rhs[:] = rhs + dt_value * jac_term
-            if logging:
-                logging.residuals[stage_index, :] = rhs
-
+            lhs_matrix = (
+                self._identity
+                - dt_value * stage_gammas[stage_index] * jacobian_now
+            )
+            initial_guess = stage_increments[stage_index - 1].copy()
             linear_kwargs = {}
             if logging:
                 linear_kwargs = {
@@ -1477,15 +1536,14 @@ class CPURosenbrockWStep(CPUStep):
                         logging.linear_preconditioned_vectors
                     ),
                 }
-            stage_increment, linear_converged, linear_iters = self.linear_solve(
-                lhs,
-                rhs,
-                initial_guess=self._increment_cache,
+            stage_increment, converged, niters = self.linear_solve(
+                lhs_matrix,
+                rhs_vector,
+                initial_guess=initial_guess,
                 **linear_kwargs,
             )
-            state_accum = state_accum + (
-                b_weights[stage_index] * stage_increment
-            )
+            stage_increments[stage_index, :] = stage_increment
+            state_accum = state_accum + b_weights[stage_index] * stage_increment
             if error_weights is not None:
                 error_accum = error_accum + (
                     error_weights[stage_index] * stage_increment
@@ -1493,41 +1551,31 @@ class CPURosenbrockWStep(CPUStep):
             if logging:
                 logging.jacobian_updates[stage_index, :] = stage_increment
                 logging.stage_increments[stage_index, :] = stage_increment
-
-            for successor in range(stage_index + 1, stage_count):
-                a_coeff = a_matrix[successor, stage_index]
-                if a_coeff != zero:
-                    state_shifts[successor] = (
-                        state_shifts[successor] + a_coeff * stage_increment
-                    )
-                C_coeff = C_matrix[successor, stage_index]
-                if C_coeff != zero:
-                    jacobian_shifts[successor] = (
-                        jacobian_shifts[successor] + C_coeff *
-                        stage_increment
-                    )
+            all_converged = all_converged and bool(converged)
+            total_iters += int(niters)
 
         new_state = state_vector + state_accum
         drivers_end = self.drivers(end_time)
-        observables = self.observables(
+        observables_end = self.observables(
             new_state,
             params_array,
             drivers_end,
             end_time,
         )
-        self._increment_cache = stage_increment
-        status = self._status(True, 0)
-        stage_derivative_output = (
-            logging.stage_derivatives if logging else None
+        self._increment_cache = stage_increments[-1].copy()
+        status = self._status(all_converged, total_iters)
+        error_vector = (
+            error_accum if error_weights is not None else np.zeros_like(state_vector)
         )
+        stage_derivative_output = stage_derivatives if logging else None
         result_kwargs = self._logging_result_kwargs(logging)
         result_kwargs["stage_derivatives"] = stage_derivative_output
         return self._make_result(
             state=new_state,
-            observables=observables,
-            error=error_accum,
+            observables=observables_end,
+            error=error_vector,
             status=status,
-            niters=0,
+            niters=total_iters,
             **result_kwargs,
         )
 
