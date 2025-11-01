@@ -207,24 +207,20 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
 
-        stage_count = tableau.stage_count
-        multistage = stage_count > 1
+        stage_count = self.stage_count
         has_driver_function = driver_function is not None
-        first_same_as_last = self.first_same_as_last
-        can_reuse_accepted_start = self.can_reuse_accepted_start
         has_error = self.is_adaptive
+        typed_zero = numba_precision(0.0)
 
         a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
-        c_coeffs = tableau.typed_rows(tableau.C, numba_precision)
-        stage_gamma_shifts = tableau.typed_vector(
-                tableau.gamma_stages, numba_precision
-        )
+        C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
+        gamma_stages = tableau.typed_gamma_stages(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
-        typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+
 
         stage_buffer_n = stage_count * n
         cached_auxiliary_count = self.cached_auxiliary_count
@@ -234,9 +230,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         stage_state_end = stage_state_start + n
         stage_rhs_start = stage_state_end
         stage_rhs_end = stage_rhs_start + n
-        acc_start = stage_rhs_end
-        acc_end = acc_start + stage_buffer_n
-        aux_start = acc_end
+        stage_store_start = stage_rhs_end
+        stage_store_end = stage_store_start + stage_buffer_n
+        aux_start = stage_store_end
         aux_end = aux_start + cached_auxiliary_count
 
         # no cover: start
@@ -301,7 +297,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             time_derivative = shared[del_t_start:del_t_end]
             stage_state = shared[stage_state_start:stage_state_end]
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
-            stage_store = shared[acc_start:acc_end]
+            stage_store = shared[stage_store_start:stage_store_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
             idt = numba_precision(1.0) / dt_scalar
@@ -336,6 +332,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
+                time_derivative[idx] *= dt_scalar # Prescale by dt_scalar once
                 if has_error:
                     error[idx] = typed_zero
 
@@ -343,47 +340,24 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #
-            #            Stage 0: may use cached values                       #
+            #            Stage 0: uses starting values                        #
             # --------------------------------------------------------------- #
 
-            if can_reuse_accepted_start:
-                dxdt_fn(
-                    state,
-                    parameters,
-                    drivers_buffer,
-                    observables,
-                    stage_rhs,
-                    current_time,
-                )
-
-            else:
-                # We're not at time = 0, recalculate f(y_0, t_0)
-                if has_driver_function:
-                    driver_function(
-                        current_time,
-                        driver_coeffs,
-                        proposed_drivers,
-                    )
-                observables_function(
-                    state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
-                dxdt_fn(
-                    state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
+            dxdt_fn(
+                state,
+                parameters,
+                drivers_buffer,
+                observables,
+                stage_rhs,
+                current_time,
+            )
 
             for idx in range(n):
                 # No accumulated contributions at stage 0.
-                stage_rhs[idx] = (dt_scalar * stage_rhs[idx] +
-                                  stage_gamma_shifts[0] * time_derivative[idx])
+                stage_rhs[idx] = (
+                    (stage_rhs[idx] + gamma_stages[0] * time_derivative[idx])
+                    * dt_scalar
+                )
 
             # Use final stage solution from previous step as initial guess.
             # Zerod on loop start
@@ -404,7 +378,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_increment,
             )
 
-
             for idx in range(n):
                 proposed_state[idx] += stage_increment[idx] * solution_weights[0]
                 if has_error:
@@ -415,22 +388,20 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             for stage_idx in range(1, stage_count):
                 # Fill buffers with previous step's contributions
-                prev_idx = stage_idx - 1
-                stage_gamma = stage_gamma_shifts[stage_idx]
+                stage_gamma = gamma_stages[stage_idx]
+                stage_time = (
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
+                )
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
                 for idx in range(n):
                     stage_state[idx] = state[idx]
                 for predecessor_offset in range(stage_idx):
+                    a_coeff = a_coeffs[stage_idx][predecessor_offset]
+                    base_idx = predecessor_offset * n
                     for idx in range(n):
-                        base_idx = predecessor_offset * n + idx
                         prior_val = stage_store[base_idx + idx]
-                        a_coeff = a_coeffs[predecessor_offset][prev_idx]
                         stage_state[idx] += a_coeff * prior_val
-
-                stage_time = (
-                        current_time + dt_scalar * stage_time_fractions[stage_idx]
-                )
 
                 # Get t + c_i * dt parts
                 if has_driver_function:
@@ -459,21 +430,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
-                    prior_contribution = numba_precision(0.0)
-
+                    correction = numba_precision(0.0)
                     # stage_store access pattern n-strided - OK in shared mem
                     for predecessor_offset in range(stage_idx):
+                        c_coeff = C_coeffs[stage_idx][predecessor_offset]
                         prior_idx = predecessor_offset * n + idx
                         prior_val = stage_store[prior_idx]
-                        c_coeff = c_coeffs[predecessor_offset][prev_idx]
-                        prior_contribution += c_coeff * prior_val
+                        correction += c_coeff * prior_val
 
-                    stage_inc = stage_rhs[idx]
+                    f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
-                    stage_rhs[idx] = (
-                        prior_contribution * idt + stage_inc + deriv_val
-                    )
-
+                    stage_rhs[idx] = (correction * idt + f_stage_val +
+                                      deriv_val) * dt_scalar
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_store[
@@ -507,10 +475,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             # ----------------------------------------------------------- #
             # Apply final dt scaling at end to reduce round-off error
-            for idx in range(n):
-                proposed_state[idx] *= dt_scalar
-                if has_error:
-                    error[idx] *= dt_scalar
+            # for idx in range(n):
+            #     proposed_state[idx] *= dt_scalar
+            #     if has_error:
+            #         error[idx] *= dt_scalar
 
             if has_driver_function:
                 driver_function(
