@@ -82,6 +82,7 @@ def create_instrumentation_host_buffers(
     newton_max_iters: int,
     newton_max_backtracks: int,
     linear_max_iters: int,
+    flattened_solver: bool = False,
 ) -> InstrumentationHostBuffers:
     """Return zeroed buffers sized for instrumentation diagnostics.
 
@@ -105,6 +106,9 @@ def create_instrumentation_host_buffers(
         Maximum number of backtracking attempts per Newton iteration.
     linear_max_iters:
         Maximum iterations permitted for Krylov solves.
+    flattened_solver:
+        When True, solver arrays use flattened stage_count * state_size dimension
+        instead of separate stage arrays. Default False.
 
     Returns
     -------
@@ -123,6 +127,10 @@ def create_instrumentation_host_buffers(
     linear_iters = int(linear_max_iters)
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
+    
+    # When flattened_solver is True, solve for all stages simultaneously
+    solver_dim = resolved_stage_count * state_dim if flattened_solver else state_dim
+    solver_stage_count = 1 if flattened_solver else resolved_stage_count
 
     def _step_shape(*base: int) -> tuple[int, ...]:
         base_shape = tuple(int(value) for value in base)
@@ -143,26 +151,29 @@ def create_instrumentation_host_buffers(
         dtype=dtype,
     )
     stage_increments = np.zeros_like(residuals)
-    newton_initial_guesses = np.zeros_like(residuals)
+    newton_initial_guesses = np.zeros(
+        _step_shape(solver_stage_count, solver_dim),
+        dtype=dtype,
+    )
     newton_iteration_guesses = np.zeros(
-        _step_shape(resolved_stage_count, newton_slots, state_dim),
+        _step_shape(solver_stage_count, newton_slots, solver_dim),
         dtype=dtype,
     )
     newton_residuals = np.zeros_like(newton_iteration_guesses)
     newton_squared_norms = np.zeros(
-        _step_shape(resolved_stage_count, newton_slots),
+        _step_shape(solver_stage_count, newton_slots),
         dtype=dtype,
     )
     newton_iteration_scale = np.zeros(
-        _step_shape(resolved_stage_count, newton_iters),
+        _step_shape(solver_stage_count, newton_iters),
         dtype=dtype,
     )
     linear_initial_guesses = np.zeros(
-        _step_shape(linear_slots, state_dim),
+        _step_shape(linear_slots, solver_dim),
         dtype=dtype,
     )
     linear_iteration_guesses = np.zeros(
-        _step_shape(linear_slots, linear_iters, state_dim),
+        _step_shape(linear_slots, linear_iters, solver_dim),
         dtype=dtype,
     )
     linear_residuals = np.zeros_like(linear_iteration_guesses)

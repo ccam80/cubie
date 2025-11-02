@@ -14,6 +14,7 @@ from cubie.integrators.algorithms import (
     DIRKStep,
     ERKStep,
     ExplicitEulerStep,
+    FIRKStep,
     GenericRosenbrockWStep,
     resolve_alias,
     resolve_supplied_tableau,
@@ -34,6 +35,7 @@ from .explicit_euler import (
     ExplicitEulerStep as InstrumentedExplicitEulerStep,
 )
 from .generic_dirk import DIRKStep as InstrumentedDIRKStep
+from .generic_firk import FIRKStep as InstrumentedFIRKStep
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     InstrumentedStepResult,
@@ -55,6 +57,7 @@ STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, BaseAlgorithmStep] = {
     CrankNicolsonStep: InstrumentedCrankNicolsonStep,
     ERKStep: InstrumentedERKStep,
     DIRKStep: InstrumentedDIRKStep,
+    FIRKStep: InstrumentedFIRKStep,
     GenericRosenbrockWStep: InstrumentedRosenbrockStep,
 }
 
@@ -407,6 +410,10 @@ def instrumented_step_results(
     # Inline the previously nested _run_steps function: allocate buffers, launch kernel, copy results
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
 
+    # Check if this is a FIRK step which requires flattened solver buffers
+    from tests.integrators.algorithms.instrumented.generic_firk import FIRKStep as InstrumentedFIRKStep
+    is_firk = isinstance(instrumented_step_object, InstrumentedFIRKStep)
+
     host_buffers = create_instrumentation_host_buffers(
         precision=precision,
         stage_count=stage_count,
@@ -417,6 +424,7 @@ def instrumented_step_results(
         newton_max_backtracks=max_newton_backtracks,
         linear_max_iters=linear_max_iters,
         num_steps=num_steps,
+        flattened_solver=is_firk,
     )
     status = np.zeros(num_steps, dtype=np.int32)
 

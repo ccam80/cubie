@@ -1352,6 +1352,20 @@ class CPUFIRKStep(CPUStep):
         self._firk_dt = self.precision(0.0)
         self._firk_stage_increments = None
 
+    def _create_logging_buffers(self, stage_count: int):
+        """Return logging buffers sized for FIRK with flattened solver."""
+        return create_instrumentation_host_buffers(
+            precision=self.precision,
+            stage_count=stage_count,
+            state_size=self._state_size,
+            observable_size=self.evaluator.system.sizes.observables,
+            driver_size=self.evaluator.system.sizes.drivers,
+            newton_max_iters=self._newton_max_iters,
+            newton_max_backtracks=self._newton_max_backtracks,
+            linear_max_iters=self._linear_max_iters,
+            flattened_solver=True,
+        )
+
     def residual(self, candidate: Array) -> Array:
         """Compute the residual for the fully implicit stage equations.
         

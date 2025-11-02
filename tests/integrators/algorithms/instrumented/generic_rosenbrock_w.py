@@ -96,7 +96,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     def build_implicit_helpers(
         self,
-    ) -> Tuple[Callable, Callable, Callable, Callable]:
+    ) -> Tuple[Callable, Callable, Callable]:
         """Construct the nonlinear solver chain used by implicit methods.
 
         Returns
@@ -164,6 +164,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_del_t = config.driver_del_t
         numba_precision = config.numba_precision
         n = config.n
+        n_drivers = config.n_drivers
         dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
@@ -177,6 +178,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             numba_precision,
             n,
             dt,
+            n_drivers,
         )
 
     def build_step(
@@ -189,6 +191,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
 
@@ -477,7 +480,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs[idx] = rhs_value * dt_scalar * gamma
 
                     # LOGGING
-                    stage_derivatives[stage_idx, idx] = f_value
+                    stage_derivatives[stage_idx, idx] = f_stage_val
                     stage_states[stage_idx, idx] = stage_state[idx]
                     residuals[stage_idx, idx] = rhs_value * dt_scalar
 
@@ -602,4 +605,3 @@ __all__ = [
     "RosenbrockWStepConfig",
     "RosenbrockTableau",
 ]
-

@@ -187,12 +187,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             driver_del_t,
             numba_precision,
             n,
-            dt
+            dt,
+            config.n_drivers,
         )
 
     def build_step(
         self,
-        solver_fn: Tuple[Callable, Callable, Callable],
+        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -200,6 +201,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
 
@@ -562,4 +564,3 @@ __all__ = [
     "RosenbrockWStepConfig",
     "RosenbrockTableau",
 ]
-

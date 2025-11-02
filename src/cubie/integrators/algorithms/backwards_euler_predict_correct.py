@@ -20,6 +20,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the predictor-corrector scheme.
 

@@ -19,9 +19,9 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    inst_linear_solver_factory,
+    inst_newton_krylov_solver_factory,
 )
 
 
@@ -109,6 +109,7 @@ class FIRKStep(ODEImplicitStep):
             gamma=1.0,
             M=mass,
         )
+        self._cached_auxiliary_count = 0
         super().__init__(config, FIRK_DEFAULTS)
 
     def build_implicit_helpers(
@@ -161,7 +162,7 @@ class FIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = linear_solver_factory(
+        linear_solver = inst_linear_solver_factory(
             operator,
             n=all_stages_n,
             preconditioner=preconditioner,
@@ -175,7 +176,7 @@ class FIRKStep(ODEImplicitStep):
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
 
-        nonlinear_solver = newton_krylov_solver_factory(
+        nonlinear_solver = inst_newton_krylov_solver_factory(
             residual_function=residual,
             linear_solver=linear_solver,
             n=all_stages_n,
@@ -197,7 +198,7 @@ class FIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
-        n_drivers: int,
+        n_drivers: int = 0,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
 
@@ -209,7 +210,6 @@ class FIRKStep(ODEImplicitStep):
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
-
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
@@ -238,6 +238,22 @@ class FIRKStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 int16,
@@ -258,6 +274,23 @@ class FIRKStep(ODEImplicitStep):
             observables,
             proposed_observables,
             error,
+            residuals,
+            jacobian_updates,
+            stage_states,
+            stage_derivatives,
+            stage_observables,
+            proposed_drivers_out,
+            stage_increments,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
             first_step_flag,
@@ -266,54 +299,63 @@ class FIRKStep(ODEImplicitStep):
             persistent_local,
         ):
             stage_state = cuda.local.array(n, numba_precision)
+            observable_count = proposed_observables.shape[0]
 
-            dt_value = dt_scalar
-            current_time = time_scalar
-            end_time = current_time + dt_value
+            dt_value = numba_precision(dt_scalar)
+            end_time = time_scalar + dt_value
+            status_code = int32(0)
 
-            solver_scratch = shared[:solver_shared_elements]
-            stage_rhs_flat = solver_scratch[:all_stages_n]
             stage_increment = shared[stages_start:stages_end]
             stage_driver_stack = shared[drivers_start:drivers_end]
-            status_code = int32(0)
+            solver_scratch = shared[:solver_shared_elements]
+            stage_rhs_flat = solver_scratch[:all_stages_n]
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
                 if has_error:
                     error[idx] = typed_zero
 
-            # Fill stage_drivers_stack if driver arrays provided
             if has_driver_function:
-                for stage_idx in range(stage_count):
-                    stage_time = (
-                        current_time
-                        + dt_value * stage_time_fractions[stage_idx]
+                for driver_idx in range(stage_count):
+                    stage_time = time_scalar + (
+                        stage_time_fractions[driver_idx] * dt_value
                     )
-                    stage_base = stage_idx * n_drivers
-                    stage_slice = stage_driver_stack[
-                        stage_base:stage_base + n_drivers
+                    driver_offset = driver_idx * n_drivers
+                    driver_slice = stage_driver_stack[
+                        driver_offset : driver_offset + n_drivers
                     ]
                     driver_function(
-                            stage_time,
-                            driver_coeffs,
-                            stage_slice
+                        stage_time,
+                        driver_coeffs,
+                        driver_slice,
                     )
 
-
-            status_code |= nonlinear_solver(
+            solver_ret = nonlinear_solver(
                 stage_increment,
                 parameters,
                 stage_driver_stack,
-                current_time,
+                time_scalar,
                 dt_value,
                 typed_zero,
                 state,
                 solver_scratch,
+                int32(0),
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
+            status_code |= solver_ret
 
             for stage_idx in range(stage_count):
-                stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
+                stage_time = time_scalar + (
+                    stage_time_fractions[stage_idx] * dt_value
                 )
 
                 if has_driver_function:
@@ -337,6 +379,11 @@ class FIRKStep(ODEImplicitStep):
                             )
                     stage_state[comp_idx] = value
 
+                for idx in range(n):
+                    stage_states[stage_idx, idx] = stage_state[idx]
+                    stage_increments[stage_idx, idx] = stage_increment[stage_idx * n + idx]
+                    jacobian_updates[stage_idx, idx] = typed_zero
+
                 observables_function(
                     stage_state,
                     parameters,
@@ -344,6 +391,9 @@ class FIRKStep(ODEImplicitStep):
                     proposed_observables,
                     stage_time,
                 )
+
+                for obs_idx in range(observable_count):
+                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
 
                 stage_rhs = stage_rhs_flat[
                     stage_idx * n:(stage_idx + 1) * n
@@ -356,6 +406,10 @@ class FIRKStep(ODEImplicitStep):
                     stage_rhs,
                     stage_time,
                 )
+
+                for idx in range(n):
+                    stage_derivatives[stage_idx, idx] = stage_rhs[idx]
+                    residuals[stage_idx, idx] = solver_scratch[all_stages_n + stage_idx * n + idx]
 
             for comp_idx in range(n):
                 solution_acc = typed_zero
@@ -406,15 +460,25 @@ class FIRKStep(ODEImplicitStep):
 
     @property
     def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP."""
+        """Return the number of cached auxiliary entries for the JVP.
 
+        Lazily builds implicit helpers so as not to return an errant 'None'."""
+        if self._cached_auxiliary_count is None:
+            self.build_implicit_helpers()
         return self._cached_auxiliary_count
 
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
-        return self.solver_shared_elements + self.cached_auxiliary_count
+        config = self.compile_settings
+        stage_driver_total = config.stage_count * config.n_drivers
+        return (
+            self.solver_shared_elements
+            + self.cached_auxiliary_count
+            + stage_driver_total
+            + config.all_stages_n
+        )
 
     @property
     def local_scratch_required(self) -> int:
@@ -470,4 +534,3 @@ class FIRKStep(ODEImplicitStep):
         """Return the number of CUDA threads that advance one state."""
 
         return 1
-

@@ -25,6 +25,11 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERK_TABLEAU_REGISTRY,
 )
+from cubie.integrators.algorithms.generic_firk import FIRKStep
+from cubie.integrators.algorithms.generic_firk_tableaus import (
+    DEFAULT_FIRK_TABLEAU,
+    FIRK_TABLEAU_REGISTRY,
+)
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     GenericRosenbrockWStep,
 )
@@ -40,6 +45,7 @@ from tests.integrators.cpu_reference import (
 from tests.integrators.cpu_reference.algorithms import (
     CPUDIRKStep,
     CPUERKStep,
+    CPUFIRKStep,
     CPURosenbrockWStep,
 )
 
@@ -109,6 +115,12 @@ def _expected_memory_requirements(
         shared = accumulator_span + 3 * n_states + extra_shared
         local = 2 * n_states
         return shared, local
+    if isinstance(step_object, FIRKStep):
+        stage_count = tableau.stage_count
+        all_stages_n = stage_count * n_states
+        shared = 3 * all_stages_n + extra_shared
+        local = stage_count * n_states + n_states
+        return shared, local
     if isinstance(step_object, GenericRosenbrockWStep):
         stage_count = tableau.stage_count
         accumulator_span = stage_count * n_states
@@ -143,6 +155,13 @@ ALIAS_CASES = [
         DEFAULT_DIRK_TABLEAU,
         CPUDIRKStep,
         id="dirk",
+    ),
+    pytest.param(
+        "firk",
+        FIRKStep,
+        DEFAULT_FIRK_TABLEAU,
+        CPUFIRKStep,
+        id="firk",
     ),
     pytest.param(
         "rosenbrock",
@@ -336,6 +355,13 @@ STEP_CASES = [pytest.param(
             "step_controller": "pi",
         },
         id="dirk",
+    ),
+    pytest.param(
+        {
+            "algorithm": "firk",
+            "step_controller": "pi",
+        },
+        id="firk",
     ),
     pytest.param(
         {

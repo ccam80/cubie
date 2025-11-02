@@ -90,6 +90,7 @@ class ERKStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
