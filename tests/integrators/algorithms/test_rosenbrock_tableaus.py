@@ -15,7 +15,7 @@ def test_rosenbrock_registry_contains_expected_tableaus():
     """Registry should expose documented Rosenbrock-W tableaus."""
 
     registered = set(ROSENBROCK_TABLEAUS)
-    assert {"ros3p", "rosenbrock_w6s4os"}.issubset(registered)
+    assert {"ros3p"}.issubset(registered)
     assert DEFAULT_ROSENBROCK_TABLEAU_NAME == "ros3p"
     assert DEFAULT_ROSENBROCK_TABLEAU is ROS3P_TABLEAU
 

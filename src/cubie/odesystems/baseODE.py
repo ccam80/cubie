@@ -40,6 +40,9 @@ class ODECache:
     calculate_cached_jvp: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
+    time_derivative_rhs: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
     cached_aux_count: Optional[int] = attrs.field(default=-1)
 
 

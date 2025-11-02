@@ -24,7 +24,7 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 ALL_ALGORITHM_STEP_PARAMETERS = {
     'algorithm',
     'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function', 'get_solver_helper_fn',
+    'driver_function', 'get_solver_helper_fn', "driver_del_t",
     'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
@@ -269,6 +269,14 @@ class BaseStepConfig(ABC):
         if tableau is None:
             return False
         return tableau.can_reuse_accepted_start
+
+    @property
+    def stage_count(self) -> int:
+        """Return the number of stages described by the tableau."""
+        tableau = getattr(self, "tableau", None)
+        if tableau is None:
+            return 1
+        return tableau.stage_count
 
 @attrs.define
 class StepCache:
@@ -553,3 +561,7 @@ class BaseAlgorithmStep(CUDAFactory):
         """
         return self.compile_settings.get_solver_helper_fn
 
+    @property
+    def stage_count(self) -> int:
+        """Return the number of stages described by the tableau."""
+        return self.compile_settings.stage_count

@@ -180,7 +180,7 @@ L_STABLE_DIRK3_TABLEAU = DIRKTableau(
 The tableau follows the coefficients published in MOOSE's
 ``LStableDirk3`` time integrator, derived from Alexander's family of
 L-stable singly diagonally implicit schemes. All stages share the
-diagonal value :math:`\gamma`, and the last row equals the weight
+diagonal value :math:`\\gamma`, and the last row equals the weight
 vector, so the method is stiffly accurate.
 
 References
@@ -236,7 +236,7 @@ L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
 """Hairer--Wanner L-stable SDIRK tableau of order four.
 
 The five-stage scheme delivers fourth-order accuracy with stiff
-accuracy, reusing :math:`\gamma = 1/4` on the diagonal. The tableau
+accuracy, reusing :math:`\\gamma = 1/4` on the diagonal. The tableau
 matches the coefficients tabulated in Hairer and Wanner's *Solving
 Ordinary Differential Equations II* (Table 6.5).
 
