@@ -60,6 +60,7 @@ class ERKStep(ODEExplicitStep):
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
 
@@ -73,6 +74,7 @@ class ERKStep(ODEExplicitStep):
         config = ERKStepConfig(
             precision=precision,
             n=n,
+            n_drivers=n_drivers,
             dt=dt,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
@@ -90,6 +92,7 @@ class ERKStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 

@@ -9,7 +9,11 @@ from cubie.odesystems.symbolic.codegen.numba_cuda_printer import (
 )
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.parsing.jvp_equations import JVPEquations
-from cubie.odesystems.symbolic.parsing.parser import IndexedBases, ParsedEquations
+from cubie.odesystems.symbolic.parsing.parser import (
+    IndexedBases,
+    ParsedEquations,
+    TIME_SYMBOL,
+)
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
@@ -469,24 +473,34 @@ def _build_n_stage_operator_lines(
 ) -> str:
     """Construct CUDA statements for the FIRK n-stage linear operator."""
 
-    metadata_exprs, coeff_symbols, _ = build_stage_metadata(
+    metadata_exprs, coeff_symbols, node_symbols = build_stage_metadata(
         stage_coefficients, stage_nodes
     )
     eq_list = equations.to_equation_list()
     state_symbols = list(index_map.states.index_map.keys())
     dx_symbols = list(index_map.dxdt.index_map.keys())
     observable_symbols = list(index_map.observable_symbols)
+    driver_symbols = list(index_map.drivers.index_map.keys())
     state_count = len(state_symbols)
     stage_count = stage_coefficients.rows
 
     beta_sym = sp.Symbol("beta")
     gamma_sym = sp.Symbol("gamma")
     h_sym = sp.Symbol("h")
+    time_arg = sp.Symbol("t")
     total_states = sp.Integer(stage_count * state_count)
     state_vec = sp.IndexedBase("state", shape=(total_states,))
     base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
     direction_vec = sp.IndexedBase("v", shape=(total_states,))
     out = sp.IndexedBase("out", shape=(total_states,))
+
+    driver_count = len(driver_symbols)
+    if driver_count:
+        drivers = sp.IndexedBase(
+            "drivers", shape=(sp.Integer(stage_count * driver_count),)
+        )
+    else:
+        drivers = sp.IndexedBase("drivers")
 
     jvp_terms = jvp_equations.jvp_terms
     aux_order = jvp_equations.non_jvp_order
@@ -509,6 +523,14 @@ def _build_n_stage_operator_lines(
         else:
             obs_subs = {}
         substitution_map = {**dx_subs, **obs_subs}
+        substitution_map[TIME_SYMBOL] = time_arg + h_sym * node_symbols[stage_idx]
+
+        if driver_count:
+            stage_driver_offset = stage_idx * driver_count
+            for driver_idx, driver_sym in enumerate(driver_symbols):
+                substitution_map[driver_sym] = drivers[
+                    stage_driver_offset + driver_idx
+                ]
 
         stage_state_subs = {}
         for state_idx, state_sym in enumerate(state_symbols):
@@ -602,6 +624,7 @@ def _build_n_stage_operator_lines(
             "beta": beta_sym,
             "gamma": gamma_sym,
             "h": h_sym,
+            "t": time_arg,
         }
     )
 
@@ -672,11 +695,13 @@ N_STAGE_OPERATOR_TEMPLATE = (
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision,\n"
+    "               precision,\n"
+    "               precision,\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def operator_apply(state, parameters, drivers, h, v, out):\n"
+    "    def operator_apply(state, parameters, drivers, t, h, a_ij, v, out):\n"
     "{body}\n"
     "    return operator_apply\n"
 )

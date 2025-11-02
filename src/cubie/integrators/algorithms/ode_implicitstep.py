@@ -176,6 +176,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
+        n_drivers = config.n_drivers
 
         return self.build_step(
             solver_fn,
@@ -184,7 +185,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             driver_function,
             numba_precision,
             n,
-            dt
+            dt,
+            n_drivers,
         )
 
     @abstractmethod
@@ -197,6 +199,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
 
@@ -216,6 +219,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Dimension of the state vector.
         dt
             Fixed step size provided for fixed-step operation.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------

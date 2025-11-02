@@ -32,6 +32,7 @@ STEP_SETTINGS.update(
     indirect=True,
 )
 @pytest.mark.specific_algos
+@pytest.mark.sim_only
 def test_instrumented_gpu_vs_cpu(
     instrumented_cpu_step_results,
     instrumented_step_results,

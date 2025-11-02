@@ -68,6 +68,7 @@ class DIRKStep(ODEImplicitStep):
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
@@ -75,6 +76,7 @@ class DIRKStep(ODEImplicitStep):
         config = DIRKStepConfig(
             precision=precision,
             n=n,
+            n_drivers=n_drivers,
             dt=dt,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
@@ -175,6 +177,7 @@ class DIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 

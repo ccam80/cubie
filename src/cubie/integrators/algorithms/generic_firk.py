@@ -82,6 +82,7 @@ class FIRKStep(ODEImplicitStep):
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the FIRK step configuration."""
 
@@ -89,6 +90,7 @@ class FIRKStep(ODEImplicitStep):
         config = FIRKStepConfig(
             precision=precision,
             n=n,
+            n_drivers=n_drivers,
             dt=dt,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
@@ -107,7 +109,6 @@ class FIRKStep(ODEImplicitStep):
             gamma=1.0,
             M=mass,
         )
-        self._cached_auxiliary_count = 0
         super().__init__(config, FIRK_DEFAULTS)
 
     def build_implicit_helpers(
@@ -196,6 +197,7 @@ class FIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
 
@@ -217,7 +219,11 @@ class FIRKStep(ODEImplicitStep):
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
         solver_shared_elements = self.solver_shared_elements
-
+        stage_driver_total = stage_count * n_drivers
+        drivers_start = solver_shared_elements
+        drivers_end = solver_shared_elements + stage_driver_total
+        stages_start = drivers_end
+        stages_end = stages_start + all_stages_n
         # no cover: start
         @cuda.jit(
             (
@@ -257,7 +263,6 @@ class FIRKStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            stage_increment = cuda.local.array(all_stages_n, numba_precision)
             stage_state = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar
@@ -266,7 +271,8 @@ class FIRKStep(ODEImplicitStep):
 
             solver_scratch = shared[:solver_shared_elements]
             stage_rhs_flat = solver_scratch[:all_stages_n]
-
+            stage_increment = shared[stages_start:stages_end]
+            stage_driver_stack = shared[drivers_start:drivers_end]
             status_code = int32(0)
 
             for idx in range(all_stages_n):
@@ -278,20 +284,32 @@ class FIRKStep(ODEImplicitStep):
                 if has_error:
                     error[idx] = typed_zero
 
+            # Fill stage_drivers_stack if driver arrays provided
             if has_driver_function:
-                driver_function(
-                    current_time,
-                    driver_coeffs,
-                    proposed_drivers,
-                )
-            else:
-                for idx in range(drivers_buffer.shape[0]):
-                    proposed_drivers[idx] = drivers_buffer[idx]
+                for stage_idx in range(stage_count):
+                    stage_time = (
+                        current_time
+                        + dt_value * stage_time_fractions[stage_idx]
+                    )
+                    stage_base = stage_idx * n_drivers
+                    stage_slice = stage_driver_stack[
+                        stage_base:stage_base + n_drivers
+                    ]
+                    if has_driver_function:
+                        driver_function(
+                                stage_time,
+                                driver_coeffs,
+                                stage_slice
+                        )
+                    if stage_idx - 1 == stage_count:
+                        for idx in range(n_drivers):
+                            proposed_drivers[idx] = stage_slice[idx]
+
 
             status_code |= nonlinear_solver(
                 stage_increment,
                 parameters,
-                proposed_drivers,
+                stage_driver_stack,
                 current_time,
                 dt_value,
                 typed_zero,
@@ -303,12 +321,15 @@ class FIRKStep(ODEImplicitStep):
                 stage_time = (
                     current_time + dt_value * stage_time_fractions[stage_idx]
                 )
+
+
                 if has_driver_function:
-                    driver_function(
-                        stage_time,
-                        driver_coeffs,
-                        proposed_drivers,
-                    )
+                    stage_base = stage_idx * n_drivers
+                    stage_slice = stage_driver_stack[
+                        stage_base:stage_base + n_drivers
+                    ]
+                    for idx in range (n_drivers):
+                        proposed_drivers[idx] = stage_slice[idx]
 
                 for comp_idx in range(n):
                     value = state[comp_idx]

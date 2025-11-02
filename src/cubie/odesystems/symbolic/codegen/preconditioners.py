@@ -9,7 +9,11 @@ from cubie.odesystems.symbolic.codegen.numba_cuda_printer import (
 )
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.parsing.jvp_equations import JVPEquations
-from cubie.odesystems.symbolic.parsing.parser import IndexedBases, ParsedEquations
+from cubie.odesystems.symbolic.parsing.parser import (
+    IndexedBases,
+    ParsedEquations,
+    TIME_SYMBOL,
+)
 from cubie.odesystems.symbolic.codegen._stage_utils import build_stage_metadata, \
     prepare_stage_data
 from cubie.odesystems.symbolic.sym_utils import (
@@ -110,7 +114,7 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated FIRK Neumann preconditioner.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Approximates the inverse of ``beta * I - gamma * h * J`` using\n"
+    "    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using\n"
     "    a truncated Neumann series applied to flattened stages.\n"
     "    Returns device function:\n"
     "      preconditioner(state, parameters, drivers, t, h, a_ij, v, out, jvp)\n"
@@ -120,6 +124,7 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "    total_n = {total_states}\n"
     "    beta_inv = 1.0 / beta\n"
     "    h_eff_factor = gamma * beta_inv\n"
+    "    stage_width = {state_count}\n"
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
@@ -185,13 +190,14 @@ def _build_n_stage_neumann_lines(
 ) -> str:
     """Construct CUDA statements computing J·v for flattened FIRK stages."""
 
-    metadata_exprs, coeff_symbols, _ = build_stage_metadata(
+    metadata_exprs, coeff_symbols, node_symbols = build_stage_metadata(
         stage_coefficients, stage_nodes
     )
     eq_list = equations.to_equation_list()
     state_symbols = list(index_map.states.index_map.keys())
     dx_symbols = list(index_map.dxdt.index_map.keys())
     observable_symbols = list(index_map.observable_symbols)
+    driver_symbols = list(index_map.drivers.index_map.keys())
     state_count = len(state_symbols)
     stage_count = stage_coefficients.rows
 
@@ -200,6 +206,16 @@ def _build_n_stage_neumann_lines(
     base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
     direction_vec = sp.IndexedBase("out", shape=(total_states,))
     scratch = sp.IndexedBase("jvp", shape=(total_states,))
+    time_arg = sp.Symbol("t")
+    h_sym = sp.Symbol("h")
+
+    driver_count = len(driver_symbols)
+    if driver_count:
+        drivers = sp.IndexedBase(
+            "drivers", shape=(sp.Integer(stage_count * driver_count),)
+        )
+    else:
+        drivers = sp.IndexedBase("drivers")
 
     jvp_terms = jvp_equations.jvp_terms
     aux_order = jvp_equations.non_jvp_order
@@ -223,6 +239,14 @@ def _build_n_stage_neumann_lines(
         else:
             obs_subs = {}
         substitution_map = {**dx_subs, **obs_subs}
+        substitution_map[TIME_SYMBOL] = time_arg + h_sym * node_symbols[stage_idx]
+
+        if driver_count:
+            stage_driver_offset = stage_idx * driver_count
+            for driver_idx, driver_sym in enumerate(driver_symbols):
+                substitution_map[driver_sym] = drivers[
+                    stage_driver_offset + driver_idx
+                ]
 
         stage_state_subs = {}
         for state_idx, state_sym in enumerate(state_symbols):
@@ -307,6 +331,7 @@ def _build_n_stage_neumann_lines(
             "base_state": base_state,
             "out": direction_vec,
             "jvp": scratch,
+            "t": time_arg,
         }
     )
 
@@ -348,6 +373,7 @@ def generate_n_stage_neumann_preconditioner_code(
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     total_states = stage_count * len(index_map.states.index_map)
+    state_count = len(index_map.states.index_map)
     return N_STAGE_NEUMANN_TEMPLATE.format(
         func_name=func_name,
         const_lines=const_block,
@@ -355,6 +381,7 @@ def generate_n_stage_neumann_preconditioner_code(
         jv_body=body,
         stage_count=stage_count,
         total_states=total_states,
+        state_count=state_count,
     )
 
 def generate_neumann_preconditioner_code(
