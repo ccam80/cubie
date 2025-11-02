@@ -80,6 +80,7 @@ def linear_solver_factory(
         state,
         parameters,
         drivers,
+        base_state,
         t,
         h,
         a_ij,
@@ -96,6 +97,8 @@ def linear_solver_factory(
             Model parameters forwarded to the operator and preconditioner.
         drivers
             External drivers forwarded to the operator and preconditioner.
+        base_state
+            Base state for n-stage operators (unused for single-stage).
         t
             Stage time forwarded to the operator and preconditioner.
         h
@@ -127,7 +130,7 @@ def linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, t, h, a_ij, x, temp)
+        operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -142,6 +145,7 @@ def linear_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    base_state,
                     t,
                     h,
                     a_ij,
@@ -157,6 +161,7 @@ def linear_solver_factory(
                 state,
                 parameters,
                 drivers,
+                base_state,
                 t,
                 h,
                 a_ij,

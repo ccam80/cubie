@@ -386,12 +386,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             final_base = n * (stage_count - 1)
             for idx in range(n):
                 stage_increment[idx] = stage_store[final_base + idx]
-
+            base_state_placeholder = shared[0:0]
             initial_linear_slot = int32(0)
             solver_ret = linear_solver(
                 state,
                 parameters,
                 drivers_buffer,
+                base_state_placeholder,
                 cached_auxiliaries,
                 stage_time,
                 dt_scalar,
@@ -497,6 +498,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     state,
                     parameters,
                     drivers_buffer,
+                    base_state_placeholder,
                     cached_auxiliaries,
                     stage_time,
                     dt_scalar,

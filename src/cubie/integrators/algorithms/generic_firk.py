@@ -109,6 +109,7 @@ class FIRKStep(ODEImplicitStep):
             gamma=1.0,
             M=mass,
         )
+        self._cached_auxiliary_count = 0
         super().__init__(config, FIRK_DEFAULTS)
 
     def build_implicit_helpers(
@@ -414,7 +415,14 @@ class FIRKStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
-        return self.solver_shared_elements + self.cached_auxiliary_count
+        config = self.compile_settings
+        stage_driver_total = config.stage_count * config.n_drivers
+        return (
+            self.solver_shared_elements
+            + self.cached_auxiliary_count
+            + stage_driver_total
+            + config.all_stages_n
+        )
 
     @property
     def local_scratch_required(self) -> int:
