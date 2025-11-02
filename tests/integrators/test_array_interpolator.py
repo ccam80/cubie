@@ -8,6 +8,7 @@ from numba import cuda
 
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
+from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
 
 
 @pytest.fixture(scope="session")
@@ -209,6 +210,45 @@ def test_driver_del_t_matches_cubic_reference(cubic_inputs,
             "driver_del_t evaluation diverged from analytic derivative\n"
             f"evaluated:\n{np.array2string(evaluated)}\n"
             f"expected:\n{np.array2string(expected)}"
+        ),
+    )
+
+
+def test_cpu_driver_derivative_matches_gpu_reference(
+    cubic_inputs, tolerance, precision
+) -> None:
+    """Driver derivatives from the CPU reference should match the GPU."""
+
+    derivative_fn = cubic_inputs.driver_del_t
+    coefficients = cubic_inputs.coefficients
+    query_times = np.linspace(
+        cubic_inputs.t0,
+        cubic_inputs.t0
+        + cubic_inputs.dt * (cubic_inputs.num_segments - 1),
+        num=17,
+        dtype=cubic_inputs.precision,
+    )
+    evaluator = DriverEvaluator(
+        coefficients=coefficients,
+        dt=precision(cubic_inputs.dt),
+        t0=precision(cubic_inputs.t0),
+        wrap=cubic_inputs.wrap,
+        precision=precision,
+        boundary_condition=cubic_inputs.boundary_condition,
+    )
+    gpu_values = _run_evaluate(derivative_fn, coefficients, query_times)
+    cpu_values = np.stack(
+        [evaluator.derivative(float(time)) for time in query_times]
+    )
+    np.testing.assert_allclose(
+        cpu_values,
+        gpu_values,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+        err_msg=(
+            "CPU derivative diverged from ArrayInterpolator derivative\n"
+            f"cpu:\n{np.array2string(cpu_values)}\n"
+            f"gpu:\n{np.array2string(gpu_values)}"
         ),
     )
 
