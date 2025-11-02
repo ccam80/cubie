@@ -177,6 +177,7 @@ def inst_linear_solver_cached_factory(
         state,
         parameters,
         drivers,
+        base_state,
         cached_aux,
         t,
         h,
@@ -194,7 +195,16 @@ def inst_linear_solver_cached_factory(
         temp = cuda.local.array(n, precision_scalar)
 
         operator_apply(
-            state, parameters, drivers, cached_aux, t, h, a_ij, x, temp
+            state,
+            parameters,
+            drivers,
+            base_state,
+            cached_aux,
+            t,
+            h,
+            a_ij,
+            x,
+            temp
         )
         acc = typed_zero
         for i in range(n):
@@ -216,6 +226,7 @@ def inst_linear_solver_cached_factory(
                     state,
                     parameters,
                     drivers,
+                    base_state,
                     cached_aux,
                     t,
                     h,
@@ -232,6 +243,7 @@ def inst_linear_solver_cached_factory(
                 state,
                 parameters,
                 drivers,
+                base_state,
                 cached_aux,
                 t,
                 h,

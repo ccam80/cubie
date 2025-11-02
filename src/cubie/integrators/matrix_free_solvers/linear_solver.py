@@ -234,6 +234,7 @@ def linear_solver_cached_factory(
         state,
         parameters,
         drivers,
+        base_state,
         cached_aux,
         t,
         h,
@@ -243,11 +244,13 @@ def linear_solver_cached_factory(
     ):
         """Run one cached preconditioned steepest-descent or MR solve."""
 
+        # Short life vectors declared locally for l
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
         operator_apply(
-            state, parameters, drivers, cached_aux, t, h, a_ij, x, temp
+            state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
+                x, temp
         )
         acc = typed_zero
         for i in range(n):
@@ -263,6 +266,7 @@ def linear_solver_cached_factory(
                     state,
                     parameters,
                     drivers,
+                    base_state,
                     cached_aux,
                     t,
                     h,
@@ -279,6 +283,7 @@ def linear_solver_cached_factory(
                 state,
                 parameters,
                 drivers,
+                base_state,
                 cached_aux,
                 t,
                 h,
