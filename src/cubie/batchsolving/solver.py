@@ -360,7 +360,8 @@ class Solver:
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update(
-                {"driver_function": self.driver_interpolator.device_function}
+                {"driver_function": self.driver_interpolator.evaluation_function,
+                 "driver_del_t": self.driver_interpolator.driver_del_t}
             )
 
         self.kernel.run(
@@ -422,6 +423,10 @@ class Solver:
             updates_dict["driver_function"] = (
                 self.driver_interpolator.evaluation_function
             )
+            updates_dict["driver_del_t"] = (
+                self.driver_interpolator.driver_del_t
+            )
+
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
