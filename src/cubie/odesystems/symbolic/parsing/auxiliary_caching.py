@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 import sympy as sp
 
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
+from cubie.odesystems.symbolic.parsing.jvp_equations import JVPEquations
 
 
 import attrs

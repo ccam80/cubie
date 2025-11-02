@@ -3,17 +3,17 @@ import pytest
 import sympy as sp
 from numba import cuda, from_dtype
 
-from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
-from cubie.odesystems.symbolic.solver_helpers import (
+from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
     generate_neumann_preconditioner_cached_code,
-    generate_operator_apply_code,
     generate_neumann_preconditioner_code,
+    generate_operator_apply_code,
     generate_prepare_jac_code,
     generate_stage_residual_code,
 )
+from cubie.odesystems.symbolic.parsing import JVPEquations
+from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
 @pytest.fixture(scope="function")

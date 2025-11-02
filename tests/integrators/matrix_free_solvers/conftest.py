@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from numba import cuda, from_dtype
 
-from cubie.odesystems.symbolic.solver_helpers import (
+from cubie.odesystems.symbolic.codegen import (
     generate_neumann_preconditioner_code,
     generate_stage_residual_code,
 )

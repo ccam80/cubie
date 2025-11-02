@@ -4,6 +4,7 @@ from typing import (
     Any,
     Callable,
     Iterable,
+    List,
     Optional,
     Sequence,
     Set,
@@ -13,32 +14,32 @@ from typing import (
 import numpy as np
 import sympy as sp
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.odesystems.symbolic.dxdt import (
+from cubie.odesystems.symbolic.codegen.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
-from cubie.odesystems.symbolic.time_derivative import (
-    generate_time_derivative_fac_code,
-)
-from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
-from cubie.odesystems.symbolic.odefile import ODEFile
-from cubie.odesystems.symbolic.solver_helpers import (
+from cubie.odesystems.symbolic.codegen import (
+    generate_cached_jvp_code,
     generate_cached_operator_apply_code,
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
-    generate_prepare_jac_code,
-    generate_cached_jvp_code,
-    generate_operator_apply_code,
     generate_n_stage_neumann_preconditioner_code,
     generate_n_stage_linear_operator_code,
     generate_n_stage_residual_code,
+    generate_operator_apply_code,
+    generate_prepare_jac_code,
     generate_stage_residual_code,
 )
-from cubie.odesystems.symbolic.parser import (
+from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.odefile import ODEFile
+from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
+    JVPEquations,
     ParsedEquations,
     parse_input,
+)
+from cubie.odesystems.symbolic.codegen.time_derivative import (
+    generate_time_derivative_fac_code,
 )
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache

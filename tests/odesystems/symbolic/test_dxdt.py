@@ -4,13 +4,16 @@ import numpy as np
 import pytest
 from numba import cuda
 
-from cubie.odesystems.symbolic.dxdt import (
+from cubie.odesystems.symbolic.codegen.dxdt import (
     DXDT_TEMPLATE,
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
-from cubie.odesystems.symbolic.parser import ParsedEquations
-from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
+from cubie.odesystems.symbolic.parsing import (
+    IndexedBases,
+    ParsedEquations,
+    parse_input,
+)
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 

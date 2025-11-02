@@ -5,7 +5,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBaseMap,
     IndexedBases,
 )
-from cubie.odesystems.symbolic.parser import ParsedEquations
+from cubie.odesystems.symbolic.parsing import ParsedEquations
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 

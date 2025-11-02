@@ -1,12 +1,12 @@
 import sympy as sp
 
-from cubie.odesystems.symbolic.jacobian import (
+from cubie.odesystems.symbolic.codegen.jacobian import (
     clear_cache,
     generate_analytical_jvp,
     generate_jacobian,
     get_cache_counts,
 )
-from cubie.odesystems.symbolic.parser import IndexedBases, ParsedEquations
+from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
 
 
 def test_generate_jacobian_with_auxiliary():

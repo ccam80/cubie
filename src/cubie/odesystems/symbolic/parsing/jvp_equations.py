@@ -13,7 +13,7 @@ from typing import (
 
 
 if TYPE_CHECKING:
-    from cubie.odesystems.symbolic.auxiliary_caching import CacheSelection
+    from cubie.odesystems.symbolic.parsing.auxiliary_caching import CacheSelection
 
 import sympy as sp
 
@@ -316,7 +316,7 @@ class JVPEquations:
         """Ensure a cache selection has been computed."""
 
         if self._cache_selection is None:
-            from cubie.odesystems.symbolic.auxiliary_caching import (
+            from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
                 plan_auxiliary_cache,
             )
 

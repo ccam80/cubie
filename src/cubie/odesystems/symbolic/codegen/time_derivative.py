@@ -4,9 +4,9 @@ from typing import Dict, List, Optional, Tuple
 
 import sympy as sp
 
-from cubie.odesystems.symbolic.jacobian import _prune_unused_assignments
-from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
-from cubie.odesystems.symbolic.parser import (
+from cubie.odesystems.symbolic.codegen import print_cuda_multiple
+from cubie.odesystems.symbolic.codegen.jacobian import _prune_unused_assignments
+from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
     ParsedEquations,
     TIME_SYMBOL,
