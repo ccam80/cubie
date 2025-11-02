@@ -106,6 +106,16 @@ def _get_driver_function(
     return driver_array.evaluation_function
 
 
+def _get_driver_del_t(
+    driver_array: Optional[ArrayInterpolator],
+) -> Optional[Callable[..., Any]]:
+    """Return the time-derivative evaluation callable for ``driver_array``."""
+
+    if driver_array is None:
+        return None
+    return driver_array.driver_del_t
+
+
 def _build_solver_instance(
     system: SymbolicODE,
     solver_settings: Dict[str, Any],
@@ -510,9 +520,13 @@ def algorithm_settings(system, solver_settings, driver_array):
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
+    driver_del_t = (
+        driver_array.driver_del_t if driver_array is not None else None
+    )
     settings.update(
         {
             "driver_function": driver_function,
+            "driver_del_t": driver_del_t,
             "dxdt_function": system.dxdt_function,
             "observables_function": system.observables_function,
             "get_solver_helper_fn": system.get_solver_helper,
@@ -598,9 +612,11 @@ def solverkernel(
     loop_settings,
 ):
     driver_function = _get_driver_function(driver_array)
+    driver_del_t = _get_driver_del_t(driver_array)
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
+        driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
@@ -622,9 +638,11 @@ def solverkernel_mutable(
     loop_settings,
 ):
     driver_function = _get_driver_function(driver_array)
+    driver_del_t = _get_driver_del_t(driver_array)
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
+        driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
@@ -732,9 +750,11 @@ def single_integrator_run(
     loop_settings
 ):
     driver_function = _get_driver_function(driver_array)
+    driver_del_t = _get_driver_del_t(driver_array)
     return SingleIntegratorRun(
         system=system,
         driver_function=driver_function,
+        driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
@@ -753,10 +773,12 @@ def single_integrator_run_mutable(
     loop_settings,
 ):
     driver_function = _get_driver_function(driver_array)
+    driver_del_t = _get_driver_del_t(driver_array)
     return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
         driver_function=driver_function,
+        driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,

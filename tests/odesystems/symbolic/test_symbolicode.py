@@ -130,3 +130,10 @@ def test_observables_helper_available(built_simple_strict):
     assert callable(func)
     cached = built_simple_strict.observables_function
     assert func is cached
+
+
+def test_time_derivative_helper_available(built_simple_strict):
+    """Time-derivative helper should be compiled during system build."""
+
+    helper = built_simple_strict.get_solver_helper("time_derivative_rhs")
+    assert callable(helper)

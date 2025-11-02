@@ -78,6 +78,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         loop_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         driver_function: Optional[Callable] = None,
+        driver_del_t: Optional[Callable] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -108,6 +109,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm_settings["n"] = n
         algorithm_settings["dt"] = dt
         algorithm_settings["driver_function"] = driver_function
+        # Thread the driver time-derivative through to algorithm factories
+        algorithm_settings["driver_del_t"] = driver_del_t
         self._algo_step = get_algorithm_step(
                 precision=precision,
                 settings=algorithm_settings,
@@ -455,4 +458,3 @@ class SingleIntegratorRunCore(CUDAFactory):
         loop_fn = self._loop.device_function
 
         return loop_fn
-

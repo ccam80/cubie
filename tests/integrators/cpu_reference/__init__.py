@@ -1,4 +1,9 @@
-"""Reference CPU implementations used across integrator tests."""
+"""Reference CPU implementations used across integrator tests.
+
+I've let genAI agents run fairly free on this module, adding many of the
+over-engineered and pointless checks and complicated chains that it loves to
+add, as all we really want in here is a reference implementation of the
+GPU integrator components."""
 
 from .algorithms import (
     get_ref_step_factory,

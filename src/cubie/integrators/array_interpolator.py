@@ -27,6 +27,14 @@ FloatArray = NDArray[np.floating]
 
 
 @define
+class InterpolatorCache:
+    """Cached device helpers emitted by :class:`ArrayInterpolator`."""
+
+    evaluation_function: Optional[Callable] = field(default=None)
+    driver_del_t: Optional[Callable] = field(default=None)
+
+
+@define
 class ArrayInterpolatorConfig:
     """Configuration describing an input-array interpolation problem.
 
@@ -345,8 +353,7 @@ class ArrayInterpolator(CUDAFactory):
         zero_value = self.precision(0.0)
         evaluation_start = precision(start_time - (
             resolution if pad_clamped else precision(0.0)))
-
-    # no cover: start
+        # no cover: start
         @cuda.jit(device=True, inline=True)
         def evaluate_all(
             time,
@@ -388,7 +395,45 @@ class ArrayInterpolator(CUDAFactory):
                 out[input_index] = acc if in_range else zero_value
         # no cover: end
 
-        return evaluate_all
+        # no cover: start
+        @cuda.jit(device=True, inline=True)
+        def evaluate_time_derivative(
+            time,
+            coefficients,
+            out,
+        ) -> None:
+            """Evaluate the derivative of each driver polynomial."""
+
+            scaled = (time - evaluation_start) * inv_resolution
+            scaled_floor = math.floor(scaled)
+            idx = int32(scaled_floor)
+
+            if wrap:
+                seg = int32(idx % num_segments)
+                tau = precision(scaled - scaled_floor)
+                in_range = True
+            else:
+                in_range = (scaled >= 0.0) and (scaled <= num_segments)
+                seg = selp(idx < 0, int32(0), idx)
+                seg = selp(seg >= num_segments,
+                           int32(num_segments - 1), seg)
+                tau = scaled - float(seg)
+
+            for input_index in range(num_inputs):
+                acc = zero_value
+                for k in range(order, 0, -1):
+                    acc = acc * tau + precision(k) * (
+                        coefficients[seg, input_index, k]
+                    )
+                out[input_index] = (
+                    acc * inv_resolution if in_range else zero_value
+                )
+        # no cover: end
+        cache = InterpolatorCache(
+            evaluation_function=evaluate_all,
+            driver_del_t=evaluate_time_derivative,
+        )
+        return cache
 
 
     def update(
@@ -441,7 +486,13 @@ class ArrayInterpolator(CUDAFactory):
     @property
     def evaluation_function(self) -> Callable:
         """Device function for evaluating all inputs."""
-        return self.device_function
+        return self.get_cached_output("evaluation_function")
+
+    @property
+    def driver_del_t(self) -> Callable:
+        """Device function returning the interpolated driver time derivative."""
+
+        return self.get_cached_output("driver_del_t")
 
     @property
     def coefficients(self) -> FloatArray:

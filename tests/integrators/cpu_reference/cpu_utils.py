@@ -610,6 +610,7 @@ class DriverEvaluator:
         self.boundary_condition = boundary_condition
         self._segments = coeffs.shape[0]
         self._width = coeffs.shape[1]
+        self._order = coeffs.shape[2] - 1 if coeffs.size else -1
         self._zero = np.zeros(self._width, dtype=precision)
         self._zero_value = precision(0.0)
         self._pad_clamped = (not self.wrap) and (
@@ -619,11 +620,25 @@ class DriverEvaluator:
         offset = self.dt if self._pad_clamped else self._zero_value
         self._evaluation_start = precision(self.t0 - offset)
 
-    def evaluate(self, time: float) -> Array:
-        """Return driver values interpolated at ``time``."""
+    def _evaluate(
+        self,
+        time: float,
+        coefficients: Array,
+        *,
+        segments: Optional[int] = None,
+        order: Optional[int] = None,
+    ) -> tuple[Array, bool]:
+        """Return Horner evaluations and range flag for ``coefficients``."""
+
+        segment_count = self._segments if segments is None else int(segments)
+        if segment_count <= 0 or self._width == 0:
+            return self._zero.copy(), False
+
+        poly_order = coefficients.shape[-1] - 1 if order is None else int(order)
+        if poly_order < 0:
+            return self._zero.copy(), False
 
         precision = self.precision
-
         time_value = precision(time)
         scaled = precision(
             (time_value - self._evaluation_start) * self._inv_dt
@@ -632,33 +647,44 @@ class DriverEvaluator:
         idx = int(scaled_floor)
 
         if self.wrap:
-            segment = idx % self._segments
+            segment = idx % segment_count
             if segment < 0:
-                segment += self._segments
+                segment += segment_count
             tau = precision(scaled - precision(scaled_floor))
             in_range = True
         else:
-            max_segment = self._segments - 1
-            in_range = (
-                scaled >= self._zero_value
-                and scaled <= precision(self._segments)
-            )
+            max_segment = segment_count - 1
             if idx < 0:
                 segment = 0
-            elif idx >= self._segments:
+            elif idx >= segment_count:
                 segment = max_segment
             else:
                 segment = idx
             tau = precision(scaled - precision(segment))
+            in_range = (
+                scaled >= self._zero_value
+                and scaled <= precision(segment_count)
+            )
 
+        limit = poly_order + 1
         values = self._zero.copy()
         for driver_idx in range(self._width):
-            segment_coeffs = self.coefficients[segment, driver_idx]
+            segment_coeffs = coefficients[segment, driver_idx, :limit]
             acc = self._zero_value
             for coeff in reversed(segment_coeffs):
                 acc = acc * tau + precision(coeff)
             values[driver_idx] = acc
+        return values, in_range
 
+    def evaluate(self, time: float) -> Array:
+        """Return driver values interpolated at ``time``."""
+
+        values, in_range = self._evaluate(
+            time,
+            self.coefficients,
+            segments=self._segments,
+            order=self._order,
+        )
         if self.wrap or in_range:
             return values
         return self._zero.copy()
@@ -667,6 +693,28 @@ class DriverEvaluator:
         """Alias for :meth:`evaluate` so instances are callable."""
 
         return self.evaluate(time)
+
+    def derivative(self, time: float) -> Array:
+        """Return time derivatives of the drivers evaluated at ``time``."""
+
+        if self._segments == 0 or self._width == 0 or self._order <= 0:
+            return self._zero.copy()
+
+        derivative_coeffs = self.coefficients[..., 1:].copy()
+        powers = np.arange(
+            1, derivative_coeffs.shape[-1] + 1, dtype=self.precision
+        ).reshape(1, 1, -1)
+        derivative_coeffs *= powers
+
+        values, in_range = self._evaluate(
+            time,
+            derivative_coeffs,
+            segments=self._segments,
+            order=self._order - 1,
+        )
+        if not self.wrap and not in_range:
+            return self._zero.copy()
+        return values * self._inv_dt
 
     def with_coefficients(self, coefficients: Optional[Array]) -> "DriverEvaluator":
         """Return a new evaluator with ``coefficients`` but shared timing."""
