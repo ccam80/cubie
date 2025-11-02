@@ -147,6 +147,15 @@ class FIRKStep(ODEImplicitStep):
             stage_nodes=stage_nodes,
         )
 
+        preconditioner = get_fn(
+            "n_stage_neumann_preconditioner",
+            beta=beta,
+            gamma=gamma,
+            preconditioner_order=config.preconditioner_order,
+            stage_coefficients=stage_coefficients,
+            stage_nodes=stage_nodes,
+        )
+
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -154,7 +163,7 @@ class FIRKStep(ODEImplicitStep):
         linear_solver = linear_solver_factory(
             operator,
             n=all_stages_n,
-            preconditioner=None,
+            preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,

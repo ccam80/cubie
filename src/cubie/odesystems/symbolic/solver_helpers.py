@@ -732,6 +732,47 @@ NEUMANN_CACHED_TEMPLATE = (
 )
 
 
+N_STAGE_NEUMANN_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    '    """Auto-generated FIRK Neumann preconditioner.\n'
+    "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
+    "    Approximates the inverse of ``beta * I - gamma * h * J`` using\n"
+    "    a truncated Neumann series applied to flattened stages.\n"
+    "    Returns device function:\n"
+    "      preconditioner(state, parameters, drivers, t, h, a_ij, v, out, jvp)\n"
+    '    """\n'
+    "{const_lines}"
+    "{metadata_lines}"
+    "    total_n = {total_states}\n"
+    "    beta_inv = 1.0 / beta\n"
+    "    h_eff_factor = gamma * beta_inv\n"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision,\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def preconditioner(state, parameters, drivers, t, h, a_ij, v, out, jvp):\n"
+    "        for i in range(total_n):\n"
+    "            out[i] = v[i]\n"
+    "        h_eff = h * h_eff_factor\n"
+    "        for _ in range(order):\n"
+    "{jv_body}\n"
+    "            for i in range(total_n):\n"
+    "                out[i] = v[i] + h_eff * jvp[i]\n"
+    "        for i in range(total_n):\n"
+    "            out[i] = beta_inv * out[i]\n"
+    "    return preconditioner\n"
+)
+
+
 def generate_neumann_preconditioner_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
@@ -1314,6 +1355,147 @@ def _build_n_stage_operator_lines(
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
+
+def _build_n_stage_neumann_lines(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    stage_coefficients: sp.Matrix,
+    stage_nodes: Tuple[sp.Expr, ...],
+    jvp_equations: JVPEquations,
+    cse: bool = True,
+) -> str:
+    """Construct CUDA statements computing J·v for flattened FIRK stages."""
+
+    metadata_exprs, coeff_symbols, _ = _build_stage_metadata(
+        stage_coefficients, stage_nodes
+    )
+    eq_list = equations.to_equation_list()
+    state_symbols = list(index_map.states.index_map.keys())
+    dx_symbols = list(index_map.dxdt.index_map.keys())
+    observable_symbols = list(index_map.observable_symbols)
+    state_count = len(state_symbols)
+    stage_count = stage_coefficients.rows
+
+    total_states = sp.Integer(stage_count * state_count)
+    state_vec = sp.IndexedBase("state", shape=(total_states,))
+    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
+    direction_vec = sp.IndexedBase("out", shape=(total_states,))
+    scratch = sp.IndexedBase("jvp", shape=(total_states,))
+
+    jvp_terms = jvp_equations.jvp_terms
+    aux_order = jvp_equations.non_jvp_order
+    aux_exprs = jvp_equations.non_jvp_exprs
+
+    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
+
+    for stage_idx in range(stage_count):
+        stage_dx_symbols = [
+            sp.Symbol(f"dx_{stage_idx}_{idx}")
+            for idx in range(len(dx_symbols))
+        ]
+        dx_subs = dict(zip(dx_symbols, stage_dx_symbols))
+
+        if observable_symbols:
+            stage_obs_symbols = [
+                sp.Symbol(f"aux_{stage_idx}_{idx + 1}")
+                for idx in range(len(observable_symbols))
+            ]
+            obs_subs = dict(zip(observable_symbols, stage_obs_symbols))
+        else:
+            obs_subs = {}
+        substitution_map = {**dx_subs, **obs_subs}
+
+        stage_state_subs = {}
+        for state_idx, state_sym in enumerate(state_symbols):
+            expr = base_state[state_idx]
+            for contrib_idx in range(stage_count):
+                coeff_value = stage_coefficients[stage_idx, contrib_idx]
+                if coeff_value == 0:
+                    continue
+                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+                expr += coeff_sym * state_vec[
+                    contrib_idx * state_count + state_idx
+                ]
+            stage_state_subs[state_sym] = expr
+
+        substituted = [
+            (
+                lhs.subs(substitution_map),
+                rhs.subs(substitution_map).subs(stage_state_subs),
+            )
+            for lhs, rhs in eq_list
+        ]
+        eval_exprs.extend(substituted)
+
+        direction_combos = []
+        for comp_idx in range(state_count):
+            combo = sp.S.Zero
+            for contrib_idx in range(stage_count):
+                coeff_value = stage_coefficients[stage_idx, contrib_idx]
+                if coeff_value == 0:
+                    continue
+                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+                combo += coeff_sym * direction_vec[
+                    contrib_idx * state_count + comp_idx
+                ]
+            direction_combos.append(combo)
+        v_indexed = sp.IndexedBase("v")
+        v_subs = {
+            v_indexed[idx]: direction_combos[idx] for idx in range(state_count)
+        }
+
+        stage_aux_assignments: List[Tuple[sp.Symbol, sp.Expr]] = []
+        aux_subs: Dict[sp.Symbol, sp.Symbol] = {}
+        for lhs in aux_order:
+            stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
+            rhs = aux_exprs[lhs]
+            substituted_rhs = rhs.subs(substitution_map)
+            substituted_rhs = substituted_rhs.subs(stage_state_subs)
+            if aux_subs:
+                substituted_rhs = substituted_rhs.subs(aux_subs)
+            substituted_rhs = substituted_rhs.subs(v_subs)
+            stage_aux_assignments.append((stage_symbol, substituted_rhs))
+            aux_subs[lhs] = stage_symbol
+        eval_exprs.extend(stage_aux_assignments)
+
+        stage_jvp_symbols: Dict[int, sp.Symbol] = {}
+        for idx, expr in jvp_terms.items():
+            stage_symbol = sp.Symbol(f"jvp_{stage_idx}_{idx}")
+            substituted_expr = expr.subs(substitution_map)
+            substituted_expr = substituted_expr.subs(stage_state_subs)
+            if aux_subs:
+                substituted_expr = substituted_expr.subs(aux_subs)
+            substituted_expr = substituted_expr.subs(v_subs)
+            eval_exprs.append((stage_symbol, substituted_expr))
+            stage_jvp_symbols[idx] = stage_symbol
+
+        stage_offset = stage_idx * state_count
+        for comp_idx in range(state_count):
+            jvp_value = stage_jvp_symbols.get(comp_idx, sp.S.Zero)
+            eval_exprs.append(
+                (scratch[stage_offset + comp_idx], jvp_value)
+            )
+
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update(
+        {
+            "state": state_vec,
+            "base_state": base_state,
+            "out": direction_vec,
+            "jvp": scratch,
+        }
+    )
+
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "            pass"
+    return "\n".join("            " + ln for ln in lines)
+
 def generate_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
@@ -1480,4 +1662,46 @@ def generate_n_stage_linear_operator_code(
         metadata_lines="",
         body=body,
         stage_count=stage_count,
+    )
+
+
+def generate_n_stage_neumann_preconditioner_code(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
+    stage_nodes: Sequence[Union[float, sp.Expr]],
+    func_name: str = "n_stage_neumann_preconditioner",
+    cse: bool = True,
+    jvp_equations: Optional[JVPEquations] = None,
+) -> str:
+    """Generate a flattened n-stage FIRK Neumann preconditioner factory."""
+
+    coeff_matrix, node_values, stage_count = _prepare_stage_data(
+        stage_coefficients, stage_nodes
+    )
+    if jvp_equations is None:
+        jvp_equations = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
+    body = _build_n_stage_neumann_lines(
+        equations=equations,
+        index_map=index_map,
+        stage_coefficients=coeff_matrix,
+        stage_nodes=node_values,
+        jvp_equations=jvp_equations,
+        cse=cse,
+    )
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    total_states = stage_count * len(index_map.states.index_map)
+    return N_STAGE_NEUMANN_TEMPLATE.format(
+        func_name=func_name,
+        const_lines=const_block,
+        metadata_lines="",
+        jv_body=body,
+        stage_count=stage_count,
+        total_states=total_states,
     )

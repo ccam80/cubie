@@ -35,6 +35,9 @@ class ODECache:
     n_stage_linear_operator: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
+    n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
     observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
     prepare_jac: Optional[Union[Callable, int]] = attrs.field(default=-1)
     calculate_cached_jvp: Optional[Union[Callable, int]] = attrs.field(

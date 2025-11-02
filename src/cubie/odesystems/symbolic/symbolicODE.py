@@ -4,7 +4,6 @@ from typing import (
     Any,
     Callable,
     Iterable,
-    List,
     Optional,
     Sequence,
     Set,
@@ -31,6 +30,7 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_cached_jvp_code,
     generate_operator_apply_code,
+    generate_n_stage_neumann_preconditioner_code,
     generate_n_stage_linear_operator_code,
     generate_n_stage_residual_code,
     generate_stage_residual_code,
@@ -394,8 +394,8 @@ class SymbolicODE(BaseODE):
             ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
             ``"neumann_preconditioner_cached"``, ``"stage_residual"``,
             ``"n_stage_residual"``, ``"n_stage_linear_operator"`,
-            ``"prepare_jac"``, ``"cached_aux_count"`` and
-            ``"calculate_cached_jvp"``.
+            ``"n_stage_neumann_preconditioner"``, ``"prepare_jac"`,
+            ``"cached_aux_count"`` and ``"calculate_cached_jvp"``.
         beta
             Shift parameter for the linear operator.
         gamma
@@ -556,6 +556,24 @@ class SymbolicODE(BaseODE):
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
                 M=mass,
+                func_name=helper_name,
+                jvp_equations=self._get_jvp_exprs(),
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+            factory_name = helper_name
+        elif func_type == "n_stage_neumann_preconditioner":
+            helper_name = (
+                f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+            )
+            code = generate_n_stage_neumann_preconditioner_code(
+                equations=self.equations,
+                index_map=self.indices,
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
                 func_name=helper_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
