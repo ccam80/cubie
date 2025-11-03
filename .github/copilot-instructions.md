@@ -27,6 +27,14 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - Do NOT import from `__future__ import annotations` (assume Python 3.8+)
 - Comments should explain complex operations to future developers, NOT narrate changes to users
 
+### Commit Messages
+- Use Conventional Commit format for all commit and PR messages
+- `fix:` - when completely fixing a bug
+- `feat:` - when implementing a whole feature (rare)
+- `test:` - when modifying tests
+- `docs:` - when completing a documentation task
+- `chore:` - for everything else
+
 ### Architecture-Specific
 - See `AGENTS.md` for detailed style guidelines and project structure
 - Never call `build()` directly on CUDAFactory subclasses; access via properties (they auto-cache)
