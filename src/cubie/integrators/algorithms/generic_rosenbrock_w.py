@@ -227,11 +227,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         stage_buffer_n = stage_count * n
         cached_auxiliary_count = self.cached_auxiliary_count
-        del_t_start = 0
-        del_t_end = n
-        stage_state_start = del_t_end
-        stage_state_end = stage_state_start + n
-        stage_rhs_start = stage_state_end
+        stage_rhs_start = 0
         stage_rhs_end = stage_rhs_start + n
         stage_store_start = stage_rhs_end
         stage_store_end = stage_store_start + stage_buffer_n
@@ -279,17 +275,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
-            # time_derivative: size n, shared memory.
-            #   - Holds d f / d t evaluated at the step start.
-            # stage_state: size n, shared memory.
-            #   - Stores the accumulated stage state prior to derivative eval.
             # stage_rhs: size n, shared memory.
             #   - Receives the stage right-hand side and doubles as a residual
             #     buffer before each linear solve.
             # stage_store: size stage_count * n, shared memory.
             #   - Slice i caches the accepted stage increment K_i.
             #   - Stage slices double as the initial guess for the following
-            #     stage, reusing the same shared segment.
+            #     stage and provide the stage state when assembling rhs values.
+            #   - The final slice stores the scaled d f / d t vector until the
+            #     last stage recomputes it immediately before use.
             # cached_auxiliaries: size cached_auxiliary_count, shared memory.
             #   - Provides Jacobian helper data prepared before the loop.
             # ----------------------------------------------------------- #
@@ -297,11 +291,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            time_derivative = shared[del_t_start:del_t_end]
-            stage_state = shared[stage_state_start:stage_state_end]
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
             stage_store = shared[stage_store_start:stage_store_end]
             cached_auxiliaries = shared[aux_start:aux_end]
+
+            final_stage_base = n * (stage_count - 1)
+            time_derivative = stage_store[
+                final_stage_base : final_stage_base + n
+            ]
 
             idt = numba_precision(1.0) / dt_scalar
 
@@ -313,29 +310,34 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 cached_auxiliaries,
             )
 
-            #Evaluate del_t term at t_n, y_n
+            # Evaluate del_t term at t_n, y_n
             if has_driver_function:
                 driver_del_t(
-                        current_time,
-                        driver_coeffs,
-                        proposed_drivers,
+                    current_time,
+                    driver_coeffs,
+                    proposed_drivers,
                 )
             else:
                 proposed_drivers[:] = numba_precision(0.0)
 
+            # Stage 0 slice copies the cached final increment as its guess.
+            stage_increment = stage_store[:n]
+            for idx in range(n):
+                stage_increment[idx] = time_derivative[idx]
+
             time_derivative_rhs(
-                    state,
-                    parameters,
-                    drivers_buffer,
-                    proposed_drivers,
-                    observables,
-                    time_derivative,
-                    current_time,
+                state,
+                parameters,
+                drivers_buffer,
+                proposed_drivers,
+                observables,
+                time_derivative,
+                current_time,
             )
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
-                time_derivative[idx] *= dt_scalar # Prescale by dt_scalar once
+                time_derivative[idx] *= dt_scalar
                 if has_error:
                     error[idx] = typed_zero
 
@@ -365,12 +367,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs[idx] = rhs_value * gamma
 
 
-            # Use final stage solution from previous step as initial guess.
-            # Zerod on loop start
-            stage_increment = stage_store[:n]
-            final_base = n * (stage_count - 1)
-            for idx in range(n):
-                stage_increment[idx] = stage_store[final_base + idx]
+            # Use stored copy as the initial guess for the first stage.
 
             base_state_placeholder = shared[0:0]
             status_code |= linear_solver(
@@ -402,14 +399,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
+                stage_slice = stage_store[
+                    n * stage_idx : n * (stage_idx + 1)
+                ]
                 for idx in range(n):
-                    stage_state[idx] = state[idx]
+                    stage_slice[idx] = state[idx]
                 for predecessor_offset in range(stage_idx):
                     a_coeff = a_coeffs[stage_idx][predecessor_offset]
                     base_idx = predecessor_offset * n
                     for idx in range(n):
                         prior_val = stage_store[base_idx + idx]
-                        stage_state[idx] += a_coeff * prior_val
+                        stage_slice[idx] += a_coeff * prior_val
 
                 # Get t + c_i * dt parts
                 if has_driver_function:
@@ -420,7 +420,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     )
 
                 observables_function(
-                    stage_state,
+                    stage_slice,
                     parameters,
                     proposed_drivers,
                     proposed_observables,
@@ -428,13 +428,32 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 dxdt_fn(
-                    stage_state,
+                    stage_slice,
                     parameters,
                     proposed_drivers,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
                 )
+
+                if stage_idx == stage_count - 1:
+                    if has_driver_function:
+                        driver_del_t(
+                            current_time,
+                            driver_coeffs,
+                            proposed_drivers,
+                        )
+                    time_derivative_rhs(
+                        state,
+                        parameters,
+                        drivers_buffer,
+                        proposed_drivers,
+                        observables,
+                        time_derivative,
+                        current_time,
+                    )
+                    for idx in range(n):
+                        time_derivative[idx] *= dt_scalar
 
                 # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
@@ -452,9 +471,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                                       deriv_val) * dt_scalar * gamma
 
                 # Alias slice of stage storage for convenience/readability
-                stage_increment = stage_store[
-                    n * stage_idx : n * (stage_idx + 1)
-                ]
+                stage_increment = stage_slice
 
                 # Use previous stage's solution as a guess for this stage
                 previous_base = n * (stage_idx - 1)
@@ -532,7 +549,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         """Return the number of precision entries required in shared memory."""
         accumulator_span = self.stage_count * self.n
         cached_auxiliary_count = self.cached_auxiliary_count
-        shared_buffers = 3 * self.n# stage_rhs, time_derivative, stage_state
+        shared_buffers = self.n
         return accumulator_span + cached_auxiliary_count + shared_buffers
 
     @property

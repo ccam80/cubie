@@ -290,14 +290,86 @@ ALIAS_CASES = [
         marks=pytest.mark.specific_algos,
         id="rosenbrock-ros3p",
     ),
-    # pytest.param(
-    #     "rosenbrock_w6s4os",
-    #     GenericRosenbrockWStep,
-    #     ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"],
-    #     CPURosenbrockWStep,
-    #     marks=pytest.mark.specific_algos,
-    #     id="rosenbrock-w6s4os",
-    # ),
+    pytest.param(
+        "dop853",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["dop853"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-dop853",
+    ),
+    pytest.param(
+        "ode23t",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["trapezoidal_dirk"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-ode23t",
+    ),
+    pytest.param(
+        "radau",
+        FIRKStep,
+        FIRK_TABLEAU_REGISTRY["radau"],
+        CPUFIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="firk-radau",
+    ),
+    pytest.param(
+        "ode23s",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["ode23s"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-ode23s",
+    ),
+    pytest.param(
+        "rk23",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["bogacki-shampine-32"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-rk23",
+    ),
+    pytest.param(
+        "ode23",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["bogacki-shampine-32"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-ode23",
+    ),
+    pytest.param(
+        "rk45",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["dormand-prince-54"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-rk45",
+    ),
+    pytest.param(
+        "ode45",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["dormand-prince-54"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-ode45",
+    ),
+    pytest.param(
+        "tsit5",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["tsit5"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-tsit5",
+    ),
+    pytest.param(
+        "vern7",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["vern7"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-vern7",
+    ),
 ]
 STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
                   'dt_min': 1e-6,
@@ -483,8 +555,39 @@ STEP_CASES = [pytest.param(
         id="dirk-l-stable-4",
         marks=pytest.mark.specific_algos,
     ),
+    pytest.param(
+        {
+            "algorithm": "dop853",
+            "step_controller": "pi",
+        },
+        id="erk-dop853",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "ode23t",
+            "step_controller": "fixed",
+        },
+        id="dirk-ode23t",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "radau",
+            "step_controller": "i",
+        },
+        id="firk-radau",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "ode23s",
+            "step_controller": "i",
+        },
+        id="rosenbrock-ode23s",
+        marks=pytest.mark.specific_algos,
+    ),
 ]
-
 CACHE_REUSE_CASES = [
     pytest.param(
         {
@@ -1407,5 +1510,4 @@ def test_algorithm(
             rtol=tolerances["rtol"],
             atol=tolerances["atol"],
         ), "error matches"
-
 

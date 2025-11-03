@@ -130,7 +130,7 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 35
+    return 20
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:

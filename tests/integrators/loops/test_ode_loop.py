@@ -69,6 +69,10 @@ LOOP_CASES = [
         id="erk",
     ),
     pytest.param(
+        {"algorithm": "firk", "step_controller": "fixed"},
+        id="firk",
+    ),
+    pytest.param(
         {"algorithm": "dirk", "step_controller": "fixed"},
         id="dirk",
     ),
@@ -137,16 +141,36 @@ LOOP_CASES = [
         id="dirk-l-stable-4",
         marks=pytest.mark.specific_algos,
     ),
-    # pytest.param(
-    #     {"algorithm": "ros3p", "step_controller": "pi"},
-    #     id="rosenbrock-ros3p",
-    #     marks=pytest.mark.specific_algos,
-    # ),
-    # pytest.param(
-    #     {"algorithm": "rosenbrock_w6s4os", "step_controller": "pi"},
-    #     id="rosenbrock-w6s4os",
-    #     marks=pytest.mark.specific_algos,
-    # ),
+    pytest.param(
+        {"algorithm": "dop853", "step_controller": "i"},
+        id="erk-dop853",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "radau", "step_controller": "i"},
+        id="firk-radau",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "ode23s", "step_controller": "i"},
+        id="rosenbrock-ode23s",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "ode23t", "step_controller": "fixed"},
+        id="dirk-ode23t",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "tsit5", "step_controller": "i"},
+        id="erk-tsit5",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "vern7", "step_controller": "i"},
+        id="erk-vern7",
+        marks=pytest.mark.specific_algos,
+    ),
 ]
 
 # Build, update, getter tests combined
