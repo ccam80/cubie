@@ -373,6 +373,86 @@ ALIAS_CASES = [
         marks=pytest.mark.specific_algos,
         id="erk-vern7",
     ),
+    pytest.param(
+        "dormand-prince-853",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["dormand-prince-853"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-dormand-prince-853",
+    ),
+    pytest.param(
+        "Tsit5",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["Tsit5"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-Tsit5",
+    ),
+    pytest.param(
+        "Vern7",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["Vern7"],
+        CPUERKStep,
+        marks=pytest.mark.specific_algos,
+        id="erk-Vern7",
+    ),
+    pytest.param(
+        "firk_gauss_legendre_2",
+        FIRKStep,
+        FIRK_TABLEAU_REGISTRY["firk_gauss_legendre_2"],
+        CPUFIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="firk-gauss-legendre-2",
+    ),
+    pytest.param(
+        "radau_iia_5",
+        FIRKStep,
+        FIRK_TABLEAU_REGISTRY["radau_iia_5"],
+        CPUFIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="firk-radau-iia-5",
+    ),
+    pytest.param(
+        "rodas3p",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rodas3p"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-rodas3p",
+    ),
+    pytest.param(
+        "rodas4p",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rodas4p"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-rodas4p",
+    ),
+    pytest.param(
+        "rodas5p",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rodas5p"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-rodas5p",
+    ),
+    pytest.param(
+        "rosenbrock23",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rosenbrock23"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-23",
+    ),
+    pytest.param(
+        "rosenbrock23_sciml",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rosenbrock23_sciml"],
+        CPURosenbrockWStep,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-23-sciml",
+    ),
 ]
 STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
                   'dt_min': 1e-6,
@@ -383,213 +463,43 @@ STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
                   "output_types": ["state"],
                   'saved_state_indices': [0, 1, 2]}
 
-STEP_CASES = [pytest.param(
-        {
-            "algorithm": "euler",
-            "step_controller": "fixed",
-        },
-        id="euler",
-    ),
-    pytest.param(
-        {
-            "algorithm": "backwards_euler",
-            "step_controller": "fixed",
-        },
-        id="backwards_euler",
-    ),
-    pytest.param(
-        {
-            "algorithm": "backwards_euler_pc",
-            "step_controller": "fixed",
-        },
-        id="backwards_euler_pc",
-    ),
-    pytest.param(
-        {
-            "algorithm": "crank_nicolson",
-        },
-        id="crank_nicolson",
-    ),
-    pytest.param(
-        {
-            "algorithm": "rosenbrock",
-            "step_controller": "pi",
-        },
-        id="rosenbrock",
-    ),
-    pytest.param(
-        {
-            "algorithm": "erk",
-            "step_controller": "pi",
-        },
-        id="erk",
-    ),
-    pytest.param(
-        {
-            "algorithm": "dirk",
-            "step_controller": "pi",
-        },
-        id="dirk",
-    ),
-    pytest.param(
-        {
-            "algorithm": "firk",
-            "step_controller": "pi",
-        },
-        id="firk",
-    ),
-    pytest.param(
-        {
-            "algorithm": "ros3p",
-            "step_controller": "pi",
-        },
-        id="rosenbrock-ros3p",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "dormand-prince-54",
-            "step_controller": "pi",
-        },
-        id="erk-dormand-prince-54",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "dopri54",
-            "step_controller": "pi",
-        },
-        id="erk-dopri54",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "cash-karp-54",
-            "step_controller": "pi",
-        },
-        id="erk-cash-karp-54",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "fehlberg-45",
-            "step_controller": "pi",
-        },
-        id="erk-fehlberg-45",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "bogacki-shampine-32",
-            "step_controller": "pi",
-        },
-        id="erk-bogacki-shampine-32",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "heun-21",
-            "step_controller": "fixed",
-        },
-        id="erk-heun-21",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "ralston-33",
-            "step_controller": "fixed",
-        },
-        id="erk-ralston-33",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "classical-rk4",
-            "step_controller": "fixed",
-        },
-        id="erk-classical-rk4",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "implicit_midpoint",
-            "step_controller": "fixed",
-        },
-        id="dirk-implicit-midpoint",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "trapezoidal_dirk",
-            "step_controller": "fixed",
-        },
-        id="dirk-trapezoidal",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "sdirk_2_2",
-            "step_controller": "pi",
-        },
-        id="dirk-sdirk-2-2",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "lobatto_iiic_3",
-            "step_controller": "fixed",
-        },
-        id="dirk-lobatto-iiic-3",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "l_stable_dirk_3",
-            "step_controller": "pi",
-        },
-        id="dirk-l-stable-3",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "l_stable_sdirk_4",
-            "step_controller": "pi",
-        },
-        id="dirk-l-stable-4",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "dop853",
-            "step_controller": "pi",
-        },
-        id="erk-dop853",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "ode23t",
-            "step_controller": "fixed",
-        },
-        id="dirk-ode23t",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "radau",
-            "step_controller": "i",
-        },
-        id="firk-radau",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {
-            "algorithm": "ode23s",
-            "step_controller": "i",
-        },
-        id="rosenbrock-ode23s",
-        marks=pytest.mark.specific_algos,
-    ),
+STEP_CASES = [
+    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
+    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
+    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
+    pytest.param({"algorithm": "crank_nicolson"}, id="crank_nicolson"),
+    pytest.param({"algorithm": "rosenbrock", "step_controller": "pi"}, id="rosenbrock"),
+    pytest.param({"algorithm": "erk", "step_controller": "pi"}, id="erk"),
+    pytest.param({"algorithm": "dirk", "step_controller": "pi"}, id="dirk"),
+    pytest.param({"algorithm": "firk", "step_controller": "pi"}, id="firk"),
+    # Specific ERK tableaus
+    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pi"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pi"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "fehlberg-45", "step_controller": "pi"}, id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pi"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "dop853", "step_controller": "pi"}, id="erk-dop853", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "tsit5", "step_controller": "pi"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "vern7", "step_controller": "pi"}, id="erk-vern7", marks=pytest.mark.specific_algos),
+    # Specific DIRK tableaus
+    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pi"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
+    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pi"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pi"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
+    # Specific FIRK tableaus
+    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
+    # Specific Rosenbrock-W tableaus
+    pytest.param({"algorithm": "ros3p", "step_controller": "pi"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rosenbrock23_sciml", "step_controller": "i"}, id="rosenbrock-23-sciml", marks=pytest.mark.specific_algos),
 ]
 CACHE_REUSE_CASES = [
     pytest.param(

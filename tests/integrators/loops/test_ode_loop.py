@@ -157,11 +157,6 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "ode23t", "step_controller": "fixed"},
-        id="dirk-ode23t",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
         {"algorithm": "tsit5", "step_controller": "i"},
         id="erk-tsit5",
         marks=pytest.mark.specific_algos,
@@ -171,6 +166,29 @@ LOOP_CASES = [
         id="erk-vern7",
         marks=pytest.mark.specific_algos,
     ),
+    pytest.param(
+        {"algorithm": "Rodas4P", "step_controller": "i"},
+        id="rosenbrock-rodas4p",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "Rodas5P", "step_controller": "i"},
+        id="rosenbrock-rodas5p",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"},
+        id="firk-gauss-legendre-2",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "rodas3p", "step_controller": "i"},
+        id="rosenbrock-rodas3p",
+        marks=pytest.mark.specific_algos,
+    ),
+    # Duplicate aliases removed to keep one case per tableau
+    # pytest.param({"algorithm": "rosenbrock23", "step_controller": "i"}, id="rosenbrock-23", marks=pytest.mark.specific_algos),
+    # pytest.param({"algorithm": "ode23t", "step_controller": "fixed"}, id="dirk-ode23t", marks=pytest.mark.specific_algos),
 ]
 
 # Build, update, getter tests combined

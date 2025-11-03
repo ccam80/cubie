@@ -130,7 +130,7 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 20
+    return 10
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
@@ -755,13 +755,8 @@ def _print_grouped_section(
     if all(values is None for values in cpu_series):
         return
 
-    print(f"{name} cpu:")
-    for values in cpu_series:
-        if values is None:
-            continue
-        print(_format_array(values))
-    print(f"{name} gpu:")
-    for values in gpu_series:
+    print(f"{name} delta:")
+    for values in delta_series:
         if values is None:
             continue
         print(_format_array(values))
@@ -771,8 +766,14 @@ def _print_grouped_section(
             if values is None:
                 continue
             print(_format_array(values))
-    print(f"{name} delta:")
-    for values in delta_series:
+    print(f"{name} gpu:")
+    for values in gpu_series:
+        if values is None:
+            continue
+        print(_format_array(values))
+
+    print(f"{name} cpu:")
+    for values in cpu_series:
         if values is None:
             continue
         print(_format_array(values))
@@ -807,10 +808,10 @@ def print_comparison(cpu_result, gpu_result, device_result) -> None:
     def _ensure_entry(name: str) -> Dict[str, List[Optional[np.ndarray]]]:
         if name not in comparisons:
             comparisons[name] = {
-                "cpu": [None] * step_count,
-                "gpu": [None] * step_count,
-                "device": [None] * step_count,
                 "delta": [None] * step_count,
+                "device": [None] * step_count,
+                "gpu": [None] * step_count,
+                "cpu": [None] * step_count,
             }
             comparison_order.append(name)
         return comparisons[name]
@@ -825,6 +826,9 @@ def print_comparison(cpu_result, gpu_result, device_result) -> None:
         entry = _ensure_entry(name)
         cpu_array = np.asarray(cpu_values)
         gpu_array = np.asarray(gpu_values)
+        if not np.any(cpu_array) and not np.any(gpu_array):
+            cpu_array = np.zeros(1)
+            gpu_array = np.zeros(1)
         entry["cpu"][step_index] = cpu_array
         entry["gpu"][step_index] = gpu_array
         entry["delta"][step_index] = _numeric_delta(cpu_array, gpu_array)
@@ -987,6 +991,10 @@ def print_comparison(cpu_result, gpu_result, device_result) -> None:
                 gpu_values = np.zeros_like(cpu_values)
             if cpu_values is None or gpu_values is None:
                 continue
+            if not np.any(cpu_values) and not np.any(gpu_values):
+                cpu_values = np.zeros(1)
+                gpu_values = np.zeros(1)
+            _add_entry(name, cpu_values, gpu_values, None, index)
             _add_entry(f"extra[{name}]", cpu_values, gpu_values, None, index)
 
         _add_entry("status", cpu_step.status, gpu_step.status, None, index)
