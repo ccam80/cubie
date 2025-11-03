@@ -53,17 +53,11 @@ LOOP_CASES = [
         id="crank_nicolson_i",
         marks=pytest.mark.specific_algos,
     ),
-    #    Gustaffson controller will diverge due to different niters with a
-    #    matrix-based solver vs matrix-free newton-krylov.
-    # pytest.param(
-    #     {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
-    #     id="crank_nicolson_gustafsson",
-    #     marks=pytest.mark.specific_algos,
-    # ),
-    # pytest.param( # Rosenbrock is not correct at this stage (24/10)
-    #     {"algorithm": "rosenbrock", "step_controller": "pi"},
-    #     id="rosenbrock",
-    # ),
+    pytest.param(
+        {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
+        id="crank_nicolson_gustafsson",
+        marks=pytest.mark.specific_algos,
+    ),
     pytest.param(
         {"algorithm": "erk", "step_controller": "pid"},
         id="erk",
@@ -75,6 +69,10 @@ LOOP_CASES = [
     pytest.param(
         {"algorithm": "dirk", "step_controller": "fixed"},
         id="dirk",
+    ),
+    pytest.param(
+        {"algorithm": "rosenbrock", "step_controller": "i"},
+        id="rosenbrock-rodas3p",
     ),
     pytest.param(
         {"algorithm": "dopri54", "step_controller": "pid"},
@@ -186,9 +184,6 @@ LOOP_CASES = [
         id="rosenbrock-rodas3p",
         marks=pytest.mark.specific_algos,
     ),
-    # Duplicate aliases removed to keep one case per tableau
-    # pytest.param({"algorithm": "rosenbrock23", "step_controller": "i"}, id="rosenbrock-23", marks=pytest.mark.specific_algos),
-    # pytest.param({"algorithm": "ode23t", "step_controller": "fixed"}, id="dirk-ode23t", marks=pytest.mark.specific_algos),
 ]
 
 # Build, update, getter tests combined
