@@ -109,7 +109,6 @@ class FIRKStep(ODEImplicitStep):
             gamma=1.0,
             M=mass,
         )
-        self._cached_auxiliary_count = 0
         super().__init__(config, FIRK_DEFAULTS)
 
     def build_implicit_helpers(
@@ -459,15 +458,6 @@ class FIRKStep(ODEImplicitStep):
         return self.tableau.has_error_estimate
 
     @property
-    def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
-
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
-        if self._cached_auxiliary_count is None:
-            self.build_implicit_helpers()
-        return self._cached_auxiliary_count
-
-    @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
@@ -475,7 +465,6 @@ class FIRKStep(ODEImplicitStep):
         stage_driver_total = config.stage_count * config.n_drivers
         return (
             self.solver_shared_elements
-            + self.cached_auxiliary_count
             + stage_driver_total
             + config.all_stages_n
         )
@@ -483,9 +472,7 @@ class FIRKStep(ODEImplicitStep):
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-
-        state_dim = self.compile_settings.n
-        return self.stage_count * state_dim + state_dim
+        return self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:

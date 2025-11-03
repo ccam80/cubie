@@ -102,6 +102,7 @@ def _expected_memory_requirements(
     tableau: Any,
     n_states: int,
     extra_shared: int,
+    n_drivers: int = 1
 ) -> tuple[int, int]:
     """Return the expected shared and local scratch requirements."""
 
@@ -117,14 +118,16 @@ def _expected_memory_requirements(
         return shared, local
     if isinstance(step_object, FIRKStep):
         stage_count = tableau.stage_count
-        all_stages_n = stage_count * n_states
-        shared = 3 * all_stages_n + extra_shared
-        local = stage_count * n_states + n_states
+        driver_stack = stage_count * n_drivers
+        accumulator_span = stage_count * n_states
+        solver_elements = 3 * accumulator_span
+        shared = solver_elements + driver_stack + accumulator_span
+        local = n_states
         return shared, local
     if isinstance(step_object, GenericRosenbrockWStep):
         stage_count = tableau.stage_count
         accumulator_span = stage_count * n_states
-        shared = accumulator_span + 3 * n_states
+        shared = accumulator_span + n_states + extra_shared
         local = 0
         return shared, local
     if isinstance(

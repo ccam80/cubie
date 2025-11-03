@@ -22,7 +22,7 @@ def placeholder_system(precision):
         out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         out[0] = (precision(1.0) - h * a_ij)  * vec[0]
 
     base = cuda.to_device(np.array([1.0], dtype=precision))
@@ -175,7 +175,7 @@ def test_newton_krylov_failure(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         out[0] = vec[0]
 
     n = 1
@@ -269,7 +269,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, t, h, a_ij, vec, out):
+    def zero_operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         # Linear operator always zero => inner solver cannot make progress
         out[0] = precision(0.0)
 
