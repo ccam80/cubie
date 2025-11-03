@@ -5,44 +5,50 @@ This guide helps you get started with CuBIE's custom GitHub Copilot agents.
 ## Prerequisites
 
 1. **GitHub Copilot**: Active subscription with agent support
-2. **Environment Variables** (optional, for full MCP functionality):
-   - `PERPLEXITY_API_KEY`: For external research (plan_new_feature)
+2. **Agent Files**: JSON format per GitHub Copilot Agent specification
+3. **Environment Variables** (optional, for full functionality):
    - `GITHUB_TOKEN`: Usually auto-configured in GitHub Copilot
+   - `PERPLEXITY_API_KEY`: For deep research (rarely needed)
 
 ## The Six Agents
 
 ### Planning & Architecture
-- **plan_new_feature**: Research and create implementation plans
-- **detailed_implementer**: Convert plans into detailed task lists
+- **plan_new_feature**: User story creation, research, and implementation plans
+- **detailed_implementer**: Convert plans into detailed task lists with validation specs
 
 ### Implementation & Review
-- **do_task**: Execute specific implementation tasks
-- **reviewer**: Critical analysis of completed work
+- **do_task**: Execute tasks exactly with educational comments (not docstrings)
+- **reviewer**: Validate against user stories, analyze for quality and performance
 
 ### Documentation
-- **docstring_guru**: API documentation enforcement
-- **narrative_documenter**: User-facing documentation
+- **docstring_guru**: API documentation in numpydoc, update internal structure
+- **narrative_documenter**: User guides in RST, how-to docs, concept-based manual
 
 ## Common Workflows
 
 ### 1. New Feature Development (Full Workflow)
 
 ```
-Step 1: Planning
+Step 1: Planning (creates user stories first)
 @plan_new_feature I need to add [feature description]. 
-Please research the best approach and create a plan.
+Create user stories and a plan for implementation.
 
 Step 2: Review Plan
 Review the files in .github/active_plans/[feature_name]/
+- user_stories.md: User stories and acceptance criteria
 - human_overview.md: Architecture and decisions
-- agent_plan.md: Technical specification
+- agent_plan.md: Technical specification (behavior, not implementation)
 
 Step 3: Detailed Implementation Planning
 @detailed_implementer Review the plan in 
-.github/active_plans/[feature_name]/ and create detailed tasks.
+.github/active_plans/[feature_name]/ and create detailed tasks 
+with Input Validation Required.
 
 Step 4: Review Task List
-Review task_list.md to understand the implementation sequence.
+Review task_list.md:
+- Implementation sequence
+- Input Validation Required for each task
+- Dependency order
 
 Step 5: Execute Tasks
 @do_task Execute task group 1 from 
@@ -50,31 +56,40 @@ Step 5: Execute Tasks
 
 Repeat for each task group (can parallelize where marked).
 
-Step 6: Code Review
+Step 6: Code Review (validates against user stories)
 @reviewer Analyze the implementation in 
-.github/active_plans/[feature_name]/ and suggest improvements.
+.github/active_plans/[feature_name]/ against user_stories.md, 
+agent_plan.md, and human_overview.md. Check for buffer reuse 
+and math vs memory opportunities.
 
 Step 7: Address Review Feedback (if needed)
 @do_task Apply the edits from review_report.md section [X].
 
-Step 8: Documentation
+Step 8: API Documentation
 @docstring_guru Enforce numpydoc standards for all modified files.
+Process inline comments. Update cubie_internal_structure.md.
+Search narrative docs for function usage and report.
 
-@narrative_documenter Create a how-to guide for using [feature_name].
+Step 9: Narrative Documentation  
+@narrative_documenter Accept the function updates from 
+docstring_guru's report. Create RST how-to guide for 
+[feature_name]. Update user guide if needed.
 ```
 
-### 2. Bug Fix (Simplified Workflow)
+### 2. Bug Fix (Simplified/Shortcut Workflow)
 
 ```
-Step 1: Plan
+Step 1: Plan (may shortcut to direct implementation)
 @plan_new_feature Analyze this bug: [description]. 
-Create a minimal fix plan.
+If minimal, create detailed implementation plan for do_task.
 
 Step 2: Implement
-@do_task Implement the fix described in the plan.
+@do_task Implement the fix exactly as described. Add educational 
+comments explaining the fix.
 
 Step 3: Document (if API changed)
-@docstring_guru Update docstrings for changed functions.
+@docstring_guru Update docstrings for changed functions. 
+Process comments into Notes.
 ```
 
 ### 3. Documentation Update Only
@@ -82,10 +97,12 @@ Step 3: Document (if API changed)
 ```
 For API Documentation:
 @docstring_guru Review and update docstrings in 
-src/cubie/[module]/[file].py
+src/cubie/[module]/[file].py. Process inline comments.
+Update cubie_internal_structure.md if architectural changes found.
 
-For User Documentation:
-@narrative_documenter Create a how-to guide for [topic].
+For User Documentation (RST format):
+@narrative_documenter Create an RST how-to guide for [topic] or 
+update the user guide section on [concept].
 ```
 
 ### 4. Code Review Existing Work

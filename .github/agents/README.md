@@ -6,77 +6,90 @@ This directory contains custom GitHub Copilot agents for the CuBIE project. Thes
 
 ### 1. plan_new_feature
 **Role**: Expert project manager and technical architect  
-**Purpose**: Initial research and implementation planning  
-**MCP Tools**: Perplexity (research), Playwright (web browsing), GitHub  
-**Output**: `human_overview.md` and `agent_plan.md` in `.github/active_plans/<feature_name>/`
+**Purpose**: User story creation, research, and implementation planning  
+**MCP Tools**: GitHub (always), Perplexity deep_research (if requested), Playwright (web browsing)  
+**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
+**Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
 
 Creates comprehensive plans with:
+- User stories and acceptance criteria (first step)
 - Architecture diagrams and data flow
-- Component descriptions
-- Integration points
+- Behavior and integration descriptions (not implementation details)
 - Technical decisions and trade-offs
+- Shortcut: minimal bug fix plans ready for do_task
 
 ### 2. detailed_implementer
 **Role**: Operations manager and implementation planner  
 **Purpose**: Convert architectural plans into detailed, executable tasks  
-**MCP Tools**: GitHub  
+**MCP Tools**: GitHub, tree-sitter (optional), code-search (optional)  
+**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `task_list.md` with function-level implementation tasks
 
 Creates:
 - Complete function signatures
 - Detailed implementation logic
+- **Input Validation Required** section (exact validation to perform)
 - Dependency-ordered task groups
 - Context requirements for each task
 
 ### 3. do_task
 **Role**: Senior developer and implementer  
-**Purpose**: Execute specific implementation tasks precisely  
-**MCP Tools**: None (all context in task_list.md)  
+**Purpose**: Execute tasks exactly as specified with educational comments  
+**MCP Tools**: pytest (optional, only for added tests), linter (optional)  
+**Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
 **Output**: Git patches and updated `task_list.md` with outcomes
 
 Executes:
-- Code changes per specifications
-- Following CuBIE conventions strictly
-- Minimal, focused changes only
-- Proper type hints and docstrings
+- Code changes per specifications exactly
+- Adds educational comments (not docstrings)
+- Performs ONLY validation from "Input Validation Required"
+- Runs tests ONLY when explicitly added with CUDASIM enabled
+- Flags bugs/risks in outcomes (executes without deviation)
 
 ### 4. reviewer
 **Role**: Critical code reviewer  
-**Purpose**: Analyze implementations for quality and simplification  
-**MCP Tools**: None  
+**Purpose**: Validate against user stories and analyze for quality  
+**MCP Tools**: code-metrics (optional), coverage (optional)  
+**Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
 
 Reviews for:
+- User story validation (acceptance criteria met)
 - Goal alignment
 - Code duplication
 - Unnecessary complexity
 - Convention compliance
-- Performance issues
+- Performance issues (buffer reuse, math vs memory)
 
 ### 5. docstring_guru
-**Role**: Technical writing specialist  
-**Purpose**: Enforce numpydoc standards and maintain API documentation  
-**MCP Tools**: None  
-**Output**: Updated docstrings and documentation files
+**Role**: API documentation specialist  
+**Purpose**: Enforce numpydoc standards and maintain API reference docs  
+**MCP Tools**: sphinx (optional), doctests (optional)  
+**Context**: `AGENTS.md`  
+**Output**: Updated docstrings, API reference files, internal structure updates
 
 Enforces:
 - Numpydoc format for all functions/classes
-- Proper type hint placement
-- Complete module docstrings
-- Updated .rst API reference files
-- Consistency across narrative docs
+- Proper type hint placement (no types in Parameters if in signature)
+- Processes inline comments (keeps helpful, summarizes general ones in Notes)
+- Updates .rst API reference files (touched files only)
+- Searches narrative docs, reports function usage (does not update narrative)
+- Updates `.github/context/cubie_internal_structure.md` with insights
+- Escapes all backslashes in docstrings
 
 ### 6. narrative_documenter
-**Role**: Technical storyteller  
-**Purpose**: Create user-friendly how-to guides and manual sections  
-**MCP Tools**: None  
-**Output**: Narrative documentation in markdown
+**Role**: Technical storyteller for user-facing documentation  
+**Purpose**: Create concept-based user guides and how-to docs in RST  
+**MCP Tools**: mermaid (optional), markdown-lint (optional)  
+**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
+**Output**: Documentation in **reStructuredText (.rst)** for Sphinx (Markdown only for readmes/summaries)
 
 Creates:
-- How-to guides (task-oriented)
-- User manual sections (conceptual)
-- README updates
-- Accessible explanations with examples
+- How-to guides (task-oriented, .rst)
+- User manual sections (concept-based, .rst - see docs/source/user_guide/)
+- README updates (markdown)
+- Accepts function updates from docstring_guru
+- Updates narrative docs when API changes affect them
 
 ## Workflow
 
@@ -86,29 +99,39 @@ Creates:
 User Request
     ↓
 ┌───────────────────────┐
-│ plan_new_feature      │ → Research with Perplexity, Playwright, GitHub
+│ plan_new_feature      │ → Creates user_stories.md (first step)
+│                       │ → Research with GitHub (always)
+│                       │ → Perplexity deep_research (if requested)
+│                       │ → Playwright (web browsing)
 │                       │ → Creates human_overview.md & agent_plan.md
+│                       │ → Shortcut: minimal bug fix → direct to do_task
 └───────────┬───────────┘
             ↓
     User approval
             ↓
 ┌───────────────────────┐
 │ detailed_implementer  │ → Reviews source code
-│                       │ → Creates task_list.md with ordered tasks
+│                       │ → Creates task_list.md with:
+│                       │   - Input Validation Required
+│                       │   - Dependency-ordered tasks
 └───────────┬───────────┘
             ↓
     User approval
             ↓
 ┌───────────────────────┐
-│ do_task               │ → Executes task groups
-│ (multiple invocations)│ → Creates git patches
-│                       │ → Updates task_list.md outcomes
+│ do_task               │ → Executes tasks EXACTLY as specified
+│ (multiple invocations)│ → Adds educational comments (not docstrings)
+│                       │ → Performs ONLY specified validation
+│                       │ → Runs tests ONLY if explicitly added
+│                       │ → Flags bugs/risks in outcomes
 └───────────┬───────────┘
             ↓
     All tasks complete
             ↓
 ┌───────────────────────┐
-│ reviewer              │ → Critical analysis
+│ reviewer              │ → Validates against user_stories.md
+│                       │ → Checks agent_plan.md & human_overview.md
+│                       │ → Analyzes buffer reuse, math vs memory
 │                       │ → Creates review_report.md
 └───────────┬───────────┘
             ↓
@@ -122,13 +145,18 @@ User Request
     Implementation complete
             ↓
 ┌───────────────────────┐
-│ docstring_guru        │ → Enforce documentation standards
-│                       │ → Update API references
+│ docstring_guru        │ → Processes inline comments
+│                       │ → Summarizes general comments in Notes
+│                       │ → Keeps helpful comments
+│                       │ → Updates API reference (touched files)
+│                       │ → Searches narrative docs for usage
+│                       │ → Updates cubie_internal_structure.md
 └───────────┬───────────┘
             ↓
 ┌───────────────────────┐
-│ narrative_documenter  │ → Create user-friendly guides
-│                       │ → Update how-to documentation
+│ narrative_documenter  │ → Accepts function updates from docstring_guru
+│                       │ → Creates RST docs (how-to, user guide)
+│                       │ → Updates narrative docs if API changed
 └───────────────────────┘
 ```
 
@@ -193,54 +221,93 @@ Each feature gets a directory in `.github/active_plans/`:
 ```
 .github/active_plans/
 ├── feature_name/
-│   ├── human_overview.md      # High-level plan (from plan_new_feature)
-│   ├── agent_plan.md          # Technical spec (from plan_new_feature)
-│   ├── task_list.md           # Implementation tasks (from detailed_implementer)
-│   └── review_report.md       # Review analysis (from reviewer)
+│   ├── user_stories.md       # User stories (from plan_new_feature, step 1)
+│   ├── human_overview.md     # High-level plan (from plan_new_feature)
+│   ├── agent_plan.md         # Technical spec (from plan_new_feature)
+│   ├── task_list.md          # Implementation tasks (from detailed_implementer)
+│   └── review_report.md      # Review analysis (from reviewer)
 └── another_feature/
     └── ...
 ```
 
+## Context Directory
+
+`.github/context/` contains shared context for agents:
+
+```
+.github/context/
+└── cubie_internal_structure.md  # Maintained by agents
+                                  # Updated by docstring_guru
+                                  # Used by plan_new_feature, detailed_implementer, narrative_documenter
+```
+
 ## MCP Configuration
 
-MCP servers are configured in `.github/mcp.json`:
+Agent files use JSON format with integrated MCP tool specifications. Key tools:
 
-- **perplexity**: External research (requires `PERPLEXITY_API_KEY` env var)
-- **playwright**: Web automation and browsing
-- **github**: Repository operations (uses `GITHUB_TOKEN` env var)
+- **GitHub**: Repository operations (plan_new_feature, detailed_implementer always use)
+- **Perplexity deep_research**: External research (plan_new_feature, ONLY if requested)
+- **Playwright**: Web automation (plan_new_feature)
+- **pytest**: Test running (do_task, only for added tests with CUDASIM)
+- **sphinx**: Documentation validation (docstring_guru, optional)
+- **mermaid**: Diagram generation (narrative_documenter, optional)
+
+See individual agent files for complete tool specifications.
 
 ## Best Practices
 
 ### For Users
 
-1. **Start with plan_new_feature**: Always begin with research and planning
-2. **Review before proceeding**: Check plans before moving to implementation
-3. **Ask agents for clarification**: All agents (except do_task) will ask when uncertain
-4. **Use task groups efficiently**: Run multiple do_task invocations in parallel where marked
-5. **Don't skip review**: The reviewer catches issues before they become technical debt
+1. **Start with plan_new_feature**: Always begin with user story creation and planning
+2. **Provide context**: Give reviewer agent_plan.md and human_overview.md to check against
+3. **Review before proceeding**: Check plans and user stories before moving to implementation
+4. **Ask agents for clarification**: All agents (except do_task) will ask when uncertain
+5. **Use task groups efficiently**: Run multiple do_task invocations in parallel where marked
+6. **Don't skip review**: The reviewer validates against user stories and catches issues
 
 ### For Agents
 
 These are enforced in agent instructions:
 
-- **plan_new_feature**: Use Perplexity ONCE per feature (quota limit)
-- **detailed_implementer**: Provide complete context (file paths, line numbers)
-- **do_task**: Never deviate from specifications; execute exactly as planned
-- **reviewer**: Be harsh but fair; every criticism must be actionable
-- **docstring_guru**: Strictly enforce numpydoc; distinguish device functions
-- **narrative_documenter**: Avoid jargon; explain all symbols in equations
+- **plan_new_feature**: 
+  * Create user_stories.md FIRST
+  * Use Perplexity deep_research ONLY if explicitly requested
+  * Describe behavior/architecture, not implementation details
+  * Shortcut: minimal bug fixes can skip to do_task
+- **detailed_implementer**: 
+  * Specify exact "Input Validation Required"
+  * Provide complete context (file paths, line numbers)
+- **do_task**: 
+  * Execute exactly as specified (no deviations)
+  * Add educational comments (not docstrings)
+  * Perform ONLY validation from "Input Validation Required"
+  * Run tests ONLY when explicitly added, with CUDASIM
+  * Flag bugs/risks in outcomes
+- **reviewer**: 
+  * Validate against user_stories.md
+  * Check buffer reuse and math vs memory opportunities
+  * Be harsh but fair; every criticism must be actionable
+- **docstring_guru**: 
+  * Process inline comments (keep helpful, summarize general in Notes)
+  * No type hints in Parameters section if in signature
+  * Search narrative docs, report usage (don't update narrative)
+  * Update cubie_internal_structure.md
+  * Escape all backslashes
+- **narrative_documenter**: 
+  * Work in RST format for Sphinx (not markdown)
+  * User manual is concept-based
+  * Accept function updates from docstring_guru
 
 ## Repository Conventions
 
-All agents are trained on CuBIE-specific conventions:
+All agents understand CuBIE-specific conventions from repository-level instructions:
 
 - **Code Style**: PEP8, 79 char lines, numpydoc docstrings
 - **Type Hints**: In signatures only (except CUDA device functions: docstring only)
-- **Attrs Classes**: Float attributes with underscore + property pattern
-- **CUDAFactory**: Never call `build()` directly; use properties
 - **Platform**: PowerShell compatible (no `&&` in commands)
-- **Testing**: Pytest fixtures; no mocks/patches
+- **Testing**: Pytest fixtures; no mocks/patches; CUDASIM for GPU tests
 - **Breaking Changes**: Acceptable (no backwards compatibility)
+- **Documentation**: RST for Sphinx, numpydoc for API, concept-based user guides
 
 See `AGENTS.md` for complete architecture and style guidelines.
 
