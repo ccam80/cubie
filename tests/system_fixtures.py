@@ -256,7 +256,7 @@ def build_large_nonlinear_system(precision: np.dtype) -> BaseODE:
 # ---------------------------------------------------------------------------
 
 THREE_STATE_CONSTANT_DERIV_EQUATIONS = [
-    "dx0 = c0 + d0",
+    "dx0 = c0",
     "dx1 = c1",
     "dx2 = c2",
     "o0 = x0 + p0",
@@ -267,7 +267,7 @@ THREE_STATE_CONSTANT_DERIV_EQUATIONS = [
 THREE_STATE_CONSTANT_DERIV_STATES = {"x0": 0.0, "x1": 0.0, "x2": 0.0}
 THREE_STATE_CONSTANT_DERIV_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
 THREE_STATE_CONSTANT_DERIV_CONSTANTS = {"c0": 1.0, "c1": 2.0, "c2": 3.0}
-THREE_STATE_CONSTANT_DERIV_DRIVERS = ["d0"]
+THREE_STATE_CONSTANT_DERIV_DRIVERS = []
 THREE_STATE_CONSTANT_DERIV_OBSERVABLES = ["o0", "o1", "o2"]
 
 
