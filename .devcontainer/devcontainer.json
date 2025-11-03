@@ -1,0 +1,29 @@
+{
+  "name": "cubie dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/astral-sh/devcontainer-features/uv:1": {}
+  },
+  "remoteEnv": {
+    "PERPLEXITY_API_KEY": "${localEnv:COPILOT_MCP_PERPLEXITY_API_KEY}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "GitHub.copilot",
+        "GitHub.copilot-chat"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "bash -lc 'set -euxo pipefail; if ! gh extension list | grep -q \"github/gh-copilot\"; then gh extension install github/gh-copilot; fi; uv --version; uv venv --python 3.12 .venv; source .venv/bin/activate; uv pip install -e .[dev]'",
+  "remoteUser": "vscode"
+}
