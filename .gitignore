@@ -49,6 +49,7 @@ venv.bak/
 
 # Data files
 *.json
+!.devcontainer/devcontainer.json
 *.jsonl
 *.xml
 
