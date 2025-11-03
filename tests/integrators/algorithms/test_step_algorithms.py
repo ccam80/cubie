@@ -1348,8 +1348,8 @@ def test_against_euler(
             error_vec_first,
             dt_scalar,
             zero,
-            int16(1),
-            int16(1),
+            int16(1),  # first_step_flag
+            int16(1),  # accepted_flag
             shared,
             persistent,
         )
@@ -1376,8 +1376,8 @@ def test_against_euler(
             error_vec_second,
             dt_scalar,
             dt_scalar,
-            int16(0),
-            int16(1),
+            int16(0),  # first_step_flag
+            int16(1),  # accepted_flag
             shared,
             persistent,
         )
