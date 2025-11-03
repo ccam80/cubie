@@ -47,9 +47,93 @@ def save(buffer, output_array, summarise_every, customisable_variable):
 
 ## Detailed Metric Specifications
 
-### Phase 1: Simple Single-Value Metrics
+## Phase 1: Architecture Changes (Prerequisites)
 
-#### Issue #63: Minimum (`min`)
+These changes must be implemented first as they provide the foundation for all metrics.
+
+### Issue #76: Save Exit State as Initial Condition
+
+**Complexity:** High  
+**Architecture Change:** Yes
+
+**This is NOT a summary_metric** - requires different implementation:
+
+**Approach:**
+1. Add new device function to `save_state.py`:
+   ```python
+   def save_exit_state_factory(num_states: int) -> Callable:
+       @cuda.jit(device=True, inline=True)
+       def save_exit_state_func(current_state, d_inits):
+           for i in range(num_states):
+               d_inits[i] = current_state[i]
+       return save_exit_state_func
+   ```
+
+2. Modify `BatchSolverKernel`:
+   - Add `continuation` flag to config
+   - Pass `d_inits` array to kernel
+   - Call `save_exit_state_func` at end of integration
+
+3. Modify `BatchInputArrays`:
+   - Add `fetch_inits()` method to retrieve saved states
+   - Ensure `d_inits` is accessible from host
+
+**Files to modify:**
+- `src/cubie/outputhandling/save_state.py` - add factory
+- `src/cubie/batchsolving/BatchSolverKernel.py` - add continuation logic
+- `src/cubie/batchsolving/arrays/BatchInputArrays.py` - add fetch_inits
+
+**New signature requirements:**
+- Kernel needs `d_inits` parameter
+- Config needs `continuation` boolean
+
+**Tests:**
+- `tests/outputhandling/test_save_exit_state.py`
+- `tests/batchsolving/test_continuation.py`
+
+---
+
+### Issue #125: Output Iteration Counts
+
+**Complexity:** High  
+**Architecture Change:** Yes
+
+**This is NOT a summary_metric** - requires iteration counter propagation:
+
+**Approach:**
+1. Add compile-time flag for iteration counting
+2. Pass counter arrays through solver chain:
+   - Newton iteration counter (per step)
+   - Krylov iteration counter (per Newton iteration)
+   - Step controller rejections (per output window)
+
+3. New output arrays:
+   - `iteration_counts[n_windows, 3]` where:
+     - `[0]`: cumulative Newton iterations since last save
+     - `[1]`: cumulative Krylov iterations since last save
+     - `[2]`: cumulative step rejections since last save
+
+**Files to modify:**
+- Algorithm files (Newton, Krylov) - propagate counters
+- `BatchSolverKernel.py` - add counter arrays
+- `BatchOutputArrays.py` - add iteration_counts array
+- Compile settings - add iteration counting flag
+
+**Signature changes:**
+- Device functions return int status codes
+- Iteration counts passed as device array parameters
+- Each level increments appropriate counter
+
+**Tests:**
+- `tests/integrators/test_iteration_counts.py`
+
+**Note:** Keep disabled by default for performance
+
+---
+
+## Phase 2: Simple Summary Metrics
+
+### Issue #63: Minimum (`min`)
 
 **Complexity:** Low  
 **Similar to:** `max.py`
@@ -70,7 +154,43 @@ def save(buffer, output_array, summarise_every, customisable_variable):
 
 ---
 
-#### Issue #61: Max Magnitude (`max_magnitude`)
+**Complexity:** Low  
+**Similar to:** `max.py`
+
+**Specification:**
+- `buffer_size`: 1
+- `output_size`: 1
+- **Buffer layout:** `[current_min]`
+- **Update logic:** `if value < buffer[0]: buffer[0] = value`
+- **Save logic:** `output_array[0] = buffer[0]; buffer[0] = 1.0e30`  # large sentinel
+- **Initial buffer state:** `1.0e30`
+
+**Files to create:**
+- `src/cubie/outputhandling/summarymetrics/min.py`
+
+**Tests:**
+- `tests/outputhandling/summarymetrics/test_min.py`
+
+---
+
+### Issue #61: Max Magnitude (`max_magnitude`)
+
+**Complexity:** Low  
+**Similar to:** `max.py`
+
+**Specification:**
+- `buffer_size`: 1
+- `output_size`: 1
+- **Buffer layout:** `[current_max_abs]`
+- **Update logic:** `abs_val = abs(value); if abs_val > buffer[0]: buffer[0] = abs_val`
+- **Save logic:** `output_array[0] = buffer[0]; buffer[0] = -1.0e30`
+- **Initial buffer state:** `-1.0e30`
+
+**Files to create:**
+- `src/cubie/outputhandling/summarymetrics/max_magnitude.py`
+
+**Tests:**
+- `tests/outputhandling/summarymetrics/test_max_magnitude.py`
 
 **Complexity:** Low  
 **Similar to:** `max.py`
@@ -91,9 +211,7 @@ def save(buffer, output_array, summarise_every, customisable_variable):
 
 ---
 
-### Phase 2: Statistical Metrics
-
-#### Issue #62: Standard Deviation (`std`)
+### Issue #62: Standard Deviation (`std`)
 
 **Complexity:** Medium  
 **Similar to:** `rms.py` + `mean.py`
@@ -132,9 +250,9 @@ Create optional combined device function when mean + rms + std requested:
 
 ---
 
-### Phase 3: Peak Detection Variants
+## Phase 3: Peak Detection Metrics
 
-#### Issue #64: Negative Peak (`negative_peak`)
+### Issue #64: Negative Peak (`negative_peak`)
 
 **Complexity:** Medium  
 **Similar to:** `peaks.py` (inverted logic)
@@ -163,7 +281,7 @@ Create optional combined device function when mean + rms + std requested:
 
 ---
 
-#### Issue #65: Both Extrema (`extrema`)
+### Issue #65: Both Extrema (`extrema`)
 
 **Complexity:** Medium  
 **Combines:** `peaks.py` + `negative_peak.py`
@@ -203,9 +321,9 @@ Create optional combined device function when mean + rms + std requested:
 
 ---
 
-### Phase 4: Derivative-Based Metrics
+## Phase 4: Derivative-Based Metrics
 
-#### Issue #66: dxdt Extrema (`dxdt_extrema`)
+### Issue #66: dxdt Extrema (`dxdt_extrema`)
 
 **Complexity:** High  
 **Requires:** Numerical differentiation + peak detection
@@ -246,7 +364,7 @@ Create optional combined device function when mean + rms + std requested:
 
 ---
 
-#### Issue #67: d2xdt2 Extrema (`d2xdt2_extrema`)
+### Issue #67: d2xdt2 Extrema (`d2xdt2_extrema`)
 
 **Complexity:** High  
 **Requires:** Second derivative + peak detection
@@ -294,7 +412,7 @@ Create optional combined device function when mean + rms + std requested:
 
 ---
 
-#### Issue #68: dxdt Output (`dxdt`)
+### Issue #68: dxdt Output (`dxdt`)
 
 **Complexity:** Medium (Lower priority per issue description)  
 **Note:** "only add if required in real-time"
@@ -323,88 +441,6 @@ Create optional combined device function when mean + rms + std requested:
 
 **Tests:**
 - `tests/outputhandling/summarymetrics/test_dxdt.py`
-
----
-
-### Phase 5: State Management (Non-Summary Metrics)
-
-#### Issue #76: Save Exit State as Initial Condition
-
-**Complexity:** High  
-**Architecture Change:** Yes
-
-**This is NOT a summary_metric** - requires different implementation:
-
-**Approach:**
-1. Add new device function to `save_state.py`:
-   ```python
-   def save_exit_state_factory(num_states: int) -> Callable:
-       @cuda.jit(device=True, inline=True)
-       def save_exit_state_func(current_state, d_inits):
-           for i in range(num_states):
-               d_inits[i] = current_state[i]
-       return save_exit_state_func
-   ```
-
-2. Modify `BatchSolverKernel`:
-   - Add `continuation` flag to config
-   - Pass `d_inits` array to kernel
-   - Call `save_exit_state_func` at end of integration
-
-3. Modify `BatchInputArrays`:
-   - Add `fetch_inits()` method to retrieve saved states
-   - Ensure `d_inits` is accessible from host
-
-**Files to modify:**
-- `src/cubie/outputhandling/save_state.py` - add factory
-- `src/cubie/batchsolving/BatchSolverKernel.py` - add continuation logic
-- `src/cubie/batchsolving/arrays/BatchInputArrays.py` - add fetch_inits
-
-**New signature requirements:**
-- Kernel needs `d_inits` parameter
-- Config needs `continuation` boolean
-
-**Tests:**
-- `tests/outputhandling/test_save_exit_state.py`
-- `tests/batchsolving/test_continuation.py`
-
----
-
-#### Issue #125: Output Iteration Counts
-
-**Complexity:** High  
-**Architecture Change:** Yes
-
-**This is NOT a summary_metric** - requires iteration counter propagation:
-
-**Approach:**
-1. Add compile-time flag for iteration counting
-2. Pass counter arrays through solver chain:
-   - Newton iteration counter (per step)
-   - Krylov iteration counter (per Newton iteration)
-   - Step controller rejections (per output window)
-
-3. New output arrays:
-   - `iteration_counts[n_windows, 3]` where:
-     - `[0]`: cumulative Newton iterations since last save
-     - `[1]`: cumulative Krylov iterations since last save
-     - `[2]`: cumulative step rejections since last save
-
-**Files to modify:**
-- Algorithm files (Newton, Krylov) - propagate counters
-- `BatchSolverKernel.py` - add counter arrays
-- `BatchOutputArrays.py` - add iteration_counts array
-- Compile settings - add iteration counting flag
-
-**Signature changes:**
-- Device functions return int status codes
-- Iteration counts passed as device array parameters
-- Each level increments appropriate counter
-
-**Tests:**
-- `tests/integrators/test_iteration_counts.py`
-
-**Note:** Keep disabled by default for performance
 
 ---
 
@@ -482,39 +518,54 @@ Each metric needs:
    - Verify counts match expected solver behavior
    - Test with/without compile flag
 
-## Implementation Order
+## Implementation Order by Dependency
 
-### Sprint 1: Foundation (Low-hanging fruit)
-1. **min** - simplest, validates workflow
-2. **max_magnitude** - builds on min
-3. Update __init__.py to register new metrics
-4. Basic unit tests
+### Phase 1: Architecture Changes (Must be first)
+**Dependencies:** None - these modify the foundation
 
-### Sprint 2: Statistics
-1. **std** - introduces multi-slot buffers
-2. Tests for correctness vs numpy
-3. Document buffer optimization opportunity
+1. **save_exit_state (#76)**
+   - New device function in save_state.py
+   - Kernel modifications for continuation
+   - BatchInputArrays.fetch_inits() method
+   - Continuation tests
 
-### Sprint 3: Peak Detection Variants
+2. **iteration_counts (#125)**
+   - Counter propagation through solver chain
+   - Compile-time flag
+   - Integration tests
+   - Performance validation
+
+**Validation:** Test architecture changes thoroughly before proceeding
+
+### Phase 2: Simple Metrics
+**Dependencies:** Phase 1 complete and tested
+
+1. **min** - validates workflow with new architecture
+2. **max_magnitude** - confirms pattern
+3. **std** - introduces multi-slot buffers
+4. Update __init__.py to register new metrics
+5. Unit tests for each metric
+
+**Validation:** All simple metrics working correctly
+
+### Phase 3: Peak Detection Metrics
+**Dependencies:** Phase 2 complete and tested
+
 1. **negative_peak** - reuses peaks logic
-2. **extrema** - combines both
+2. **extrema** - combines both directions
 3. Comprehensive peak detection tests
 
-### Sprint 4: Derivatives
+**Validation:** Peak detection reliable across test cases
+
+### Phase 4: Derivative Metrics
+**Dependencies:** Phase 3 complete and tested
+
 1. **dxdt_extrema** - first derivative peaks
 2. **d2xdt2_extrema** - second derivative peaks
 3. **dxdt** (optional, lower priority)
-4. Numerical accuracy tests
+4. Numerical accuracy validation
 
-### Sprint 5: State Management
-1. **save_exit_state (#76)**
-   - New device function
-   - Kernel modifications
-   - Continuation tests
-2. **iteration_counts (#125)**
-   - Counter propagation
-   - Compile-time flag
-   - Performance validation
+**Validation:** All metrics complete, tested, documented
 
 ## Risks and Mitigation
 
@@ -551,7 +602,7 @@ Each metric needs:
 
 ## Success Criteria
 
-1. ✓ All 12 issues implemented and tested
+1. ✓ All 10 issues implemented and tested
 2. ✓ All metrics registered and accessible
 3. ✓ Unit tests pass with >95% coverage
 4. ✓ Integration tests verify multi-metric usage

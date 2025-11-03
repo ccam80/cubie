@@ -340,41 +340,37 @@ State outputs: [mean₀, max₀, peak₀₁, peak₀₂, peak₀₃,
 Observable outputs: [mean₀, max₀, peak₀₁, peak₀₂, peak₀₃]
 ```
 
-## Implementation Phases Visualization
+## Implementation Phases by Dependency
 
 ```
-Sprint 1 (Week 1): Foundation
-├─ min.py              [●●●○○] Low complexity
-├─ max_magnitude.py    [●●●○○] Low complexity
-└─ Tests               [●●○○○] Basic validation
+Phase 1: Architecture Changes (Must be first)
+├─ save_exit_state      [●●●●●●] High complexity
+│  ├─ Device function   [●●●●○]
+│  ├─ Kernel changes    [●●●●●]
+│  └─ Tests             [●●●●○]
+└─ iteration_counts     [●●●●●●●] High complexity
+   ├─ Counter prop.     [●●●●●●]
+   ├─ Compile flag      [●●●○○]
+   └─ Tests             [●●●●●]
 
-Sprint 2 (Week 2): Statistics  
-├─ std.py              [●●●●○] Medium complexity
-├─ Multi-slot buffers  [●●●○○] New pattern
-└─ Tests vs numpy      [●●●●○] Accuracy validation
+Phase 2: Simple Metrics (Validates new architecture)
+├─ min.py               [●●●○○] Low complexity
+├─ max_magnitude.py     [●●●○○] Low complexity
+├─ std.py               [●●●●○] Medium complexity
+└─ Tests                [●●●○○] Basic validation
 
-Sprint 3 (Week 3): Peak Detection
-├─ negative_peak.py    [●●●●○] Medium complexity
-├─ extrema.py          [●●●●●] Medium complexity
-└─ Tests               [●●●●○] Comprehensive
+Phase 3: Peak Detection (Builds on simple metrics)
+├─ negative_peak.py     [●●●●○] Medium complexity
+├─ extrema.py           [●●●●●] Medium complexity
+└─ Tests                [●●●●○] Comprehensive
 
-Sprint 4 (Week 4-5): Derivatives
-├─ dxdt_extrema.py     [●●●●●●] High complexity
-├─ d2xdt2_extrema.py   [●●●●●●●] High complexity
-├─ dxdt.py             [●●●○○] Medium (optional)
-└─ Tests               [●●●●●●] Numerical accuracy
+Phase 4: Derivatives (Most complex, builds on peaks)
+├─ dxdt_extrema.py      [●●●●●●] High complexity
+├─ d2xdt2_extrema.py    [●●●●●●●] High complexity
+├─ dxdt.py              [●●●○○] Medium (optional)
+└─ Tests                [●●●●●●] Numerical accuracy
 
-Sprint 5 (Week 6-7): Architecture
-├─ save_exit_state     [●●●●●●] High complexity
-│  ├─ Device function  [●●●●○]
-│  ├─ Kernel changes   [●●●●●]
-│  └─ Tests            [●●●●○]
-└─ iteration_counts    [●●●●●●●] High complexity
-   ├─ Counter prop.    [●●●●●●]
-   ├─ Compile flag     [●●●○○]
-   └─ Tests            [●●●●●]
-
-[●] = Estimated effort unit (each ● ≈ 1 day)
+[●] = Relative complexity indicator
 ```
 
 ## Testing Strategy Flow

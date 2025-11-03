@@ -11,13 +11,13 @@ Executive summary with quick reference tables and key decisions.
 
 **Best for:**
 - Getting an overview of the entire project
-- Understanding scope and timeline
+- Understanding scope and dependencies
 - Quick reference during implementation
 
 **Contents:**
 - Summary of all 10 issues
 - Buffer requirements table
-- Implementation timeline (5 sprints)
+- Implementation order by dependency
 - Next steps
 
 ---
@@ -69,32 +69,27 @@ ASCII diagrams showing data flow and memory layouts.
 
 ## Quick Navigation
 
-### By Task Priority
+### By Implementation Phase
 
-**Sprint 1 (Foundation):**
-- Read: PLANNING_SUMMARY_141.md → "Sprint 1" section
-- Implement: min, max_magnitude
+**Phase 1 (Architecture - Must be first):**
+- Read: PLANNING_SUMMARY_141.md → "Phase 1" section
+- Implement: save_exit_state (#76), iteration_counts (#125)
 - Reference: IMPLEMENTATION_PLAN_141.md → "Phase 1"
 
-**Sprint 2 (Statistics):**
-- Implement: std
+**Phase 2 (Simple Metrics):**
+- Implement: min, max_magnitude, std
 - Reference: IMPLEMENTATION_PLAN_141.md → "Phase 2"
 - Visual: ARCHITECTURE_DIAGRAMS_141.md → "Combined Statistics Optimization"
 
-**Sprint 3 (Peak Detection):**
+**Phase 3 (Peak Detection):**
 - Implement: negative_peak, extrema
 - Reference: IMPLEMENTATION_PLAN_141.md → "Phase 3"
 - Visual: ARCHITECTURE_DIAGRAMS_141.md → "Buffer Layout Examples"
 
-**Sprint 4 (Derivatives):**
+**Phase 4 (Derivatives):**
 - Implement: dxdt_extrema, d2xdt2_extrema, dxdt
 - Reference: IMPLEMENTATION_PLAN_141.md → "Phase 4"
 - Visual: ARCHITECTURE_DIAGRAMS_141.md → "Derivative Metrics"
-
-**Sprint 5 (Architecture):**
-- Implement: save_exit_state (#76), iteration_counts (#125)
-- Reference: IMPLEMENTATION_PLAN_141.md → "Phase 5"
-- Visual: ARCHITECTURE_DIAGRAMS_141.md → "Architecture Changes"
 
 ### By Concern
 
@@ -123,18 +118,18 @@ ASCII diagrams showing data flow and memory layouts.
 
 ## Issue Mapping
 
-| Issue | Title | Sprint | Complexity | Docs Section |
-|-------|-------|--------|-----------|--------------|
-| #61 | max_magnitude | 1 | Low | Phase 1 |
+| Issue | Title | Phase | Complexity | Docs Section |
+|-------|-------|-------|-----------|--------------|
+| #76 | save_exit_state | 1 | High | Phase 1 |
+| #125 | iteration_counts | 1 | High | Phase 1 |
+| #63 | min | 2 | Low | Phase 2 |
+| #61 | max_magnitude | 2 | Low | Phase 2 |
 | #62 | std | 2 | Medium | Phase 2 |
-| #63 | min | 1 | Low | Phase 1 |
 | #64 | negative_peak | 3 | Medium | Phase 3 |
 | #65 | extrema | 3 | Medium | Phase 3 |
 | #66 | dxdt_extrema | 4 | High | Phase 4 |
 | #67 | d2xdt2_extrema | 4 | High | Phase 4 |
 | #68 | dxdt | 4 | Medium | Phase 4 |
-| #76 | save_exit_state | 5 | High | Phase 5 |
-| #125 | iteration_counts | 5 | High | Phase 5 |
 
 ---
 

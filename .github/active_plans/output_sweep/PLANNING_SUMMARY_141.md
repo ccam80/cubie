@@ -15,25 +15,39 @@ Issue #141 consolidates 10 child issues requesting new output functions for the 
 
 ## Quick Reference: Metrics to Implement
 
-### Summary Metrics (Standard Architecture)
+### Implementation Order by Dependency
 
-| Issue | Metric | Complexity | Buffer | Output | Sprint |
-|-------|--------|-----------|--------|--------|--------|
-| #63 | min | Low | 1 | 1 | 1 |
-| #61 | max_magnitude | Low | 1 | 1 | 1 |
-| #62 | std | Medium | 2 | 1 | 2 |
-| #64 | negative_peak | Medium | 3+n | n | 3 |
-| #65 | extrema | Medium | 6+2n | 2n | 3 |
-| #66 | dxdt_extrema | High | 5+n | n | 4 |
-| #67 | d2xdt2_extrema | High | 8+n | n | 4 |
-| #68 | dxdt | Medium | 1 | 1 | 4 |
+#### Phase 1: Architecture Changes (Prerequisites)
 
-### Non-Summary Metrics (Architecture Changes)
+| Issue | Feature | Type | Complexity | Dependencies |
+|-------|---------|------|-----------|--------------|
+| #76 | save_exit_state | State mgmt | High | None - modify kernel |
+| #125 | iteration_counts | Diagnostics | High | None - modify algorithms |
 
-| Issue | Feature | Type | Complexity | Sprint |
-|-------|---------|------|-----------|--------|
-| #76 | save_exit_state | State mgmt | High | 5 |
-| #125 | iteration_counts | Diagnostics | High | 5 |
+#### Phase 2: Summary Metrics (Standard Architecture)
+
+**Simple Metrics:**
+
+| Issue | Metric | Complexity | Buffer | Output | Dependencies |
+|-------|--------|-----------|--------|--------|--------------|
+| #63 | min | Low | 1 | 1 | Architecture complete |
+| #61 | max_magnitude | Low | 1 | 1 | Architecture complete |
+| #62 | std | Medium | 2 | 1 | Architecture complete |
+
+**Peak Detection Metrics:**
+
+| Issue | Metric | Complexity | Buffer | Output | Dependencies |
+|-------|--------|-----------|--------|--------|--------------|
+| #64 | negative_peak | Medium | 3+n | n | Simple metrics tested |
+| #65 | extrema | Medium | 6+2n | 2n | Simple metrics tested |
+
+**Derivative Metrics:**
+
+| Issue | Metric | Complexity | Buffer | Output | Dependencies |
+|-------|--------|-----------|--------|--------|--------------|
+| #66 | dxdt_extrema | High | 5+n | n | Peak metrics tested |
+| #67 | d2xdt2_extrema | High | 8+n | n | Peak metrics tested |
+| #68 | dxdt | Medium | 1 | 1 | Peak metrics tested |
 
 ## Key Architectural Decisions
 
@@ -139,50 +153,54 @@ enable_iteration_counting: bool = False  # default
 
 ## Recommended Implementation Order
 
-### Sprint 1: Validate Workflow (Week 1)
-Implement simplest metrics to validate end-to-end workflow:
+### Phase 1: Architecture Changes (Foundation)
+**Must be completed first - provides infrastructure for metrics**
+
+1. **save_exit_state (#76)**
+   - New device function in save_state.py
+   - Kernel modifications for continuation mode
+   - BatchInputArrays.fetch_inits() method
+   - Continuation tests
+
+2. **iteration_counts (#125)**
+   - Counter propagation through solver chain
+   - Compile-time flag for enabling/disabling
+   - Performance validation
+   - Integration tests
+
+**Deliverable:** Architecture supports all planned metrics
+
+### Phase 2: Simple Metrics (Validate Workflow)
+**Dependencies:** Phase 1 complete and tested
+
 1. min
 2. max_magnitude
-3. Update __init__.py registration
-4. Basic unit tests
+3. std
+4. Update __init__.py registration
+5. Unit tests for each
 
 **Deliverable:** Working template for remaining metrics
 
-### Sprint 2: Statistics (Week 2)
-1. std metric
-2. Validate multi-slot buffers
-3. Document combined_stats optimization opportunity
+### Phase 3: Peak Detection Metrics
+**Dependencies:** Phase 2 complete and tested
 
-**Deliverable:** Statistical metrics complete
-
-### Sprint 3: Peak Detection (Week 3)
 1. negative_peak
 2. extrema
 3. Comprehensive peak detection tests
 
 **Deliverable:** All peak variants complete
 
-### Sprint 4: Derivatives (Week 4-5)
+### Phase 4: Derivative Metrics
+**Dependencies:** Phase 3 complete and tested
+
 1. dxdt_extrema
 2. d2xdt2_extrema
 3. dxdt (optional, lower priority)
 4. Numerical accuracy validation
 
-**Deliverable:** Derivative-based metrics complete
+**Deliverable:** All metrics complete, tested, documented
 
-### Sprint 5: Architecture Changes (Week 6-7)
-1. save_exit_state (#76)
-   - New device function
-   - Kernel modifications
-   - Continuation tests
-2. iteration_counts (#125)
-   - Counter propagation
-   - Compile-time flag
-   - Performance validation
-
-**Deliverable:** All 10 issues complete, tested, documented
-
-## Success Metrics
+## Success Criteria
 
 - [ ] 10/10 issues implemented
 - [ ] All metrics registered in summary_metrics
@@ -190,14 +208,13 @@ Implement simplest metrics to validate end-to-end workflow:
 - [ ] Integration tests: multi-metric usage validated
 - [ ] No performance regression (<5% overhead)
 - [ ] Documentation updated with examples
-- [ ] Detailed plan reviewed and approved
 
 ## Next Steps
 
-1. **Review this plan** with repository owner
-2. **Approve scope** and implementation order
-3. **Begin Sprint 1** with min and max_magnitude
-4. **Iterate** through sprints with continuous testing
+1. **Implement Phase 1** - Architecture changes (#76, #125)
+2. **Test Phase 1** - Validate continuation and iteration counting
+3. **Implement Phase 2** - Simple metrics with new architecture
+4. **Iterate through remaining phases** with continuous testing
 5. **Document** each metric with usage examples
 
 ## Detailed Documentation
@@ -213,7 +230,6 @@ See `IMPLEMENTATION_PLAN_141.md` for:
 ---
 
 **Status:** Planning complete, ready for implementation  
-**Estimated Effort:** 6-7 weeks (5 sprints)  
 **Files to Create:** 8 new metrics + 11 test files  
 **Files to Modify:** 5 existing files  
 **Total LOC Estimate:** ~2000-2500 lines
