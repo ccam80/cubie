@@ -1233,13 +1233,194 @@ def test_against_euler(
     This test verifies this property over two integration steps.
     """
 
-    device_result = _execute_step_twice(
-        step_object=step_object,
-        solver_settings=solver_settings,
-        precision=precision,
-        step_inputs=step_inputs,
-        system=system,
-        driver_array=driver_array,
+    if step_object.shared_memory_required == 0:
+        pytest.skip("Algorithm does not expose a shared cache to reuse.")
+
+    step_function = step_object.step_function
+    driver_function = (
+        driver_array.evaluation_function if driver_array is not None else None
+    )
+    observables_function = system.observables_function
+
+    params = step_inputs["parameters"]
+    state = np.asarray(step_inputs["state"], dtype=precision)
+    driver_coefficients = step_inputs["driver_coefficients"]
+
+    n_states = system.sizes.states
+    n_drivers = system.sizes.drivers
+    n_observables = system.sizes.observables
+
+    proposed_state_first = np.zeros_like(state)
+    proposed_state_second = np.zeros_like(state)
+
+    error_first = np.zeros(n_states, dtype=precision)
+    error_second = np.zeros(n_states, dtype=precision)
+
+    drivers_current = np.zeros(n_drivers, dtype=precision)
+    proposed_drivers_first = np.zeros(n_drivers, dtype=precision)
+    proposed_drivers_second = np.zeros(n_drivers, dtype=precision)
+
+    observables_current = np.zeros(n_observables, dtype=precision)
+    proposed_observables_first = np.zeros(n_observables, dtype=precision)
+    proposed_observables_second = np.zeros(n_observables, dtype=precision)
+
+    status = np.zeros(2, dtype=np.int32)
+
+    shared_elems = step_object.shared_memory_required
+    shared_bytes = precision(0).itemsize * shared_elems
+    persistent_len = max(1, step_object.persistent_local_required)
+    numba_precision = from_dtype(precision)
+    dt_value = precision(solver_settings["dt"])
+
+    d_state = cuda.to_device(state)
+    d_params = cuda.to_device(params)
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
+
+    d_proposed_first = cuda.to_device(proposed_state_first)
+    d_proposed_second = cuda.to_device(proposed_state_second)
+
+    d_drivers_current = cuda.to_device(drivers_current)
+    d_proposed_drivers_first = cuda.to_device(proposed_drivers_first)
+    d_proposed_drivers_second = cuda.to_device(proposed_drivers_second)
+
+    d_observables_current = cuda.to_device(observables_current)
+    d_proposed_observables_first = cuda.to_device(proposed_observables_first)
+    d_proposed_observables_second = cuda.to_device(
+        proposed_observables_second
+    )
+
+    d_error_first = cuda.to_device(error_first)
+    d_error_second = cuda.to_device(error_second)
+
+    d_status = cuda.to_device(status)
+
+    state_len = int(n_states)
+    driver_len = int(n_drivers)
+    observable_len = int(n_observables)
+
+    @cuda.jit
+    def kernel(
+        state_vec,
+        params_vec,
+        driver_coeffs_vec,
+        drivers_current_vec,
+        proposed_drivers_vec_first,
+        proposed_drivers_vec_second,
+        observables_current_vec,
+        proposed_observables_vec_first,
+        proposed_observables_vec_second,
+        proposed_vec_first,
+        proposed_vec_second,
+        error_vec_first,
+        error_vec_second,
+        status_vec,
+        dt_scalar,
+    ) -> None:
+        idx = cuda.grid(1)
+        if idx > 0:
+            return
+        shared = cuda.shared.array(0, dtype=numba_precision)
+        persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+        zero = numba_precision(0.0)
+
+        for cache_idx in range(shared.shape[0]):
+            shared[cache_idx] = zero
+
+        if driver_function is not None:
+            driver_function(zero, driver_coeffs_vec, drivers_current_vec)
+        observables_function(
+            state_vec,
+            params_vec,
+            drivers_current_vec,
+            observables_current_vec,
+            zero,
+        )
+
+        first_status = step_function(
+            state_vec,
+            proposed_vec_first,
+            params_vec,
+            driver_coeffs_vec,
+            drivers_current_vec,
+            proposed_drivers_vec_first,
+            observables_current_vec,
+            proposed_observables_vec_first,
+            error_vec_first,
+            dt_scalar,
+            zero,
+            int16(1),
+            int16(1),
+            shared,
+            persistent,
+        )
+        status_vec[0] = first_status
+
+        for elem in range(state_len):
+            state_vec[elem] = proposed_vec_first[elem]
+        for drv_idx in range(driver_len):
+            drivers_current_vec[drv_idx] = proposed_drivers_vec_first[drv_idx]
+        for obs_idx in range(observable_len):
+            observables_current_vec[obs_idx] = proposed_observables_vec_first[
+                obs_idx
+            ]
+
+        second_status = step_function(
+            state_vec,
+            proposed_vec_second,
+            params_vec,
+            driver_coeffs_vec,
+            drivers_current_vec,
+            proposed_drivers_vec_second,
+            observables_current_vec,
+            proposed_observables_vec_second,
+            error_vec_second,
+            dt_scalar,
+            dt_scalar,
+            int16(0),
+            int16(1),
+            shared,
+            persistent,
+        )
+        status_vec[1] = second_status
+
+    kernel[1, 1, 0, shared_bytes](
+        d_state,
+        d_params,
+        d_driver_coeffs,
+        d_drivers_current,
+        d_proposed_drivers_first,
+        d_proposed_drivers_second,
+        d_observables_current,
+        d_proposed_observables_first,
+        d_proposed_observables_second,
+        d_proposed_first,
+        d_proposed_second,
+        d_error_first,
+        d_error_second,
+        d_status,
+        dt_value,
+    )
+    cuda.synchronize()
+
+    status_host = d_status.copy_to_host()
+
+    first_state = d_proposed_first.copy_to_host()
+    second_state = d_proposed_second.copy_to_host()
+
+    first_observables = d_proposed_observables_first.copy_to_host()
+    second_observables = d_proposed_observables_second.copy_to_host()
+
+    device_result = DualStepResult(
+        first_state=first_state,
+        second_state=second_state,
+        first_observables=first_observables,
+        second_observables=second_observables,
+        first_error=d_error_first.copy_to_host(),
+        second_error=d_error_second.copy_to_host(),
+        statuses=(
+            int(status_host[0]) & STATUS_MASK,
+            int(status_host[1]) & STATUS_MASK,
+        ),
     )
 
     euler_settings = solver_settings.copy()
