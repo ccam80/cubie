@@ -44,6 +44,7 @@ from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
     build_large_nonlinear_system,
     build_three_chamber_system,
+    build_three_state_constant_deriv_system,
     build_three_state_linear_system,
     build_three_state_nonlinear_system,
     build_three_state_very_stiff_system,
@@ -302,6 +303,8 @@ def system(request, system_override, precision):
         return build_three_state_very_stiff_system(precision)
     if model_type == "large":
         return build_large_nonlinear_system(precision)
+    if model_type == "constant_deriv":
+        return build_three_state_constant_deriv_system(precision)
     if isinstance(model_type, object):
         return model_type
 

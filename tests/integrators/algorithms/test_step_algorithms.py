@@ -1196,6 +1196,132 @@ def test_stage_cache_reuse(
     delta = np.abs(gpu_result.second_state - gpu_result.first_state)
     assert np.any(delta > precision(1e-10))
 
+
+@pytest.mark.parametrize(
+    "system_override",
+    ["constant_deriv"],
+    ids=[""],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [STEP_OVERRIDES],
+    ids=[""],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    STEP_CASES,
+    indirect=True,
+)
+def test_against_euler(
+    solver_settings,
+    step_object,
+    precision,
+    step_inputs,
+    system,
+    driver_array,
+    cpu_system,
+    cpu_driver_evaluator,
+    tolerance,
+):
+    """Test that all algorithms match Euler for constant-derivative system.
+
+    For a system with constant derivatives (dx/dt = constant), all
+    numerical integration algorithms should produce identical results
+    to the Euler method, since higher-order Taylor terms vanish.
+    This test verifies this property over two integration steps.
+    """
+
+    device_result = _execute_step_twice(
+        step_object=step_object,
+        solver_settings=solver_settings,
+        precision=precision,
+        step_inputs=step_inputs,
+        system=system,
+        driver_array=driver_array,
+    )
+
+    euler_settings = solver_settings.copy()
+    euler_settings["algorithm"] = "euler"
+
+    euler_stepper = get_ref_stepper(
+        cpu_system,
+        cpu_driver_evaluator,
+        "euler",
+        newton_tol=euler_settings["newton_tolerance"],
+        newton_max_iters=euler_settings["max_newton_iters"],
+        linear_tol=euler_settings["krylov_tolerance"],
+        linear_max_iters=euler_settings["max_linear_iters"],
+        linear_correction_type=euler_settings["correction_type"],
+        preconditioner_order=euler_settings["preconditioner_order"],
+        tableau=None,
+        newton_damping=euler_settings["newton_damping"],
+        newton_max_backtracks=euler_settings["newton_max_backtracks"],
+    )
+
+    dt = euler_settings["dt"]
+    state = np.asarray(step_inputs["state"], dtype=precision)
+    params = np.asarray(step_inputs["parameters"], dtype=precision)
+
+    first_euler_result = euler_stepper.step(
+        state=state,
+        params=params,
+        dt=dt,
+        time=0.0,
+    )
+
+    second_euler_result = euler_stepper.step(
+        state=first_euler_result.state.astype(precision, copy=True),
+        params=params,
+        dt=dt,
+        time=dt,
+    )
+
+    euler_result = DualStepResult(
+        first_state=first_euler_result.state.astype(precision, copy=True),
+        second_state=second_euler_result.state.astype(precision, copy=True),
+        first_observables=first_euler_result.observables.astype(
+            precision, copy=True
+        ),
+        second_observables=second_euler_result.observables.astype(
+            precision, copy=True
+        ),
+        first_error=first_euler_result.error.astype(precision, copy=True),
+        second_error=second_euler_result.error.astype(precision, copy=True),
+        statuses=(
+            first_euler_result.status & STATUS_MASK,
+            second_euler_result.status & STATUS_MASK,
+        ),
+    )
+
+    assert all(status == 0 for status in device_result.statuses)
+    assert all(status == 0 for status in euler_result.statuses)
+
+    tol = {"rtol": tolerance.rel_tight, "atol": tolerance.abs_tight}
+
+    assert_allclose(
+        device_result.first_state,
+        euler_result.first_state,
+        **tol,
+    )
+    assert_allclose(
+        device_result.second_state,
+        euler_result.second_state,
+        **tol,
+    )
+    assert_allclose(
+        device_result.first_observables,
+        euler_result.first_observables,
+        **tol,
+    )
+    assert_allclose(
+        device_result.second_observables,
+        euler_result.second_observables,
+        **tol,
+    )
+
+
 # @pytest.mark.parametrize("system_override",
 #                          ["threecm"],
 #                          ids = [""],
