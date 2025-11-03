@@ -19,8 +19,8 @@ import sympy as sp
 from sympy.parsing.sympy_parser import T, parse_expr
 from sympy.core.function import AppliedUndef
 
-from .indexedbasemaps import IndexedBases
-from .sym_utils import hash_system_definition
+from ..indexedbasemaps import IndexedBases
+from ..sym_utils import hash_system_definition
 from cubie._utils import is_devfunc
 
 # Lambda notation, Auto-number, factorial notation, implicit multiplication

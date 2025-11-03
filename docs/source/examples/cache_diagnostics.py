@@ -5,13 +5,13 @@ from typing import Callable, List, Optional, Sequence, Set, Tuple, Union
 import numpy as np
 import sympy as sp
 
-from cubie.odesystems.symbolic.auxiliary_caching import (
+from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
     CacheSelection,
     gather_seed_diagnostics,
     plan_auxiliary_cache,
 )
-from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
+from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.parsing.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 

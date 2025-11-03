@@ -6,7 +6,7 @@ import numpy as np
 import sympy as sp
 
 from cubie import SymbolicODE
-from cubie.odesystems.symbolic.jacobian import generate_jacobian
+from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
 from .cpu_utils import Array

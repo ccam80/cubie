@@ -1,7 +1,7 @@
 import sympy as sp
 import re
 
-from cubie.odesystems.symbolic.numba_cuda_printer import (
+from cubie.odesystems.symbolic.codegen import (
     CUDAPrinter,
     print_cuda,
     print_cuda_multiple,

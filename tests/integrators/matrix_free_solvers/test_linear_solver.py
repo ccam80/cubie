@@ -13,7 +13,7 @@ def placeholder_operator(precision):
     """Device operator applying a simple SPD matrix."""
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         out[0] = precision(4.0) * vec[0] + precision(1.0) * vec[1]
         out[1] = precision(1.0) * vec[0] + precision(3.0) * vec[1]
         out[2] = precision(2.0) * vec[2]
@@ -47,8 +47,9 @@ def test_neumann_preconditioner(
     residual = cuda.to_device(np.ones(n, dtype=precision))
     out = cuda.device_array(n, precision)
     state = system_setup["state_init"]
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
 
-    kernel[1, 1](state, residual, out)
+    kernel[1, 1](state, residual, empty_base, out)
 
     expected_scalar = sum((h * precision(0.5)) ** k for k in range(order + 1))
     expected = np.full(n, expected_scalar, dtype=precision)
@@ -96,7 +97,8 @@ def test_linear_solver_placeholder(
     rhs_dev = cuda.to_device(rhs)
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, flag)
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
@@ -141,7 +143,8 @@ def test_linear_solver_symbolic(
     rhs_dev = cuda.to_device(rhs_vec)
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, flag)
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
@@ -155,7 +158,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     """Linear solver returns MAX_LINEAR_ITERATIONS_EXCEEDED when operator is zero."""
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, t, h, a_ij, vec, out):
+    def zero_operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         # F z = 0 for all z -> no progress in line search
         for i in range(out.shape[0]):
             out[i] = precision(0.0)
@@ -175,7 +178,8 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     rhs_dev = cuda.to_device(np.ones(n, dtype=precision))
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, flag)
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     assert (
         flag.copy_to_host()[0]
         == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED

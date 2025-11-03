@@ -1,6 +1,6 @@
 import pytest
 
-from cubie.odesystems.symbolic.cellml import load_cellml_model
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 
 
 def test_cellml_import_error():

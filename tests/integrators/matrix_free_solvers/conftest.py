@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from numba import cuda, from_dtype
 
-from cubie.odesystems.symbolic.solver_helpers import (
+from cubie.odesystems.symbolic.codegen import (
     generate_neumann_preconditioner_code,
     generate_stage_residual_code,
 )
@@ -124,11 +124,12 @@ def system_setup(request, precision):
     temp_out = np.zeros(3, dtype=precision)
 
     @cuda.jit()
-    def operator_kernel(state, params, drivers, time_scalar, h, in_vec, out_vec):
+    def operator_kernel(state, params, drivers, base_state, time_scalar, h, in_vec, out_vec):
         operator(
             state,
             params,
             drivers,
+            base_state,
             time_scalar,
             h,
             precision(1.0),
@@ -139,7 +140,7 @@ def system_setup(request, precision):
     for j in range(3):
         temp_in.fill(0)
         temp_in[j] = precision(1.0)
-        operator_kernel[1, 1](state_fp, params, drivers, zero_time, h, temp_in, temp_out)
+        operator_kernel[1, 1](state_fp, params, drivers, base_state, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
     mr_expected = np.linalg.solve(F, mr_rhs)
 
@@ -183,7 +184,7 @@ def neumann_kernel(precision):
 
     def factory(precond, n, h):
         @cuda.jit
-        def kernel(state_init, residual, out):
+        def kernel(state_init, residual, base_state, out):
             time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
@@ -195,6 +196,7 @@ def neumann_kernel(precision):
                 state,
                 parameters,
                 drivers,
+                base_state,
                 time_scalar,
                 h,
                 precision(1.0),
@@ -225,7 +227,7 @@ def solver_kernel(precision):
 
     def factory(solver, n, h):
         @cuda.jit
-        def kernel(state_init, rhs, x, flag):
+        def kernel(state_init, rhs, base_state, x, flag):
             time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
@@ -236,6 +238,7 @@ def solver_kernel(precision):
                 state,
                 parameters,
                 drivers,
+                base_state,
                 time_scalar,
                 h,
                 precision(1.0),

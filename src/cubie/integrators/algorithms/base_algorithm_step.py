@@ -28,6 +28,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
+    'n_drivers',
 }
 
 
@@ -184,6 +185,8 @@ class BaseStepConfig(ABC):
         ``float16``, ``float32``, and ``float64``.
     n
         Number of state entries advanced by each step call.
+    n_drivers
+        Number of external driver signals consumed by the step (>= 0).
     dt
         Optional fixed step size supplied by explicit algorithms.
     dxdt_function
@@ -204,6 +207,7 @@ class BaseStepConfig(ABC):
     )
 
     n: int = attrs.field(default=1, validator=getype_validator(int, 1))
+    n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
     dt: Optional[float] = attrs.field(
         default=None,
         validator=validators.optional(gttype_validator(float, 0))
@@ -243,6 +247,7 @@ class BaseStepConfig(ABC):
 
         return {
             "n": self.n,
+            "n_drivers": self.n_drivers,
             "precision": self.precision,
         }
 
@@ -308,7 +313,7 @@ class BaseAlgorithmStep(CUDAFactory):
 
     def __init__(self,
                  config: BaseStepConfig,
-                 _controller_defaults: StepControlDefaults
+                 _controller_defaults: StepControlDefaults,
                  ) -> None:
         """Initialise the algorithm step with its configuration object and its
         default runtime settings for collaborators.
@@ -319,7 +324,6 @@ class BaseAlgorithmStep(CUDAFactory):
             Configuration describing the algorithm step.
         _controller_defaults
             Per-algorithm default step controller settings.
-
         Returns
         -------
         None
@@ -399,6 +403,12 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the configured numerical precision."""
 
         return self.compile_settings.precision
+
+    @property
+    def n_drivers(self) -> int:
+        """Return the configured number of external drivers."""
+
+        return int(self.compile_settings.n_drivers)
 
     @property
     def numba_precision(self) -> type:

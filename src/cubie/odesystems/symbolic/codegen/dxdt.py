@@ -4,9 +4,9 @@ from typing import Optional
 
 import sympy as sp
 
-from cubie.odesystems.symbolic.jacobian import _prune_unused_assignments
-from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
-from cubie.odesystems.symbolic.parser import IndexedBases, ParsedEquations
+from cubie.odesystems.symbolic.codegen import print_cuda_multiple
+from cubie.odesystems.symbolic.codegen.jacobian import _prune_unused_assignments
+from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,

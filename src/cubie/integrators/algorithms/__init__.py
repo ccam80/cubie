@@ -13,6 +13,8 @@ from .crank_nicolson import CrankNicolsonStep
 from .explicit_euler import ExplicitEulerStep
 from .generic_dirk import DIRKStep
 from .generic_dirk_tableaus import DIRK_TABLEAU_REGISTRY, DIRKTableau
+from .generic_firk import FIRKStep
+from .generic_firk_tableaus import FIRK_TABLEAU_REGISTRY, FIRKTableau
 from .generic_erk import ERKStep, ERKTableau
 from .generic_erk_tableaus import ERK_TABLEAU_REGISTRY
 from .generic_rosenbrock_w import GenericRosenbrockWStep
@@ -28,11 +30,14 @@ __all__ = [
     "BackwardsEulerPCStep",
     "CrankNicolsonStep",
     "DIRKStep",
+    "FIRKStep",
     "ERKStep",
     "GenericRosenbrockWStep",
     "_ALGORITHM_REGISTRY",
     "DIRKTableau",
     "DIRK_TABLEAU_REGISTRY",
+    "FIRKTableau",
+    "FIRK_TABLEAU_REGISTRY",
     "ERKTableau",
     "ERK_TABLEAU_REGISTRY",
 ]
@@ -43,6 +48,7 @@ _ALGORITHM_REGISTRY = {
     "backwards_euler_pc": BackwardsEulerPCStep,
     "crank_nicolson": CrankNicolsonStep,
     "dirk": DIRKStep,
+    "firk": FIRKStep,
     "erk": ERKStep,
     "rosenbrock": GenericRosenbrockWStep,
 }
@@ -57,6 +63,9 @@ for alias, tableau in ERK_TABLEAU_REGISTRY.items():
 
 for alias, tableau in DIRK_TABLEAU_REGISTRY.items():
     _TABLEAU_REGISTRY_BY_ALGORITHM[alias] = (DIRKStep, tableau)
+
+for alias, tableau in FIRK_TABLEAU_REGISTRY.items():
+    _TABLEAU_REGISTRY_BY_ALGORITHM[alias] = (FIRKStep, tableau)
 
 for alias, tableau in ROSENBROCK_TABLEAUS.items():
     _TABLEAU_REGISTRY_BY_ALGORITHM[alias] = (
@@ -83,6 +92,8 @@ def resolve_supplied_tableau(
         return ERKStep, tableau
     if isinstance(tableau, DIRKTableau):
         return DIRKStep, tableau
+    if isinstance(tableau, FIRKTableau):
+        return FIRKStep, tableau
     if isinstance(tableau, RosenbrockTableau):
         return GenericRosenbrockWStep, tableau
     raise TypeError(

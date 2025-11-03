@@ -63,6 +63,7 @@ markers = [
     "cupy: Requires optional dependency CuPy, will fail if not installed",
     "slow: Marks tests that are slow to run, can be skipped with -m 'not slow'",
     "specific_algos: Marks tests covering non-default algorithm tableau aliases",
+    "sim_only: Marks tests that can only run on the CUDA simulator (debug tests only, otherwise what's the point?)"
 ]
 addopts = [
     "--import-mode=importlib",

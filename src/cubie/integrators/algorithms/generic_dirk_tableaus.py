@@ -250,6 +250,7 @@ Springer.
 DIRK_TABLEAU_REGISTRY: Dict[str, DIRKTableau] = {
     "implicit_midpoint": IMPLICIT_MIDPOINT_TABLEAU,
     "trapezoidal_dirk": TRAPEZOIDAL_DIRK_TABLEAU,
+    "ode23t": TRAPEZOIDAL_DIRK_TABLEAU,
     "lobatto_iiic_3": LOBATTO_IIIC_3_TABLEAU,
     "sdirk_2_2": SDIRK_2_2_TABLEAU,
     "l_stable_dirk_3": L_STABLE_DIRK3_TABLEAU,

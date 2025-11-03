@@ -163,12 +163,14 @@ def newton_krylov_solver_factory(
 
             iters_count += int32(1)
             if status < 0:
+                n_base = base_state.shape[0]
                 for i in range(n):
-                    eval_state[i] = base_state[i] + a_ij * stage_increment[i]
+                    eval_state[i] = base_state[i % n_base] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
                     eval_state,
                     parameters,
                     drivers,
+                    base_state,
                     t,
                     h,
                     a_ij,

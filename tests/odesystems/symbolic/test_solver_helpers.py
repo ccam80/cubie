@@ -3,17 +3,17 @@ import pytest
 import sympy as sp
 from numba import cuda, from_dtype
 
-from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
-from cubie.odesystems.symbolic.solver_helpers import (
+from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
     generate_neumann_preconditioner_cached_code,
-    generate_operator_apply_code,
     generate_neumann_preconditioner_code,
+    generate_operator_apply_code,
     generate_prepare_jac_code,
     generate_stage_residual_code,
 )
+from cubie.odesystems.symbolic.parsing import JVPEquations
+from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
 @pytest.fixture(scope="function")
@@ -67,11 +67,12 @@ def operator_kernel(precision):
 
     def make_kernel(op):
         @cuda.jit
-        def kernel(t, h, a_ij, vec, out):
+        def kernel(t, h, a_ij, vec, base_state, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            op(state, parameters, drivers, t, h, a_ij, vec, out)
+            # base_state is provided by caller (can be empty placeholder)
+            op(state, parameters, drivers, base_state, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -230,6 +231,7 @@ def cached_operator_kernel(cached_system, precision):
             h,
             a_ij,
             vec,
+            base_state,
             out,
         ):
             state = cuda.local.array(n_state, precision)
@@ -245,7 +247,7 @@ def cached_operator_kernel(cached_system, precision):
                 drivers[idx] = driver_values[idx]
 
             prepare(state, parameters, drivers, t, cached_aux)
-            op(state, parameters, drivers, cached_aux, t, h, a_ij, vec, out)
+            op(state, parameters, drivers, cached_aux, base_state, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -260,7 +262,6 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     heavy = sp.Symbol("aux_heavy")
     simple = sp.Symbol("simple")
     j_00 = sp.Symbol("j_00")
-    j_01 = sp.Symbol("j_01")
 
     exprs = [
         (
@@ -278,7 +279,7 @@ def test_split_jvp_expressions_caches_high_cost_terms():
         ),
         (simple, x0 + x1),
         (j_00, heavy + simple),
-        (j_01, simple),
+        (j_01 := sp.Symbol("j_01"), simple),
         (
             sp.Symbol("jvp[0]"),
             j_00 * sp.Symbol("v[0]")
@@ -638,7 +639,8 @@ def test_operator_apply_dense(
     kernel = operator_kernel(op)
     v = np.array([1.0, -1.0], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
+    empty_base = np.empty(0, dtype=precision)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, empty_base, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
     assert np.allclose(
@@ -754,6 +756,8 @@ def test_cached_operator_apply_dense(
     vec = vec[:state_len]
     out = np.zeros(state_len, dtype=precision)
 
+    empty_base = np.empty(0, dtype=precision)
+
     kernel[1, 1](
         state_values,
         parameter_values,
@@ -762,6 +766,7 @@ def test_cached_operator_apply_dense(
         precision(h),
         precision(1.0),
         vec,
+        empty_base,
         out,
     )
 
@@ -830,12 +835,12 @@ def neumann_kernel(precision):
 
     def make_kernel(pre):
         @cuda.jit
-        def kernel(t, h, a_ij, vec, out):
+        def kernel(t, h, a_ij, vec, base_state, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.local.array(n, precision)
-            pre(state, parameters, drivers, t, h, a_ij, vec, out, scratch)
+            pre(state, parameters, drivers, base_state, t, h, a_ij, vec, out, scratch)
 
         return kernel
 
@@ -890,6 +895,7 @@ def neumann_cached_kernel(cached_system, precision):
             h,
             a_ij,
             vec,
+            base_state,
             out,
         ):
             state = cuda.local.array(n_state, precision)
@@ -911,6 +917,7 @@ def neumann_cached_kernel(cached_system, precision):
                 parameters,
                 drivers,
                 cached_aux,
+                base_state,
                 t,
                 h,
                 a_ij,
@@ -954,8 +961,9 @@ def test_neumann_preconditioner_expression(
 
     v = np.array([0.7, -1.3], dtype=precision)
     out = np.zeros(2, dtype=precision)
+    empty_base = np.empty(0, dtype=precision)
 
-    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, empty_base, out)
 
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     beta_inv = 1.0 / beta
@@ -999,7 +1007,7 @@ def test_neumann_preconditioner_cached_expression(
     prepare_jac_factory,
     precision,
     tolerance,
-):
+    ):
     """Validate cached Neumann preconditioner with stored auxiliaries."""
 
     prepare, aux_count = prepare_jac_factory()
@@ -1018,6 +1026,8 @@ def test_neumann_preconditioner_cached_expression(
     vec = vec[:state_len]
     out = np.zeros(state_len, dtype=precision)
 
+    empty_base = np.empty(0, dtype=precision)
+
     kernel[1, 1](
         state_values,
         parameter_values,
@@ -1026,6 +1036,7 @@ def test_neumann_preconditioner_cached_expression(
         precision(h),
         precision(1.0),
         vec,
+        empty_base,
         out,
     )
 

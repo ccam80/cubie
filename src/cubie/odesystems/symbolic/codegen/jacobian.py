@@ -8,9 +8,8 @@ from typing import Dict, Iterable, List, Optional, Tuple, Union
 import sympy as sp
 from sympy import IndexedBase
 
-from cubie.odesystems.symbolic.parser import ParsedEquations
+from cubie.odesystems.symbolic.parsing import JVPEquations, ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import cse_and_stack, topological_sort
-from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 
 CacheValue = Dict[
     str,

@@ -39,6 +39,7 @@ def inst_linear_solver_factory(
         state,
         parameters,
         drivers,
+        base_state,
         t,
         h,
         a_ij,
@@ -54,7 +55,7 @@ def inst_linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, t, h, a_ij, x, temp)
+        operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -75,6 +76,7 @@ def inst_linear_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    base_state,
                     t,
                     h,
                     a_ij,
@@ -90,6 +92,7 @@ def inst_linear_solver_factory(
                 state,
                 parameters,
                 drivers,
+                base_state,
                 t,
                 h,
                 a_ij,
@@ -174,6 +177,7 @@ def inst_linear_solver_cached_factory(
         state,
         parameters,
         drivers,
+        base_state,
         cached_aux,
         t,
         h,
@@ -191,7 +195,16 @@ def inst_linear_solver_cached_factory(
         temp = cuda.local.array(n, precision_scalar)
 
         operator_apply(
-            state, parameters, drivers, cached_aux, t, h, a_ij, x, temp
+            state,
+            parameters,
+            drivers,
+            base_state,
+            cached_aux,
+            t,
+            h,
+            a_ij,
+            x,
+            temp
         )
         acc = typed_zero
         for i in range(n):
@@ -213,6 +226,7 @@ def inst_linear_solver_cached_factory(
                     state,
                     parameters,
                     drivers,
+                    base_state,
                     cached_aux,
                     t,
                     h,
@@ -229,6 +243,7 @@ def inst_linear_solver_cached_factory(
                 state,
                 parameters,
                 drivers,
+                base_state,
                 cached_aux,
                 t,
                 h,
@@ -383,12 +398,14 @@ def inst_newton_krylov_solver_factory(
             iters_count += int32(1)
             if status < 0:
                 iter_slot = int(iters_count) - 1
+                n_base = base_state.shape[0]
                 for i in range(n):
-                    eval_state[i] = base_state[i] + a_ij * stage_increment[i]
+                    eval_state[i] = base_state[i % n_base] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
                     eval_state,
                     parameters,
                     drivers,
+                    base_state,
                     t,
                     h,
                     a_ij,

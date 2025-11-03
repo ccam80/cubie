@@ -116,6 +116,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for a backward Euler step.
 

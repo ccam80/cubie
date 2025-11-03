@@ -60,6 +60,7 @@ class ERKStep(ODEExplicitStep):
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
 
@@ -73,6 +74,7 @@ class ERKStep(ODEExplicitStep):
         config = ERKStepConfig(
             precision=precision,
             n=n,
+            n_drivers=n_drivers,
             dt=dt,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
@@ -90,6 +92,7 @@ class ERKStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
@@ -191,7 +194,7 @@ class ERKStep(ODEExplicitStep):
                 stage_cache = stage_accumulator[:n]
 
             for idx in range(n):
-                proposed_state[idx] = state[idx]
+                proposed_state[idx] = typed_zero
                 if has_error:
                     error[idx] = typed_zero
 
@@ -225,7 +228,7 @@ class ERKStep(ODEExplicitStep):
                 )
 
             for idx in range(n):
-                increment = dt_value * stage_rhs[idx]
+                increment = stage_rhs[idx]
                 proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
                     error[idx] += error_weights[0] * increment
@@ -248,8 +251,7 @@ class ERKStep(ODEExplicitStep):
                     state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
                     base = (successor_idx - 1) * n
                     for idx in range(n):
-                        # 1x duplicated FMUL to avoid a memory save/load - nice
-                        increment = dt_value * stage_rhs[idx]
+                        increment = stage_rhs[idx]
                         contribution = state_coeff * increment
                         stage_accumulator[base + idx] += contribution
 
@@ -260,7 +262,8 @@ class ERKStep(ODEExplicitStep):
 
                 for idx in range(n):
                     stage_accumulator[stage_offset + idx] = (
-                        state[idx] + stage_accumulator[stage_offset + idx]
+                        state[idx] + stage_accumulator[stage_offset + idx] *
+                        dt_value
                     )
 
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
@@ -291,8 +294,7 @@ class ERKStep(ODEExplicitStep):
                 )
 
                 for idx in range(n):
-                    # 1x duplicated FMUL to avoid a memory save/load - nice
-                    increment = dt_value * stage_rhs[idx]
+                    increment = stage_rhs[idx]
                     proposed_state[idx] += (
                         solution_weights[stage_idx] * increment
                     )
@@ -301,7 +303,11 @@ class ERKStep(ODEExplicitStep):
                             error_weights[stage_idx] * increment
                         )
             # ----------------------------------------------------------- #
-
+            for idx in range(n):
+                proposed_state[idx] *= dt_value
+                proposed_state[idx] += state[idx]
+                if has_error:
+                    error[idx] *= dt_value
             final_time = end_time
             if has_driver_function:
                 driver_function(

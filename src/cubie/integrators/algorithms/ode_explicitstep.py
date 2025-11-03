@@ -54,6 +54,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         observables_function = config.observables_function
         driver_function = config.driver_function
         dt = config.dt
+        n_drivers = config.n_drivers
         return self.build_step(
             dxdt_function,
             observables_function,
@@ -61,6 +62,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
             numba_precision,
             n,
             dt,
+            n_drivers,
         )
 
     @abstractmethod
@@ -72,6 +74,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:
         """Build and return the explicit step device function.
 
@@ -89,6 +92,8 @@ class ODEExplicitStep(BaseAlgorithmStep):
             Dimension of the state vector.
         dt
             Fixed step size applied by the integrator.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------
@@ -118,4 +123,3 @@ class ODEExplicitStep(BaseAlgorithmStep):
         """Explicit base class does not reserve persistent locals."""
 
         return 0
-

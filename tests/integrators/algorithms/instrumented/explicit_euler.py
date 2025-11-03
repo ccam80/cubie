@@ -59,6 +59,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         dt: float,
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Euler device step with instrumentation."""
 

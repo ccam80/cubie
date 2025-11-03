@@ -75,6 +75,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         dt: float,
+        n_drivers: int,
     ) -> StepCache:
         """Build the device function for an explicit Euler step.
 

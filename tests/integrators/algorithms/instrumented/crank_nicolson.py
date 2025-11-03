@@ -145,9 +145,12 @@ class CrankNicolsonStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         dt: Optional[float],
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the Crank–Nicolson step."""
+
         config = self.compile_settings
+
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None

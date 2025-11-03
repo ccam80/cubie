@@ -523,6 +523,7 @@ def algorithm_settings(system, solver_settings, driver_array):
     driver_del_t = (
         driver_array.driver_del_t if driver_array is not None else None
     )
+    n_drivers = system.num_drivers
     settings.update(
         {
             "driver_function": driver_function,
@@ -530,6 +531,7 @@ def algorithm_settings(system, solver_settings, driver_array):
             "dxdt_function": system.dxdt_function,
             "observables_function": system.observables_function,
             "get_solver_helper_fn": system.get_solver_helper,
+            "n_drivers": n_drivers,
         }
     )
     return settings

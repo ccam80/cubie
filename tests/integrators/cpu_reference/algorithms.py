@@ -11,6 +11,7 @@ from cubie.integrators.algorithms import (
     DIRKStep,
     ERKStep,
     ExplicitEulerStep,
+    FIRKStep,
     GenericRosenbrockWStep,
     resolve_alias,
     resolve_supplied_tableau,
@@ -19,6 +20,10 @@ from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRKTableau,
     DEFAULT_DIRK_TABLEAU,
+)
+from cubie.integrators.algorithms.generic_firk_tableaus import (
+    FIRKTableau,
+    DEFAULT_FIRK_TABLEAU,
 )
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
@@ -1306,6 +1311,311 @@ class CPUDIRKStep(CPUStep):
         )
 
 
+class CPUFIRKStep(CPUStep):
+    """Fully implicit Runge--Kutta step implementation."""
+
+    def __init__(
+        self,
+        evaluator: CPUODESystem,
+        driver_evaluator: DriverEvaluator,
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
+        tableau: Optional[FIRKTableau] = None,
+        instrument: bool = False,
+        newton_damping: float = 0.5,
+        newton_max_backtracks: int = 8,
+    ) -> None:
+        resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
+            instrument=instrument,
+            tableau=resolved,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
+        self._firk_state = np.zeros(self._state_size, dtype=self.precision)
+        self._firk_params = np.zeros(0, dtype=self.precision)
+        self._firk_drivers = None
+        self._firk_time = self.precision(0.0)
+        self._firk_dt = self.precision(0.0)
+        self._firk_stage_increments = None
+
+    def _create_logging_buffers(self, stage_count: int):
+        """Return logging buffers sized for FIRK with flattened solver."""
+        return create_instrumentation_host_buffers(
+            precision=self.precision,
+            stage_count=stage_count,
+            state_size=self._state_size,
+            observable_size=self.evaluator.system.sizes.observables,
+            driver_size=self.evaluator.system.sizes.drivers,
+            newton_max_iters=self._newton_max_iters,
+            newton_max_backtracks=self._newton_max_backtracks,
+            linear_max_iters=self._linear_max_iters,
+            flattened_solver=True,
+        )
+
+    def residual(self, candidate: Array) -> Array:
+        """Compute the residual for the fully implicit stage equations.
+        
+        For FIRK, all stages are coupled: candidate is a flattened vector
+        of all stage increments k_i for i=1..s where s is the stage count.
+        The residual for each stage i is:
+            M * k_i - dt * f(x_0 + sum_j(a_ij * k_j), t_0 + c_i * dt)
+        """
+        stage_count = self.stage_count
+        state_dim = self._state_size
+        a_matrix = self.a_matrix
+        c_nodes = self.c_nodes
+        
+        residual = np.zeros_like(candidate)
+        
+        for stage_idx in range(stage_count):
+            # Extract this stage's increment from the flattened candidate
+            k_start = stage_idx * state_dim
+            k_end = (stage_idx + 1) * state_dim
+            k_i = candidate[k_start:k_end]
+            
+            # Compute the stage state: x_0 + sum_j(a_ij * k_j)
+            stage_state = self._firk_state.copy()
+            for j in range(stage_count):
+                j_start = j * state_dim
+                j_end = (j + 1) * state_dim
+                k_j = candidate[j_start:j_end]
+                stage_state += a_matrix[stage_idx, j] * k_j
+            
+            # Evaluate the RHS at this stage
+            stage_time = self._firk_time + c_nodes[stage_idx] * self._firk_dt
+            drivers_stage = self._firk_drivers[stage_idx]
+            observables_stage = self.observables(
+                stage_state,
+                self._firk_params,
+                drivers_stage,
+                stage_time,
+            )
+            derivative = self.rhs(
+                stage_state,
+                self._firk_params,
+                drivers_stage,
+                observables_stage,
+                stage_time,
+            )
+            
+            # Residual: M * k_i - dt * f(...)
+            mass_term = self.mass_matrix_apply(k_i)
+            residual[k_start:k_end] = mass_term - self._firk_dt * derivative
+        
+        return residual
+
+    def jacobian(self, candidate: Array) -> Array:
+        """Compute the Jacobian of the residual for the fully implicit system.
+        
+        The Jacobian is block-structured:
+            J[i,j] = delta_ij * M - dt * a_ij * df/dx
+        where delta_ij is the Kronecker delta.
+        """
+        stage_count = self.stage_count
+        state_dim = self._state_size
+        a_matrix = self.a_matrix
+        c_nodes = self.c_nodes
+        
+        all_dim = stage_count * state_dim
+        jac = np.zeros((all_dim, all_dim), dtype=self.precision)
+        
+        for stage_idx in range(stage_count):
+            # Compute the stage state to evaluate the Jacobian
+            stage_state = self._firk_state.copy()
+            for j in range(stage_count):
+                j_start = j * state_dim
+                j_end = (j + 1) * state_dim
+                k_j = candidate[j_start:j_end]
+                stage_state += a_matrix[stage_idx, j] * k_j
+            
+            stage_time = self._firk_time + c_nodes[stage_idx] * self._firk_dt
+            drivers_stage = self._firk_drivers[stage_idx]
+            _, df_dx = self.observables_and_jac(
+                stage_state,
+                self._firk_params,
+                drivers_stage,
+                stage_time,
+            )
+            
+            # Fill in the block row for this stage
+            i_start = stage_idx * state_dim
+            i_end = (stage_idx + 1) * state_dim
+            
+            for dep_idx in range(stage_count):
+                j_start = dep_idx * state_dim
+                j_end = (dep_idx + 1) * state_dim
+                
+                if stage_idx == dep_idx:
+                    # Diagonal block: M - dt * a_ii * df/dx
+                    jac[i_start:i_end, j_start:j_end] = (
+                        self._identity - self._firk_dt * a_matrix[stage_idx, dep_idx] * df_dx
+                    )
+                else:
+                    # Off-diagonal block: -dt * a_ij * df/dx
+                    jac[i_start:i_end, j_start:j_end] = (
+                        -self._firk_dt * a_matrix[stage_idx, dep_idx] * df_dx
+                    )
+        
+        return jac
+
+    def step(
+        self,
+        *,
+        state: Optional[Array] = None,
+        params: Optional[Array] = None,
+        dt: Optional[float] = None,
+        time: float = 0.0,
+    ) -> StepResultLike:
+        state_vector = self.ensure_array(state)
+        params_array = self.ensure_array(params)
+        dt_value = self.precision(dt)
+        current_time = self.precision(time)
+
+        stage_count = self.stage_count
+        a_matrix = self.a_matrix
+        b_weights = self.b_weights
+        c_nodes = self.c_nodes
+        error_weights = self.error_weights
+
+        state_dim = state_vector.shape[0]
+        all_dim = stage_count * state_dim
+        
+        # Pre-compute driver values for all stages
+        stage_drivers = []
+        for stage_idx in range(stage_count):
+            stage_time = current_time + c_nodes[stage_idx] * dt_value
+            drivers_stage = self.drivers(stage_time)
+            stage_drivers.append(drivers_stage)
+        
+        # Set up the fully implicit solve
+        self._firk_state = state_vector.copy()
+        self._firk_params = params_array
+        self._firk_drivers = stage_drivers
+        self._firk_time = current_time
+        self._firk_dt = dt_value
+
+        # Initial guess: zero increments (or could use previous step's increments)
+        guess = np.zeros(all_dim, dtype=self.precision)
+        if self._firk_stage_increments is not None:
+            guess = self._firk_stage_increments.copy()
+
+        logging = None
+        if self.instrument:
+            logging = self._create_logging_buffers(stage_count=stage_count)
+
+        newton_kwargs = self._build_newton_logging_kwargs(
+            stage_index=0,
+            logging=logging,
+        )
+
+        # Solve the fully implicit system for all stage increments simultaneously
+        stage_increments_flat, converged, niters = newton_solve(
+            guess,
+            precision=self.precision,
+            residual_fn=self.residual,
+            jacobian_fn=self.jacobian,
+            linear_solver=self.linear_solve,
+            newton_tol=self._newton_tol,
+            newton_max_iters=self._newton_max_iters,
+            newton_damping=self._newton_damping,
+            newton_max_backtracks=self._newton_max_backtracks,
+            **newton_kwargs,
+        )
+
+        # Extract individual stage increments and compute stage derivatives
+        stage_derivatives = np.zeros(
+            (stage_count, state_dim),
+            dtype=self.precision,
+        )
+
+        for stage_idx in range(stage_count):
+            k_start = stage_idx * state_dim
+            k_end = (stage_idx + 1) * state_dim
+            k_i = stage_increments_flat[k_start:k_end]
+            
+            # Compute the stage state
+            stage_state = state_vector.copy()
+            for j in range(stage_count):
+                j_start = j * state_dim
+                j_end = (j + 1) * state_dim
+                k_j = stage_increments_flat[j_start:j_end]
+                stage_state += a_matrix[stage_idx, j] * k_j
+            
+            stage_time = current_time + c_nodes[stage_idx] * dt_value
+            drivers_stage = stage_drivers[stage_idx]
+            observables_stage = self.observables(
+                stage_state,
+                params_array,
+                drivers_stage,
+                stage_time,
+            )
+            derivative = self.rhs(
+                stage_state,
+                params_array,
+                drivers_stage,
+                observables_stage,
+                stage_time,
+            )
+            stage_derivatives[stage_idx, :] = derivative
+            
+            if logging:
+                logging.stage_states[stage_idx, :] = stage_state
+                logging.stage_observables[stage_idx, :] = observables_stage
+                logging.stage_drivers[stage_idx, :] = drivers_stage
+                logging.stage_increments[stage_idx, :] = k_i
+                logging.residuals[stage_idx, :] = self.residual(stage_increments_flat)[k_start:k_end]
+
+        # Compute the new state using b weights
+        state_accum = np.zeros_like(state_vector)
+        error_accum = np.zeros_like(state_vector)
+        for stage_idx in range(stage_count):
+            state_accum += b_weights[stage_idx] * stage_derivatives[stage_idx]
+            if error_weights is not None:
+                error_accum += (
+                    error_weights[stage_idx] * stage_derivatives[stage_idx]
+                ) * dt_value
+
+        new_state = state_vector + dt_value * state_accum
+        end_time = current_time + dt_value
+        drivers_next = self.drivers(end_time)
+        observables = self.observables(
+            new_state,
+            params_array,
+            drivers_next,
+            end_time,
+        )
+
+        # Cache the increments for next step's initial guess
+        self._firk_stage_increments = stage_increments_flat.copy()
+
+        status = self._status(converged, niters)
+        stage_derivative_output = stage_derivatives if logging else None
+        result_kwargs = self._logging_result_kwargs(logging)
+        result_kwargs["stage_derivatives"] = stage_derivative_output
+        return self._make_result(
+            state=new_state,
+            observables=observables,
+            error=error_accum,
+            status=status,
+            niters=niters,
+            **result_kwargs,
+        )
+
+
 class CPURosenbrockWStep(CPUStep):
     """Rosenbrock--W step implementation."""
 
@@ -1672,6 +1982,7 @@ _STEP_CONSTRUCTOR_TO_CLASS = {
     CrankNicolsonStep: CPUCrankNicolsonStep,
     ERKStep: CPUERKStep,
     DIRKStep: CPUDIRKStep,
+    FIRKStep: CPUFIRKStep,
     GenericRosenbrockWStep: CPURosenbrockWStep,
 }
 
