@@ -75,7 +75,7 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 
 ## Dependencies
 - Core: numpy==1.26.4, numba, numba-cuda[cu12], attrs, sympy
-- Dev: pytest, pytest-cov, flake8, ruff, cupy-cuda12x, pandas, matplotlib, scipy
+- Dev: pytest, pytest-cov, pytest-durations, pytest-json-report, flake8, ruff, cupy-cuda12x, pandas, matplotlib, scipy
 - Optional: cupy-cuda12x (for CuPy integration), pandas, matplotlib
 
 ## Common Pitfalls
