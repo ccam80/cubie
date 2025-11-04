@@ -34,7 +34,22 @@ Creates:
 - Dependency-ordered task groups
 - Context requirements for each task
 
-### 3. do_task
+### 3. taskmaster
+**Role**: Project manager and task orchestrator  
+**Purpose**: Manage execution of implementation plans through do_task agents  
+**MCP Tools**: custom-agent (for invoking do_task)  
+**Context**: `task_list.md` from detailed_implementer  
+**Output**: Execution summaries, collated changes, ready-for-review implementation
+
+Manages:
+- Parallel and sequential task execution
+- Dependency-ordered task group coordination
+- Multiple do_task agent invocations
+- Change collation and integration
+- Progress tracking and issue flagging
+- Handoff preparation for reviewer
+
+### 4. do_task
 **Role**: Senior developer and implementer  
 **Purpose**: Execute tasks exactly as specified with educational comments  
 **MCP Tools**: pytest (optional, only for added tests), linter (optional)  
@@ -48,7 +63,7 @@ Executes:
 - Runs tests ONLY when explicitly added with CUDASIM enabled
 - Flags bugs/risks in outcomes (executes without deviation)
 
-### 4. reviewer
+### 5. reviewer
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
 **MCP Tools**: code-metrics (optional), coverage (optional)  
@@ -63,7 +78,7 @@ Reviews for:
 - Convention compliance
 - Performance issues (buffer reuse, math vs memory)
 
-### 5. docstring_guru
+### 6. docstring_guru
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
 **MCP Tools**: sphinx (optional), doctests (optional)  
@@ -79,7 +94,7 @@ Enforces:
 - Updates `.github/context/cubie_internal_structure.md` with insights
 - Escapes all backslashes in docstrings
 
-### 6. narrative_documenter
+### 7. narrative_documenter
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
 **MCP Tools**: mermaid (optional), markdown-lint (optional)  
@@ -106,7 +121,7 @@ User Request
 │                       │ → Perplexity deep_research (if requested)
 │                       │ → Playwright (web browsing)
 │                       │ → Creates human_overview.md & agent_plan.md
-│                       │ → Shortcut: minimal bug fix → direct to do_task
+│                       │ → Shortcut: minimal bug fix → direct to taskmaster/do_task
 └───────────┬───────────┘
             ↓
     User approval
@@ -116,16 +131,25 @@ User Request
 │                       │ → Creates task_list.md with:
 │                       │   - Input Validation Required
 │                       │   - Dependency-ordered tasks
+│                       │   - PARALLEL/SEQUENTIAL groups
 └───────────┬───────────┘
             ↓
     User approval
             ↓
 ┌───────────────────────┐
-│ do_task               │ → Executes tasks EXACTLY as specified
-│ (multiple invocations)│ → Adds educational comments (not docstrings)
-│                       │ → Performs ONLY specified validation
-│                       │ → Runs tests ONLY if explicitly added
-│                       │ → Flags bugs/risks in outcomes
+│ taskmaster            │ → Manages entire implementation execution
+│                       │ → Launches do_task agents in parallel/sequential
+│                       │ → Tracks progress and dependencies
+│                       │ → Collates all changes
+│                       │ → Prepares for reviewer handoff
+│                       │
+│   Orchestrates ↓      │
+│                       │
+│ ┌─────────────────┐   │
+│ │ do_task agents  │   │ → Execute tasks EXACTLY as specified
+│ │ (parallel &     │   │ → Add educational comments (not docstrings)
+│ │  sequential)    │   │ → Perform ONLY specified validation
+│ └─────────────────┘   │ → Flag bugs/risks in outcomes
 └───────────┬───────────┘
             ↓
     All tasks complete
@@ -140,8 +164,8 @@ User Request
     If edits needed
             ↓
 ┌───────────────────────┐
-│ do_task               │ → Apply suggested edits
-│ (additional rounds)   │
+│ taskmaster            │ → Manages edit application
+│   (or do_task direct) │ → Coordinates do_task agents for fixes
 └───────────┬───────────┘
             ↓
     Implementation complete
@@ -194,6 +218,14 @@ and create a detailed task list with function signatures and implementation step
 ```
 
 ### Executing Tasks
+
+```
+@taskmaster Execute the complete implementation plan in 
+.github/active_plans/rosenbrock_w/task_list.md, managing all do_task agents
+in parallel and sequential mode as specified.
+```
+
+Or for individual task groups:
 
 ```
 @do_task Execute task group 3 from task_list.md in .github/active_plans/rosenbrock_w/
@@ -266,6 +298,7 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
+- **custom-agent**: Delegating to other agents (taskmaster uses to invoke do_task)
 - **pytest**: Test running (do_task, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
@@ -279,9 +312,10 @@ See individual agent files for detailed tool usage instructions.
 1. **Start with plan_new_feature**: Always begin with user story creation and planning
 2. **Provide context**: Give reviewer agent_plan.md and human_overview.md to check against
 3. **Review before proceeding**: Check plans and user stories before moving to implementation
-4. **Ask agents for clarification**: All agents (except do_task) will ask when uncertain
-5. **Use task groups efficiently**: Run multiple do_task invocations in parallel where marked
-6. **Don't skip review**: The reviewer validates against user stories and catches issues
+4. **Ask agents for clarification**: All agents (except do_task and taskmaster) will ask when uncertain
+5. **Use taskmaster for complex implementations**: Let taskmaster orchestrate multiple do_task agents
+6. **Use do_task directly for simple tasks**: Single task groups can be executed directly
+7. **Don't skip review**: The reviewer validates against user stories and catches issues
 
 ### For Agents
 
@@ -291,10 +325,17 @@ These are enforced in agent instructions:
   * Create user_stories.md FIRST
   * Use Perplexity deep_research ONLY if explicitly requested
   * Describe behavior/architecture, not implementation details
-  * Shortcut: minimal bug fixes can skip to do_task
+  * Shortcut: minimal bug fixes can skip to taskmaster/do_task
 - **detailed_implementer**: 
   * Specify exact "Input Validation Required"
   * Provide complete context (file paths, line numbers)
+  * Mark task groups as PARALLEL or SEQUENTIAL
+- **taskmaster**: 
+  * Never implement code directly (only manage do_task agents)
+  * Use custom-agent tool to invoke do_task agents
+  * Execute parallel groups simultaneously
+  * Respect dependencies strictly
+  * Collate all changes before reviewer handoff
 - **do_task**: 
   * Execute exactly as specified (no deviations)
   * Add educational comments (not docstrings)
