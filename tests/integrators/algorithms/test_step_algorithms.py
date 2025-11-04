@@ -808,7 +808,9 @@ def _execute_step_twice(
     shared_elems = step_object.shared_memory_required
 
     step_function = step_object.step_function
-    driver_function = driver_array.evaluation_function
+    driver_function = (
+        driver_array.evaluation_function if driver_array is not None else None
+    )
     observables_function = system.observables_function
 
     params = step_inputs["parameters"]
@@ -892,7 +894,8 @@ def _execute_step_twice(
         for cache_idx in range(shared.shape[0]):
             shared[cache_idx] = zero
 
-        driver_function(zero, driver_coeffs_vec, drivers_current_vec)
+        if driver_function is not None:
+            driver_function(zero, driver_coeffs_vec, drivers_current_vec)
         observables_function(
             state_vec,
             params_vec,
@@ -1193,6 +1196,100 @@ def test_stage_cache_reuse(
 
     delta = np.abs(gpu_result.second_state - gpu_result.first_state)
     assert np.any(delta > precision(1e-10))
+
+
+@pytest.mark.parametrize(
+    "system_override",
+    ["constant_deriv"],
+    ids=[""],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [STEP_OVERRIDES],
+    ids=[""],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    STEP_CASES,
+    indirect=True,
+)
+def test_against_euler(
+    solver_settings,
+    step_object,
+    precision,
+    step_inputs,
+    system,
+    driver_array,
+    cpu_system,
+    cpu_driver_evaluator,
+    tolerance,
+):
+    """Test that all algorithms match Euler for constant-derivative system.
+
+    For a system with constant derivatives (dx/dt = constant), all
+    numerical integration algorithms should produce identical results
+    to the Euler method, since higher-order Taylor terms vanish.
+    This test verifies this property over two integration steps.
+    """
+
+    device_result = _execute_step_twice(
+        step_object=step_object,
+        solver_settings=solver_settings,
+        precision=precision,
+        step_inputs=step_inputs,
+        system=system,
+        driver_array=driver_array,
+    )
+
+    euler_settings = solver_settings.copy()
+    euler_settings["algorithm"] = "euler"
+
+    # Create an Euler step object for CPU reference to avoid tableau mismatch
+    euler_algorithm_settings = {
+        "algorithm": "euler",
+        "n": system.sizes.states,
+        "dt": euler_settings["dt"],
+        "dxdt_function": system.dxdt_function,
+        "observables_function": system.observables_function,
+    }
+    euler_step_obj = get_algorithm_step(precision, euler_algorithm_settings)
+
+    euler_result = _execute_cpu_step_twice(
+        solver_settings=euler_settings,
+        step_inputs=step_inputs,
+        cpu_system=cpu_system,
+        cpu_driver_evaluator=cpu_driver_evaluator,
+        step_object=euler_step_obj,
+    )
+
+    assert all(status == 0 for status in device_result.statuses)
+    assert all(status == 0 for status in euler_result.statuses)
+
+    tol = {"rtol": tolerance.rel_tight, "atol": tolerance.abs_tight}
+
+    assert_allclose(
+        device_result.first_state,
+        euler_result.first_state,
+        **tol,
+    )
+    assert_allclose(
+        device_result.second_state,
+        euler_result.second_state,
+        **tol,
+    )
+    assert_allclose(
+        device_result.first_observables,
+        euler_result.first_observables,
+        **tol,
+    )
+    assert_allclose(
+        device_result.second_observables,
+        euler_result.second_observables,
+        **tol,
+    )
+
 
 # @pytest.mark.parametrize("system_override",
 #                          ["threecm"],

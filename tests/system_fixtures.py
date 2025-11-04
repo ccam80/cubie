@@ -251,10 +251,55 @@ def build_large_nonlinear_system(precision: np.dtype) -> BaseODE:
     return system
 
 
+# ---------------------------------------------------------------------------
+# Three-state constant derivative system (all algorithms reduce to Euler)
+# ---------------------------------------------------------------------------
+
+THREE_STATE_CONSTANT_DERIV_EQUATIONS = [
+    "dx0 = c0",
+    "dx1 = c1",
+    "dx2 = c2",
+    "o0 = x0 + p0",
+    "o1 = x1 + p1",
+    "o2 = x2 + p2",
+]
+
+THREE_STATE_CONSTANT_DERIV_STATES = {"x0": 0.0, "x1": 0.0, "x2": 0.0}
+THREE_STATE_CONSTANT_DERIV_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
+THREE_STATE_CONSTANT_DERIV_CONSTANTS = {"c0": 1.0, "c1": 2.0, "c2": 3.0}
+THREE_STATE_CONSTANT_DERIV_DRIVERS = []
+THREE_STATE_CONSTANT_DERIV_OBSERVABLES = ["o0", "o1", "o2"]
+
+
+def build_three_state_constant_deriv_system(precision: np.dtype) -> BaseODE:
+    """Return a system with constant derivatives.
+
+    For this system, dx/dt = constant (independent of state), which means
+    all higher-order Taylor terms vanish. Therefore, all numerical
+    integration algorithms (Euler, RK4, etc.) produce identical results,
+    making it ideal for testing algorithm parity.
+    """
+
+    system = create_ODE_system(
+        dxdt=THREE_STATE_CONSTANT_DERIV_EQUATIONS,
+        states=THREE_STATE_CONSTANT_DERIV_STATES,
+        parameters=THREE_STATE_CONSTANT_DERIV_PARAMETERS,
+        constants=THREE_STATE_CONSTANT_DERIV_CONSTANTS,
+        drivers=THREE_STATE_CONSTANT_DERIV_DRIVERS,
+        observables=THREE_STATE_CONSTANT_DERIV_OBSERVABLES,
+        precision=precision,
+        name="three_state_constant_deriv",
+        strict=True,
+    )
+
+    return system
+
+
 __all__ = [
     "build_three_state_linear_system",
     "build_three_state_nonlinear_system",
     "build_three_chamber_system",
     "build_three_state_very_stiff_system",
     "build_large_nonlinear_system",
+    "build_three_state_constant_deriv_system",
 ]
