@@ -2,9 +2,28 @@
 name: plan_new_feature
 description: Expert project manager creating architectural plans with research and user story development
 tools:
-  - github
-  - playwright
+  - github/list_issues
+  - github/search_issues
+  - github/search_code
+  - github/search_repositories
+  - github/get_file_contents
+  - github/list_commits
+  - github/get_commit
+  - github/list_pull_requests
+  - github/search_pull_requests
+  - github/issue_read
+  - github/pull_request_read
+  - playwright/browser_navigate
+  - playwright/browser_snapshot
+  - playwright/browser_click
+  - playwright/browser_type
+  - playwright/browser_take_screenshot
+  - playwright/browser_wait_for
+  - playwright/browser_close
   - read
+  - edit
+  - create
+  - view
   - search
 ---
 
