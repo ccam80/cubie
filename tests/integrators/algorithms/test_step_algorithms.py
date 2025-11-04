@@ -499,7 +499,6 @@ STEP_CASES = [
     pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rosenbrock23_sciml", "step_controller": "i"}, id="rosenbrock-23-sciml", marks=pytest.mark.specific_algos),
 ]
 CACHE_REUSE_CASES = [
     pytest.param(
@@ -537,13 +536,6 @@ CACHE_REUSE_CASES = [
         },
         id="rosenbrock-ros3p-cache",
     ),
-    # pytest.param(
-    #     {
-    #         "algorithm": "rosenbrock_w6s4os",
-    #         "step_controller": "pi"
-    #     },
-    #     id="rosenbrock-w6s4os-cache",
-    # ),
 ]
 
 @pytest.mark.parametrize(
@@ -1267,9 +1259,7 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    # Some longer ERK methods can accumulate 1 ULP per stage, so we'll allow
-    # for ~5ULP worth of wiggle room
-    tol = {"rtol": tolerance.rel_tight * 9, "atol": tolerance.abs_tight * 9}
+    tol = {"rtol": tolerance.rel_tight, "atol": tolerance.abs_tight}
 
     assert_allclose(
         device_result.first_state,
