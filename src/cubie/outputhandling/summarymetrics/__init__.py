@@ -22,5 +22,7 @@ from cubie.outputhandling.summarymetrics import std   # noqa
 from cubie.outputhandling.summarymetrics import min   # noqa
 from cubie.outputhandling.summarymetrics import max_magnitude  # noqa
 from cubie.outputhandling.summarymetrics import extrema  # noqa
+from cubie.outputhandling.summarymetrics import negative_peaks  # noqa
+from cubie.outputhandling.summarymetrics import mean_std_rms  # noqa
 
 __all__ = ["summary_metrics", "register_metric"]
