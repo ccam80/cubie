@@ -281,7 +281,8 @@ RODAS5P_TABLEAU = RosenbrockTableau(
 # (kept as-is; independent of SciML’s 3-stage Rosenbrock23 below)
 # --------------------------------------------------------------------------
 r23_gamma = 1.0 / (2.0 + 2.0**0.5)
-r23_C10 = 16.485281374238568  # 2*(1-gamma)/gamma^2 for constant-derivative condition
+# gamma ≈ 0.293, so 2*(1-gamma)/gamma^2 ≈ 16.485
+r23_C10 = 2.0 * (1.0 - r23_gamma) / (r23_gamma * r23_gamma)
 ROSENBROCK_23_TABLEAU = RosenbrockTableau(
     a=(
         (0.0, 0.0),
@@ -328,15 +329,15 @@ def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
     )
 
     # C coefficients corrected for ROW formulation
-    # C_10 derived from constant-derivative condition: C_10 = (1-gamma)/gamma^2
+    # C_10 derived from constant-derivative condition: C_10 = (1-gamma)/gamma^2 ≈ 8.243
     C_10 = (1.0 - d) / (d * d)
     C = (
-        (0.0, 0.0, 0.0),
-        (C_10, 0.0, 0.0),
-        (0.0, 0.0, 0.0),  # Stage 2 not used (b_2 = 0)
+        (0.0, 0.0, 0.0),  # Stage 0
+        (C_10, 0.0, 0.0),  # Stage 1
+        (0.0, 0.0, 0.0),  # Stage 2 not used (b[2] = 0)
     )
 
-    # Final update uses only k2 (stage 1)
+    # Final update uses only stage 1: y_new = y + b[1] * K_1
     b = (0.0, 1.0, 0.0)
 
     # Make b_hat consistent with utilde = (1/6)(k1 - 2k2 + k3): b - b_hat = (1/6, -1/3, 1/6)
