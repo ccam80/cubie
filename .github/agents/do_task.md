@@ -2,8 +2,10 @@
 name: do_task
 description: Senior developer executing detailed implementation tasks with precision and educational comments
 tools:
-  - read
+  - view
+  - create
   - edit
+  - bash
 ---
 
 # Do Task Agent

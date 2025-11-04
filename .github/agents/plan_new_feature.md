@@ -2,10 +2,21 @@
 name: plan_new_feature
 description: Expert project manager creating architectural plans with research and user story development
 tools:
-  - github
-  - playwright
-  - read
-  - search
+  - view
+  - create
+  - edit
+  - bash
+  - github-mcp-server-search_issues
+  - github-mcp-server-search_code
+  - github-mcp-server-search_repositories
+  - github-mcp-server-get_file_contents
+  - github-mcp-server-list_issues
+  - github-mcp-server-issue_read
+  - playwright-browser_navigate
+  - playwright-browser_snapshot
+  - playwright-browser_click
+  - playwright-browser_take_screenshot
+  - playwright-browser_close
 ---
 
 # Plan New Feature Agent

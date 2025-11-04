@@ -2,9 +2,14 @@
 name: detailed_implementer
 description: Seasoned developer converting architectural plans into detailed, dependency-ordered implementation tasks
 tools:
-  - github
-  - read
-  - search
+  - view
+  - create
+  - edit
+  - bash
+  - github-mcp-server-search_code
+  - github-mcp-server-get_file_contents
+  - github-mcp-server-list_commits
+  - github-mcp-server-get_commit
 ---
 
 # Detailed Implementer Agent
