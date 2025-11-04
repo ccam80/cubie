@@ -13,11 +13,11 @@ of writing CUDA code. It is designed to have a reasonably MATLAB- or SciPy-like 
 running without having to figure out the intricacies of the internal mechanics.
 
 The batch solving interface is unstable, and is likely to change further through to v0.0.6 when I focus on how to 
-actually use all of the componentry I've built. The core (per-parameter-set) machinery is reasonably stable. As of v0.0.4,
+actually use all of the componentry I've built. The core (per-parameter-set) machinery is reasonably stable. As of v0.0.5,
 you can:
 
 - Set up and solve large parameter/initial condition sweeps of a system defined by a set of ODEs
-- Use forward/backwards Euler or Crank-Nicolson trapezoidal methods to integrate the problem.
+- Use any of a large set of explicit or implicit runge-kutta or rosenbrock methods to integrate the problem.
 - Extract the solution for any variable or ``observable`` at any time point, or extract summary statistics only to speed 
   things up.
 - Provide ``forcing terms`` by including a function of _t_ in your equations, or by providing an array of values for the
@@ -27,12 +27,6 @@ you can:
 
 
 ### Roadmap:
-- v0.0.5: Bigger, better algorithms
-  - Rosenbrock-W methods
-  - Explicit Runge-Kutta methods (generic, tableau-driven)
-  - Implicit Runge-Kutta methods (generic, tableau-driven)
-  - Common RK concrete algos: tsit5, Dormand-Prince
-  - RadauIIA-5
 - v0.0.6: API improvements. This version should be stable enough for use in research - I will be using it in mine.
   - Batchsolving interface made more user-friendly
   - Batchsolving results delivered in a more sensible format
