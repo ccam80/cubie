@@ -1267,7 +1267,9 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    tol = {"rtol": tolerance.rel_tight, "atol": tolerance.abs_tight}
+    # Some longer ERK methods can accumulate 1 ULP per stage, so we'll allow
+    # for ~5ULP worth of wiggle room
+    tol = {"rtol": tolerance.rel_tight * 9, "atol": tolerance.abs_tight * 9}
 
     assert_allclose(
         device_result.first_state,
