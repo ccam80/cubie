@@ -281,14 +281,15 @@ RODAS5P_TABLEAU = RosenbrockTableau(
 # (kept as-is; independent of SciML’s 3-stage Rosenbrock23 below)
 # --------------------------------------------------------------------------
 r23_gamma = 1.0 / (2.0 + 2.0**0.5)
+r23_C10 = 16.485281374238568  # 2*(1-gamma)/gamma^2 for constant-derivative condition
 ROSENBROCK_23_TABLEAU = RosenbrockTableau(
     a=(
         (0.0, 0.0),
         (1.0, 0.0),
     ),
     C=(
-        (1.0 / (2.0 + 2.0**0.5), 0.0),
-        (-1.0 / (2.0 + 2.0**0.5), 1.0 / (2.0 + 2.0**0.5)),
+        (0.0, 0.0),
+        (r23_C10, 0.0),
     ),
     b=(0.5, 0.5),
     b_hat=(1.0, 0.0),
@@ -310,10 +311,13 @@ ROSENBROCK_23_TABLEAU = RosenbrockTableau(
 #   https://github.com/SciML/OrdinaryDiffEq.jl/blob/c174fbc1b07c252fe8ec8ad5b6e4d5fb9979c813/lib/OrdinaryDiffEqRosenbrock/src/rosenbrock_perform_step.jl
 # --------------------------------------------------------------------------
 def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
-    """Return the SciML 3-stage Rosenbrock 23 tableau (order 3)."""
+    """Return the SciML 3-stage Rosenbrock 23 tableau (order 3).
+    
+    Coefficients corrected to match constant-derivative behavior in ROW formulation.
+    """
 
     sqrt2 = sqrt(2.0)
-    d = 1.0 / (2.0 + sqrt2)  # shift used in W
+    d = 1.0 / (2.0 + sqrt2)  # shift used in W (gamma)
     c32 = 6.0 + sqrt2
 
     # Stage coupling: u2 = u + (1/2) k1, u3 = u + 1*k2
@@ -323,16 +327,16 @@ def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
         (0.0, 1.0, 0.0),
     )
 
-    # C coefficients from perform_step residuals:
-    # stage 2: C21 = -1
-    # stage 3: C31 = -2, C32 = -(6 + sqrt(2))
+    # C coefficients corrected for ROW formulation
+    # C_10 derived from constant-derivative condition: C_10 = (1-gamma)/gamma^2
+    C_10 = (1.0 - d) / (d * d)
     C = (
         (0.0, 0.0, 0.0),
-        (-1.0, 0.0, 0.0),
-        (-2.0, -c32, 0.0),
+        (C_10, 0.0, 0.0),
+        (0.0, 0.0, 0.0),  # Stage 2 not used (b_2 = 0)
     )
 
-    # Final update uses only k2
+    # Final update uses only k2 (stage 1)
     b = (0.0, 1.0, 0.0)
 
     # Make b_hat consistent with utilde = (1/6)(k1 - 2k2 + k3): b - b_hat = (1/6, -1/3, 1/6)
@@ -340,8 +344,8 @@ def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
 
     c = (0.0, 0.5, 1.0)
 
-    # Per-stage gamma choices aligned with SciML’s implementation
-    gamma_stages = (d, 0.0, 1.0)
+    # Per-stage gamma choices - only first stage matters since b_0=b_2=0
+    gamma_stages = (d, d, d)
 
     return RosenbrockTableau(
         a=a,
