@@ -18,5 +18,9 @@ from cubie.outputhandling.summarymetrics import mean  # noqa
 from cubie.outputhandling.summarymetrics import max   # noqa
 from cubie.outputhandling.summarymetrics import rms   # noqa
 from cubie.outputhandling.summarymetrics import peaks # noqa
+from cubie.outputhandling.summarymetrics import std   # noqa
+from cubie.outputhandling.summarymetrics import min   # noqa
+from cubie.outputhandling.summarymetrics import max_magnitude  # noqa
+from cubie.outputhandling.summarymetrics import extrema  # noqa
 
 __all__ = ["summary_metrics", "register_metric"]
