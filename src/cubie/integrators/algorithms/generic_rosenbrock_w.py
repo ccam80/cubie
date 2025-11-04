@@ -337,6 +337,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
+                time_derivative[idx] *= dt_scalar
                 if has_error:
                     error[idx] = typed_zero
 
@@ -451,6 +452,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         time_derivative,
                         current_time,
                     )
+                    for idx in range(n):
+                        time_derivative[idx] *= dt_scalar
 
                 # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
