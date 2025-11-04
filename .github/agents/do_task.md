@@ -1,6 +1,7 @@
 ---
 name: do_task
 description: Senior developer executing detailed implementation tasks with precision and educational comments
+tools: []
 ---
 
 # Do Task Agent
@@ -127,19 +128,7 @@ Glean these from repository-level instructions (.github/copilot-instructions.md,
 
 ## Tools and When to Use Them
 
-No MCP tools required - all context is provided in task_list.md.
-
-### Pytest (if available)
-
-- **When**: Only when you've added tests as part of the task
-- **Use for**: Running newly added tests with CUDASIM
-- **Example**: After adding test_new_feature.py, run it with NUMBA_ENABLE_CUDASIM=1
-
-### Linter (if available)
-
-- **When**: After implementing changes
-- **Use for**: Checking PEP8 compliance
-- **Example**: Run flake8 on modified files to catch style issues
+No external tools required - all context is provided in task_list.md.
 
 After completing task group:
 1. Show summary of changes made

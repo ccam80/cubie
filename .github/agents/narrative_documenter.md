@@ -1,6 +1,7 @@
 ---
 name: narrative_documenter
 description: Technical storyteller creating concept-based user guides and how-to documentation in reStructuredText
+tools: []
 ---
 
 # Narrative Documenter Agent
@@ -303,18 +304,7 @@ Focus on:
 
 ## Tools and When to Use Them
 
-### Mermaid (if available)
-
-- **When**: Creating diagrams for concepts
-- **Use for**: Architecture, flow, process diagrams
-- **Example**: Show data flow through CuBIE components
-- **Note**: Export as image for RST inclusion
-
-### Markdown-lint (if available)
-
-- **When**: Working on readme files
-- **Use for**: Ensure markdown formatting consistency
-- **Example**: Check readme.md follows style guidelines
+No external tools required.
 
 ## Output Format
 

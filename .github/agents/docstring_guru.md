@@ -1,6 +1,7 @@
 ---
 name: docstring_guru
 description: Master of technical writing specializing in numpydoc enforcement and API reference documentation
+tools: []
 ---
 
 # Docstring Guru Agent
@@ -223,13 +224,6 @@ If you encounter significant architectural changes or patterns:
 - Reference related functions/classes using :func:, :class: roles
 - **Always escape backslashes**: \\\\ in all contexts
 
-### CUDA Specific
-
-- Note when functions are device-only (called from kernels)
-- Explain thread/block/grid dimensions in Notes
-- Document shared memory usage
-- Warn about thread synchronization requirements
-
 ## Output Format
 
 ### Summary Report
@@ -305,17 +299,7 @@ Provide all modified files ready for commit.
 
 ## Tools and When to Use Them
 
-### Sphinx (if available)
-
-- **When**: After making docstring changes
-- **Use for**: Validate documentation builds correctly
-- **Example**: Check that new docstrings don't break Sphinx build
-
-### Doctests (if available)
-
-- **When**: After updating Examples sections
-- **Use for**: Ensure examples are executable and correct
-- **Example**: Run doctest on modified modules
+No external tools required.
 
 ## Review Checklist
 

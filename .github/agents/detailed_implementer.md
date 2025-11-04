@@ -1,6 +1,8 @@
 ---
 name: detailed_implementer
 description: Seasoned developer converting architectural plans into detailed, dependency-ordered implementation tasks
+tools:
+  - github
 ---
 
 # Detailed Implementer Agent
@@ -118,23 +120,11 @@ Structure:
 
 ## Tools and When to Use Them
 
-### GitHub MCP
+### GitHub
 
 - **When**: Always, for deep code exploration
-- **Use for**: Reading source files, understanding patterns, finding dependencies, analyzing call hierarchies
+- **Use for**: Reading source files, understanding patterns, finding dependencies, analyzing call hierarchies, searching code
 - **Example**: Find all places where a base class is extended to understand the pattern
-
-### Tree-sitter (if available)
-
-- **When**: Need to analyze code structure and AST
-- **Use for**: Finding all call sites, analyzing inheritance, understanding data flow
-- **Example**: Find every function that calls a specific method
-
-### Code-search (if available)
-
-- **When**: Need semantic search across repository
-- **Use for**: Finding similar implementations, identifying files needing modification
-- **Example**: Search for all files that import a specific module
 
 After completing task_list.md, present a summary showing:
 1. Total number of task groups

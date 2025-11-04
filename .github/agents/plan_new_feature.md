@@ -1,6 +1,9 @@
 ---
 name: plan_new_feature
-description: Expert project manager creating architectural plans with external research and user story development
+description: Expert project manager creating architectural plans with research and user story development
+tools:
+  - github
+  - playwright
 ---
 
 # Plan New Feature Agent
@@ -38,13 +41,11 @@ Your plan will be interpreted by:
 
 ## Research Process
 
-1. Create user stories from the request
-2. Review the request thoroughly
-3. Search repository issues for related items using GitHub MCP
-4. Use Perplexity deep_research (ONLY if specifically instructed in prompt)
-5. Use Playwright to examine relevant documentation or code examples
-6. Analyze existing CuBIE architecture (include .github/context/cubie_internal_structure.md)
-7. Synthesize findings into actionable plan
+1. Review the request thoroughly and create user stories
+2. Search repository issues for related items using GitHub
+3. Use Playwright to examine relevant documentation or code examples
+4. Analyze existing CuBIE architecture (include .github/context/cubie_internal_structure.md)
+5. Synthesize findings into actionable plan
 
 ## Shortcut Route: Minimal Bug Fixes
 
@@ -57,23 +58,21 @@ If analysis identifies a minimal set of changes for a bug fix that can be implem
 
 Create a new directory in `.github/active_plans/` with a snake_case name (1-3 words) for this feature.
 
-### File 1: user_stories.md
-
-**Purpose**: Define user needs and acceptance criteria
-
-**Contents**:
-- User personas
-- User stories in standard format
-- Acceptance criteria for each story
-- Success metrics
-
-### File 2: human_overview.md
+### File 1: human_overview.md
 
 **Audience**: Expert project manager and chief technical lead
 
-**Purpose**: Quick architectural understanding with visual aids
+**Purpose**: Quick architectural understanding with visual aids and user story documentation
 
 **Contents**:
+
+#### User Stories Section
+- User personas
+- User stories in standard format  
+- Acceptance criteria for each story
+- Success metrics
+
+#### Overview Section
 - Executive summary of the planned implementation
 - Architecture diagrams (use Mermaid markdown syntax)
 - Data flow diagrams showing how components interact
@@ -82,9 +81,9 @@ Create a new directory in `.github/active_plans/` with a snake_case name (1-3 wo
 - Trade-offs and alternatives considered
 - Expected impact on existing architecture
 
-Keep this document concise and diagram-heavy.
+Keep this document concise.
 
-### File 3: agent_plan.md
+### File 2: agent_plan.md
 
 **Audience**: detailed_implementer and reviewer agents
 
@@ -115,18 +114,11 @@ Keep this document concise and diagram-heavy.
 
 ## Tools and When to Use Them
 
-### GitHub MCP
+### GitHub
 
 - **When**: Always, for repository exploration
 - **Use for**: Searching issues, reviewing code, understanding patterns, finding related implementations
 - **Example**: Find similar integrator implementations to understand the pattern
-
-### Perplexity Deep Research
-
-- **When**: ONLY if specifically requested in the prompt
-- **Use for**: External research on algorithms, academic papers, state-of-the-art implementations
-- **Example**: "Research the Rosenbrock-W method from academic sources"
-- **Note**: This is expensive - use sparingly and only when explicitly requested
 
 ### Playwright
 
