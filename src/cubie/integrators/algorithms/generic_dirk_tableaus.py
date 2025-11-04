@@ -81,25 +81,26 @@ solution of partial differential equations of the heat-conduction type.
 
 LOBATTO_IIIC_3_TABLEAU = DIRKTableau(
     a=(
-        (1.0 / 6.0, 0.0, 0.0),
-        (2.0 / 3.0, 1.0 / 6.0, 0.0),
+        (1.0 / 6.0, -1.0 / 3.0, 1.0 / 6.0),
+        (1.0 / 6.0, 5.0 / 12.0, -1.0 / 12.0),
         (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
     ),
     b=(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+    b_hat=(0.5, 0.0, 0.5),
     c=(0.0, 0.5, 1.0),
     order=4,
 )
 """Three-stage Lobatto IIIC DIRK tableau of order four.
 
-All stages share the same diagonal coefficient, so the tableau may be
-solved sequentially without resorting to coupled implicit systems. The
-method is symplectic and stiffly accurate, making it attractive for high
-accuracy integrations.
+The method is stiffly accurate with all diagonal elements equal to 1/6.
+The embedded error estimate uses the trapezoidal rule (order 2) for
+adaptive step size control.
 
 References
 ----------
-Hairer, E., Lubich, C., & Wanner, G. (2006). *Geometric Numerical
-Integration* (2nd ed.). Springer.
+Hairer, E., & Wanner, G. (1996). *Solving Ordinary Differential
+Equations II: Stiff and Differential-Algebraic Problems* (2nd ed.).
+Springer. Table 5.9.
 """
 
 SQRT2 = 2 ** 0.5
