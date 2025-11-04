@@ -37,6 +37,24 @@ class RosenbrockTableau(ButcherTableau):
     gamma: float = attrs.field(default=0.25)
     gamma_stages: Tuple[float, ...] = attrs.field(factory=tuple)
 
+    def check_consistency(self, rtol: float = 1e-10, atol: float = 1e-10) -> None:
+        """Override consistency check for Rosenbrock-W methods.
+        
+        Rosenbrock-W methods use a modified equation structure with implicit
+        Jacobian terms, so they do not satisfy the standard Runge-Kutta
+        consistency condition sum(a[i,:]) = c[i]. This method is a no-op
+        to allow Rosenbrock tableaus to be initialized without raising errors.
+        
+        Parameters
+        ----------
+        rtol
+            Relative tolerance (unused for Rosenbrock methods).
+        atol
+            Absolute tolerance (unused for Rosenbrock methods).
+        """
+        # No consistency check for Rosenbrock-W methods
+        pass
+
     def typed_gamma_stages(
         self,
         numba_precision: type,

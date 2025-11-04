@@ -69,12 +69,42 @@ class ButcherTableau:
     order: int = attrs.field()
     b_hat: Optional[Tuple[float, ...]] = attrs.field(default=None)
 
+    def check_consistency(self, rtol: float = 1e-10, atol: float = 1e-10) -> None:
+        """Check tableau consistency condition: sum(a[i,:]) = c[i].
+        
+        Parameters
+        ----------
+        rtol
+            Relative tolerance for consistency check.
+        atol
+            Absolute tolerance for consistency check.
+            
+        Raises
+        ------
+        ValueError
+            If the consistency condition is violated for any stage.
+        """
+        for i in range(self.stage_count):
+            row_sum = sum(self.a[i])
+            c_val = self.c[i]
+            # Use numpy's allclose logic: |row_sum - c_val| <= (atol + rtol * |c_val|)
+            tolerance = atol + rtol * abs(c_val)
+            diff = abs(row_sum - c_val)
+            if diff > tolerance:
+                raise ValueError(
+                    f"Tableau consistency violated at row {i}: "
+                    f"sum(a[{i},:]) = {row_sum}, c[{i}] = {c_val}, "
+                    f"difference = {diff} > tolerance = {tolerance}"
+                )
+
     def __attrs_post_init__(self) -> None:
         """Validate tableau coefficients after initialisation."""
 
         stage_count = self.stage_count
         if self.b_hat is not None and len(self.b_hat) != stage_count:
             raise ValueError("b_hat must match the number of stages in b")
+        
+        self.check_consistency()
 
     @property
     def d(self) -> Optional[Tuple[float, ...]]:
