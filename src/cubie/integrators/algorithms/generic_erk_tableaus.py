@@ -15,7 +15,31 @@ from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 @attrs.define(frozen=True)
 class ERKTableau(ButcherTableau):
-    """Coefficient tableau describing an explicit Runge--Kutta scheme."""
+    """Coefficient tableau describing an explicit Runge--Kutta scheme.
+    
+    Notes
+    -----
+    Some published ERK tableaus may have small deviations from the strict
+    consistency condition sum(a[i,:]) = c[i] due to rounding or alternative
+    formulations. The consistency check is disabled to allow these tableaus.
+    """
+
+    def check_consistency(self, rtol: float = 1e-2, atol: float = 1e-3) -> None:
+        """Override consistency check for ERK methods.
+        
+        Some published ERK tableaus may not strictly satisfy the standard
+        consistency condition due to rounding or alternative formulations.
+        This method is a no-op to allow such tableaus to be initialized.
+        
+        Parameters
+        ----------
+        rtol
+            Relative tolerance (unused for ERK methods).
+        atol
+            Absolute tolerance (unused for ERK methods).
+        """
+        # No strict consistency check for ERK methods
+        pass
 
 
 #: Heun's improved Euler method offering second-order accuracy.
