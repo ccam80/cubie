@@ -806,8 +806,6 @@ def _execute_step_twice(
     """Run the compiled step twice without clearing shared memory."""
 
     shared_elems = step_object.shared_memory_required
-    if shared_elems == 0:
-        pytest.skip("Algorithm does not expose a shared cache to reuse.")
 
     step_function = step_object.step_function
     driver_function = driver_array.evaluation_function
