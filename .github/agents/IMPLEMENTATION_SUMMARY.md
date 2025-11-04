@@ -1,32 +1,33 @@
 # CuBIE Custom Agents Implementation Summary
 
-This document summarizes the custom GitHub Copilot agents created for the CuBIE repository in JSON format per GitHub's agent specification, with integrated MCP tool configurations.
+This document summarizes the custom GitHub Copilot agents created for the CuBIE repository in Markdown format with YAML front matter per GitHub's Custom Agents specification.
 
 ## Agent File Format
 
-All agents use JSON format with the following structure:
-```json
-{
-  "name": "agent_name",
-  "description": "Brief description",
-  "instructions": "Detailed instructions...",
-  "context": ["file1.md", "file2.md"],
-  "tools": {
-    "tool_name": {
-      "enabled": true/false,
-      "description": "When and how to use this tool"
-    }
-  }
-}
+All agents use **Markdown with YAML front matter** as specified in [GitHub's Custom Agents Configuration documentation](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
+
+Format:
+```markdown
+---
+name: agent_name
+description: Brief description
+---
+
+# Agent Title
+
+Agent instructions in Markdown format...
+
+## Section headings
+Content...
 ```
 
 ## Created Agents
 
-All agents are located in `.github/agents/` with the `.agent` extension (JSON format).
+All agents are located in `.github/agents/` with the `.md` extension (Markdown with YAML front matter).
 
-### 1. plan_new_feature.agent ✓
+### 1. plan_new_feature.md ✓
 - **Role**: Expert project manager and technical architect
-- **MCP Tools**: github (always), perplexity deep_research (if requested), playwright
+- **Format**: Markdown with YAML front matter
 - **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`
 - **Outputs**: `user_stories.md`, `human_overview.md`, `agent_plan.md`
 - **Key Features**:
@@ -38,7 +39,7 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
   - Asks for user feedback on ambiguity
   - Works out of `.github/active_plans/<feature_name>/` directory
 
-### 2. detailed_implementer.agent ✓
+### 2. detailed_implementer.md ✓
 - **Role**: Operations manager and implementation planner
 - **MCP Tools**: github, tree-sitter (optional), code-search (optional)
 - **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`
@@ -51,7 +52,7 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
   - Includes explicit context (files and line numbers) for each task group
   - Asks for clarification when faced with design choices
 
-### 3. do_task.agent ✓
+### 3. do_task.md ✓
 - **Role**: Senior developer and implementer
 - **MCP Tools**: pytest (optional, only for added tests), linter (optional)
 - **Context**: `AGENTS.md`, `.github/copilot-instructions.md`
@@ -65,7 +66,7 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
   - Never asks user for feedback (executes the plan)
   - Follows repository conventions from repo-level instructions
 
-### 4. reviewer.agent ✓
+### 4. reviewer.md ✓
 - **Role**: Harsh critic and senior code reviewer
 - **MCP Tools**: code-metrics (optional), coverage (optional)
 - **Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`
@@ -81,7 +82,7 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
   - Provides actionable, specific feedback with file/line references
   - Can hand edits back to do_task agents
 
-### 5. docstring_guru.agent ✓
+### 5. docstring_guru.md ✓
 - **Role**: API documentation specialist
 - **MCP Tools**: sphinx (optional), doctests (optional)
 - **Context**: `AGENTS.md`
@@ -100,7 +101,7 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
   - **Updates `.github/context/cubie_internal_structure.md`** with architectural insights
   - Outputs function reference changes for narrative_documenter
 
-### 6. narrative_documenter.agent ✓
+### 6. narrative_documenter.md ✓
 - **Role**: Technical storyteller for user-facing documentation
 - **MCP Tools**: mermaid (optional), markdown-lint (optional)
 - **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`
@@ -169,101 +170,6 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
     └── ...
 ```
 
-## Tool Specifications in Agent Files
-
-### plan_new_feature
-```json
-"tools": {
-  "perplexity": {
-    "enabled": true,
-    "description": "Deep research - use ONLY when explicitly requested"
-  },
-  "playwright": {
-    "enabled": true,
-    "description": "Web browsing for documentation and examples"
-  },
-  "github": {
-    "enabled": true,
-    "description": "Repository exploration - always use"
-  }
-}
-```
-
-### detailed_implementer
-```json
-"tools": {
-  "github": {
-    "enabled": true,
-    "description": "Deep code exploration and pattern analysis"
-  },
-  "tree-sitter": {
-    "enabled": false,
-    "description": "Code parsing and AST analysis"
-  },
-  "code-search": {
-    "enabled": false,
-    "description": "Semantic code search"
-  }
-}
-```
-
-### do_task
-```json
-"tools": {
-  "pytest": {
-    "enabled": false,
-    "description": "Run tests you've added with CUDASIM"
-  },
-  "linter": {
-    "enabled": false,
-    "description": "Check PEP8 compliance"
-  }
-}
-```
-
-### reviewer
-```json
-"tools": {
-  "code-metrics": {
-    "enabled": false,
-    "description": "Complexity analysis"
-  },
-  "coverage": {
-    "enabled": false,
-    "description": "Test coverage analysis"
-  }
-}
-```
-
-### docstring_guru
-```json
-"tools": {
-  "sphinx": {
-    "enabled": false,
-    "description": "Validate Sphinx builds correctly"
-  },
-  "doctests": {
-    "enabled": false,
-    "description": "Run docstring examples"
-  }
-}
-```
-
-### narrative_documenter
-```json
-"tools": {
-  "mermaid": {
-    "enabled": false,
-    "description": "Create diagrams (export for RST)"
-  },
-  "markdown-lint": {
-    "enabled": false,
-    "description": "Check markdown for readmes"
-  }
-}
-```
-
-## Key Behavioral Changes
 
 ### plan_new_feature
 - ✓ Creates user stories FIRST
@@ -306,40 +212,35 @@ All agents are located in `.github/agents/` with the `.agent` extension (JSON fo
 - ✓ Accepts function updates from docstring_guru
 - ✓ Updates narrative docs when API changes
 
-## Migration from YAML to JSON
+## Migration to Markdown with YAML Front Matter
 
-Original agents were in YAML format. All agents have been converted to JSON format per GitHub Copilot Agent specification:
+All agents have been converted to **Markdown format with YAML front matter** per [GitHub's Custom Agents Configuration](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
 
-**Before** (YAML):
-```yaml
+**Current Format** (Markdown with YAML front matter):
+```markdown
+---
 name: agent_name
 description: Agent description
-instructions: |
-  Long instructions...
-mcp_servers:
-  - server1
-  - server2
+---
+
+# Agent Title
+
+Full instructions in Markdown format with headings, lists, code blocks, etc.
+
+## Section headings
+
+Content organized with Markdown formatting...
 ```
 
-**After** (JSON):
-```json
-{
-  "name": "agent_name",
-  "description": "Agent description",
-  "instructions": "Long instructions...",
-  "context": ["file1.md", "file2.md"],
-  "tools": {
-    "server1": {
-      "enabled": true,
-      "description": "When to use"
-    }
-  }
-}
-```
+This format provides:
+- Clean YAML front matter for agent metadata
+- Rich Markdown formatting for instructions
+- Better readability and maintainability
+- Direct compatibility with GitHub Copilot Custom Agents
 
 ## Implementation Checklist
 
-- [x] Convert all agent files to JSON format
+- [x] Convert all agent files to Markdown with YAML front matter
 - [x] Create `.github/context/` directory
 - [x] Create `cubie_internal_structure.md` stub
 - [x] Add user story creation to plan_new_feature

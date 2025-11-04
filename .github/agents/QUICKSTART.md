@@ -5,7 +5,7 @@ This guide helps you get started with CuBIE's custom GitHub Copilot agents.
 ## Prerequisites
 
 1. **GitHub Copilot**: Active subscription with agent support
-2. **Agent Files**: JSON format per GitHub Copilot Agent specification
+2. **Agent Files**: Markdown format with YAML front matter per [GitHub Custom Agents specification](https://docs.github.com/en/copilot/reference/custom-agents-configuration)
 3. **Environment Variables** (optional, for full functionality):
    - `GITHUB_TOKEN`: Usually auto-configured in GitHub Copilot
    - `PERPLEXITY_API_KEY`: For deep research (rarely needed)

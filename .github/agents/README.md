@@ -2,6 +2,8 @@
 
 This directory contains custom GitHub Copilot agents for the CuBIE project. These agents work together to plan, implement, and document new features through a structured workflow.
 
+All agents are in **Markdown format with YAML front matter** per [GitHub's Custom Agents Configuration](https://docs.github.com/en/copilot/reference/custom-agents-configuration).
+
 ## Agent Overview
 
 ### 1. plan_new_feature
@@ -241,18 +243,34 @@ Each feature gets a directory in `.github/active_plans/`:
                                   # Used by plan_new_feature, detailed_implementer, narrative_documenter
 ```
 
-## MCP Configuration
+## Agent File Format
 
-Agent files use JSON format with integrated MCP tool specifications. Key tools:
+All agents use **Markdown with YAML front matter**:
 
-- **GitHub**: Repository operations (plan_new_feature, detailed_implementer always use)
-- **Perplexity deep_research**: External research (plan_new_feature, ONLY if requested)
+```markdown
+---
+name: agent_name
+description: Brief description
+---
+
+# Agent Title
+
+Instructions in Markdown format with sections describing:
+- Role and expertise
+- Process and workflow
+- Tools and when to use them
+- Output requirements
+```
+
+Tools are described within the Markdown instructions rather than in separate configuration:
+- **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
+- **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
 - **pytest**: Test running (do_task, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
 
-See individual agent files for complete tool specifications.
+See individual agent files for detailed tool usage instructions.
 
 ## Best Practices
 
