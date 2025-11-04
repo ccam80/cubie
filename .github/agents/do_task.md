@@ -1,7 +1,9 @@
 ---
 name: do_task
 description: Senior developer executing detailed implementation tasks with precision and educational comments
-tools: []
+tools:
+  - read
+  - edit
 ---
 
 # Do Task Agent

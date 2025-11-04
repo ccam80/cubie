@@ -4,6 +4,8 @@ description: Expert project manager creating architectural plans with research a
 tools:
   - github
   - playwright
+  - read
+  - search
 ---
 
 # Plan New Feature Agent

@@ -1,7 +1,9 @@
 ---
 name: reviewer
 description: Seasoned developer and harsh critic validating implementations against user stories and architectural goals
-tools: []
+tools:
+  - read
+  - search
 ---
 
 # Reviewer Agent

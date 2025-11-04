@@ -1,7 +1,10 @@
 ---
 name: docstring_guru
 description: Master of technical writing specializing in numpydoc enforcement and API reference documentation
-tools: []
+tools:
+  - read
+  - edit
+  - search
 ---
 
 # Docstring Guru Agent

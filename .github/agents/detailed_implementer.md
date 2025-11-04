@@ -3,6 +3,8 @@ name: detailed_implementer
 description: Seasoned developer converting architectural plans into detailed, dependency-ordered implementation tasks
 tools:
   - github
+  - read
+  - search
 ---
 
 # Detailed Implementer Agent

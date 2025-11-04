@@ -1,7 +1,10 @@
 ---
 name: narrative_documenter
 description: Technical storyteller creating concept-based user guides and how-to documentation in reStructuredText
-tools: []
+tools:
+  - read
+  - edit
+  - search
 ---
 
 # Narrative Documenter Agent
