@@ -4,6 +4,8 @@ description: Technical storyteller creating concept-based user guides and how-to
 tools:
   - read
   - edit
+  - create
+  - view
   - search
 ---
 

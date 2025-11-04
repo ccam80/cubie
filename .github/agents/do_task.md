@@ -4,6 +4,8 @@ description: Senior developer executing detailed implementation tasks with preci
 tools:
   - read
   - edit
+  - create
+  - view
 ---
 
 # Do Task Agent

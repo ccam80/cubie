@@ -4,6 +4,8 @@ description: Master of technical writing specializing in numpydoc enforcement an
 tools:
   - read
   - edit
+  - create
+  - view
   - search
 ---
 

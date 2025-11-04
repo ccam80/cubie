@@ -2,8 +2,14 @@
 name: detailed_implementer
 description: Seasoned developer converting architectural plans into detailed, dependency-ordered implementation tasks
 tools:
-  - github
+  - github/get_file_contents
+  - github/search_code
+  - github/list_commits
+  - github/get_commit
   - read
+  - edit
+  - create
+  - view
   - search
 ---
 
