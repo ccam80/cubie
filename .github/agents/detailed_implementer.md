@@ -6,7 +6,7 @@ tools:
   - github/search_code
   - github/list_commits
   - github/get_commit
-  - custom-agent/taskmaster
+  - custom-agent/*
   - read
   - edit
   - create
