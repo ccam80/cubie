@@ -57,8 +57,8 @@ class MeanStdRms(SummaryMetric):
         # no cover: start
         @cuda.jit(
             [
-                "float32, float32[::1], int64, int64",
-                "float64, float64[::1], int64, int64",
+                "float32, float32[::1], int32, int32",
+                "float64, float64[::1], int32, int32",
             ],
             device=True,
             inline=True,
@@ -92,8 +92,8 @@ class MeanStdRms(SummaryMetric):
 
         @cuda.jit(
             [
-                "float32[::1], float32[::1], int64, int64",
-                "float64[::1], float64[::1], int64, int64",
+                "float32[::1], float32[::1], int32, int32",
+                "float64[::1], float64[::1], int32, int32",
             ],
             device=True,
             inline=True,

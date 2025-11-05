@@ -61,8 +61,8 @@ def calculate_expected_summaries(
     )
 
     for output in output_types:
-        if output.startswith("peaks"):
-            n_peaks = int(output[6:-1]) if len(output) > 6 else 0
+        if output.startswith("peaks") or output.startswith("negative_peaks"):
+            n_peaks = int(output.split('[')[1].split(']')[0]) if '[' in output else 0
         else:
             n_peaks = 0
 
@@ -164,11 +164,103 @@ def calculate_single_summary_array(
                     ] = rms
                     summary_index += 1
 
+                if output_type == "std":
+                    std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = std
+                    summary_index += 1
+
+                if output_type == "min":
+                    _min = np.min(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _min
+                    summary_index += 1
+
+                if output_type == "max_magnitude":
+                    max_mag = np.max(
+                        np.abs(input_array[start_index:end_index, j]), axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = max_mag
+                    summary_index += 1
+
+                if output_type == "extrema":
+                    _max = np.max(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _min = np.min(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _min
+                    summary_index += 2
+
+                if output_type.startswith("negative_peaks"):
+                    # Use the last two samples, like the live version does
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+                    minima = (
+                        local_minima(
+                            input_array[start_index:end_index, j],
+                        )[:n_peaks]
+                        + start_index
+                    )
+                    output_start_index = (
+                        j * summary_size_per_state + summary_index
+                    )
+                    output_array[
+                        i,
+                        output_start_index : output_start_index + minima.size,
+                    ] = minima
+                    summary_index += n_peaks
+
+                if output_type == "mean_std_rms":
+                    _mean = np.mean(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _rms = np.sqrt(
+                        np.mean(
+                            input_array[start_index:end_index, j] ** 2, axis=0
+                        )
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _mean
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _std
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 2
+                    ] = _rms
+                    summary_index += 3
+
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     return (
         np.flatnonzero(
             (signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])
+        )
+        + 1
+    )
+
+
+def local_minima(signal: np.ndarray) -> np.ndarray:
+    return (
+        np.flatnonzero(
+            (signal[1:-1] < signal[:-2]) & (signal[1:-1] < signal[2:])
         )
         + 1
     )
