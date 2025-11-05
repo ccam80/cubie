@@ -2,6 +2,7 @@
 name: taskmaster
 description: Taskmaster managing parallel and sequential execution of implementation tasks through do_task agents
 tools:
+  - custom-agent
   - do_task
   - reviewer
   - docstring_guru

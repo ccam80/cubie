@@ -111,9 +111,26 @@ This shows:
 - The main agent sees it as available
 - But subagents don't receive these tools
 
-## Recommended Solution
+## Solution Applied
 
-Based on this investigation, I recommend **ONE** of the following approaches:
+**FIX IMPLEMENTED**: Added `custom-agent` to the tools list for all agents that invoke downstream custom agents.
+
+Based on analysis of the runtime logs showing that requested tools (`do_task`, `reviewer`, `docstring_guru`) were being filtered out from the candidate tools list, the solution is to explicitly request the `custom-agent` tool in addition to listing the specific custom agent names.
+
+**Changes made**:
+- Added `custom-agent` to tools list in `taskmaster.md` (needs to invoke: do_task, reviewer, docstring_guru)
+- Added `custom-agent` to tools list in `detailed_implementer.md` (needs to invoke: taskmaster)
+- Added `custom-agent` to tools list in `reviewer.md` (needs to invoke: taskmaster)
+- Added `custom-agent` to tools list in `plan_new_feature.md` (needs to invoke: detailed_implementer)
+
+**Rationale**: 
+The logs showed that while custom agents were listed individually (e.g., `do_task`, `reviewer`), they weren't in the "Candidate tools" list. The `custom-agent` tool likely provides the mechanism to invoke other custom agents, similar to how `github-mcp-server/` provides access to GitHub tools and `playwright/` provides access to browser tools.
+
+This follows the user's suggestion: "We could try adding custom-agent and each custom agent to the tool list; extra entries will just be ignored."
+
+## Original Investigation - Solution Options
+
+Based on this investigation, the following approaches were considered:
 
 ### Option 1: Remove Subagent Invocation (Flatten Hierarchy)
 
