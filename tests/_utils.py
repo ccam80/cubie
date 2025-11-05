@@ -247,6 +247,38 @@ def calculate_single_summary_array(
                     ] = _rms
                     summary_index += 3
 
+                if output_type == "mean_std":
+                    _mean = np.mean(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _mean
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _std
+                    summary_index += 2
+
+                if output_type == "std_rms":
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _rms = np.sqrt(
+                        np.mean(
+                            input_array[start_index:end_index, j] ** 2, axis=0
+                        )
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _std
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _rms
+                    summary_index += 2
+
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     return (

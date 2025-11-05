@@ -206,12 +206,12 @@ class SummaryMetrics:
         self._params = {}
         # Define combined metrics registry:
         # Maps frozenset of individual metrics to the combined metric name
-        # Prioritized by buffer efficiency
+        # Only combine when ALL constituent parts are requested
+        # This ensures user gets exactly what they requested
         self._combined_metrics = {
             frozenset(["mean", "std", "rms"]): "mean_std_rms",
-            frozenset(["mean", "std"]): "mean_std_rms",
-            frozenset(["std", "rms"]): "mean_std_rms",
-            frozenset(["mean", "rms"]): "mean_std_rms",
+            frozenset(["mean", "std"]): "mean_std",
+            frozenset(["std", "rms"]): "std_rms",
             frozenset(["max", "min"]): "extrema",
         }
 
@@ -261,9 +261,10 @@ class SummaryMetrics:
         Checks if subsets of requested metrics match any combined metric
         patterns and substitutes them with the more efficient combined version.
         Prioritizes larger combinations (more metrics combined).
+        Preserves the original order of metrics in the request.
         """
-        remaining = set(request)
         result = []
+        used = set()
         
         # Sort by size (descending) to prefer larger combinations
         sorted_combinations = sorted(
@@ -272,15 +273,29 @@ class SummaryMetrics:
             reverse=True
         )
         
-        for metric_set, combined_name in sorted_combinations:
-            if metric_set.issubset(remaining):
-                # Check if combined metric is registered
-                if combined_name in self._names:
-                    result.append(combined_name)
-                    remaining -= metric_set
-        
-        # Add any remaining metrics that weren't part of combinations
-        result.extend(sorted(remaining))
+        # Process each metric in the original request order
+        for metric in request:
+            if metric in used:
+                # Already processed as part of a combination
+                continue
+                
+            # Check if this metric is part of any combination
+            combined_found = False
+            for metric_set, combined_name in sorted_combinations:
+                if metric in metric_set and metric_set.issubset(request):
+                    # Check if combined metric is registered and not already used
+                    if combined_name in self._names and combined_name not in result:
+                        result.append(combined_name)
+                        used.update(metric_set)
+                        # Add parameter entry for combined metric (always 0)
+                        self._params[combined_name] = 0
+                        combined_found = True
+                        break
+            
+            if not combined_found:
+                # No combination found, add the metric as-is
+                result.append(metric)
+                used.add(metric)
         
         return result
 
