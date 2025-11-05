@@ -47,7 +47,7 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 ### 1. plan_new_feature
 **Role**: Expert project manager and technical architect  
 **Purpose**: User story creation, research, and implementation planning  
-**MCP Tools**: GitHub (always), Perplexity deep_research (if requested), Playwright (web browsing), bash (for directory creation)
+**MCP Tools**: GitHub (always), Playwright (web browsing), bash (for directory creation)
 **Custom Agent Tools**: `detailed_implementer`
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
@@ -56,15 +56,13 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 
 Creates comprehensive plans with:
 - User stories and acceptance criteria (first step)
-- Architecture diagrams and data flow
 - Behavior and integration descriptions (not implementation details)
 - Technical decisions and trade-offs
-- Shortcut: minimal bug fix plans ready for do_task
 
 ### 2. detailed_implementer
 **Role**: Operations manager and implementation planner  
 **Purpose**: Convert architectural plans into detailed, executable tasks  
-**MCP Tools**: GitHub, tree-sitter (optional), code-search (optional)
+**MCP Tools**: GitHub, 
 **Custom Agent Tools**: `taskmaster`
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `task_list.md` with function-level implementation tasks
@@ -99,7 +97,7 @@ Manages:
 ### 4. do_task
 **Role**: Senior developer and implementer  
 **Purpose**: Execute tasks exactly as specified with educational comments  
-**MCP Tools**: pytest (optional, only for added tests), linter (optional)
+**MCP Tools**: None
 **Custom Agent Tools**: None (leaf node)
 **Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
 **Output**: Git patches and updated `task_list.md` with outcomes
@@ -116,7 +114,7 @@ Executes:
 ### 5. reviewer
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
-**MCP Tools**: code-metrics (optional), coverage (optional)
+**MCP Tools**: None
 **Custom Agent Tools**: `taskmaster` (for second invocation to apply edits)
 **Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
@@ -134,7 +132,7 @@ Reviews for:
 ### 6. docstring_guru
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
-**MCP Tools**: sphinx (optional), doctests (optional)
+**MCP Tools**: None
 **Custom Agent Tools**: None (final step in pipeline)
 **Context**: `AGENTS.md`  
 **Output**: Updated docstrings, API reference files, internal structure updates
@@ -153,7 +151,7 @@ Enforces:
 ### 7. narrative_documenter
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
-**MCP Tools**: mermaid (optional), markdown-lint (optional)
+**MCP Tools**: None
 **Custom Agent Tools**: None (independent of main pipeline)
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: Documentation in **reStructuredText (.rst)** for Sphinx (Markdown only for readmes/summaries)
