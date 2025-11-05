@@ -206,12 +206,9 @@ class SummaryMetrics:
         self._params = {}
         # Define combined metrics registry:
         # Maps frozenset of individual metrics to the combined metric name
-        # Prioritized by buffer efficiency
+        # Only combine when ALL constituent parts are requested
         self._combined_metrics = {
             frozenset(["mean", "std", "rms"]): "mean_std_rms",
-            frozenset(["mean", "std"]): "mean_std_rms",
-            frozenset(["std", "rms"]): "mean_std_rms",
-            frozenset(["mean", "rms"]): "mean_std_rms",
             frozenset(["max", "min"]): "extrema",
         }
 
@@ -261,6 +258,7 @@ class SummaryMetrics:
         Checks if subsets of requested metrics match any combined metric
         patterns and substitutes them with the more efficient combined version.
         Prioritizes larger combinations (more metrics combined).
+        Preserves the original order of metrics in the request.
         """
         remaining = set(request)
         result = []
@@ -278,9 +276,13 @@ class SummaryMetrics:
                 if combined_name in self._names:
                     result.append(combined_name)
                     remaining -= metric_set
+                    # Add parameter entry for combined metric (always 0)
+                    self._params[combined_name] = 0
         
-        # Add any remaining metrics that weren't part of combinations
-        result.extend(sorted(remaining))
+        # Add remaining metrics in their original order
+        for metric in request:
+            if metric in remaining:
+                result.append(metric)
         
         return result
 
