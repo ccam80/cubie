@@ -434,7 +434,7 @@
 ---
 
 ## Task Group 5: DIRK Optimization - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -513,7 +513,18 @@
      - Careful with streaming pattern
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File edited**: src/cubie/integrators/algorithms/generic_dirk.py (24 lines modified, 4 added)
+- **Functions modified**: `build_step` method
+- **Implementation details**:
+  * Added compile-time checks for b_row and b_hat_row before device function definition
+  * Modified accumulation at stage 0 (lines 385-400) to use direct assignment when b_row == 0
+  * Modified accumulation in stage loop (lines 462-479) to use direct assignment when b_row == stage_idx
+  * When b_row matches current stage, use direct assignment instead of accumulation (+=)
+  * Same logic applied for error estimate with b_hat_row
+  * DIRK uses streaming accumulation similar to ERK, so optimization replaces accumulated value
+  * Preserves FSAL caching in increment_cache and all existing stage computation
+  * Stage 0 and stages 1-s both handle compile-time optimization
+- **No bugs or risks identified**
 
 ---
 
