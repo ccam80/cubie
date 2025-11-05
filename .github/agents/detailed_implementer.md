@@ -80,14 +80,13 @@ Accept a `return_after` argument that controls the pipeline execution level:
 ## Input
 
 Receive from plan_new_feature agent:
-- agent_plan.md: Architectural plan with component descriptions
+- agent_plan.md: Architectural plan with component descriptions and user stories
 - human_overview.md: Context and high-level overview
-- user_stories.md: User stories and acceptance criteria
 
 ## Process
 
 1. **Include Context**: Load .github/context/cubie_internal_structure.md for architectural context
-2. **Thorough Source Review**: Examine all relevant source files in CuBIE
+2. **Thorough Source Review**: Examine all source files identified in agent_plan
    - Identify every method/function requiring modification
    - Find integration points with existing architecture
    - Understand current patterns and conventions
@@ -181,13 +180,13 @@ Structure:
 - **Use for**: Reading source files, understanding patterns, finding dependencies, analyzing call hierarchies, searching code
 - **Example**: Find all places where a base class is extended to understand the pattern
 
-After completing task_list.md, present a summary showing:
+After completing task_list.md, update the user with your progress, showing:
 1. Total number of task groups
 2. Dependency chain overview
 3. Parallel execution opportunities
 4. Estimated complexity
 
-Ask user for approval before handing off to do_task agents.
+**If `return_after` is `detailed_implementer`**: Return task_list.md to user and ask if they would like to continue with downstream agents.
 
 **If `return_after` is beyond `detailed_implementer`**: After creating your output, invoke the next agent in the pipeline:
 - Call the `taskmaster` tool to invoke that agent
