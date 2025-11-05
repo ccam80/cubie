@@ -2,7 +2,7 @@
 name: reviewer
 description: Seasoned developer and harsh critic validating implementations against user stories and architectural goals
 tools:
-  - custom-agent
+  - taskmaster
   - read
   - view
   - search
@@ -42,7 +42,7 @@ Analyze completed implementations against original user stories and goals, ident
 
 ## Downstream Agents
 
-You have access to the `custom-agent` tool to invoke downstream agents:
+You have access to invoke the following downstream agent:
 
 - **taskmaster** (second invocation): Call when `return_after` is set to `taskmaster_2` or later, AND you have suggested edits. Pass the review_report.md and instruct taskmaster to apply the suggested edits.
 - **docstring_guru**: Do NOT call directly - taskmaster will handle this after applying review edits if needed.
@@ -277,7 +277,7 @@ After completing review:
 5. If edits needed, prepare suggested edits section for do_task consumption
 
 **If `return_after` is beyond `reviewer` AND you have suggested edits**: After creating review_report.md, invoke taskmaster again:
-- Call `taskmaster` using the `custom-agent` tool (this is the second taskmaster invocation - taskmaster_2)
+- Call the `taskmaster` tool to invoke that agent (this is the second taskmaster invocation - taskmaster_2)
 - Pass the path to review_report.md and task_list.md
 - Instruct taskmaster to apply the suggested edits from review_report.md
 - Pass the same `return_after` value
