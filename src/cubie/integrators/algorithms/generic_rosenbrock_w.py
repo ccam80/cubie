@@ -224,7 +224,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
-        # Check for last-step caching optimization opportunities
+        # Last-step caching optimization (issue #163):
+        # When final stage weights (b or b_hat) match a row in the coupling
+        # matrix (a), we can directly copy the pre-computed stage increment
+        # instead of accumulating all stages. This eliminates redundant
+        # operations for tableaus like RODAS4P, RODAS5P, and RadauIIA5.
+        # Numba folds these compile-time branches, eliminating dead code.
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 

@@ -218,7 +218,9 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
-        # Check for last-step caching optimization opportunities
+        # Last-step caching optimization (issue #163):
+        # Direct copy from stage_rhs_flat when b or b_hat match a coupling
+        # matrix row, avoiding redundant accumulation.
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 

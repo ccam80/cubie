@@ -864,7 +864,7 @@
 ---
 
 ## Task Group 9: Documentation and Cleanup - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-8
 
 **Required Context**:
@@ -918,7 +918,25 @@
    - Integration: Documentation only
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **Files edited**:
+  * CHANGELOG.md (7 lines added)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (comment updated)
+  * src/cubie/integrators/algorithms/generic_firk.py (comment updated)
+  * src/cubie/integrators/algorithms/generic_erk.py (comment updated)
+  * src/cubie/integrators/algorithms/generic_dirk.py (comment updated)
+- **Documentation added**:
+  * CHANGELOG.md entry under [Unreleased] > Performance section
+  * Explains the last-step caching optimization feature
+  * Lists affected methods (RODAS4P, RODAS5P, RadauIIA5)
+  * Notes that it's transparent to users (no API changes)
+  * Code comments in all four optimized algorithms reference issue #163
+  * Comments explain the optimization pattern and compile-time branching
+- **Implementation details**:
+  * Comments are educational for future developers
+  * Reference issue #163 for traceability
+  * Explain Numba's compile-time constant folding behavior
+  * CHANGELOG follows existing format and conventions
+- **No bugs or risks identified**
 
 ---
 
