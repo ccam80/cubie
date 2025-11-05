@@ -601,7 +601,7 @@
 ---
 
 ## Task Group 7: Unit Tests for Tableau Properties - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -730,7 +730,21 @@
    - Integration: Imports actual tableau definitions
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File created**: tests/integrators/algorithms/test_tableau_properties.py (106 lines)
+- **Tests added**:
+  * test_b_matches_a_row_rodas4p: Verifies RODAS4P returns b_row=5
+  * test_b_matches_a_row_rodas5p: Verifies RODAS5P returns b_row=7
+  * test_b_matches_a_row_radauiia5: Verifies RadauIIA5 returns b_row=2
+  * test_b_matches_a_row_ros3p_none: Verifies ROS3P returns None (no match)
+  * test_b_hat_matches_a_row_rodas4p: Verifies RODAS4P returns b_hat_row=4
+  * test_b_hat_matches_a_row_none_when_no_b_hat: Verifies None when b_hat is None
+  * test_floating_point_tolerance: Verifies 1e-15 tolerance works for floating-point comparisons
+- **Implementation details**:
+  * Tests use actual tableau definitions from the library
+  * Tests verify known matching indices for RODAS and RadauIIA tableaus
+  * Edge cases covered: no match, no b_hat, floating-point tolerance
+  * Tests follow pytest patterns and repository conventions
+- **No bugs or risks identified**
 
 ---
 
