@@ -261,8 +261,8 @@ class SummaryMetrics:
         Prioritizes larger combinations (more metrics combined).
         Preserves the original order of metrics in the request.
         """
-        remaining = set(request)
         result = []
+        used = set()
         
         # Sort by size (descending) to prefer larger combinations
         sorted_combinations = sorted(
@@ -271,19 +271,29 @@ class SummaryMetrics:
             reverse=True
         )
         
-        for metric_set, combined_name in sorted_combinations:
-            if metric_set.issubset(remaining):
-                # Check if combined metric is registered
-                if combined_name in self._names:
-                    result.append(combined_name)
-                    remaining -= metric_set
-                    # Add parameter entry for combined metric (always 0)
-                    self._params[combined_name] = 0
-        
-        # Add remaining metrics in their original order
+        # Process each metric in the original request order
         for metric in request:
-            if metric in remaining:
+            if metric in used:
+                # Already processed as part of a combination
+                continue
+                
+            # Check if this metric is part of any combination
+            combined_found = False
+            for metric_set, combined_name in sorted_combinations:
+                if metric in metric_set and metric_set.issubset(request):
+                    # Check if combined metric is registered and not already used
+                    if combined_name in self._names and combined_name not in result:
+                        result.append(combined_name)
+                        used.update(metric_set)
+                        # Add parameter entry for combined metric (always 0)
+                        self._params[combined_name] = 0
+                        combined_found = True
+                        break
+            
+            if not combined_found:
+                # No combination found, add the metric as-is
                 result.append(metric)
+                used.add(metric)
         
         return result
 
