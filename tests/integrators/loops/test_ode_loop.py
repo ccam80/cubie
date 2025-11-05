@@ -279,3 +279,43 @@ def  test_loop(
         atol=atol,
     )
     assert device_loop_outputs.status == 0
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "algorithm": "explicit_euler",
+            "output_types": [
+                "state", "mean", "std", "rms", "max", "min", 
+                "max_magnitude", "peaks[3]", "negative_peaks[3]"
+            ],
+            "dt_summarise": 0.1,
+        },
+    ],
+    indirect=True,
+)
+def test_all_summary_metrics_numerical_check(
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    """Verify all summary metrics produce numerically correct results in loop context."""
+    # This test ensures that std, min, max_magnitude, and negative_peaks
+    # metrics work correctly in a loop integration context, not just
+    # in isolation. It checks numerical parity with CPU reference.
+    
+    if not output_functions.compile_flags.save_summaries:
+        pytest.skip("Summary metrics are not saved for this configuration.")
+    
+    # Check state summaries match reference
+    np.testing.assert_allclose(
+        device_loop_outputs.state_summaries,
+        cpu_loop_outputs["state_summaries"],
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+        err_msg="State summaries don't match CPU reference"
+    )
+    
+    assert device_loop_outputs.status == 0, "Integration should complete successfully"
