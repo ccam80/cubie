@@ -21,6 +21,8 @@ tools:
   - playwright/browser_wait_for
   - playwright/browser_close
   - custom-agent/detailed_implementer
+  - Task
+  - Task/detailed_implementer
   - read
   - edit
   - create
@@ -90,7 +92,7 @@ Your plan will be interpreted by:
 
 ## Downstream Agents
 
-You have access to the `custom-agent` tool to invoke downstream agents:
+You have access to the `Task` tool to invoke downstream agents:
 
 - **detailed_implementer**: Call when `return_after` is set to `detailed_implementer` or later. Pass the path to your created `agent_plan.md` and specify `return_after` level.
 
@@ -200,7 +202,7 @@ Keep this document concise.
 After completing research and creating your plan files, present a summary to the user and ask if they would like to proceed or require modifications.
 
 **If `return_after` is beyond `plan_new_feature`**: After creating your outputs, invoke the next agent in the pipeline:
-- Call `detailed_implementer` using the `custom-agent` tool
+- Call `detailed_implementer` using the `Task` tool
 - Pass the path to the `agent_plan.md` you created
 - Pass the same `return_after` value
 - Let the downstream agent handle the rest of the pipeline
