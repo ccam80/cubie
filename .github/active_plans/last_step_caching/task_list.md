@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/last_step_caching/agent_plan.md
 
 ## Task Group 1: Tableau Properties Implementation - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -118,7 +118,16 @@
    - Integration: No dependencies, pure property computation
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File edited**: src/cubie/integrators/algorithms/base_algorithm_step.py (82 lines added)
+- **Functions added**: 
+  * `b_matches_a_row` property: Returns row index where a[row] equals b within 1e-15 tolerance
+  * `b_hat_matches_a_row` property: Returns row index where a[row] equals b_hat within 1e-15 tolerance
+- **Implementation details**:
+  * Both properties iterate through all rows in the tableau's a matrix
+  * Element-wise comparison only for the first stage_count elements
+  * Prefer last matching row if multiple matches exist
+  * b_hat_matches_a_row returns None immediately if b_hat is None
+  * No edge cases identified - implementation handles all scenarios correctly
 
 ---
 

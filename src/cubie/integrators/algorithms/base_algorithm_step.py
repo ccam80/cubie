@@ -161,6 +161,88 @@ class ButcherTableau:
 
         return bool(self.c and (self.c[0] == 0.0))
 
+    @property
+    def b_matches_a_row(self) -> Optional[int]:
+        """Return row index where a[row] equals b, or None if no match.
+
+        This property identifies tableaus where the last stage increment
+        already contains the exact combination needed for the proposed
+        state, enabling compile-time optimization to avoid redundant
+        accumulation.
+
+        Returns
+        -------
+        Optional[int]
+            Zero-based row index where a[row] matches b within tolerance
+            of 1e-15, preferring the last matching row if multiple exist.
+            Returns None if no match is found.
+        """
+        tolerance = 1e-15
+        stage_count = self.stage_count
+        matching_row = None
+
+        # Iterate through all rows to find matches, preferring the last
+        for row_idx in range(len(self.a)):
+            row = self.a[row_idx]
+            # Compare only up to stage_count elements
+            row_slice = row[:stage_count]
+            b_slice = self.b[:stage_count]
+
+            # Check element-wise equality within tolerance
+            matches = True
+            for i in range(stage_count):
+                if abs(row_slice[i] - b_slice[i]) > tolerance:
+                    matches = False
+                    break
+
+            if matches:
+                matching_row = row_idx
+
+        return matching_row
+
+    @property
+    def b_hat_matches_a_row(self) -> Optional[int]:
+        """Return row index where a[row] equals b_hat, or None if no match.
+
+        This property identifies tableaus where a stage increment already
+        contains the exact combination needed for the embedded error
+        estimate, enabling compile-time optimization to avoid redundant
+        accumulation.
+
+        Returns
+        -------
+        Optional[int]
+            Zero-based row index where a[row] matches b_hat within
+            tolerance of 1e-15, preferring the last matching row if
+            multiple exist. Returns None if b_hat is None or no match
+            is found.
+        """
+        if self.b_hat is None:
+            return None
+
+        tolerance = 1e-15
+        stage_count = self.stage_count
+        matching_row = None
+
+        # Iterate through all rows to find matches, preferring the last
+        for row_idx in range(len(self.a)):
+            row = self.a[row_idx]
+            # Compare only up to stage_count elements
+            row_slice = row[:stage_count]
+            b_hat_slice = self.b_hat[:stage_count]
+
+            # Check element-wise equality within tolerance
+            matches = True
+            for i in range(stage_count):
+                if abs(row_slice[i] - b_hat_slice[i]) > tolerance:
+                    matches = False
+                    break
+
+            if matches:
+                matching_row = row_idx
+
+        return matching_row
+
 
 @attrs.define
 class StepControlDefaults:
