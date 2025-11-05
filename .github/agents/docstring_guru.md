@@ -147,6 +147,14 @@ def device_function(param1, param2):
 
 **CRITICAL**: Device functions have NO type hints in signature, ONLY in docstring.
 
+### Properties
+For any simple property that returns a value with minimal logic, a one-line docstring is appropriate:
+```python
+@property
+def is_multistage(self) -> bool:
+    """Return ``True`` when the method has multiple stages."""
+```
+
 ### General Classes
 
 ```python
@@ -333,8 +341,8 @@ Provide all modified files ready for commit.
 
 - Enforce standards strictly but understand context
 - Future developers will rely on these docstrings
-- When function purpose is unclear, ASK user for clarification
-- Don't guess at what parameters do - ASK if unclear
+- Be terse
+- No "comments for comments sake", only include instructive comments
 - Maintain consistent terminology across all documentation
 - Cross-reference related functions and classes
 - Prefer clarity over brevity in docstrings
