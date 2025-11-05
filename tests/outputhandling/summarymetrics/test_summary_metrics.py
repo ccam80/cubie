@@ -448,6 +448,211 @@ def test_real_metrics_integration(real_metrics):
         assert len(output_sizes_tuple) == 1
 
 
+def test_combined_metrics_mean_std_rms_all_three(real_metrics):
+    """Test that mean+std+rms is substituted with mean_std_rms."""
+    requested = ["mean", "std", "rms"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute with combined metric
+    assert "mean_std_rms" in processed
+    assert "mean" not in processed
+    assert "std" not in processed
+    assert "rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_mean_std(real_metrics):
+    """Test that mean+std is substituted with mean_std_rms."""
+    requested = ["mean", "std"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute with combined metric
+    assert "mean_std_rms" in processed
+    assert "mean" not in processed
+    assert "std" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_std_rms(real_metrics):
+    """Test that std+rms is substituted with mean_std_rms."""
+    requested = ["std", "rms"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute with combined metric
+    assert "mean_std_rms" in processed
+    assert "std" not in processed
+    assert "rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_mean_rms(real_metrics):
+    """Test that mean+rms is substituted with mean_std_rms."""
+    requested = ["mean", "rms"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute with combined metric
+    assert "mean_std_rms" in processed
+    assert "mean" not in processed
+    assert "rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_max_min(real_metrics):
+    """Test that max+min is substituted with extrema."""
+    requested = ["max", "min"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute with combined metric
+    assert "extrema" in processed
+    assert "max" not in processed
+    assert "min" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_single_mean_not_substituted(real_metrics):
+    """Test that single mean is NOT substituted."""
+    requested = ["mean"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should NOT substitute
+    assert "mean" in processed
+    assert "mean_std_rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_single_std_not_substituted(real_metrics):
+    """Test that single std is NOT substituted."""
+    requested = ["std"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should NOT substitute
+    assert "std" in processed
+    assert "mean_std_rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_single_rms_not_substituted(real_metrics):
+    """Test that single rms is NOT substituted."""
+    requested = ["rms"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should NOT substitute
+    assert "rms" in processed
+    assert "mean_std_rms" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_single_max_not_substituted(real_metrics):
+    """Test that single max is NOT substituted."""
+    requested = ["max"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should NOT substitute
+    assert "max" in processed
+    assert "extrema" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_single_min_not_substituted(real_metrics):
+    """Test that single min is NOT substituted."""
+    requested = ["min"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should NOT substitute
+    assert "min" in processed
+    assert "extrema" not in processed
+    assert len(processed) == 1
+
+
+def test_combined_metrics_with_other_metrics(real_metrics):
+    """Test combined metrics work alongside non-combinable metrics."""
+    requested = ["mean", "std", "rms", "max_magnitude"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute mean+std+rms but keep max_magnitude
+    assert "mean_std_rms" in processed
+    assert "max_magnitude" in processed
+    assert "mean" not in processed
+    assert "std" not in processed
+    assert "rms" not in processed
+    assert len(processed) == 2
+
+
+def test_combined_metrics_multiple_combinations(real_metrics):
+    """Test multiple independent combinations in one request."""
+    requested = ["mean", "std", "rms", "max", "min"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute both combinations
+    assert "mean_std_rms" in processed
+    assert "extrema" in processed
+    assert "mean" not in processed
+    assert "std" not in processed
+    assert "rms" not in processed
+    assert "max" not in processed
+    assert "min" not in processed
+    assert len(processed) == 2
+
+
+def test_combined_metrics_order_independence(real_metrics):
+    """Test that order of request doesn't affect substitution."""
+    # Test different orderings of the same metrics
+    requests = [
+        ["mean", "std", "rms"],
+        ["rms", "mean", "std"],
+        ["std", "rms", "mean"],
+    ]
+    
+    for requested in requests:
+        processed = real_metrics.preprocess_request(requested)
+        assert "mean_std_rms" in processed
+        assert "mean" not in processed
+        assert "std" not in processed
+        assert "rms" not in processed
+        assert len(processed) == 1
+
+
+def test_combined_metrics_buffer_efficiency(real_metrics):
+    """Test that combined metrics actually reduce buffer usage."""
+    # Individual metrics
+    individual = ["mean", "std", "rms"]
+    combined = ["mean_std_rms"]
+    
+    individual_buffer = real_metrics.summaries_buffer_height(individual)
+    combined_buffer = real_metrics.summaries_buffer_height(combined)
+    
+    # Combined should use less buffer space
+    assert combined_buffer < individual_buffer
+    assert combined_buffer == 2  # mean_std_rms uses 2 slots
+    assert individual_buffer == 4  # mean(1) + std(2) + rms(1) = 4
+
+
+def test_combined_metrics_output_sizes(real_metrics):
+    """Test that combined metrics produce correct output sizes."""
+    requested = ["mean", "std", "rms"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Get output sizes
+    output_sizes = real_metrics.output_sizes(processed)
+    
+    # mean_std_rms should output 3 values
+    assert len(output_sizes) == 1
+    assert output_sizes[0] == 3  # [mean, std, rms]
+
+
+def test_combined_metrics_with_peaks(real_metrics):
+    """Test combined metrics work with parameterized metrics like peaks."""
+    requested = ["mean", "std", "peaks[3]"]
+    processed = real_metrics.preprocess_request(requested)
+    
+    # Should substitute mean+std but keep peaks
+    assert "mean_std_rms" in processed
+    assert "peaks" in processed
+    assert "mean" not in processed
+    assert "std" not in processed
+    # peaks should remain as it's not part of any combination
+    assert len(processed) == 2
+
 def test_real_summary_metrics_available_metrics(real_metrics):
     """Test that all expected metrics are available in the real summary_metrics instance."""
     expected_metrics = ["mean", "max", "rms", "peaks"]
