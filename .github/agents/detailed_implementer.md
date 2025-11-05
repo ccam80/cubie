@@ -6,7 +6,7 @@ tools:
   - github/search_code
   - github/list_commits
   - github/get_commit
-  - custom-agent
+  - taskmaster
   - read
   - edit
   - create
@@ -47,7 +47,7 @@ Convert high-level architectural plans (agent_plan.md) into detailed, function-l
 
 ## Downstream Agents
 
-You have access to the `custom-agent` tool to invoke downstream agents:
+You have access to invoke the following downstream agent:
 
 - **taskmaster**: Call when `return_after` is set to `taskmaster` or later. Pass the path to your created `task_list.md` and specify `return_after` level.
 - **reviewer**: Do NOT call directly - taskmaster will handle this if needed.
@@ -190,7 +190,7 @@ After completing task_list.md, present a summary showing:
 Ask user for approval before handing off to do_task agents.
 
 **If `return_after` is beyond `detailed_implementer`**: After creating your output, invoke the next agent in the pipeline:
-- Call `taskmaster` using the `custom-agent` tool
+- Call the `taskmaster` tool to invoke that agent
 - Pass the path to the `task_list.md` you created
 - Pass the same `return_after` value
 - Let the downstream agent handle the rest of the pipeline
