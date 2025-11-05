@@ -224,6 +224,8 @@ class ERKStep(ODEExplicitStep):
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                     use_cached_rhs = all_threads_accepted
+            else:
+                use_cached_rhs = False
 
             if multistage:
                 if use_cached_rhs:

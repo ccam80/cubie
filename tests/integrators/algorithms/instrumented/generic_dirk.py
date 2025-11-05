@@ -310,13 +310,15 @@ class DIRKStep(ODEImplicitStep):
 
             first_step = first_step_flag != int16(0)
             prev_state_accepted = accepted_flag != int16(0)
-
+            use_cached_rhs = False
             # Only use cache if all threads in warp can - otherwise no gain
             if first_same_as_last and multistage:
                 if not first_step_flag:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                     use_cached_rhs = all_threads_accepted
+            else:
+                use_cached_rhs = False
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]
