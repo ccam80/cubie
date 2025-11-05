@@ -207,6 +207,7 @@ class SummaryMetrics:
         # Define combined metrics registry:
         # Maps frozenset of individual metrics to the combined metric name
         # Only combine when ALL constituent parts are requested
+        # This ensures user gets exactly what they requested
         self._combined_metrics = {
             frozenset(["mean", "std", "rms"]): "mean_std_rms",
             frozenset(["max", "min"]): "extrema",
