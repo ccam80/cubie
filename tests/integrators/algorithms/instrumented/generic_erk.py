@@ -219,6 +219,7 @@ class ERKStep(ODEExplicitStep):
             #            Stage 0: operates out of supplied buffers          #
             # ----------------------------------------------------------- #
             # Only use cache if all threads in warp can - otherwise no gain
+            use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step_flag:
                     mask = activemask()
