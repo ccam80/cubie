@@ -47,10 +47,10 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 ### 1. plan_new_feature
 **Role**: Expert project manager and technical architect  
 **Purpose**: User story creation, research, and implementation planning  
-**MCP Tools**: GitHub (always), Perplexity deep_research (if requested), Playwright (web browsing), custom-agent  
+**MCP Tools**: GitHub (always), Perplexity deep_research (if requested), Playwright (web browsing), custom-agent, bash (for directory creation)  
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
-**File Permissions**: Can create/edit files in `.github/active_plans/<feature>/` only
+**File Permissions**: Can create/edit directory and files in `.github/active_plans/<feature>/` only (creates directory first using bash)
 **Downstream Agents**: Can call `detailed_implementer` when `return_after` > `plan_new_feature`
 
 Creates comprehensive plans with:
@@ -112,7 +112,7 @@ Executes:
 ### 5. reviewer
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
-**MCP Tools**: code-metrics (optional), coverage (optional), custom-agent  
+**MCP Tools**: code-metrics (optional), coverage (optional), custom-agent, create, edit  
 **Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/review_report.md` only

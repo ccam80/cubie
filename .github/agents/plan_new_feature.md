@@ -9,7 +9,7 @@ tools:
   - github/get_file_contents
   - github/list_commits
   - github/get_commit
-  - github/list_pulls_requests
+  - github/list_pull_requests
   - github/search_pull_requests
   - github/issue_read
   - github/pull_request_read
@@ -26,6 +26,7 @@ tools:
   - create
   - view
   - search
+  - bash
 ---
 
 # Plan New Feature Agent
@@ -72,6 +73,7 @@ These user stories will be used by the reviewer to validate the final implementa
 ## File Permissions
 
 **Can Create/Edit**:
+- `.github/active_plans/<feature_name>/` directory (create this directory first using bash/shell commands)
 - `.github/active_plans/<feature_name>/user_stories.md`
 - `.github/active_plans/<feature_name>/human_overview.md`
 - `.github/active_plans/<feature_name>/agent_plan.md`

@@ -6,6 +6,8 @@ tools:
   - read
   - view
   - search
+  - create
+  - edit
 ---
 
 # Reviewer Agent
