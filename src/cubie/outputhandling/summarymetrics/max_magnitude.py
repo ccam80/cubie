@@ -1,11 +1,12 @@
 """
-Maximum value summary metric for CUDA-accelerated batch integration.
+Maximum magnitude summary metric for CUDA-accelerated batch integration.
 
-This module implements a summary metric that tracks the maximum value
+This module implements a summary metric that tracks the maximum absolute value
 encountered during integration for each variable.
 """
 
 from numba import cuda
+from math import fabs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -16,25 +17,25 @@ from cubie.outputhandling.summarymetrics.metrics import (
 
 
 @register_metric(summary_metrics)
-class Max(SummaryMetric):
-    """Summary metric that tracks the maximum value of a variable.
+class MaxMagnitude(SummaryMetric):
+    """Summary metric that tracks the maximum absolute value of a variable.
 
     Notes
     -----
-    A single buffer slot stores the running maximum. The buffer resets to
-    ``-1.0e30`` after each save so any new value can replace it.
+    A single buffer slot stores the running maximum magnitude. The buffer
+    resets to ``0.0`` after each save.
     """
 
     def __init__(self) -> None:
-        """Initialise the Max summary metric with fixed buffer sizes."""
+        """Initialise the MaxMagnitude summary metric."""
         super().__init__(
-            name="max",
+            name="max_magnitude",
             buffer_size=1,
             output_size=1,
         )
 
     def build(self) -> MetricFuncCache:
-        """Generate CUDA device functions for maximum value calculation.
+        """Generate CUDA device functions for maximum magnitude calculation.
 
         Returns
         -------
@@ -43,8 +44,8 @@ class Max(SummaryMetric):
 
         Notes
         -----
-        The update callback keeps the running maximum while the save callback
-        writes the result and resets the buffer sentinel.
+        The update callback keeps the running maximum of absolute values while
+        the save callback writes the result and resets the buffer.
         """
 
         # no cover: start
@@ -62,25 +63,27 @@ class Max(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """Update the running maximum with a new value.
+            """Update the running maximum magnitude with a new value.
 
             Parameters
             ----------
             value
-                float. New value to compare against the current maximum.
+                float. New value whose absolute value is compared.
             buffer
-                device array. Storage for the current maximum value.
+                device array. Storage for the current maximum magnitude.
             current_index
-                int. Current integration step index (unused for this metric).
+                int. Current integration step index (unused).
             customisable_variable
-                int. Metric parameter placeholder (unused for max).
+                int. Metric parameter placeholder (unused).
 
             Notes
             -----
-            Updates ``buffer[0]`` if the new value exceeds the current maximum.
+            Updates ``buffer[0]`` if ``abs(value)`` exceeds the current
+            maximum magnitude.
             """
-            if value > buffer[0]:
-                buffer[0] = value
+            abs_value = fabs(value)
+            if abs_value > buffer[0]:
+                buffer[0] = abs_value
 
         @cuda.jit(
             [
@@ -96,26 +99,26 @@ class Max(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """Save the maximum value to output and reset the buffer.
+            """Save the maximum magnitude to output and reset the buffer.
 
             Parameters
             ----------
             buffer
-                device array. Buffer containing the current maximum value.
+                device array. Buffer containing the current max magnitude.
             output_array
-                device array. Output location for saving the maximum value.
+                device array. Output location for saving the max magnitude.
             summarise_every
-                int. Number of steps between saves (unused for max).
+                int. Number of steps between saves (unused).
             customisable_variable
-                int. Metric parameter placeholder (unused for max).
+                int. Metric parameter placeholder (unused).
 
             Notes
             -----
             Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
-            sentinel to ``-1.0e30`` for the next period.
+            to ``0.0`` for the next period.
             """
             output_array[0] = buffer[0]
-            buffer[0] = -1.0e30  # A very non-maximal number
+            buffer[0] = 0.0
 
         # no cover: end
-        return MetricFuncCache(update = update, save = save)
+        return MetricFuncCache(update=update, save=save)

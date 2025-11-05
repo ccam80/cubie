@@ -194,11 +194,26 @@ class SummaryMetrics:
         factory=dict,
         init=False,
     )
+    _combined_metrics: dict[frozenset[str], str] = attrs.field(
+        validator=attrs.validators.instance_of(dict),
+        factory=dict,
+        init=False,
+    )
 
     def __attrs_post_init__(self) -> None:
-        """Reset the parsed parameter cache."""
+        """Reset the parsed parameter cache and define combined metrics."""
 
         self._params = {}
+        # Define combined metrics registry:
+        # Maps frozenset of individual metrics to the combined metric name
+        # Only combine when ALL constituent parts are requested
+        # This ensures user gets exactly what they requested
+        self._combined_metrics = {
+            frozenset(["mean", "std", "rms"]): "mean_std_rms",
+            frozenset(["mean", "std"]): "mean_std",
+            frozenset(["std", "rms"]): "std_rms",
+            frozenset(["max", "min"]): "extrema",
+        }
 
     def register_metric(self, metric: SummaryMetric) -> None:
         """Register a new summary metric with the system.
@@ -228,6 +243,62 @@ class SummaryMetrics:
         self._metric_objects[metric.name] = metric
         self._params[metric.name] = 0
 
+    def _apply_combined_metrics(self, request: list[str]) -> list[str]:
+        """Substitute individual metrics with combined metrics when beneficial.
+
+        Parameters
+        ----------
+        request
+            List of metric names to check for substitution.
+
+        Returns
+        -------
+        list[str]
+            Modified list with combined metrics substituted where applicable.
+
+        Notes
+        -----
+        Checks if subsets of requested metrics match any combined metric
+        patterns and substitutes them with the more efficient combined version.
+        Prioritizes larger combinations (more metrics combined).
+        Preserves the original order of metrics in the request.
+        """
+        result = []
+        used = set()
+        
+        # Sort by size (descending) to prefer larger combinations
+        sorted_combinations = sorted(
+            self._combined_metrics.items(),
+            key=lambda x: len(x[0]),
+            reverse=True
+        )
+        
+        # Process each metric in the original request order
+        for metric in request:
+            if metric in used:
+                # Already processed as part of a combination
+                continue
+                
+            # Check if this metric is part of any combination
+            combined_found = False
+            for metric_set, combined_name in sorted_combinations:
+                if metric in metric_set and metric_set.issubset(request):
+                    # Check if combined metric is registered and not already used
+                    if combined_name in self._names and combined_name not in result:
+                        result.append(combined_name)
+                        used.update(metric_set)
+                        # Add parameter entry for combined metric (always 0)
+                        self._params[combined_name] = 0
+                        combined_found = True
+                        break
+            
+            if not combined_found:
+                # No combination found, add the metric as-is
+                result.append(metric)
+                used.add(metric)
+        
+        return result
+
     def preprocess_request(self, request: list[str]) -> list[str]:
         """Parse parameters from metric specifications and validate.
 
@@ -240,14 +311,20 @@ class SummaryMetrics:
         Returns
         -------
         list[str]
-            Validated metric names after parameter parsing.
+            Validated metric names after parameter parsing and combined
+            metric substitution.
 
         Notes
         -----
         Invalid metric names trigger a warning and are removed from the
-        returned list.
+        returned list. Combined metrics are automatically substituted when
+        multiple individual metrics can be computed more efficiently together.
         """
         clean_request = self.parse_string_for_params(request)
+        
+        # Apply combined metric substitutions
+        clean_request = self._apply_combined_metrics(clean_request)
+        
         # Validate that all metrics exist and filter out unregistered ones
         validated_request = []
         for metric in clean_request:

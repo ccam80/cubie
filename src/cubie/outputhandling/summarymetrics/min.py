@@ -1,7 +1,7 @@
 """
-Maximum value summary metric for CUDA-accelerated batch integration.
+Minimum value summary metric for CUDA-accelerated batch integration.
 
-This module implements a summary metric that tracks the maximum value
+This module implements a summary metric that tracks the minimum value
 encountered during integration for each variable.
 """
 
@@ -16,25 +16,25 @@ from cubie.outputhandling.summarymetrics.metrics import (
 
 
 @register_metric(summary_metrics)
-class Max(SummaryMetric):
-    """Summary metric that tracks the maximum value of a variable.
+class Min(SummaryMetric):
+    """Summary metric that tracks the minimum value of a variable.
 
     Notes
     -----
-    A single buffer slot stores the running maximum. The buffer resets to
-    ``-1.0e30`` after each save so any new value can replace it.
+    A single buffer slot stores the running minimum. The buffer resets to
+    ``1.0e30`` after each save so any new value can replace it.
     """
 
     def __init__(self) -> None:
-        """Initialise the Max summary metric with fixed buffer sizes."""
+        """Initialise the Min summary metric with fixed buffer sizes."""
         super().__init__(
-            name="max",
+            name="min",
             buffer_size=1,
             output_size=1,
         )
 
     def build(self) -> MetricFuncCache:
-        """Generate CUDA device functions for maximum value calculation.
+        """Generate CUDA device functions for minimum value calculation.
 
         Returns
         -------
@@ -43,7 +43,7 @@ class Max(SummaryMetric):
 
         Notes
         -----
-        The update callback keeps the running maximum while the save callback
+        The update callback keeps the running minimum while the save callback
         writes the result and resets the buffer sentinel.
         """
 
@@ -62,24 +62,25 @@ class Max(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """Update the running maximum with a new value.
+            """Update the running minimum with a new value.
 
             Parameters
             ----------
             value
-                float. New value to compare against the current maximum.
+                float. New value to compare against the current minimum.
             buffer
-                device array. Storage for the current maximum value.
+                device array. Storage for the current minimum value.
             current_index
                 int. Current integration step index (unused for this metric).
             customisable_variable
-                int. Metric parameter placeholder (unused for max).
+                int. Metric parameter placeholder (unused for min).
 
             Notes
             -----
-            Updates ``buffer[0]`` if the new value exceeds the current maximum.
+            Updates ``buffer[0]`` if the new value is less than the current
+            minimum.
             """
-            if value > buffer[0]:
+            if value < buffer[0]:
                 buffer[0] = value
 
         @cuda.jit(
@@ -96,26 +97,26 @@ class Max(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """Save the maximum value to output and reset the buffer.
+            """Save the minimum value to output and reset the buffer.
 
             Parameters
             ----------
             buffer
-                device array. Buffer containing the current maximum value.
+                device array. Buffer containing the current minimum value.
             output_array
-                device array. Output location for saving the maximum value.
+                device array. Output location for saving the minimum value.
             summarise_every
-                int. Number of steps between saves (unused for max).
+                int. Number of steps between saves (unused for min).
             customisable_variable
-                int. Metric parameter placeholder (unused for max).
+                int. Metric parameter placeholder (unused for min).
 
             Notes
             -----
             Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
-            sentinel to ``-1.0e30`` for the next period.
+            sentinel to ``1.0e30`` for the next period.
             """
             output_array[0] = buffer[0]
-            buffer[0] = -1.0e30  # A very non-maximal number
+            buffer[0] = 1.0e30
 
         # no cover: end
-        return MetricFuncCache(update = update, save = save)
+        return MetricFuncCache(update=update, save=save)

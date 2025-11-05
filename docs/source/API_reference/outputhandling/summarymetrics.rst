@@ -20,6 +20,12 @@ Summary metrics
    summarymetrics/metrics/max
    summarymetrics/metrics/rms
    summarymetrics/metrics/peaks
+   summarymetrics/metrics/std
+   summarymetrics/metrics/min
+   summarymetrics/metrics/max_magnitude
+   summarymetrics/metrics/extrema
+   summarymetrics/metrics/negative_peaks
+   summarymetrics/metrics/mean_std_rms
 
 The ``summarymetrics`` package houses the summary metric registry used by output
 handling to accumulate reductions during integration. Importing the package
@@ -35,10 +41,20 @@ Public interface
 * :doc:`SummaryMetric <summarymetrics/metrics/summary_metric>` – base class describing summary metric interfaces.
 * :doc:`SummaryMetrics <summarymetrics/metrics/summary_metrics>` – registry container that stores metrics and compiled functions.
 * :doc:`MetricFuncCache <summarymetrics/metrics/metric_func_cache>` – caches compiled CUDA functions per metric.
-* :doc:`Mean <summarymetrics/metrics/mean>` – built-in average metric.
-* :doc:`Max <summarymetrics/metrics/max>` – built-in maximum metric.
-* :doc:`RMS <summarymetrics/metrics/rms>` – built-in root-mean-square metric.
-* :doc:`Peaks <summarymetrics/metrics/peaks>` – built-in peak-detection metric.
+
+Built-in metrics
+~~~~~~~~~~~~~~~~
+
+* :doc:`Mean <summarymetrics/metrics/mean>` – arithmetic average.
+* :doc:`Max <summarymetrics/metrics/max>` – maximum value.
+* :doc:`Min <summarymetrics/metrics/min>` – minimum value.
+* :doc:`RMS <summarymetrics/metrics/rms>` – root-mean-square.
+* :doc:`Std <summarymetrics/metrics/std>` – standard deviation.
+* :doc:`MaxMagnitude <summarymetrics/metrics/max_magnitude>` – maximum absolute value.
+* :doc:`Extrema <summarymetrics/metrics/extrema>` – both maximum and minimum.
+* :doc:`Peaks <summarymetrics/metrics/peaks>` – peak detection (local maxima).
+* :doc:`NegativePeaks <summarymetrics/metrics/negative_peaks>` – negative peak detection (local minima).
+* :doc:`MeanStdRms <summarymetrics/metrics/mean_std_rms>` – composite metric computing mean, std, and rms efficiently.
 
 Dependencies
 ------------
