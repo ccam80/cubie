@@ -121,23 +121,50 @@ for comp_idx in range(n):
 - RadauIIA5: `b_row = 2` (last row of 3-stage method)
 - Gauss-Legendre: `b_row = None`, use accumulation
 
-### 4. (Optional) Generic ERK Optimization
+### 4. Generic ERK Optimization
 
 **File**: `src/cubie/integrators/algorithms/generic_erk.py`
+**Instrumented File**: `tests/integrators/algorithms/instrumented/generic_erk.py`
 
-**Consideration**: Some explicit methods may also have this property
-- Check if any ERK tableaus in registry have matching rows
-- If found, apply same optimization pattern
-- Lower priority than Rosenbrock and FIRK
+**Changes in `build_step()` method**:
 
-### 5. (Optional) Generic DIRK Optimization
+Apply the same optimization pattern as for Rosenbrock-W:
+- Check `tableau.b_matches_a_row` and `tableau.b_hat_matches_a_row` before device function
+- Add compile-time branches to use direct copy when properties return non-None
+- Access pre-computed stage values from storage arrays
+
+**Current accumulation** (lines ~296-310):
+```python
+for idx in range(n):
+    increment = stage_rhs[idx]
+    proposed_state[idx] += solution_weights[stage_idx] * increment
+    if has_error:
+        error[idx] += error_weights[stage_idx] * increment
+```
+
+**Optimized path**:
+- If `b_row is not None`: Copy directly from `stage_cache` or stage storage
+- If `b_hat_row is not None`: Copy directly for error calculation
+
+**Instrumented counterpart**:
+- Apply identical changes to `tests/integrators/algorithms/instrumented/generic_erk.py`
+- Maintain exact parallel structure with main implementation
+
+### 5. Generic DIRK Optimization
 
 **File**: `src/cubie/integrators/algorithms/generic_dirk.py`
+**Instrumented File**: `tests/integrators/algorithms/instrumented/generic_dirk.py`
 
-**Consideration**: Some DIRK methods may have this property
-- Check if any DIRK tableaus have matching rows
-- If found, apply same optimization pattern
-- Lower priority than Rosenbrock and FIRK
+**Changes in `build_step()` method**:
+
+Apply the same optimization pattern:
+- Check tableau properties before device function
+- Add compile-time branches for direct copy
+- Access stage values from appropriate storage buffers
+
+**Instrumented counterpart**:
+- Apply identical changes to `tests/integrators/algorithms/instrumented/generic_dirk.py`
+- Maintain exact parallel structure with main implementation
 
 ## Data Structures
 
@@ -147,6 +174,10 @@ The optimization uses existing structures:
 - `ButcherTableau.a`, `.b`, `.b_hat` (already exists)
 - `stage_store` buffer in Rosenbrock methods (already allocated)
 - `stage_rhs_flat` buffer in FIRK methods (already allocated)
+- `stage_rhs` buffer in ERK methods (already allocated)
+- Stage storage in DIRK methods (already allocated)
+
+All generic algorithms have appropriate storage for stage increments/RHS values that can be accessed directly when row equality is detected.
 
 ## Expected Interactions
 
@@ -230,8 +261,8 @@ The optimization uses existing structures:
 1. Run RODAS4P solver and verify results match CPU reference
 2. Run RODAS5P solver and verify results match CPU reference
 3. Run RadauIIA5 solver and verify results match CPU reference
-4. Compare results between optimized and non-optimized paths (if possible to disable optimization)
-5. Performance benchmark showing speedup (optional, informational)
+4. Verify no unnecessary accumulation occurs (inspect compiled code structure if feasible)
+5. Test across different precisions (float32, float64)
 
 ### Numerical Validation
 
@@ -241,25 +272,42 @@ The optimization uses existing structures:
 - Assert results match within tolerance (use existing test patterns)
 - Test across different precisions (float32, float64)
 
-## Performance Expectations
+### Instrumented Algorithm Updates
 
-### RODAS4P (6 stages)
-- **Saved operations per state variable**: 5 multiplications + 5 additions for proposed_state
-- **Additional savings**: 5 multiplications + 5 additions for error estimate
-- **Expected speedup**: 5-8% of total step time
+**Critical**: All changes to generic algorithms must be mirrored in instrumented versions:
+- `tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py`
+- `tests/integrators/algorithms/instrumented/generic_firk.py`
+- `tests/integrators/algorithms/instrumented/generic_erk.py`
+- `tests/integrators/algorithms/instrumented/generic_dirk.py`
 
-### RODAS5P (8 stages)
-- **Saved operations per state variable**: 7 multiplications + 7 additions for proposed_state, 7+7 for error
-- **Expected speedup**: 8-12% of total step time
+**Validation**:
+- Ensure instrumented versions maintain exact parallel structure
+- Any compile-time branch added to main algorithm must appear in instrumented version
+- Keep variable names and logic flow identical
 
-### RadauIIA5 (3 stages)
-- **Saved operations per state variable**: 2 multiplications + 2 additions for proposed_state
-- **Expected speedup**: 3-5% of total step time
+## Computational Efficiency Goals
+
+### Elimination of Unnecessary Operations
+
+**RODAS4P (6 stages)**:
+- Without optimization: 6 multiplications + 6 additions per state variable for proposed_state
+- With optimization: Direct copy from stage storage (no accumulation)
+- Same savings for error estimate
+
+**RODAS5P (8 stages)**:
+- Without optimization: 8 multiplications + 8 additions per state variable
+- With optimization: Direct copy from stage storage
+- Same savings for error estimate
+
+**RadauIIA5 (3 stages)**:
+- Without optimization: 3 multiplications + 3 additions per state variable
+- With optimization: Direct copy from stage storage
 
 ### Measurement
-- Use `pytest-durations` to compare test execution times
-- Before/after benchmarks on standardized problem
-- Report in PR description
+
+- Validation via numerical equivalence tests (not timing tests)
+- Confirm no unnecessary accumulation through code inspection
+- Verify compile-time branch elimination in generated device functions
 
 ## Validation Checklist
 
@@ -267,12 +315,14 @@ Before marking implementation complete:
 
 - [ ] `ButcherTableau.b_matches_a_row` property implemented and tested
 - [ ] `ButcherTableau.b_hat_matches_a_row` property implemented and tested
-- [ ] Rosenbrock-W step optimization implemented
-- [ ] FIRK step optimization implemented
+- [ ] Rosenbrock-W step optimization implemented (main and instrumented)
+- [ ] FIRK step optimization implemented (main and instrumented)
+- [ ] ERK step optimization implemented (main and instrumented)
+- [ ] DIRK step optimization implemented (main and instrumented)
 - [ ] All existing tests pass (no regressions)
 - [ ] New unit tests for tableau properties pass
-- [ ] Integration tests for RODAS4P, RODAS5P, RadauIIA5 pass
-- [ ] CPU reference validation confirms numerical equivalence
+- [ ] Integration tests confirm numerical equivalence
+- [ ] CPU reference validation confirms correctness
 - [ ] Linting passes (flake8, ruff)
 - [ ] Documentation updated if needed (likely just code comments)
 
@@ -326,15 +376,29 @@ Before marking implementation complete:
 
 2. **Phase 2**: Rosenbrock optimization
    - Modify `generic_rosenbrock_w.py` build_step()
+   - Modify `tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py` in parallel
    - Add/update integration tests for RODAS4P and RODAS5P
    - Verify numerical equivalence
 
 3. **Phase 3**: FIRK optimization
    - Modify `generic_firk.py` build_step()
+   - Modify `tests/integrators/algorithms/instrumented/generic_firk.py` in parallel
    - Add/update integration tests for RadauIIA5
    - Verify numerical equivalence
 
-4. **Phase 4**: Documentation and cleanup
+4. **Phase 4**: ERK optimization
+   - Modify `generic_erk.py` build_step()
+   - Modify `tests/integrators/algorithms/instrumented/generic_erk.py` in parallel
+   - Add/update integration tests
+   - Verify numerical equivalence
+
+5. **Phase 5**: DIRK optimization
+   - Modify `generic_dirk.py` build_step()
+   - Modify `tests/integrators/algorithms/instrumented/generic_dirk.py` in parallel
+   - Add/update integration tests
+   - Verify numerical equivalence
+
+6. **Phase 6**: Documentation and cleanup
    - Add code comments
    - Update CHANGELOG.md
    - Final validation pass
@@ -342,7 +406,9 @@ Before marking implementation complete:
 ## Success Criteria
 
 - All validation checklist items completed
-- Performance improvement measurable and documented
+- No unnecessary accumulation when row equality exists
 - Zero regressions in existing tests
+- All generic algorithms (ERK, DIRK, FIRK, Rosenbrock-W) support optimization
+- Instrumented versions updated in parallel with main implementations
 - Code review approval
 - User stories acceptance criteria met

@@ -18,10 +18,10 @@ proposed = state + dt * k[last]  // Direct copy instead of accumulation
 error = dt * k[second_last]      // Direct copy when applicable
 ```
 
-### Performance Impact
+### Computational Impact
 
-- **Reduction in operations**: Eliminates (stage_count - 1) multiplications and additions per state variable
-- **Expected speedup**: 5-10% for RODAS4P (6 stages), 8-12% for RODAS5P (8 stages)
+- **Reduction in operations**: Eliminates (stage_count - 1) multiplications and additions per state variable when row equality is detected
+- **Affected methods**: RODAS4P, RODAS5P, RadauIIA5, and any future tableaus with this property
 - **Accuracy**: Numerically identical results (within floating-point precision)
 
 ## Architecture Diagram
@@ -102,8 +102,12 @@ RODAS*P methods have last-step caching but NOT FSAL (FSAL requires explicit meth
 - `src/cubie/integrators/algorithms/base_algorithm_step.py`: Add properties to ButcherTableau
 - `src/cubie/integrators/algorithms/generic_rosenbrock_w.py`: Use properties in step compilation
 - `src/cubie/integrators/algorithms/generic_firk.py`: Use properties in step compilation
-- (Optional) `src/cubie/integrators/algorithms/generic_erk.py`: Could benefit explicit methods with this property
-- (Optional) `src/cubie/integrators/algorithms/generic_dirk.py`: Could benefit DIRK methods with this property
+- `src/cubie/integrators/algorithms/generic_erk.py`: Use properties in step compilation
+- `src/cubie/integrators/algorithms/generic_dirk.py`: Use properties in step compilation
+- `tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py`: Update instrumented version
+- `tests/integrators/algorithms/instrumented/generic_firk.py`: Update instrumented version
+- `tests/integrators/algorithms/instrumented/generic_erk.py`: Update instrumented version
+- `tests/integrators/algorithms/instrumented/generic_dirk.py`: Update instrumented version
 
 **Not Affected**:
 - No changes to tableau definitions (already correct)
