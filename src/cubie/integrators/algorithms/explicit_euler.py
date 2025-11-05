@@ -26,7 +26,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: float,
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,

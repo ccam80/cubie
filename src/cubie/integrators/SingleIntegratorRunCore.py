@@ -107,7 +107,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         dt = step_control_settings.get("dt", None)
         algorithm_settings["n"] = n
-        algorithm_settings["dt"] = dt
+        if dt is not None:
+            algorithm_settings["dt"] = dt
         algorithm_settings["driver_function"] = driver_function
         # Thread the driver time-derivative through to algorithm factories
         algorithm_settings["driver_del_t"] = driver_del_t
@@ -125,6 +126,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._step_controller = get_controller(
             precision=precision,
             settings=controller_settings,
+        )
+
+        self.check_compatibility(
+            algorithm_settings["algorithm"],
+            controller_settings["step_controller"],
         )
 
         loop_settings["dt0"] = self._step_controller.dt0
@@ -166,21 +172,96 @@ class SingleIntegratorRunCore(CUDAFactory):
             return int(self._system.sizes.states)
         return 0
 
-    def check_compatibility(self) -> None:
+    def check_compatibility(
+        self,
+        algorithm_name: str,
+        controller_name: str,
+    ) -> None:
         """Validate that algorithm and controller step modes are aligned.
+
+        This method checks whether the chosen integration algorithm and step
+        controller are compatible. Specifically, it verifies that adaptive
+        step controllers are not paired with fixed-step (errorless)
+        algorithms, since adaptive controllers require error estimates to
+        adjust the step size dynamically.
+
+        The validation is performed during integrator initialization, after
+        both the algorithm and controller have been instantiated but before
+        the CUDA loop is compiled. This ensures early detection of
+        incompatible configurations and provides clear, actionable error
+        messages to users.
+
+        Parameters
+        ----------
+        algorithm_name
+            Name of the algorithm being used (e.g., "euler", "erk").
+        controller_name
+            Name of the step controller being used (e.g., "fixed", "pi").
 
         Raises
         ------
         ValueError
             Raised when an adaptive controller is paired with a fixed-step
-            algorithm.
+            algorithm. The error message includes the specific algorithm and
+            controller names, explains why the configuration is invalid, and
+            suggests two solutions: using a fixed-step controller or choosing
+            an adaptive algorithm with error estimation capability.
+
+        Notes
+        -----
+        This validation only checks for the specific case of adaptive
+        controllers with errorless algorithms. Other combinations are valid:
+
+        - Adaptive algorithm + adaptive controller: Valid and recommended
+        - Errorless algorithm + fixed controller: Valid
+        - Adaptive algorithm + fixed controller: Valid (uses fixed step)
+        
+        The error message format is:
+        "Adaptive step controller '{controller_name}' cannot be used with
+        fixed-step algorithm '{algo_name}'. The algorithm does not provide
+        an error estimate required for adaptive stepping. Use
+        step_controller='fixed' or choose an adaptive algorithm with error
+        estimation."
+        
+        Examples
+        --------
+        Valid configuration (adaptive algorithm with adaptive controller):
+        
+        >>> from cubie import Solver
+        >>> solver = Solver(
+        ...     system=my_system,
+        ...     algorithm="erk",  # Dormand-Prince has error estimate
+        ...     step_controller="pi",
+        ... )
+        
+        Valid configuration (errorless algorithm with fixed controller):
+        
+        >>> solver = Solver(
+        ...     system=my_system,
+        ...     algorithm="explicit_euler",
+        ...     step_controller="fixed",
+        ...     dt=1e-3,
+        ... )
+        
+        Invalid configuration (errorless algorithm with adaptive controller):
+        
+        >>> solver = Solver(
+        ...     system=my_system,
+        ...     algorithm="explicit_euler",
+        ...     step_controller="pi",  # Raises ValueError
+        ... )
         """
 
         if (not self._algo_step.is_adaptive and
                 self._step_controller.is_adaptive):
+
             raise ValueError(
-                "Adaptive step controller cannot be used with fixed-step "
-                "algorithm.",
+                f"Adaptive step controller '{controller_name}' cannot be "
+                f"used with fixed-step algorithm '{algorithm_name}'. "
+                f"The algorithm does not provide an error estimate "
+                f"required for adaptive stepping. "
+                f"Use step_controller='fixed' or choose an adaptive "
+                f"algorithm with error estimation."
             )
 
     def instantiate_loop(

@@ -1,8 +1,35 @@
 """Rosenbrock-W integration step as described in (5.2) in Lang & Verwer (2001).
 
- Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver Designed
- for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
- https://doi.org/10.1023/A:1021900219772"""
+This module provides the :class:`GenericRosenbrockWStep` class, which
+implements Rosenbrock-W methods for stiff ODEs. Rosenbrock methods are
+linearly implicit methods that avoid the need for iterative nonlinear
+solvers by linearizing the problem around the current state.
+
+Key Features
+------------
+- Configurable tableaus via :class:`RosenbrockTableau`
+- Automatic controller defaults selection based on error estimate capability
+- Matrix-free linear solvers with cached Jacobian approximation
+- Efficient for moderately stiff systems without Newton iteration overhead
+
+Notes
+-----
+The module defines two sets of default step controller settings:
+
+- :data:`ROSENBROCK_ADAPTIVE_DEFAULTS`: Used when the tableau has an
+  embedded error estimate. Defaults to PI controller with adaptive stepping.
+- :data:`ROSENBROCK_FIXED_DEFAULTS`: Used when the tableau lacks an error
+  estimate. Defaults to fixed-step controller.
+
+This dynamic selection ensures that users cannot accidentally pair an
+errorless tableau with an adaptive controller, which would fail at runtime.
+
+References
+----------
+Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver Designed
+for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
+https://doi.org/10.1023/A:1021900219772
+"""
 
 from typing import Callable, Optional, Tuple
 
@@ -26,7 +53,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 
-ROSENBROCK_DEFAULTS = StepControlDefaults(
+ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -39,6 +66,44 @@ ROSENBROCK_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+"""Default step controller settings for adaptive Rosenbrock tableaus.
+
+This configuration is used when the Rosenbrock tableau has an embedded error
+estimate (``tableau.has_error_estimate == True``).
+
+The PI controller provides robust adaptive stepping with proportional and
+derivative terms to smooth step size adjustments. The deadband prevents
+unnecessary step size changes for small variations in the error estimate.
+
+Notes
+-----
+These defaults are applied automatically when creating a
+:class:`GenericRosenbrockWStep` with an adaptive tableau. Users can override
+any of these settings by explicitly specifying step controller parameters.
+"""
+
+ROSENBROCK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
+"""Default step controller settings for errorless Rosenbrock tableaus.
+
+This configuration is used when the Rosenbrock tableau lacks an embedded
+error estimate (``tableau.has_error_estimate == False``).
+
+Fixed-step controllers maintain a constant step size throughout the
+integration. This is the only valid choice for errorless tableaus since
+adaptive stepping requires an error estimate to adjust the step size.
+
+Notes
+-----
+These defaults are applied automatically when creating a
+:class:`GenericRosenbrockWStep` with an errorless tableau. Users can
+override the step size ``dt`` by explicitly specifying it in the step
+controller settings.
+"""
 
 
 @attrs.define
@@ -57,7 +122,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -69,30 +134,97 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
     ) -> None:
-        """Initialise the Rosenbrock-W step configuration."""
+        """Initialise the Rosenbrock-W step configuration.
+        
+        This constructor creates a Rosenbrock-W step object and automatically
+        selects appropriate default step controller settings based on whether
+        the tableau has an embedded error estimate. Tableaus with error
+        estimates default to adaptive stepping (PI controller), while
+        errorless tableaus default to fixed stepping.
+
+        Parameters
+        ----------
+        precision
+            Floating-point precision for CUDA computations.
+        n
+            Number of state variables in the ODE system.
+        dt
+            Initial or fixed step size. When ``None``, the step size is
+            determined by the controller defaults.
+        dxdt_function
+            Compiled CUDA device function computing state derivatives.
+        observables_function
+            Optional compiled CUDA device function computing observables.
+        driver_function
+            Optional compiled CUDA device function computing time-varying
+            drivers.
+        driver_del_t
+            Optional compiled CUDA device function computing time derivatives
+            of drivers (required for some Rosenbrock formulations).
+        get_solver_helper_fn
+            Factory function returning solver helper for Jacobian operations.
+        preconditioner_order
+            Order of the finite-difference Jacobian approximation used in the
+            preconditioner.
+        krylov_tolerance
+            Convergence tolerance for the Krylov linear solver.
+        max_linear_iters
+            Maximum iterations allowed for the Krylov solver.
+        linear_correction_type
+            Type of Krylov correction ("minimal_residual" or other).
+        tableau
+            Rosenbrock tableau describing the coefficients and gamma values.
+            Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
+        
+        Notes
+        -----
+        The step controller defaults are selected dynamically:
+        
+        - If ``tableau.has_error_estimate`` is ``True``:
+          Uses :data:`ROSENBROCK_ADAPTIVE_DEFAULTS` (PI controller)
+        - If ``tableau.has_error_estimate`` is ``False``:
+          Uses :data:`ROSENBROCK_FIXED_DEFAULTS` (fixed-step controller)
+        
+        This automatic selection prevents incompatible configurations where
+        an adaptive controller is paired with an errorless tableau.
+        
+        Rosenbrock methods linearize the ODE around the current state,
+        avoiding the need for iterative Newton solves. This makes them
+        efficient for moderately stiff problems. The gamma parameter from the
+        tableau controls the implicit treatment of the linearized system.
+        """
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        config = RosenbrockWStepConfig(
-            precision=precision,
-            n=n,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            driver_del_t=driver_del_t,
-            get_solver_helper_fn=get_solver_helper_fn,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            tableau=tableau_value,
-            beta=1.0,
-            gamma=tableau_value.gamma,
-            M=mass,
-        )
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "driver_del_t": driver_del_t,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "tableau": tableau_value,
+            "beta": 1.0,
+            "gamma": tableau_value.gamma,
+            "M": mass,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
-        super().__init__(config, ROSENBROCK_DEFAULTS)
+
+        if tableau.has_error_estimate:
+            defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ROSENBROCK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,

@@ -1,4 +1,30 @@
-"""Diagonally implicit Runge–Kutta integration step implementation."""
+"""Diagonally implicit Runge–Kutta integration step implementation.
+
+This module provides the :class:`DIRKStep` class, which implements
+diagonally implicit Runge--Kutta (DIRK) methods using configurable Butcher
+tableaus. DIRK methods are linearly implicit with a diagonal structure in
+the coefficient matrix, allowing each implicit stage to be solved
+independently.
+
+Key Features
+------------
+- Configurable tableaus via :class:`DIRKTableau`
+- Automatic controller defaults selection based on error estimate capability
+- Matrix-free Newton-Krylov solvers for implicit stages
+- Efficient diagonal structure reduces computational cost vs fully implicit
+
+Notes
+-----
+The module defines two sets of default step controller settings:
+
+- :data:`DIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
+  error estimate. Defaults to PI controller with adaptive stepping.
+- :data:`DIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
+  estimate. Defaults to fixed-step controller.
+
+This dynamic selection ensures that users cannot accidentally pair an
+errorless tableau with an adaptive controller, which would fail at runtime.
+"""
 
 from typing import Callable, Optional
 
@@ -26,7 +52,7 @@ from cubie.integrators.matrix_free_solvers import (
 )
 
 
-DIRK_DEFAULTS = StepControlDefaults(
+DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -39,6 +65,43 @@ DIRK_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+"""Default step controller settings for adaptive DIRK tableaus.
+
+This configuration is used when the DIRK tableau has an embedded error
+estimate (``tableau.has_error_estimate == True``).
+
+The PI controller provides robust adaptive stepping with proportional and
+derivative terms to smooth step size adjustments. The deadband prevents
+unnecessary step size changes for small variations in the error estimate.
+
+Notes
+-----
+These defaults are applied automatically when creating a :class:`DIRKStep`
+with an adaptive tableau. Users can override any of these settings by
+explicitly specifying step controller parameters.
+"""
+
+DIRK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
+"""Default step controller settings for errorless DIRK tableaus.
+
+This configuration is used when the DIRK tableau lacks an embedded error
+estimate (``tableau.has_error_estimate == False``).
+
+Fixed-step controllers maintain a constant step size throughout the
+integration. This is the only valid choice for errorless tableaus since
+adaptive stepping requires an error estimate to adjust the step size.
+
+Notes
+-----
+These defaults are applied automatically when creating a :class:`DIRKStep`
+with an errorless tableau. Users can override the step size ``dt`` by
+explicitly specifying it in the step controller settings.
+"""
 @attrs.define
 class DIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the DIRK integrator."""
@@ -55,7 +118,7 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -71,33 +134,102 @@ class DIRKStep(ODEImplicitStep):
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
     ) -> None:
-        """Initialise the DIRK step configuration."""
+        """Initialise the DIRK step configuration.
+        
+        This constructor creates a DIRK step object and automatically selects
+        appropriate default step controller settings based on whether the
+        tableau has an embedded error estimate. Tableaus with error estimates
+        default to adaptive stepping (PI controller), while errorless tableaus
+        default to fixed stepping.
+
+        Parameters
+        ----------
+        precision
+            Floating-point precision for CUDA computations.
+        n
+            Number of state variables in the ODE system.
+        dt
+            Initial or fixed step size. When ``None``, the step size is
+            determined by the controller defaults.
+        dxdt_function
+            Compiled CUDA device function computing state derivatives.
+        observables_function
+            Optional compiled CUDA device function computing observables.
+        driver_function
+            Optional compiled CUDA device function computing time-varying
+            drivers.
+        get_solver_helper_fn
+            Factory function returning solver helper for Jacobian operations.
+        preconditioner_order
+            Order of the finite-difference Jacobian approximation used in the
+            preconditioner.
+        krylov_tolerance
+            Convergence tolerance for the Krylov linear solver.
+        max_linear_iters
+            Maximum iterations allowed for the Krylov solver.
+        linear_correction_type
+            Type of Krylov correction ("minimal_residual" or other).
+        newton_tolerance
+            Convergence tolerance for Newton iterations.
+        max_newton_iters
+            Maximum Newton iterations per implicit stage.
+        newton_damping
+            Damping factor for Newton step size.
+        newton_max_backtracks
+            Maximum backtracking steps in Newton's method.
+        tableau
+            DIRK tableau describing the coefficients. Defaults to
+            :data:`DEFAULT_DIRK_TABLEAU`.
+        n_drivers
+            Number of driver variables in the system.
+        
+        Notes
+        -----
+        The step controller defaults are selected dynamically:
+        
+        - If ``tableau.has_error_estimate`` is ``True``:
+          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (PI controller)
+        - If ``tableau.has_error_estimate`` is ``False``:
+          Uses :data:`DIRK_FIXED_DEFAULTS` (fixed-step controller)
+        
+        This automatic selection prevents incompatible configurations where
+        an adaptive controller is paired with an errorless tableau.
+        """
 
         mass = np.eye(n, dtype=precision)
-        config = DIRKStepConfig(
-            precision=precision,
-            n=n,
-            n_drivers=n_drivers,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-            tableau=tableau,
-            beta=1.0,
-            gamma=1.0,
-            M=mass,
-        )
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "newton_tolerance": newton_tolerance,
+            "max_newton_iters": max_newton_iters,
+            "newton_damping": newton_damping,
+            "newton_max_backtracks": newton_max_backtracks,
+            "tableau": tableau,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "M": mass,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
-        super().__init__(config, DIRK_DEFAULTS)
+
+        if tableau.has_error_estimate:
+            defaults = DIRK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = DIRK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,
