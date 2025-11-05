@@ -334,7 +334,7 @@
 ---
 
 ## Task Group 4: ERK Optimization - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -418,7 +418,18 @@
      - Careful not to break streaming accumulation logic
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File edited**: src/cubie/integrators/algorithms/generic_erk.py (23 lines modified, 4 added)
+- **Functions modified**: `build_step` method
+- **Implementation details**:
+  * Added compile-time checks for b_row and b_hat_row before device function definition
+  * Modified accumulation at stage 0 (lines 234-245) to use direct assignment when b_row == 0
+  * Modified accumulation in stage loop (lines 300-330) to use direct assignment when b_row == stage_idx
+  * When b_row matches current stage, use direct assignment instead of accumulation (+=)
+  * Same logic applied for error estimate with b_hat_row
+  * ERK uses streaming accumulation, so optimization replaces accumulated value at matching stage
+  * Preserves FSAL caching behavior and all existing stage computation
+  * dt_value scaling still applied after accumulation loop (unchanged)
+- **No bugs or risks identified**
 
 ---
 
