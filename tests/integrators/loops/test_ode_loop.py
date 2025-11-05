@@ -285,11 +285,13 @@ def  test_loop(
     "solver_settings_override",
     [
         {
-            "algorithm": "explicit_euler",
+            "algorithm": "euler",
             "output_types": [
                 "state", "mean", "std", "rms", "max", "min", 
                 "max_magnitude", "peaks[3]", "negative_peaks[3]"
             ],
+            "dt": 0.00003,
+            "dt_save": 0.001,
             "dt_summarise": 0.1,
         },
     ],
