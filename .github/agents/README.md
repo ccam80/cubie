@@ -47,7 +47,8 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 ### 1. plan_new_feature
 **Role**: Expert project manager and technical architect  
 **Purpose**: User story creation, research, and implementation planning  
-**MCP Tools**: GitHub (always), Perplexity deep_research (if requested), Playwright (web browsing), custom-agent, bash (for directory creation)  
+**MCP Tools**: GitHub (always), Playwright (web browsing), bash (for directory creation)
+**Custom Agent Tools**: `detailed_implementer`
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
 **File Permissions**: Can create/edit directory and files in `.github/active_plans/<feature>/` only (creates directory first using bash)
@@ -55,15 +56,14 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 
 Creates comprehensive plans with:
 - User stories and acceptance criteria (first step)
-- Architecture diagrams and data flow
 - Behavior and integration descriptions (not implementation details)
 - Technical decisions and trade-offs
-- Shortcut: minimal bug fix plans ready for do_task
 
 ### 2. detailed_implementer
 **Role**: Operations manager and implementation planner  
 **Purpose**: Convert architectural plans into detailed, executable tasks  
-**MCP Tools**: GitHub, tree-sitter (optional), code-search (optional), custom-agent  
+**MCP Tools**: GitHub, 
+**Custom Agent Tools**: `taskmaster`
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `task_list.md` with function-level implementation tasks
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/task_list.md` only
@@ -79,11 +79,12 @@ Creates:
 ### 3. taskmaster
 **Role**: Project manager and task orchestrator  
 **Purpose**: Manage execution of implementation plans through do_task agents  
-**MCP Tools**: custom-agent (for invoking do_task)  
+**MCP Tools**: None
+**Custom Agent Tools**: `do_task`, `reviewer`, `docstring_guru`
 **Context**: `task_list.md` from detailed_implementer  
 **Output**: Execution summaries, collated changes, ready-for-review implementation
 **File Permissions**: Can update `.github/active_plans/<feature>/task_list.md` only (no source code edits)
-**Downstream Agents**: Can call `do_task` (repeatedly), `reviewer` when `return_after` > `taskmaster`
+**Downstream Agents**: Can call `do_task` (repeatedly), `reviewer` when `return_after` > `taskmaster`, `docstring_guru` when `return_after` = `docstring_guru`
 
 Manages:
 - Parallel and sequential task execution
@@ -96,7 +97,8 @@ Manages:
 ### 4. do_task
 **Role**: Senior developer and implementer  
 **Purpose**: Execute tasks exactly as specified with educational comments  
-**MCP Tools**: pytest (optional, only for added tests), linter (optional)  
+**MCP Tools**: None
+**Custom Agent Tools**: None (leaf node)
 **Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
 **Output**: Git patches and updated `task_list.md` with outcomes
 **File Permissions**: Can create/edit only files listed in assigned task group
@@ -112,7 +114,8 @@ Executes:
 ### 5. reviewer
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
-**MCP Tools**: code-metrics (optional), coverage (optional), custom-agent, create, edit  
+**MCP Tools**: None
+**Custom Agent Tools**: `taskmaster` (for second invocation to apply edits)
 **Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/review_report.md` only
@@ -129,7 +132,8 @@ Reviews for:
 ### 6. docstring_guru
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
-**MCP Tools**: sphinx (optional), doctests (optional), custom-agent  
+**MCP Tools**: None
+**Custom Agent Tools**: None (final step in pipeline)
 **Context**: `AGENTS.md`  
 **Output**: Updated docstrings, API reference files, internal structure updates
 **File Permissions**: Can edit any `.py` files, `docs/` files, `.github/context/cubie_internal_structure.md`
@@ -147,7 +151,8 @@ Enforces:
 ### 7. narrative_documenter
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
-**MCP Tools**: mermaid (optional), markdown-lint (optional)  
+**MCP Tools**: None
+**Custom Agent Tools**: None (independent of main pipeline)
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: Documentation in **reStructuredText (.rst)** for Sphinx (Markdown only for readmes/summaries)
 **File Permissions**: Can create/edit files in `docs/` directory only (plus `readme.md`)
@@ -437,7 +442,7 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
-- **custom-agent**: Delegating to other agents (taskmaster uses to invoke do_task)
+- **Custom Agent Tools**: Each agent lists specific custom agents it can invoke (e.g., plan_new_feature can invoke detailed_implementer, taskmaster can invoke do_task/reviewer/docstring_guru)
 - **pytest**: Test running (do_task, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
