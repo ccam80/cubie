@@ -132,7 +132,7 @@
 ---
 
 ## Task Group 2: Rosenbrock-W Optimization - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -212,7 +212,16 @@
      - Numba will fold compile-time branches (b_row is Python constant)
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File edited**: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (31 lines modified, 3 added)
+- **Functions modified**: `build_step` method
+- **Implementation details**:
+  * Added compile-time checks for b_row and b_hat_row before device function definition
+  * Replaced accumulation loop (lines 494-500) with compile-time branching
+  * When b_row is not None, directly copy from stage_store[b_row * n] to proposed_state
+  * When b_hat_row is not None, directly copy from stage_store[b_hat_row * n] to error
+  * Standard accumulation path preserved for tableaus without matching rows
+  * Numba will eliminate dead code branches at compile time based on constants
+- **No bugs or risks identified**
 
 ---
 
