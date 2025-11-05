@@ -226,7 +226,7 @@
 ---
 
 ## Task Group 3: FIRK Optimization - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -319,7 +319,17 @@
      - Numba folds compile-time branches
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **File edited**: src/cubie/integrators/algorithms/generic_firk.py (28 lines modified, 4 added)
+- **Functions modified**: `build_step` method
+- **Implementation details**:
+  * Added compile-time checks for b_row and b_hat_row before device function definition
+  * Replaced accumulation loop (lines 360-372) with compile-time branching
+  * When b_row is not None, directly access stage_rhs_flat[b_row * n] for proposed_state
+  * When b_hat_row is not None, directly access stage_rhs_flat[b_hat_row * n] for error
+  * FIRK uses RHS values from stage_rhs_flat, not increments (different from Rosenbrock)
+  * Standard accumulation path preserved for tableaus without matching rows
+  * dt_value scaling applied consistently in both optimized and standard paths
+- **No bugs or risks identified**
 
 ---
 

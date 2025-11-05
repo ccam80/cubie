@@ -218,6 +218,10 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        # Check for last-step caching optimization opportunities
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         solver_shared_elements = self.solver_shared_elements
@@ -357,19 +361,42 @@ class FIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-            for comp_idx in range(n):
-                solution_acc = typed_zero
-                error_acc = typed_zero
-                for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
-                    solution_acc += solution_weights[stage_idx] * rhs_value
-                    if has_error:
-                        error_acc += error_weights[stage_idx] * rhs_value
-                proposed_state[comp_idx] = (
-                    state[comp_idx] + dt_value * solution_acc
-                )
-                if has_error:
-                    error[comp_idx] = dt_value * error_acc
+            # Accumulate proposed_state and error using compile-time optimization
+            if b_row is not None:
+                # Direct copy optimization for proposed_state
+                rhs_slice_start = b_row * n
+                for comp_idx in range(n):
+                    rhs_value = stage_rhs_flat[rhs_slice_start + comp_idx]
+                    proposed_state[comp_idx] = (
+                        state[comp_idx] + dt_value * rhs_value
+                    )
+            else:
+                # Standard accumulation path for proposed_state
+                for comp_idx in range(n):
+                    solution_acc = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
+                        solution_acc += solution_weights[stage_idx] * rhs_value
+                    proposed_state[comp_idx] = (
+                        state[comp_idx] + dt_value * solution_acc
+                    )
+
+            # Handle error estimate separately
+            if has_error:
+                if b_hat_row is not None:
+                    # Direct copy optimization for error
+                    error_slice_start = b_hat_row * n
+                    for comp_idx in range(n):
+                        rhs_value = stage_rhs_flat[error_slice_start + comp_idx]
+                        error[comp_idx] = dt_value * rhs_value
+                else:
+                    # Standard accumulation path for error
+                    for comp_idx in range(n):
+                        error_acc = typed_zero
+                        for stage_idx in range(stage_count):
+                            rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
+                            error_acc += error_weights[stage_idx] * rhs_value
+                        error[comp_idx] = dt_value * error_acc
 
             if not ends_at_one:
                 if has_driver_function:
