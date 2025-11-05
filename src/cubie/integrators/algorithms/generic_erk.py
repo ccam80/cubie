@@ -6,6 +6,7 @@ import attrs
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -202,7 +203,9 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            use_cached_rhs = ((not first_step_flag) and accepted_flag and
+            mask = activemask()
+            all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+            use_cached_rhs = ((not first_step_flag) and all_threads_accepted and
                               first_same_as_last)
             if multistage:
                 if use_cached_rhs:

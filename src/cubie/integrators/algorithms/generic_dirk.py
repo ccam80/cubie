@@ -7,6 +7,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -317,9 +318,10 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
 
             first_step = first_step_flag != int16(0)
-            prev_state_accepted = accepted_flag != int16(0)
+            mask = activemask()
+            all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
             use_cached_rhs = (
-                first_same_as_last and not first_step and prev_state_accepted
+                first_same_as_last and not first_step and all_threads_accepted
             )
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
