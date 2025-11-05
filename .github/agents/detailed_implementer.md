@@ -6,12 +6,18 @@ tools:
   - github/search_code
   - github/list_commits
   - github/get_commit
-  - taskmaster
   - read
   - edit
   - create
   - view
   - search
+  - detailed_implementer
+  - taskmaster
+  - do_task
+  - reviewer
+  - docstring_guru
+  - narrative_documenter
+  - plan_new_feature
 ---
 
 # Detailed Implementer Agent
