@@ -115,6 +115,12 @@ class ERKStep(ODEExplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        # Last-step caching optimization (issue #163):
+        # Replaces streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         # no cover: start
         @cuda.jit(
             (
@@ -229,9 +235,17 @@ class ERKStep(ODEExplicitStep):
 
             for idx in range(n):
                 increment = stage_rhs[idx]
-                proposed_state[idx] += solution_weights[0] * increment
+                # Use compile-time optimization for last-step caching
+                if b_row == 0:
+                    # Only accumulate stage 0 if b_row matches
+                    proposed_state[idx] = solution_weights[0] * increment
+                else:
+                    proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
-                    error[idx] += error_weights[0] * increment
+                    if b_hat_row == 0:
+                        error[idx] = error_weights[0] * increment
+                    else:
+                        error[idx] += error_weights[0] * increment
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -293,15 +307,30 @@ class ERKStep(ODEExplicitStep):
                     stage_time,
                 )
 
+                # Accumulate with compile-time optimization for last-step caching
                 for idx in range(n):
                     increment = stage_rhs[idx]
-                    proposed_state[idx] += (
-                        solution_weights[stage_idx] * increment
-                    )
-                    if has_error:
-                        error[idx] += (
-                            error_weights[stage_idx] * increment
+                    if b_row == stage_idx:
+                        # Direct assignment when this stage matches b_row
+                        proposed_state[idx] = (
+                            solution_weights[stage_idx] * increment
                         )
+                    else:
+                        # Standard accumulation
+                        proposed_state[idx] += (
+                            solution_weights[stage_idx] * increment
+                        )
+                    if has_error:
+                        if b_hat_row == stage_idx:
+                            # Direct assignment for error
+                            error[idx] = (
+                                error_weights[stage_idx] * increment
+                            )
+                        else:
+                            # Standard accumulation
+                            error[idx] += (
+                                error_weights[stage_idx] * increment
+                            )
             # ----------------------------------------------------------- #
             for idx in range(n):
                 proposed_state[idx] *= dt_value

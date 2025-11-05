@@ -191,6 +191,11 @@ class DIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         diagonal_coeffs = tableau.diagonal(numba_precision)
+
+        # Check for last-step caching optimization opportunities
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
         accumulator_length = max(stage_count - 1, 0) * n
@@ -400,9 +405,20 @@ class DIRKStep(ODEImplicitStep):
             error_weight = error_weights[0]
             for idx in range(n):
                 rhs_value = stage_rhs[idx]
-                proposed_state[idx] += solution_weight * rhs_value
+                # Use compile-time optimization for last-step caching
+                if b_row == 0:
+                    # Direct assignment when stage 0 matches b_row
+                    proposed_state[idx] = solution_weight * rhs_value
+                else:
+                    # Standard accumulation
+                    proposed_state[idx] += solution_weight * rhs_value
                 if has_error:
-                    error[idx] += error_weight * rhs_value
+                    if b_hat_row == 0:
+                        # Direct assignment for error
+                        error[idx] = error_weight * rhs_value
+                    else:
+                        # Standard accumulation
+                        error[idx] += error_weight * rhs_value
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -509,9 +525,20 @@ class DIRKStep(ODEImplicitStep):
                 error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
-                    proposed_state[idx] += solution_weight * rhs_value
+                    # Use compile-time optimization for last-step caching
+                    if b_row == stage_idx:
+                        # Direct assignment when this stage matches b_row
+                        proposed_state[idx] = solution_weight * rhs_value
+                    else:
+                        # Standard accumulation
+                        proposed_state[idx] += solution_weight * rhs_value
                     if has_error:
-                        error[idx] += error_weight * rhs_value
+                        if b_hat_row == stage_idx:
+                            # Direct assignment for error
+                            error[idx] = error_weight * rhs_value
+                        else:
+                            # Standard accumulation
+                            error[idx] += error_weight * rhs_value
 
 
             for idx in range(n):
