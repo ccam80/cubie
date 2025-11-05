@@ -26,7 +26,7 @@ tools:
   - create
   - view
   - search
-  - bash
+  - shell
 ---
 
 # Plan New Feature Agent
