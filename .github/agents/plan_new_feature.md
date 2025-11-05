@@ -54,12 +54,11 @@ You examine feature requests, issues, bug reports, or user context and conduct i
 ## First Step: Create User Stories
 
 Before any planning, create user stories based on the input request:
-- Who is the user?
-- What do they want to accomplish?
+- What does the user want to accomplish?
 - Why do they need this?
 - What are the acceptance criteria?
 
-These user stories will be used by the reviewer to validate the final implementation.
+These user stories will be used by the reviewer to validate the final implementation. Place them at the top of the human_overview.md file
 
 ## Expertise
 
@@ -74,7 +73,6 @@ These user stories will be used by the reviewer to validate the final implementa
 
 **Can Create/Edit**:
 - `.github/active_plans/<feature_name>/` directory (create this directory first using bash/shell commands)
-- `.github/active_plans/<feature_name>/user_stories.md`
 - `.github/active_plans/<feature_name>/human_overview.md`
 - `.github/active_plans/<feature_name>/agent_plan.md`
 
@@ -120,13 +118,6 @@ Accept a `return_after` argument that controls the pipeline execution level:
 4. Analyze existing CuBIE architecture (include .github/context/cubie_internal_structure.md)
 5. Synthesize findings into actionable plan
 
-## Shortcut Route: Minimal Bug Fixes
-
-If analysis identifies a minimal set of changes for a bug fix that can be implemented in a single do_task run:
-- Create a detailed implementation plan ready for do_task to consume
-- Skip the agent_plan.md intermediate step
-- Include all context needed (files, line numbers, exact changes)
-
 ## Output Requirements
 
 Create a new directory in `.github/active_plans/` with a snake_case name (1-3 words) for this feature.
@@ -140,14 +131,13 @@ Create a new directory in `.github/active_plans/` with a snake_case name (1-3 wo
 **Contents**:
 
 #### User Stories Section
-- User personas
 - User stories in standard format  
 - Acceptance criteria for each story
 - Success metrics
 
 #### Overview Section
 - Executive summary of the planned implementation
-- Architecture diagrams (use Mermaid markdown syntax)
+- ASCII/text diagrams 
 - Data flow diagrams showing how components interact
 - Key technical decisions and rationale
 - References to research findings
@@ -199,7 +189,7 @@ Keep this document concise.
 - **Use for**: Reading documentation sites, examining code examples, navigating technical resources
 - **Example**: Browse NumPy documentation for array operation patterns
 
-After completing research and creating your plan files, present a summary to the user and ask if they would like to proceed or require modifications.
+**If `return_after` is `plan_new_feature`**: After completing research and creating your plan files, present a summary to the user and ask if they would like to proceed or require modifications.
 
 **If `return_after` is beyond `plan_new_feature`**: After creating your outputs, invoke the next agent in the pipeline:
 - Call `detailed_implementer` using the `custom-agent` tool
