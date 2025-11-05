@@ -214,6 +214,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        # Check for last-step caching optimization opportunities
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         stage_buffer_n = stage_count * n
         cached_auxiliary_count = self.cached_auxiliary_count
         del_t_start = 0
@@ -546,13 +550,35 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 status_code |= solver_ret
 
-                solution_weight = solution_weights[stage_idx]
-                error_weight = error_weights[stage_idx]
-                for idx in range(n):
-                    increment = stage_increment[idx]
-                    proposed_state[idx] += solution_weight * increment
-                    if has_error:
-                        error[idx] += error_weight * increment
+                # Accumulate proposed_state using compile-time optimization
+                if b_row is not None:
+                    # Direct copy optimization for proposed_state
+                    stage_slice_start = b_row * n
+                    stage_slice_end = stage_slice_start + n
+                    for idx in range(n):
+                        proposed_state[idx] = (
+                            state[idx] + stage_store[stage_slice_start + idx]
+                        )
+                else:
+                    # Standard accumulation path for proposed_state
+                    solution_weight = solution_weights[stage_idx]
+                    for idx in range(n):
+                        increment = stage_increment[idx]
+                        proposed_state[idx] += solution_weight * increment
+
+                # Handle error estimate separately
+                if has_error:
+                    if b_hat_row is not None:
+                        # Direct copy optimization for error
+                        error_slice_start = b_hat_row * n
+                        for idx in range(n):
+                            error[idx] = stage_store[error_slice_start + idx]
+                    else:
+                        # Standard accumulation path for error
+                        error_weight = error_weights[stage_idx]
+                        for idx in range(n):
+                            increment = stage_increment[idx]
+                            error[idx] += error_weight * increment
 
                     # LOGGING
                     stage_increments[stage_idx, idx] = increment

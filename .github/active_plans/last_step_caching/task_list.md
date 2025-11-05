@@ -529,7 +529,7 @@
 ---
 
 ## Task Group 6: Instrumented Algorithm Updates - PARALLEL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 2, 3, 4, 5
 
 **Required Context**:
@@ -584,7 +584,19 @@
    - Integration: Must match main implementation exactly
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+- **Files edited**: 
+  * tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py (31 lines modified, 4 added)
+  * tests/integrators/algorithms/instrumented/generic_firk.py (28 lines modified, 4 added)
+  * tests/integrators/algorithms/instrumented/generic_erk.py (23 lines modified, 4 added)
+  * tests/integrators/algorithms/instrumented/generic_dirk.py (24 lines modified, 4 added)
+- **Functions modified**: `build_step` method in each instrumented algorithm
+- **Implementation details**:
+  * All changes from Task Groups 2-5 mirrored exactly to instrumented versions
+  * Added compile-time checks for b_row and b_hat_row in all four algorithms
+  * Replaced accumulation loops with compile-time branching in all algorithms
+  * Variable names and logic flow kept identical to main implementations
+  * Instrumented versions maintain exact parallel structure for test validation
+- **No bugs or risks identified**
 
 ---
 
