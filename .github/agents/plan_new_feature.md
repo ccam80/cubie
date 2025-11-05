@@ -20,9 +20,8 @@ tools:
   - playwright/browser_take_screenshot
   - playwright/browser_wait_for
   - playwright/browser_close
-  - custom-agent/detailed_implementer
-  - Task
-  - Task/detailed_implementer
+  - detailed_implementer
+  - task
   - read
   - edit
   - create
