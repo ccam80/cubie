@@ -67,8 +67,11 @@ def test_save_time(output_functions, output_test_settings):
                 "output_types": [
                     "state",
                     "observables",
-                    "max",
-                    "rms",
+                    "mean_std_rms",
+                    "min",
+                    "max_magnitude",
+                    "extrema",
+                    "negative_peaks[3]",
                     "peaks[3]",
                 ]
             },
