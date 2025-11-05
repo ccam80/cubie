@@ -20,7 +20,7 @@ tools:
   - playwright/browser_take_screenshot
   - playwright/browser_wait_for
   - playwright/browser_close
-  - custom-agent
+  - custom-agent/detailed_implementer
   - read
   - edit
   - create
@@ -93,8 +93,6 @@ Your plan will be interpreted by:
 You have access to the `custom-agent` tool to invoke downstream agents:
 
 - **detailed_implementer**: Call when `return_after` is set to `detailed_implementer` or later. Pass the path to your created `agent_plan.md` and specify `return_after` level.
-- **taskmaster**: Do NOT call directly - detailed_implementer will handle this if needed.
-- **reviewer**: Do NOT call directly - will be invoked by taskmaster if needed.
 
 ## Return After Argument
 
