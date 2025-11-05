@@ -5,7 +5,6 @@ Tests validate that std, min, max_magnitude, extrema, negative_peaks, and
 mean_std_rms metrics are properly registered and have correct buffer sizes.
 """
 
-import pytest
 from cubie.outputhandling import summary_metrics
 
 
