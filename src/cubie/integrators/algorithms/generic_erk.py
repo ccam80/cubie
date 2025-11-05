@@ -203,10 +203,13 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            mask = activemask()
-            all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
-            use_cached_rhs = ((not first_step_flag) and all_threads_accepted and
-                              first_same_as_last)
+            # Warp-vote to avoid divergence on FSAL cache decision (issue #149)
+            if (not first_step_flag) and first_same_as_last and multistage:
+                mask = activemask()
+                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                use_cached_rhs = all_threads_accepted
+            else:
+                use_cached_rhs = False
             if multistage:
                 if use_cached_rhs:
                     for idx in range(n):

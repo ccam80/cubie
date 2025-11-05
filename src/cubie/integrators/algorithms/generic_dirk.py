@@ -318,11 +318,13 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
 
             first_step = first_step_flag != int16(0)
-            mask = activemask()
-            all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
-            use_cached_rhs = (
-                first_same_as_last and not first_step and all_threads_accepted
-            )
+            # Warp-vote to avoid divergence on FSAL cache decision (issue #149)
+            if first_same_as_last and not first_step and multistage:
+                mask = activemask()
+                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                use_cached_rhs = all_threads_accepted
+            else:
+                use_cached_rhs = False
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]
