@@ -210,6 +210,8 @@ class SummaryMetrics:
         # This ensures user gets exactly what they requested
         self._combined_metrics = {
             frozenset(["mean", "std", "rms"]): "mean_std_rms",
+            frozenset(["mean", "std"]): "mean_std",
+            frozenset(["std", "rms"]): "std_rms",
             frozenset(["max", "min"]): "extrema",
         }
 
