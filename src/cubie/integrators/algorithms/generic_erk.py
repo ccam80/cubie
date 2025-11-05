@@ -1,4 +1,32 @@
-"""Generic explicit Runge--Kutta integration step with streamed accumulators."""
+"""
+Generic explicit Runge--Kutta integration step with streamed accumulators.
+
+This module implements configurable explicit Runge--Kutta (ERK) methods for
+CUDA-accelerated ODE integration. The implementation supports arbitrary
+Butcher tableaus, embedded error estimates for adaptive step control, and
+FSAL (First Same As Last) optimization to reduce redundant derivative
+evaluations.
+
+The compiled CUDA kernels use shared memory for stage accumulators and
+per-thread local memory for stage derivatives, achieving high performance
+through careful memory reuse and warp-synchronous execution.
+
+Classes
+-------
+ERKStepConfig
+    Configuration attrs class for explicit Runge--Kutta integrators.
+ERKStep
+    Factory producing compiled CUDA device functions for ERK methods.
+
+Notes
+-----
+The FSAL optimization exploits the property of certain tableaus (e.g.,
+Dormand-Prince) where the final stage derivative equals the first stage
+derivative of the next step. To avoid warp divergence when deciding whether
+to reuse the cached derivative, the implementation uses warp-vote intrinsics
+that ensure all threads in a warp make the same decision based on whether
+all systems accepted the previous step (fix for issue #149).
+"""
 
 from typing import Callable, Optional
 
@@ -38,18 +66,72 @@ ERK_DEFAULTS = StepControlDefaults(
 
 @attrs.define
 class ERKStepConfig(ExplicitStepConfig):
-    """Configuration describing an explicit Runge--Kutta integrator."""
+    """
+    Configuration describing an explicit Runge--Kutta integrator.
+
+    Parameters
+    ----------
+    tableau
+        Explicit Runge--Kutta tableau describing the coefficients used by
+        the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
+
+    Attributes
+    ----------
+    tableau : ERKTableau
+        Tableau defining the method's coefficients and error estimate.
+    """
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
 
     @property
     def first_same_as_last(self) -> bool:
-        """Return ``True`` when the tableau shares the first and last stage."""
+        """
+        Return ``True`` when the tableau shares the first and last stage.
+
+        Returns
+        -------
+        bool
+            ``True`` when the method can cache the final stage RHS for reuse
+            as the first stage of the next accepted step (FSAL property).
+        """
 
         return self.tableau.first_same_as_last
 
 class ERKStep(ODEExplicitStep):
-    """Generic explicit Runge--Kutta step with configurable tableaus."""
+    """
+    Generic explicit Runge--Kutta step with configurable tableaus.
+
+    This class compiles CUDA device functions for explicit Runge--Kutta
+    methods based on user-supplied Butcher tableaus. The implementation
+    supports embedded error estimates for adaptive step control, FSAL
+    (First Same As Last) optimization for methods like Dormand-Prince,
+    and optional driver and observable callbacks.
+
+    The compiled kernel performs staged evaluations of the system's
+    right-hand side function, accumulating weighted contributions to
+    compute the proposed state and error estimate.
+
+    Notes
+    -----
+    The FSAL optimization caches the final stage derivative when the
+    tableau's first and last stages share coefficients. On the next
+    accepted step, this cached value replaces the first RHS evaluation.
+    To avoid warp divergence on GPUs, the implementation uses warp-vote
+    intrinsics (``activemask`` and ``all_sync``) to ensure all threads
+    in a warp make the same caching decision based on whether all systems
+    accepted the previous step.
+
+    Examples
+    --------
+    >>> from cubie.integrators.algorithms import ERKStep
+    >>> from cubie.integrators.algorithms.generic_erk_tableaus import DOPRI5
+    >>> step = ERKStep(
+    ...     precision=np.float64,
+    ...     n=3,
+    ...     dt=0.01,
+    ...     tableau=DOPRI5
+    ... )
+    """
 
     def __init__(
         self,
@@ -63,13 +145,38 @@ class ERKStep(ODEExplicitStep):
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
     ) -> None:
-        """Initialise the Runge--Kutta step configuration.
+        """
+        Initialise the Runge--Kutta step configuration.
 
         Parameters
         ----------
+        precision
+            Numpy dtype for floating-point operations (float16/32/64).
+        n
+            Number of state variables in the ODE system.
+        dt
+            Initial time step size. If ``None``, must be set before solving.
+        dxdt_function
+            CUDA device function computing the time derivative.
+        observables_function
+            CUDA device function computing observable quantities.
+        driver_function
+            Optional CUDA device function for time-varying forcing terms.
+        get_solver_helper_fn
+            Callable returning solver helper functions. Not used for
+            explicit methods but maintained for signature compatibility.
         tableau
             Explicit Runge--Kutta tableau describing the coefficients used by
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
+        n_drivers
+            Number of driver (forcing) terms. Defaults to 0.
+
+        Notes
+        -----
+        The tableau determines the method's order of accuracy, stability
+        region, and whether an embedded error estimate is available for
+        adaptive step control. FSAL methods cache the final stage
+        derivative to avoid redundant evaluations on the next accepted step.
         """
 
         config = ERKStepConfig(
@@ -95,7 +202,51 @@ class ERKStep(ODEExplicitStep):
         dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
-        """Compile the explicit Runge--Kutta device step."""
+        """
+        Compile the explicit Runge--Kutta device step.
+
+        Parameters
+        ----------
+        dxdt_fn
+            Compiled CUDA device function for time derivatives.
+        observables_function
+            Compiled CUDA device function for observables.
+        driver_function
+            Optional compiled CUDA device function for drivers.
+        numba_precision
+            Numba dtype (e.g., numba.float64) matching the precision.
+        n
+            Number of state variables.
+        dt
+            Time step size (may be ``None`` for runtime determination).
+        n_drivers
+            Number of driver variables.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step device function.
+
+        Notes
+        -----
+        The compiled step function expects the following signature:
+
+        .. code-block:: python
+
+            step(state, proposed_state, parameters, driver_coeffs,
+                 drivers_buffer, proposed_drivers, observables,
+                 proposed_observables, error, dt_scalar, time_scalar,
+                 first_step_flag, accepted_flag, shared, persistent_local)
+
+        The shared memory layout allocates space for stage accumulators,
+        with the first slice optionally reused as an FSAL cache for the
+        final stage derivative. When FSAL is active and not the first step,
+        all threads in a warp vote on whether the previous step was accepted.
+        Only when all threads accepted does the warp reuse the cached
+        derivative, avoiding divergence (issue #149).
+
+        The step function returns an int32 status code (0 for success).
+        """
 
         config = self.compile_settings
         tableau = config.tableau
@@ -338,39 +489,93 @@ class ERKStep(ODEExplicitStep):
 
     @property
     def is_multistage(self) -> bool:
-        """Return ``True`` when the method has multiple stages."""
+        """
+        Return ``True`` when the method has multiple stages.
+
+        Returns
+        -------
+        bool
+            ``True`` when stage count exceeds 1, ``False`` otherwise.
+        """
         return self.tableau.stage_count > 1
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``True`` if algorithm calculates an error estimate."""
+        """
+        Return ``True`` if algorithm calculates an error estimate.
+
+        Returns
+        -------
+        bool
+            ``True`` when the tableau provides embedded error weights,
+            enabling adaptive step size control.
+        """
         return self.tableau.has_error_estimate
 
     @property
     def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
+        """
+        Return the number of precision entries required in shared memory.
+
+        Returns
+        -------
+        int
+            Number of floating-point entries needed for stage accumulators.
+            For multistage methods, equals ``(stage_count - 1) * n``, where
+            the first slice is reused as an FSAL cache when applicable.
+        """
         stage_count = self.tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
         return accumulator_span
 
     @property
     def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
+        """
+        Return the number of local precision entries required.
+
+        Returns
+        -------
+        int
+            Number of per-thread local memory entries for stage derivatives.
+            Equals ``n`` (the number of state variables).
+        """
         return self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
+        """
+        Return the number of persistent local entries required.
+
+        Returns
+        -------
+        int
+            Always returns 0 as explicit ERK steps do not require persistent
+            local storage across invocations.
+        """
         return 0
 
     @property
     def order(self) -> int:
-        """Return the classical order of accuracy."""
+        """
+        Return the classical order of accuracy.
+
+        Returns
+        -------
+        int
+            The order of the method as specified by the tableau.
+        """
 
         return self.tableau.order
 
     @property
     def threads_per_step(self) -> int:
-        """Return the number of CUDA threads that advance one state."""
+        """
+        Return the number of CUDA threads that advance one state.
+
+        Returns
+        -------
+        int
+            Always returns 1 as each system is integrated by a single thread.
+        """
 
         return 1

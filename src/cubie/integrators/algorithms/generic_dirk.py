@@ -1,4 +1,35 @@
-"""Diagonally implicit Runge–Kutta integration step implementation."""
+"""
+Diagonally implicit Runge--Kutta integration step implementation.
+
+This module implements configurable diagonally implicit Runge--Kutta (DIRK)
+methods for CUDA-accelerated stiff ODE integration. DIRK methods have
+nonzero diagonal entries in the Butcher tableau, requiring solution of
+nonlinear systems at each stage via Newton--Krylov iteration with matrix-free
+linear solvers.
+
+The implementation supports arbitrary DIRK tableaus including SDIRK (Singly
+Diagonally Implicit) and ESDIRK (Explicit first stage SDIRK) methods,
+embedded error estimates for adaptive step control, and optional FSAL-like
+optimizations for compatible tableaus.
+
+Classes
+-------
+DIRKStepConfig
+    Configuration attrs class for DIRK integrators.
+DIRKStep
+    Factory producing compiled CUDA device functions for DIRK methods.
+
+Notes
+-----
+Each implicit stage is solved using a Newton--Krylov solver with Neumann
+series preconditioning and backtracking line search. The shared memory
+layout partitions space for stage accumulators and solver scratch buffers.
+
+To avoid warp divergence when deciding whether to reuse cached increments
+from the previous accepted step, the implementation uses warp-vote
+intrinsics that ensure all threads in a warp make the same decision
+(fix for issue #149).
+"""
 
 from typing import Callable, Optional
 
@@ -41,7 +72,22 @@ DIRK_DEFAULTS = StepControlDefaults(
 )
 @attrs.define
 class DIRKStepConfig(ImplicitStepConfig):
-    """Configuration describing the DIRK integrator."""
+    """
+    Configuration describing the DIRK integrator.
+
+    Parameters
+    ----------
+    tableau
+        Diagonally implicit Runge--Kutta tableau defining the method's
+        coefficients and error estimate. Defaults to
+        :data:`DEFAULT_DIRK_TABLEAU`.
+
+    Attributes
+    ----------
+    tableau : DIRKTableau
+        Tableau specifying stage coefficients, diagonal elements, and
+        embedded error weights for adaptive control.
+    """
 
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
@@ -49,7 +95,47 @@ class DIRKStepConfig(ImplicitStepConfig):
 
 
 class DIRKStep(ODEImplicitStep):
-    """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
+    """
+    Diagonally implicit Runge--Kutta step with an embedded error estimate.
+
+    This class compiles CUDA device functions for diagonally implicit
+    Runge--Kutta methods, suitable for stiff ODEs. Each implicit stage
+    is solved using Newton--Krylov iteration with matrix-free linear
+    solvers and optional preconditioning. The implementation supports
+    embedded error estimates for adaptive step control and FSAL
+    optimization for certain tableaus.
+
+    DIRK methods have nonzero diagonal entries in the Butcher tableau,
+    requiring solution of nonlinear systems at each stage. The diagonal
+    structure allows sequential stage solving rather than simultaneous
+    solution of all stages.
+
+    Notes
+    -----
+    The FSAL optimization caches the final stage increment when the
+    tableau's structure permits reuse on the next accepted step. To
+    avoid warp divergence on GPUs, the implementation uses warp-vote
+    intrinsics (``activemask`` and ``all_sync``) to ensure all threads
+    in a warp make the same caching decision based on whether all systems
+    accepted the previous step (issue #149).
+
+    The Newton--Krylov solver expects caller-supplied residual functions,
+    linear operators, and preconditioners obtained through the
+    ``get_solver_helper_fn`` callable.
+
+    Examples
+    --------
+    >>> from cubie.integrators.algorithms import DIRKStep
+    >>> from cubie.integrators.algorithms.generic_dirk_tableaus import SDIRK23
+    >>> step = DIRKStep(
+    ...     precision=np.float64,
+    ...     n=3,
+    ...     dt=0.01,
+    ...     tableau=SDIRK23,
+    ...     newton_tolerance=1e-6,
+    ...     max_newton_iters=100
+    ... )
+    """
 
     def __init__(
         self,
@@ -71,7 +157,63 @@ class DIRKStep(ODEImplicitStep):
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
     ) -> None:
-        """Initialise the DIRK step configuration."""
+        """
+        Initialise the DIRK step configuration.
+
+        Parameters
+        ----------
+        precision
+            Numpy dtype for floating-point operations (float16/32/64).
+        n
+            Number of state variables in the ODE system.
+        dt
+            Initial time step size. If ``None``, must be set before solving.
+        dxdt_function
+            CUDA device function computing the time derivative.
+        observables_function
+            CUDA device function computing observable quantities.
+        driver_function
+            Optional CUDA device function for time-varying forcing terms.
+        get_solver_helper_fn
+            Callable returning solver helper functions (residual, operator,
+            preconditioner) for the Newton--Krylov iteration.
+        preconditioner_order
+            Order of the Neumann series preconditioner. Defaults to 2.
+        krylov_tolerance
+            Convergence tolerance for the GMRES-like linear solver.
+            Defaults to 1e-6.
+        max_linear_iters
+            Maximum iterations for the linear solver. Defaults to 200.
+        linear_correction_type
+            Type of Krylov correction ("minimal_residual" or "full_orthog").
+            Defaults to "minimal_residual".
+        newton_tolerance
+            Convergence tolerance for Newton iteration. Defaults to 1e-6.
+        max_newton_iters
+            Maximum Newton iterations per stage. Defaults to 100.
+        newton_damping
+            Damping factor for backtracking line search. Defaults to 0.5.
+        newton_max_backtracks
+            Maximum backtracking steps in line search. Defaults to 8.
+        tableau
+            Diagonally implicit Runge--Kutta tableau describing the
+            coefficients used by the integrator. Defaults to
+            :data:`DEFAULT_DIRK_TABLEAU`.
+        n_drivers
+            Number of driver (forcing) terms. Defaults to 0.
+
+        Notes
+        -----
+        The tableau determines the method's order, stability properties,
+        and whether embedded error weights are available for adaptive
+        step control. SDIRK (Singly Diagonally Implicit) and ESDIRK
+        (Explicit first stage SDIRK) tableaus are common choices for
+        stiff problems.
+
+        The Newton--Krylov solver relies on matrix-free operators,
+        avoiding explicit Jacobian storage and enabling solution of
+        large-scale systems.
+        """
 
         mass = np.eye(n, dtype=precision)
         config = DIRKStepConfig(
@@ -102,7 +244,30 @@ class DIRKStep(ODEImplicitStep):
     def build_implicit_helpers(
         self,
     ) -> Callable:
-        """Construct the nonlinear solver chain used by implicit methods."""
+        """
+        Construct the nonlinear solver chain used by implicit methods.
+
+        Returns
+        -------
+        Callable
+            Compiled CUDA device function implementing Newton--Krylov
+            iteration for solving implicit stage equations.
+
+        Notes
+        -----
+        This method assembles the following components:
+
+        1. Neumann series preconditioner for the linear system
+        2. Nonlinear stage residual function
+        3. Matrix-free linear operator for Jacobian-vector products
+        4. GMRES-like linear solver using the operator and preconditioner
+        5. Newton--Krylov solver combining nonlinear iteration with
+           backtracking line search
+
+        All components are obtained through the ``get_solver_helper_fn``
+        callable, which must return compiled CUDA device functions
+        matching the expected signatures.
+        """
 
         precision = self.precision
         config = self.compile_settings
@@ -115,7 +280,7 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner", # neumann preconditioner cached?
+            "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -131,7 +296,7 @@ class DIRKStep(ODEImplicitStep):
         )
 
         operator = get_fn(
-            "linear_operator", # linear operator cached?
+            "linear_operator",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -180,7 +345,60 @@ class DIRKStep(ODEImplicitStep):
         dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
-        """Compile the DIRK device step."""
+        """
+        Compile the DIRK device step.
+
+        Parameters
+        ----------
+        solver_fn
+            Compiled Newton--Krylov solver device function.
+        dxdt_fn
+            Compiled CUDA device function for time derivatives.
+        observables_function
+            Compiled CUDA device function for observables.
+        driver_function
+            Optional compiled CUDA device function for drivers.
+        numba_precision
+            Numba dtype (e.g., numba.float64) matching the precision.
+        n
+            Number of state variables.
+        dt
+            Time step size (may be ``None`` for runtime determination).
+        n_drivers
+            Number of driver variables.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step device function and the
+            nonlinear solver.
+
+        Notes
+        -----
+        The compiled step function expects the following signature:
+
+        .. code-block:: python
+
+            step(state, proposed_state, parameters, driver_coeffs,
+                 drivers_buffer, proposed_drivers, observables,
+                 proposed_observables, error, dt_scalar, time_scalar,
+                 first_step_flag, accepted_flag, shared, persistent_local)
+
+        The shared memory layout partitions space for:
+
+        1. Stage accumulators: ``(stage_count - 1) * n`` entries
+        2. Solver scratch: Workspace for Newton--Krylov iteration
+
+        Within solver scratch, the first ``n`` entries serve as stage RHS
+        storage, and the second ``n`` entries cache the final stage
+        increment for FSAL reuse. When FSAL is active and not the first
+        step, all threads in a warp vote on whether the previous step was
+        accepted. Only when all threads accepted does the warp reuse the
+        cached increment, avoiding divergence (issue #149).
+
+        The step function returns an int32 status code, with the upper 16
+        bits encoding the total Newton iteration count across all stages.
+        """
 
         config = self.compile_settings
         tableau = config.tableau
@@ -504,27 +722,61 @@ class DIRKStep(ODEImplicitStep):
 
     @property
     def is_multistage(self) -> bool:
-        """Return ``True`` as the method has multiple stages."""
+        """
+        Return ``True`` as the method has multiple stages.
+
+        Returns
+        -------
+        bool
+            ``True`` when stage count exceeds 1.
+        """
         return self.tableau.stage_count > 1
 
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``True`` because an embedded error estimate is produced."""
+        """
+        Return ``True`` because an embedded error estimate is produced.
+
+        Returns
+        -------
+        bool
+            ``True`` when the tableau provides embedded error weights for
+            adaptive step size control.
+        """
         return self.tableau.has_error_estimate
 
     @property
     def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
+        """
+        Return the number of cached auxiliary entries for the JVP.
 
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
+        Returns
+        -------
+        int
+            Number of auxiliary variables cached by solver helpers.
+
+        Notes
+        -----
+        Lazily builds implicit helpers so as not to return an errant
+        ``None``.
+        """
         if self._cached_auxiliary_count is None:
             self.build_implicit_helpers()
         return self._cached_auxiliary_count
 
     @property
     def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
+        """
+        Return the number of precision entries required in shared memory.
+
+        Returns
+        -------
+        int
+            Total shared memory requirement in floating-point entries,
+            comprising stage accumulators, solver scratch space, and
+            cached auxiliary variables.
+        """
 
         tableau = self.tableau
         stage_count = tableau.stage_count
@@ -536,27 +788,64 @@ class DIRKStep(ODEImplicitStep):
 
     @property
     def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
+        """
+        Return the number of local precision entries required.
+
+        Returns
+        -------
+        int
+            Number of per-thread local memory entries. Equals ``2 * n``
+            to hold stage increment and temporary state variables.
+        """
         return 2 * self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
+        """
+        Return the number of persistent local entries required.
+
+        Returns
+        -------
+        int
+            Always returns 0 as DIRK steps do not require persistent
+            local storage across invocations.
+        """
         return 0
 
     @property
     def is_implicit(self) -> bool:
-        """Return ``True`` because the method solves nonlinear systems."""
+        """
+        Return ``True`` because the method solves nonlinear systems.
+
+        Returns
+        -------
+        bool
+            Always ``True`` for DIRK methods.
+        """
         return True
 
     @property
     def order(self) -> int:
-        """Return the classical order of accuracy."""
+        """
+        Return the classical order of accuracy.
+
+        Returns
+        -------
+        int
+            The order of the method as specified by the tableau.
+        """
         return self.tableau.order
 
 
     @property
     def threads_per_step(self) -> int:
-        """Return the number of CUDA threads that advance one state."""
+        """
+        Return the number of CUDA threads that advance one state.
+
+        Returns
+        -------
+        int
+            Always returns 1 as each system is integrated by a single thread.
+        """
 
         return 1

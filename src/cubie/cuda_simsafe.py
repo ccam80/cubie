@@ -185,27 +185,150 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
 if CUDA_SIMULATION:  # pragma: no cover - simulated
     @cuda.jit(device=True, inline=True)
     def selp(pred, true_value, false_value):
+        """
+        Select value based on predicate (simulator version).
+
+        Parameters
+        ----------
+        pred : bool
+            Boolean predicate for selection.
+        true_value : any
+            Value returned when predicate is True.
+        false_value : any
+            Value returned when predicate is False.
+
+        Returns
+        -------
+        any
+            ``true_value`` if ``pred`` is True, otherwise ``false_value``.
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Simulator version provides simple ternary operator semantics.
+        """
         return true_value if pred else false_value
 
     @cuda.jit(device=True, inline=True)
     def activemask():
+        """
+        Return bitmask of active threads in the warp (simulator version).
+
+        Returns
+        -------
+        int
+            Bitmask with bits set for active threads. Simulator returns
+            0xFFFFFFFF (all 32 threads active).
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Real GPU version uses PTX instruction; simulator returns fixed mask.
+        """
         return 0xFFFFFFFF
 
     @cuda.jit(device=True, inline=True)
     def all_sync(mask, predicate):
+        """
+        Check if predicate is true for all threads in mask (simulator version).
+
+        Parameters
+        ----------
+        mask : int
+            Bitmask specifying threads to include in the vote.
+        predicate : bool
+            Condition to evaluate for each thread.
+
+        Returns
+        -------
+        bool
+            ``True`` if predicate is true for all threads in mask.
+            Simulator returns predicate value directly.
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Real GPU version synchronizes warp and performs collective vote.
+        Simulator skips synchronization and vote, returning predicate unchanged.
+        """
         return predicate
 
 else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(device=True, inline=True)
     def selp(pred, true_value, false_value):
+        """
+        Select value based on predicate (GPU version).
+
+        Parameters
+        ----------
+        pred : bool
+            Boolean predicate for selection.
+        true_value : any
+            Value returned when predicate is True.
+        false_value : any
+            Value returned when predicate is False.
+
+        Returns
+        -------
+        any
+            ``true_value`` if ``pred`` is True, otherwise ``false_value``.
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Uses PTX ``selp`` instruction for efficient predicated selection.
+        """
         return cuda.selp(pred, true_value, false_value)
 
     @cuda.jit(device=True, inline=True)
     def activemask():
+        """
+        Return bitmask of active threads in the warp (GPU version).
+
+        Returns
+        -------
+        int
+            Bitmask with bits set for threads currently active in the warp.
+            Bit i corresponds to thread i in the warp (0-31).
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Uses PTX ``activemask.b32`` instruction to query warp state.
+        Essential for correct warp-synchronous programming and divergence
+        avoidance in conditional blocks.
+        """
         return cuda.activemask()
 
     @cuda.jit(device=True, inline=True)
     def all_sync(mask, predicate):
+        """
+        Check if predicate is true for all threads in mask (GPU version).
+
+        Parameters
+        ----------
+        mask : int
+            Bitmask specifying which threads participate in the vote.
+        predicate : bool
+            Condition to evaluate for each thread.
+
+        Returns
+        -------
+        bool
+            ``True`` if and only if predicate evaluates to true for all
+            threads specified in mask. ``False`` otherwise.
+
+        Notes
+        -----
+        This is a CUDA device function called from kernels only.
+        Uses PTX ``vote.all.sync`` instruction to perform a warp-wide
+        collective vote. All threads in mask are synchronized before
+        the vote. Critical for ensuring uniform control flow decisions
+        within a warp to avoid divergence penalties.
+
+        Used in FSAL caching decisions (issue #149) to ensure all threads
+        in a warp agree on whether to reuse cached derivatives.
+        """
         return cuda.all_sync(mask, predicate)
 
 

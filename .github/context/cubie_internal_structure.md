@@ -279,6 +279,22 @@ Located in `tests/integrators/cpu_reference.py`:
 - Compare against IntegratorReturnCodes enum values
 - Solver codes distinct from integrator codes despite overlap
 
+### Warp-Synchronization for FSAL Caching
+- FSAL (First Same As Last) optimization caches final stage derivative for reuse
+- Cache reuse decision must be uniform across all threads in a warp to avoid divergence
+- Pattern (issue #149 fix):
+  ```python
+  mask = activemask()  # Get active thread mask for current warp
+  all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+  use_cached_rhs = all_threads_accepted  # All threads use same decision
+  ```
+- Warp-vote intrinsics from `cubie.cuda_simsafe` module:
+  - `activemask()`: Returns bitmask of active threads in warp
+  - `all_sync(mask, predicate)`: Returns True only if predicate true for all threads
+- Used in `generic_erk.py` and `generic_dirk.py` for FSAL cache decisions
+- Ensures uniform control flow within warps, preventing divergence penalties
+- Fallback in CUDA simulator: `all_sync()` returns predicate value directly
+
 ### Precision Handling
 - All arithmetic uses precision specified in ODEData
 - Numba types obtained via `from_dtype(precision)` from cuda_simsafe
