@@ -34,7 +34,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
-    "dt_save",
+    "dt_save",  # Time interval for derivative metric scaling
 }
 
 
