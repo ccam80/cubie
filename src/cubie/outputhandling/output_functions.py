@@ -21,6 +21,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
+from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.update_summaries import update_summary_factory
 
 
@@ -192,7 +193,6 @@ class OutputFunctions(CUDAFactory):
         config = self.compile_settings
 
         # Update all metrics with current dt_save
-        from cubie.outputhandling.summarymetrics import summary_metrics
         summary_metrics.update(dt_save=config.dt_save)
 
         buffer_sizes = self.summaries_buffer_sizes
