@@ -304,11 +304,14 @@ class LoopSharedIndices:
         error_stop_index = error_start_index + n_error
         
         # Add counters if enabled
-        counters_size = 2 if save_counters else 0
+        # counters_since_save has 4 elements: newton, krylov, steps, rejections
+        # proposed_counters has 2 elements: newton, krylov (from step function)
+        counters_since_save_size = 4 if save_counters else 0
+        proposed_counters_size = 2 if save_counters else 0
         counters_start_index = error_stop_index
-        counters_stop_index = counters_start_index + counters_size
+        counters_stop_index = counters_start_index + counters_since_save_size
         proposed_counters_start_index = counters_stop_index
-        proposed_counters_stop_index = proposed_counters_start_index + counters_size
+        proposed_counters_stop_index = proposed_counters_start_index + proposed_counters_size
         
         final_stop_index = proposed_counters_stop_index
 

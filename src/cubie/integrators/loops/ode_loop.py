@@ -282,12 +282,19 @@ class IVPLoop(CUDAFactory):
             drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
-            counters_since_save = shared_scratch[counters_shared_ind]
-            proposed_counters = shared_scratch[proposed_counters_shared_ind]
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
+            
+            # Set up counter buffers
             if save_counters_bool:
-                counters_since_save = cuda.local.array(4, int32)
-                proposed_counters = counters_since_save[:2]
+                # When enabled, use shared memory buffers
+                counters_since_save = shared_scratch[counters_shared_ind]
+                proposed_counters = shared_scratch[proposed_counters_shared_ind]
+            else:
+                # When disabled, use dummy local arrays
+                dummy_counters = cuda.local.array(4, int32)
+                counters_since_save = dummy_counters
+                proposed_counters = dummy_counters[:2]
+            
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             # Non-adaptive algorithms map the error slice to length zero.
@@ -369,6 +376,10 @@ class IVPLoop(CUDAFactory):
             dt[0] = dt0
             dt_eff = dt[0]
             accept_step[0] = int32(0)
+
+            # Initialize iteration counters
+            for i in range(4):
+                counters_since_save[i] = int32(0)
 
             if fixed_mode:
                 step_counter = int32(0)
