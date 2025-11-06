@@ -1,0 +1,138 @@
+# Rosenbrock Coefficient Relationships Diagram
+
+## Notation Equivalence Across Implementations
+
+┌────────────────────────────────────────────────────────────────────┐
+│                    Standard Academic Notation                       │
+│                                                                      │
+│  Stage Equation:                                                    │
+│  (I - h·γ·J) kᵢ = h·f(Yᵢ) + h·J·Σ(γᵢⱼ·kⱼ) + h²·γᵢ·∂f/∂t          │
+│                                                                      │
+│  Where:                                                             │
+│  - γ (gamma)     : Diagonal shift parameter                        │
+│  - γᵢⱼ (gamma_ij): Jacobian coupling coefficients                  │
+│  - γᵢ (gamma_i)  : Time derivative coefficients                    │
+│  - aᵢⱼ          : Explicit stage coupling                          │
+└────────────────────────────────────────────────────────────────────┘
+                              ↓
+        ┌─────────────────────┴─────────────────────┐
+        │                                            │
+┌───────▼──────────┐                      ┌──────────▼────────────┐
+│  OrdinaryDiffEq.jl│                      │    CuBIE (Python)     │
+│     (Julia)      │                      │                        │
+│                  │                      │                        │
+│  Tableau Fields: │                      │  RosenbrockTableau:   │
+│  ├─ a            │◄────────────────────►│  ├─ a                 │
+│  ├─ b            │      (identical)     │  ├─ b                 │
+│  ├─ c            │                      │  ├─ c                 │
+│  ├─ gamma        │                      │  ├─ gamma             │
+│  │                                      │  │                     │
+│  ├─ beta         │                      │  ├─ C                 │
+│  │   βᵢⱼ = γᵢⱼ/γ│◄────────────────────►│  │   Cᵢⱼ = γᵢⱼ/γ      │
+│  │                (equivalent!)         │  │                     │
+│  └─ gamma_stages │                      │  └─ gamma_stages      │
+│      γᵢ          │◄────────────────────►│      γᵢ               │
+└──────────────────┘                      └───────────────────────┘
+
+## Key Relationships
+
+For constant diagonal (γᵢᵢ = γ for all i):
+
+   OrdinaryDiffEq.jl          CuBIE           Mathematical
+   ─────────────────          ─────           ────────────
+   beta[i][j]          ≡      C[i][j]    ≡    γᵢⱼ / γ
+   
+   gamma                ≡     gamma      ≡    γ
+   
+   gamma_stages[i]      ≡     gamma_stages[i] ≡ γᵢ
+
+
+## Transformation Example: ROS3P
+
+Academic Paper:              OrdinaryDiffEq.jl:          CuBIE:
+──────────────              ──────────────────          ──────
+
+γ = 0.7886751346            gamma = 0.788...            gamma = 0.788...
+
+γ₂₁ = -1.6066951524         beta[2][1] = -1.606...      C[2][1] = -1.606...
+                            (= γ₂₁ / γ)                  (= γ₂₁ / γ)
+
+γ₁ = 0.7886751346           gamma_stages[1] = 0.788...  gamma_stages[0] = 0.788...
+γ₂ = -0.2113248654          gamma_stages[2] = -0.211... gamma_stages[1] = -0.211...
+γ₃ = -1.0773502691          gamma_stages[3] = -1.077... gamma_stages[2] = -1.077...
+
+
+## Stage Equation Implementation
+
+┌──────────────────────────────────────────────────────────────┐
+│  CuBIE Code (lines 350-471 of generic_rosenbrock_w.py)       │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│  # Form RHS with C coefficients                              │
+│  correction = Σ(C_coeffs[stage_idx][j] * stage_store[j])    │
+│  deriv_val = gamma_stages[stage_idx] * time_derivative[idx]  │
+│  stage_rhs[idx] = (correction * idt + f_val + deriv_val) *   │
+│                   dt_scalar * gamma                          │
+│                                                               │
+│  # Solve: (I - dt*gamma*J) k_i = stage_rhs                   │
+│  linear_solver(..., stage_rhs, stage_increment)              │
+└──────────────────────────────────────────────────────────────┘
+                              ↓
+                    Mathematically Expands To:
+                              ↓
+┌──────────────────────────────────────────────────────────────┐
+│  (I - h·γ·J) kᵢ = [Σ(Cᵢⱼ·kⱼ)/h + f + γᵢ·∂f/∂t]·h·γ        │
+│                 = γ·Σ(Cᵢⱼ·kⱼ) + h·γ·f + h²·γ·γᵢ·∂f/∂t      │
+│                                                               │
+│  Since Cᵢⱼ = γᵢⱼ/γ:                                          │
+│                 = Σ(γᵢⱼ·kⱼ) + h·γ·f + h²·γ·γᵢ·∂f/∂t         │
+│                                                               │
+│  Factoring h·J from first term:                              │
+│                 = h·J·Σ(γᵢⱼ·kⱼ) + h·f + h²·γᵢ·∂f/∂t ✓       │
+│                                                               │
+│  This matches the standard Rosenbrock-W formulation!         │
+└──────────────────────────────────────────────────────────────┘
+
+
+## RODAS Compatibility
+
+RODAS literature form:        Standard Rosenbrock-W form:
+────────────────────         ─────────────────────────
+
+(1/(h·γ)·I - J) kᵢ           (I - h·γ·J) kᵢ
+= f(Yᵢ) + Σ(βᵢⱼ·kⱼ)        = h·f(Yᵢ) + h·J·Σ(γᵢⱼ·kⱼ)
+  + h·∂f/∂t                    + h²·γᵢ·∂f/∂t
+
+Multiply RODAS by h·γ:       Set βᵢⱼ = γᵢⱼ/γ, γᵢ = γ:
+
+(I - h·γ·J) kᵢ               (I - h·γ·J) kᵢ  
+= h·γ·f(Yᵢ)                  = h·f(Yᵢ)
+  + h·γ·Σ(βᵢⱼ·kⱼ)             + h·J·Σ(γᵢⱼ·kⱼ)
+  + h²·γ·∂f/∂t                 + h²·γᵢ·∂f/∂t
+
+           ─────────────────────────────────────►
+                   IDENTICAL! ✓
+
+Conclusion: RODAS methods are just Rosenbrock-W methods with 
+           specific tableau coefficients. No algorithm changes needed.
+
+
+## Cannot Be Derived
+
+┌────────────────────────────────────────────────────────────────┐
+│  These must be EXPLICITLY PROVIDED in tableau definitions:     │
+│                                                                 │
+│  ❌ gamma_stages (γᵢ values)                                   │
+│     - Determined by order conditions during method development │
+│     - Cannot be computed from a, b, c, C matrices              │
+│     - Different for each method (ROS3P, RODAS3P, RODAS4P, etc.)│
+│                                                                 │
+│  ✓ C matrix (Cᵢⱼ = γᵢⱼ/γ)                                      │
+│     - Can be provided as Beta matrix and converted             │
+│     - from_beta_matrix() constructor enables this              │
+│                                                                 │
+│  ✓ a, b, c coefficients                                        │
+│     - Directly copied from reference implementation            │
+│     - Same in all notations                                    │
+└────────────────────────────────────────────────────────────────┘
+
