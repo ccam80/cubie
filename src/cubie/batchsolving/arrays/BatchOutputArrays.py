@@ -62,6 +62,13 @@ class OutputArrayContainer(ArrayContainer):
             is_chunked=False,
         )
     )
+    iteration_counters: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.int32,
+            stride_order=("run", "time", "variable"),
+            shape=(1, 1, 4),
+        )
+    )
 
     @classmethod
     def host_factory(cls) -> "OutputArrayContainer":
@@ -127,6 +134,9 @@ class ActiveOutputs:
     status_codes: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
     )
+    iteration_counters: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
 
     def update_from_outputarrays(self, output_arrays: "OutputArrays") -> None:
         """
@@ -166,6 +176,10 @@ class ActiveOutputs:
         self.status_codes = (
             output_arrays.host.status_codes.array is not None
             and output_arrays.host.status_codes.array.size > 1
+        )
+        self.iteration_counters = (
+            output_arrays.host.iteration_counters.array is not None
+            and output_arrays.host.iteration_counters.array.size > 1
         )
 
 
@@ -303,6 +317,16 @@ class OutputArrays(BaseArrayManager):
     def device_status_codes(self) -> ArrayTypes:
         """Device status code output array."""
         return self.device.status_codes.array
+
+    @property
+    def iteration_counters(self) -> ArrayTypes:
+        """Host iteration counters output array."""
+        return self.host.iteration_counters.array
+
+    @property
+    def device_iteration_counters(self) -> ArrayTypes:
+        """Device iteration counters output array."""
+        return self.device.iteration_counters.array
 
     @classmethod
     def from_solver(

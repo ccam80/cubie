@@ -217,6 +217,7 @@ class IVPLoop(CUDAFactory):
             observables_output,
             state_summaries_output,
             observable_summaries_output,
+            iteration_counters_output,
             duration,
             settling_time,
             t0=precision(0.0),
@@ -243,6 +244,8 @@ class IVPLoop(CUDAFactory):
                 Device array storing aggregated state summaries.
             observable_summaries_output
                 Device array storing aggregated observable summaries.
+            iteration_counters_output
+                Device array storing iteration counter values at each save.
             duration
                 Total integration duration.
             settling_time
@@ -323,12 +326,20 @@ class IVPLoop(CUDAFactory):
             else:
                 #Seed initial state and save/update summaries
                 next_save = precision(dt_save)
+                
+                if output_counters_bool:
+                    counter_output_slice = iteration_counters_output[save_idx, :]
+                else:
+                    counter_output_slice = cuda.local.array(0, int32)
+                
                 save_state(
                     state_buffer,
                     observables_buffer,
                     state_output[save_idx * save_state_bool, :],
                     observables_output[save_idx * save_obs_bool, :],
                     t,
+                    counter_output_slice,
+                    counters_since_save if output_counters_bool else cuda.local.array(0, int32),
                 )
                 if summarise:
                     #reset temp buffers to starting state - will be overwritten
@@ -477,12 +488,19 @@ class IVPLoop(CUDAFactory):
                     )
 
                     if do_save:
+                        if output_counters_bool:
+                            counter_output_slice = iteration_counters_output[save_idx, :]
+                        else:
+                            counter_output_slice = cuda.local.array(0, int32)
+                        
                         save_state(
                             state_buffer,
                             observables_buffer,
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
                             t,
+                            counter_output_slice,
+                            counters_since_save if output_counters_bool else cuda.local.array(0, int32),
                         )
                         if summarise:
                             update_summaries(
