@@ -63,11 +63,11 @@ def save_state_factory(
     def save_state_func(
         current_state,
         current_observables,
+        counters_array,
         output_states_slice,
         output_observables_slice,
-        current_step,
         output_counters_slice,
-        counters_array,
+        current_step,
     ):
         """Write selected state, observable, and time values to device buffers.
 
@@ -77,18 +77,20 @@ def save_state_factory(
             device array containing the latest integrator state values.
         current_observables
             device array containing the latest observable values.
+        counters_array
+            device array containing iteration counter values to save.
         output_states_slice
             device array window that receives saved state (and optional time)
             values in place.
         output_observables_slice
             device array window that receives saved observable values in
             place.
-        current_step
-            Scalar step or time value associated with the current sample.
         output_counters_slice
             device array window that receives iteration counter values in place.
-        counters_array
-            device array containing iteration counter values to save.
+        current_step
+            Scalar step or time value associated with the current sample.
+
+
 
         Returns
         -------
