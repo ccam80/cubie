@@ -21,7 +21,7 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 )
 
 
-ERK_DEFAULTS = StepControlDefaults(
+ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -32,6 +32,13 @@ ERK_DEFAULTS = StepControlDefaults(
         "deadband_max": 1.1,
         "min_gain": 0.5,
         "max_gain": 2.0,
+    }
+)
+
+ERK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
     }
 )
 
@@ -55,12 +62,13 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
 
@@ -71,17 +79,27 @@ class ERKStep(ODEExplicitStep):
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
         """
 
-        config = ERKStepConfig(
-            precision=precision,
-            n=n,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            tableau=tableau,
-        )
-        super().__init__(config, ERK_DEFAULTS)
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = ERKStepConfig(**config_kwargs)
+        
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+        
+        super().__init__(config, defaults)
 
     def build_step(
         self,

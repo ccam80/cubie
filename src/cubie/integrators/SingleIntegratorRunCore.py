@@ -12,6 +12,7 @@ be rebuilt when any component is reconfigured.
 """
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+import warnings
 
 
 from cubie.CUDAFactory import CUDAFactory
@@ -177,19 +178,16 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm_name: str,
         controller_name: str,
     ) -> None:
-        """Validate that algorithm and controller step modes are aligned.
+        """Validate algorithm and controller compatibility.
 
         This method checks whether the chosen integration algorithm and step
-        controller are compatible. Specifically, it verifies that adaptive
-        step controllers are not paired with fixed-step (errorless)
-        algorithms, since adaptive controllers require error estimates to
-        adjust the step size dynamically.
+        controller are compatible. When an adaptive controller is paired with
+        a fixed-step (errorless) algorithm, this method replaces the adaptive
+        controller with a fixed-step controller and issues a warning.
 
         The validation is performed during integrator initialization, after
         both the algorithm and controller have been instantiated but before
-        the CUDA loop is compiled. This ensures early detection of
-        incompatible configurations and provides clear, actionable error
-        messages to users.
+        the CUDA loop is compiled.
 
         Parameters
         ----------
@@ -198,71 +196,50 @@ class SingleIntegratorRunCore(CUDAFactory):
         controller_name
             Name of the step controller being used (e.g., "fixed", "pi").
 
-        Raises
-        ------
-        ValueError
-            Raised when an adaptive controller is paired with a fixed-step
-            algorithm. The error message includes the specific algorithm and
-            controller names, explains why the configuration is invalid, and
-            suggests two solutions: using a fixed-step controller or choosing
-            an adaptive algorithm with error estimation capability.
-
         Notes
         -----
-        This validation only checks for the specific case of adaptive
-        controllers with errorless algorithms. Other combinations are valid:
+        When an incompatible configuration is detected (adaptive controller
+        with errorless algorithm), the controller is automatically replaced
+        with a fixed-step controller using dt0 from the original controller.
+        A warning is issued to inform the user of this automatic correction.
 
+        Valid combinations:
         - Adaptive algorithm + adaptive controller: Valid and recommended
         - Errorless algorithm + fixed controller: Valid
         - Adaptive algorithm + fixed controller: Valid (uses fixed step)
-        
-        The error message format is:
-        "Adaptive step controller '{controller_name}' cannot be used with
-        fixed-step algorithm '{algo_name}'. The algorithm does not provide
-        an error estimate required for adaptive stepping. Use
-        step_controller='fixed' or choose an adaptive algorithm with error
-        estimation."
-        
-        Examples
-        --------
-        Valid configuration (adaptive algorithm with adaptive controller):
-        
-        >>> from cubie import Solver
-        >>> solver = Solver(
-        ...     system=my_system,
-        ...     algorithm="erk",  # Dormand-Prince has error estimate
-        ...     step_controller="pi",
-        ... )
-        
-        Valid configuration (errorless algorithm with fixed controller):
-        
-        >>> solver = Solver(
-        ...     system=my_system,
-        ...     algorithm="explicit_euler",
-        ...     step_controller="fixed",
-        ...     dt=1e-3,
-        ... )
-        
-        Invalid configuration (errorless algorithm with adaptive controller):
-        
-        >>> solver = Solver(
-        ...     system=my_system,
-        ...     algorithm="explicit_euler",
-        ...     step_controller="pi",  # Raises ValueError
-        ... )
+        - Errorless algorithm + adaptive controller: Auto-corrected with warning
         """
 
         if (not self._algo_step.is_adaptive and
                 self._step_controller.is_adaptive):
-
-            raise ValueError(
+            dt = self._step_controller.dt0
+            
+            warnings.warn(
                 f"Adaptive step controller '{controller_name}' cannot be "
                 f"used with fixed-step algorithm '{algorithm_name}'. "
                 f"The algorithm does not provide an error estimate "
                 f"required for adaptive stepping. "
-                f"Use step_controller='fixed' or choose an adaptive "
-                f"algorithm with error estimation."
+                f"Replacing with fixed-step controller (dt={dt}).",
+                UserWarning,
+                stacklevel=3
             )
+            
+            # Replace with fixed step controller
+            precision = self._system.precision
+            self._step_controller = get_controller(
+                precision=precision,
+                settings={
+                    "step_controller": "fixed",
+                    "dt": dt,
+                    "n": self._system.sizes.states,
+                },
+                warn_on_unused=False,
+            )
+            
+        # Set the is_controller_fixed attribute on the algorithm
+        self._algo_step.is_controller_fixed = (
+            not self._step_controller.is_adaptive
+        )
 
     def instantiate_loop(
         self,

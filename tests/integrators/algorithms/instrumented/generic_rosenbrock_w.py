@@ -22,7 +22,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from .matrix_free_solvers import inst_linear_solver_cached_factory
 
 
-ROSENBROCK_DEFAULTS = StepControlDefaults(
+ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -33,6 +33,13 @@ ROSENBROCK_DEFAULTS = StepControlDefaults(
         "deadband_max": 1.1,
         "min_gain": 0.5,
         "max_gain": 2.0,
+    }
+)
+
+ROSENBROCK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
     }
 )
 
@@ -55,7 +62,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -72,27 +79,36 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        config = RosenbrockWStepConfig(
-            precision=precision,
-            n=n,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            driver_del_t=driver_del_t,
-            time_derivative_fn=time_derivative_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            tableau=tableau_value,
-            beta=1.0,
-            gamma=tableau_value.gamma,
-            M=mass,
-        )
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "driver_del_t": driver_del_t,
+            "time_derivative_fn": time_derivative_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "tableau": tableau_value,
+            "beta": 1.0,
+            "gamma": tableau_value.gamma,
+            "M": mass,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
-        super().__init__(config, ROSENBROCK_DEFAULTS)
+        
+        if tableau.has_error_estimate:
+            defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ROSENBROCK_FIXED_DEFAULTS
+        
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,
