@@ -4,29 +4,31 @@
 
 ## Overview
 
-This task list implements six new summary metrics (dxdt_max, dxdt_min, dxdt_extrema, d2xdt2_max, d2xdt2_min, d2xdt2_extrema) that compute derivatives via finite differences. The implementation requires breaking architectural changes to ALL metric signatures to pass dt_save as a compile-time parameter.
+This task list implements six new summary metrics (dxdt_max, dxdt_min, dxdt_extrema, d2xdt2_max, d2xdt2_min, d2xdt2_extrema) that compute derivatives via finite differences. The implementation uses the CUDAFactory compile_settings pattern to capture dt_save in closure, avoiding signature changes to existing metrics.
 
-**Critical Breaking Changes:**
-- ALL 12 existing metric build() methods must change from `build(self)` to `build(self, dt_save: float)`
-- Device function customisable_variable changes from int32 to float32/64 in ALL metrics
-- OutputFunctions must pass dt_save to metric build() calls
+**Key Architecture Decisions:**
+- dt_save captured in closure via CUDAFactory compile_settings pattern
+- NO changes to existing metric signatures (build() stays `build(self)`)
+- NO changes to device function signatures (customisable_variable stays int32)
+- dt_save NOT stored in buffers (smaller memory footprint)
+- Predicated commit pattern (selp) used instead of if/else for warp efficiency
 
 **Dependencies:**
-Task groups must be executed SEQUENTIALLY due to architectural changes affecting all components.
+Task groups can be executed with some parallelism where noted.
 
 ---
 
-## Task Group 1: Update Base Infrastructure - SEQUENTIAL
+## Task Group 1: Add dt_save to OutputConfig and Infrastructure - SEQUENTIAL
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/outputhandling/summarymetrics/metrics.py (lines 65-152)
-- File: src/cubie/outputhandling/output_functions.py (lines 176-222)
-- File: src/cubie/outputhandling/summarymetrics/__init__.py (entire file)
+- File: src/cubie/outputhandling/output_config.py (lines 94-200, OutputConfig class definition)
+- File: src/cubie/outputhandling/output_functions.py (lines 29-37, ALL_OUTPUT_FUNCTION_PARAMETERS)
+- File: src/cubie/outputhandling/summarymetrics/metrics.py (lines 203-216, __attrs_post_init__)
 
 **Input Validation Required**:
-- dt_save: Check type is float, value > 0.0
+- dt_save: NO validation required (assume validated at higher level)
 
 **Tasks**:
 
