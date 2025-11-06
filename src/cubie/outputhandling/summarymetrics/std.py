@@ -22,16 +22,17 @@ class Std(SummaryMetric):
 
     Notes
     -----
-    The metric uses two buffer slots: one for the sum and one for the sum of
-    squares. The standard deviation is calculated using the formula:
-    std = sqrt((sum_of_squares / n) - (sum / n)^2)
+    The metric uses three buffer slots: one for the shift value (first sample),
+    one for the sum of shifted values, and one for the sum of squares of
+    shifted values. The standard deviation is calculated using a numerically
+    stable shifted-data algorithm to avoid catastrophic cancellation.
     """
 
     def __init__(self) -> None:
         """Initialise the Std summary metric with fixed buffer sizes."""
         super().__init__(
             name="std",
-            buffer_size=2,
+            buffer_size=3,
             output_size=1,
         )
 
@@ -64,26 +65,35 @@ class Std(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """Update the running sum and sum of squares with a new value.
+            """Update the running sum and sum of squares with shifted values.
 
             Parameters
             ----------
             value
                 float. New value to add to the running statistics.
             buffer
-                device array. Storage containing [sum, sum_of_squares].
+                device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
             current_index
-                int. Current integration step index (unused for std).
+                int. Current integration step index within the summary period.
             customisable_variable
                 int. Metric parameter placeholder (unused for std).
 
             Notes
             -----
-            Adds the value to buffer[0] (sum) and value^2 to buffer[1]
-            (sum of squares).
+            On first sample (current_index == 0), stores the value as shift
+            and resets accumulators. For all samples including the first,
+            computes shifted_value = value - shift and adds it to buffer[1]
+            (sum) and shifted_value^2 to buffer[2] (sum of squares). This
+            shifting improves numerical stability.
             """
-            buffer[0] += value
-            buffer[1] += value * value
+            if current_index == 0:
+                buffer[0] = value  # Store shift value
+                buffer[1] = 0.0    # Reset sum
+                buffer[2] = 0.0    # Reset sum of squares
+            
+            shifted_value = value - buffer[0]
+            buffer[1] += shifted_value
+            buffer[2] += shifted_value * shifted_value
 
         @cuda.jit(
             [
@@ -99,12 +109,12 @@ class Std(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """Calculate the standard deviation from running statistics.
+            """Calculate the standard deviation from shifted running statistics.
 
             Parameters
             ----------
             buffer
-                device array. Buffer containing [sum, sum_of_squares].
+                device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
             output_array
                 device array. Output array location for saving the std value.
             summarise_every
@@ -114,15 +124,18 @@ class Std(SummaryMetric):
 
             Notes
             -----
-            Calculates std = sqrt((sum_sq/n) - (sum/n)^2) and saves to
-            output_array[0], then resets buffer for the next summary period.
+            Calculates variance using the shifted data algorithm:
+            variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+            Then computes std = sqrt(variance) and saves to output_array[0].
+            Resets buffer for the next summary period.
             """
-            mean = buffer[0] / summarise_every
-            mean_of_squares = buffer[1] / summarise_every
-            variance = mean_of_squares - (mean * mean)
+            mean_shifted = buffer[1] / summarise_every
+            mean_of_squares_shifted = buffer[2] / summarise_every
+            variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
             output_array[0] = sqrt(variance)
             buffer[0] = 0.0
             buffer[1] = 0.0
+            buffer[2] = 0.0
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
