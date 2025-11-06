@@ -341,6 +341,10 @@ class FIRKStep(ODEImplicitStep):
         nonlinear_solver = solver_fn
         stage_count = self.stage_count
         all_stages_n = config.all_stages_n
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
@@ -402,7 +406,11 @@ class FIRKStep(ODEImplicitStep):
         ):
             stage_state = cuda.local.array(n, numba_precision)
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 

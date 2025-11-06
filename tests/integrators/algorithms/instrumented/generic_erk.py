@@ -209,7 +209,11 @@ class ERKStep(ODEExplicitStep):
 
             observable_count = proposed_observables.shape[0]
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 

@@ -318,6 +318,10 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         nonlinear_solver = solver_fn
         stage_count = tableau.stage_count
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         # Compile-time toggles
         has_driver_function = driver_function is not None
@@ -424,7 +428,11 @@ class DIRKStep(ODEImplicitStep):
             # ----------------------------------------------------------- #
             stage_increment = cuda.local.array(n, numba_precision)
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 

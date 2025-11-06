@@ -246,6 +246,10 @@ class ERKStep(ODEExplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         typed_zero = numba_precision(0.0)
         stage_count = tableau.stage_count
@@ -333,7 +337,11 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 
