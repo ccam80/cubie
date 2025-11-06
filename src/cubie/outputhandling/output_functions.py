@@ -34,6 +34,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
+    "dt_save",
 }
 
 
@@ -189,6 +190,10 @@ class OutputFunctions(CUDAFactory):
         until configuration settings change.
         """
         config = self.compile_settings
+
+        # Update all metrics with current dt_save
+        from cubie.outputhandling.summarymetrics import summary_metrics
+        summary_metrics.update(dt_save=config.dt_save)
 
         buffer_sizes = self.summaries_buffer_sizes
 

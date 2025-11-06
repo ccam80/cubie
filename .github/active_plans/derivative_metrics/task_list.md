@@ -31,7 +31,7 @@ Task groups can be executed with some parallelism where noted.
 ---
 
 ## Task Group 1: Replace CompileSettingsPlaceholder with MetricConfig - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -89,12 +89,15 @@ Task groups can be executed with some parallelism where noted.
    - Integration: All metrics now have MetricConfig as compile_settings
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Replaced CompileSettingsPlaceholder with MetricConfig attrs class
+- Added _dt_save field with default 0.01 and float validator  
+- Added dt_save property
+- Updated SummaryMetric.__init__ to use MetricConfig()
 
 ---
 
 ## Task Group 2: Add update() Methods to SummaryMetrics and SummaryMetric - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Group 1
 
 **Required Context**:
@@ -167,12 +170,15 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Called by OutputFunctions.build()
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Added update() method to SummaryMetric class (calls update_compile_settings with silent=True)
+- Added update() method to SummaryMetrics class (propagates to all _metric_objects)
+- Both methods return None as per project pattern
+- Enables dt_save propagation without signature changes
 
 ---
 
 ## Task Group 3: Add dt_save to OutputConfig and Update Combined Metrics Registry - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None (can run parallel with Groups 1-2)
 
 **Required Context**:
@@ -244,12 +250,16 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Auto-substitution when both requested
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Added _dt_save field to OutputConfig with default 0.01
+- Added dt_save property to OutputConfig
+- Added "dt_save" to ALL_OUTPUT_FUNCTION_PARAMETERS set
+- Added dxdt_extrema and d2xdt2_extrema to _combined_metrics registry
+- dt_save now flows through configuration system
 
 ---
 
 ## Task Group 4: Update OutputFunctions.build() to Call summary_metrics.update() - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2, 3
 
 **Required Context**:
@@ -285,12 +295,15 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Metrics recompile with new dt_save when accessed
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Added summary_metrics.update(dt_save=config.dt_save) call in OutputFunctions.build()
+- Import done inside method to avoid circular import
+- Metrics now receive dt_save before compilation
+- Invalidates cache when dt_save changes
 
 ---
 
 ## Task Group 5: Implement New Derivative Metrics - PARALLEL (6 metrics can be done simultaneously)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2
 
 **Required Context**:
@@ -331,12 +344,17 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Auto-register via @register_metric decorator
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Created dxdt_max.py, dxdt_min.py, dxdt_extrema.py for first derivative metrics
+- Created d2xdt2_max.py, d2xdt2_min.py, d2xdt2_extrema.py for second derivative metrics
+- All metrics use predicated commit pattern with selp()
+- dt_save accessed via self.compile_settings.dt_save and captured in closure
+- Correct buffer sizes: dxdt (2/3), d2xdt2 (3/4)
+- Guards prevent computation before sufficient history available
 
 ---
 
 ## Task Group 6: Update Metric Imports - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Group 5
 
 **Required Context**:
@@ -364,12 +382,14 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Metrics available in summary_metrics registry
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Added imports for all 6 new derivative metrics to __init__.py
+- Metrics auto-register via @register_metric decorator on import
+- All metrics now available in summary_metrics registry
 
 ---
 
 ## Task Group 7: Add Tests for New Metrics - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 5, 6
 
 **Required Context**:
@@ -410,7 +430,14 @@ Task groups can be executed with some parallelism where noted.
    - Integration: Validates against numpy reference implementations
 
 **Outcomes**:
-[Empty - to be filled by do_task agent]
+- Created calculate_single_summary_array helper function with numpy reference implementations
+- Added test_all_summaries_long_run parameterized test with all 13 metrics (including 6 new derivative metrics)
+- Added test_all_summary_metrics_numerical_check with "all" and "no_combos" cases
+- Added test_derivative_metrics_buffer_sizes and test_derivative_metrics_output_sizes
+- Added test_combined_derivative_metrics_dxdt and test_combined_derivative_metrics_d2xdt2
+- Added test_derivative_metrics_registration
+- Updated test_real_summary_metrics_available_metrics to include 6 new metrics
+- All tests validate correct buffer sizes, output sizes, and combination behavior
 
 ---
 

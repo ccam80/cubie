@@ -29,10 +29,25 @@ class MetricFuncCache:
     save: Callable = attrs.field(default=None)
 
 @attrs.define
-class CompileSettingsPlaceholder:
-    """Placeholder container for compile settings."""
-
-    empty_dict: dict = attrs.field(factory=dict)
+class MetricConfig:
+    """Configuration for summary metric compilation.
+    
+    Attributes
+    ----------
+    dt_save
+        Time interval between saved states. Used by derivative
+        metrics to scale finite differences. Defaults to 0.01.
+    """
+    
+    _dt_save: float = attrs.field(
+        default=0.01,
+        validator=attrs.validators.instance_of(float)
+    )
+    
+    @property
+    def dt_save(self) -> float:
+        """Time interval between saved states."""
+        return self._dt_save
 
 
 def register_metric(registry: "SummaryMetrics") -> Callable:
@@ -114,7 +129,7 @@ class SummaryMetric(CUDAFactory):
         self.name = name
 
         # Instantiate empty settings object for CUDAFactory compatibility
-        self.setup_compile_settings(CompileSettingsPlaceholder())
+        self.setup_compile_settings(MetricConfig())
 
 
     @abstractmethod
@@ -149,6 +164,26 @@ class SummaryMetric(CUDAFactory):
         """CUDA device save function for the metric."""
 
         return self.get_cached_output("save")
+
+    def update(self, **kwargs) -> None:
+        """Update metric compile settings.
+        
+        Parameters
+        ----------
+        **kwargs
+            Compile settings to update (e.g., dt_save=0.02).
+            
+        Returns
+        -------
+        None
+            Returns None.
+            
+        Notes
+        -----
+        Updates the MetricConfig and invalidates cache if values change.
+        Triggers recompilation on next device_function access.
+        """
+        self.update_compile_settings(kwargs, silent=True)
 
 @attrs.define
 class SummaryMetrics:
@@ -213,7 +248,30 @@ class SummaryMetrics:
             frozenset(["mean", "std"]): "mean_std",
             frozenset(["std", "rms"]): "std_rms",
             frozenset(["max", "min"]): "extrema",
+            frozenset(["dxdt_max", "dxdt_min"]): "dxdt_extrema",
+            frozenset(["d2xdt2_max", "d2xdt2_min"]): "d2xdt2_extrema",
         }
+
+    def update(self, **kwargs) -> None:
+        """Update compile settings for all registered metrics.
+        
+        Parameters
+        ----------
+        **kwargs
+            Compile settings to update (e.g., dt_save=0.02).
+            
+        Returns
+        -------
+        None
+            Returns None.
+            
+        Notes
+        -----
+        Propagates updates to all registered metric objects.
+        Each metric invalidates its cache if values change.
+        """
+        for metric in self._metric_objects.values():
+            metric.update(**kwargs)
 
     def register_metric(self, metric: SummaryMetric) -> None:
         """Register a new summary metric with the system.

@@ -26,5 +26,11 @@ from cubie.outputhandling.summarymetrics import negative_peaks  # noqa
 from cubie.outputhandling.summarymetrics import mean_std_rms  # noqa
 from cubie.outputhandling.summarymetrics import mean_std  # noqa
 from cubie.outputhandling.summarymetrics import std_rms  # noqa
+from cubie.outputhandling.summarymetrics import dxdt_max  # noqa
+from cubie.outputhandling.summarymetrics import dxdt_min  # noqa
+from cubie.outputhandling.summarymetrics import dxdt_extrema  # noqa
+from cubie.outputhandling.summarymetrics import d2xdt2_max  # noqa
+from cubie.outputhandling.summarymetrics import d2xdt2_min  # noqa
+from cubie.outputhandling.summarymetrics import d2xdt2_extrema  # noqa
 
 __all__ = ["summary_metrics", "register_metric"]
