@@ -121,6 +121,11 @@ Task groups can be executed with some parallelism where noted.
          **kwargs
              Compile settings to update (e.g., dt_save=0.02).
              
+         Returns
+         -------
+         None
+             Returns None.
+             
          Notes
          -----
          Updates the MetricConfig and invalidates cache if values change.
@@ -144,6 +149,11 @@ Task groups can be executed with some parallelism where noted.
          ----------
          **kwargs
              Compile settings to update (e.g., dt_save=0.02).
+             
+         Returns
+         -------
+         None
+             Returns None.
              
          Notes
          -----
@@ -384,11 +394,18 @@ Task groups can be executed with some parallelism where noted.
         - For d2xdt2_min: `np.min((values[2:] - 2*values[1:-1] + values[:-2]) / dt_save**2)`
         - For d2xdt2_extrema: both max and min in array
      
-     2. Add to `test_all_summary_metrics_numerical_check` parametrization:
-        - Add "dxdt_max", "dxdt_min", "d2xdt2_max", "d2xdt2_min" to individual test cases
-        - Add combined cases: ["dxdt_max", "dxdt_min"], ["d2xdt2_max", "d2xdt2_min"]
+     2. Add metrics to test parameter sets:
+        **For test_all_summaries_long_run:**
+        - Add ALL six metrics to explicit parameter sets (manual addition required)
+        - Metrics: dxdt_max, dxdt_min, dxdt_extrema, d2xdt2_max, d2xdt2_min, d2xdt2_extrema
+        
+        **For test_all_summary_metrics_numerical_check:**
+        - Add ALL six metrics to the "all" case (tests with combinations)
+        - Add ONLY individual metrics to "no_combos" case: dxdt_max, dxdt_min, d2xdt2_max, d2xdt2_min
+        - DO NOT add combined metrics (dxdt_extrema, d2xdt2_extrema) to "no_combos" case
+        - Individual test cases happen automatically via summary_metrics object
      
-     3. The `test_all_summaries_long_run` should auto-discover new metrics
+     3. Test validation logic (already in calculate_single_summary_array):
    - Edge cases: First/last points may need special handling for finite differences
    - Integration: Validates against numpy reference implementations
 
