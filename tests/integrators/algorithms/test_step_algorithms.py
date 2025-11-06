@@ -1511,3 +1511,36 @@ def test_algorithm(
             atol=tolerances["atol"],
         ), "error matches"
 
+
+
+# Test controller defaults selection based on tableau error estimation
+@pytest.mark.parametrize(
+    "step_class,tableau,expected_dict",
+    [
+        # ERK errorless tableaus default to fixed
+        (ERKStep, ERK_TABLEAU_REGISTRY["rk4"], {"step_controller": "fixed"}),
+        (ERKStep, ERK_TABLEAU_REGISTRY["heun"], {"step_controller": "fixed"}),
+        # ERK adaptive tableaus default to PI
+        (ERKStep, ERK_TABLEAU_REGISTRY["dormand_prince"], {"step_controller": "pi"}),
+        (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pi"}),
+        # DIRK with error estimate defaults to PI
+        (DIRKStep, DEFAULT_DIRK_TABLEAU, {"step_controller": "pi"}),
+        # FIRK with error estimate defaults to PI
+        (FIRKStep, DEFAULT_FIRK_TABLEAU, {"step_controller": "pi"}),
+        # Rosenbrock with error estimate defaults to PI
+        (GenericRosenbrockWStep, DEFAULT_ROSENBROCK_TABLEAU, {"step_controller": "pi"}),
+    ],
+)
+def test_tableau_controller_defaults(step_class, tableau, expected_dict):
+    """Test that tableaus select appropriate controller defaults."""
+    step = step_class(
+        precision=np.float32,
+        n=3,
+        dt=None,
+        tableau=tableau,
+    )
+    
+    defaults = step.controller_defaults.step_controller
+    for key, expected_value in expected_dict.items():
+        assert defaults[key] == expected_value, \
+            f"{step_class.__name__} with {tableau} should have {key}={expected_value}"
