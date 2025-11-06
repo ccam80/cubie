@@ -258,6 +258,7 @@ def test_initial_observable_seed_matches_reference(
     "solver_settings_override2",
     [DEFAULT_OVERRIDES],
     indirect=True,
+    ids=[""],
 )
 @pytest.mark.parametrize(
     "solver_settings_override",

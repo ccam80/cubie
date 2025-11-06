@@ -1,0 +1,39 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps`
+  # otherwise it will not be picked up by Copilot.
+  copilot-setup-steps:
+    env:
+      NUMBA_ENABLE_CUDASIM: "1"
+    runs-on: ubuntu-latest
+    permissions:
+      # To allow us to clone the repo for setup
+      contents: read
+
+    # The setup steps - install Python and our dependencies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        # Newer numba versions have changed "can_cast" which is causing 90 failures - have not investigated.
+        run: |
+          python -m pip install --upgrade pip uv
+          python -m uv pip install --system -r ci/requirements.ci.txt
+          python -m uv pip install --system -e .[dev]
