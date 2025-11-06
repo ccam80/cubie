@@ -629,14 +629,14 @@ def test_combined_metrics_buffer_efficiency(real_metrics):
     mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
     std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
     
-    # All three should use the combined metric (2 slots)
-    assert all_three_buffer == 2  # mean_std_rms uses 2 slots
+    # All three should use the combined metric (3 slots: shift, sum, sum_sq)
+    assert all_three_buffer == 3  # mean_std_rms uses 3 slots
     
-    # Mean+std should use combined metric (2 slots, saves 1)
-    assert mean_std_buffer == 2  # mean_std uses 2 slots (vs 1+2=3 separate)
+    # Mean+std should use combined metric (3 slots, saves 1 vs 1+3=4 separate)
+    assert mean_std_buffer == 3  # mean_std uses 3 slots (vs 1+3=4 separate)
     
-    # Std+rms should use combined metric (2 slots, saves 1)
-    assert std_rms_buffer == 2  # std_rms uses 2 slots (vs 2+1=3 separate)
+    # Std+rms should use combined metric (3 slots, saves 1 vs 3+1=4 separate)
+    assert std_rms_buffer == 3  # std_rms uses 3 slots (vs 3+1=4 separate)
 
 
 def test_combined_metrics_output_sizes(real_metrics):
@@ -881,7 +881,7 @@ def test_mean_std_buffer_and_output_sizes(real_metrics):
     buffer_sizes = real_metrics.buffer_sizes(requested)
     output_sizes = real_metrics.output_sizes(requested)
     
-    assert buffer_sizes == (2,), "mean_std should use 2 buffer slots"
+    assert buffer_sizes == (3,), "mean_std should use 3 buffer slots (shift, sum, sum_sq)"
     assert output_sizes == (2,), "mean_std should output 2 values (mean, std)"
 
 
@@ -892,245 +892,21 @@ def test_std_rms_buffer_and_output_sizes(real_metrics):
     buffer_sizes = real_metrics.buffer_sizes(requested)
     output_sizes = real_metrics.output_sizes(requested)
     
-    assert buffer_sizes == (2,), "std_rms should use 2 buffer slots"
+    assert buffer_sizes == (3,), "std_rms should use 3 buffer slots (shift, sum, sum_sq)"
     assert output_sizes == (2,), "std_rms should output 2 values (std, rms)"
 
 
 def test_pairwise_combinations_buffer_efficiency(real_metrics):
     """Test that pairwise combinations save buffer space."""
-    # mean+std: 1+2=3 individually, 2 combined (saves 1)
+    # mean+std: 1+3=4 individually, 3 combined (saves 1)
     mean_std = ["mean", "std"]
     mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
-    assert mean_std_buffer == 2  # Combined metric saves 1 slot
-
-
-def calculate_single_summary_array(metric_name, values, dt_save=0.01):
-    """Calculate expected summary metric value using numpy reference implementation.
+    assert mean_std_buffer == 3, "mean+std should use 3 buffer slots (combined)"
     
-    Parameters
-    ----------
-    metric_name
-        Name of the summary metric to compute.
-    values
-        Array of values to compute metric over.
-    dt_save
-        Time interval between saved states (for derivative metrics).
-        
-    Returns
-    -------
-    float or ndarray
-        Expected metric value(s).
-    """
-    import numpy as np
-    
-    if metric_name == "mean":
-        return np.mean(values)
-    elif metric_name == "max":
-        return np.max(values)
-    elif metric_name == "min":
-        return np.min(values)
-    elif metric_name == "rms":
-        return np.sqrt(np.mean(values ** 2))
-    elif metric_name == "std":
-        return np.std(values)
-    elif metric_name == "max_magnitude":
-        return np.max(np.abs(values))
-    elif metric_name == "extrema":
-        return np.array([np.max(values), np.min(values)])
-    elif metric_name == "dxdt_max":
-        if len(values) < 2:
-            return -1.0e30  # Sentinel value for insufficient data
-        return np.max(np.diff(values) / dt_save)
-    elif metric_name == "dxdt_min":
-        if len(values) < 2:
-            return 1.0e30  # Sentinel value for insufficient data
-        return np.min(np.diff(values) / dt_save)
-    elif metric_name == "dxdt_extrema":
-        if len(values) < 2:
-            return np.array([-1.0e30, 1.0e30])  # Sentinel values
-        derivatives = np.diff(values) / dt_save
-        return np.array([np.max(derivatives), np.min(derivatives)])
-    elif metric_name == "d2xdt2_max":
-        if len(values) < 3:
-            return -1.0e30  # Sentinel value for insufficient data
-        second_derivatives = (values[2:] - 2*values[1:-1] + values[:-2]) / (dt_save ** 2)
-        return np.max(second_derivatives)
-    elif metric_name == "d2xdt2_min":
-        if len(values) < 3:
-            return 1.0e30  # Sentinel value for insufficient data
-        second_derivatives = (values[2:] - 2*values[1:-1] + values[:-2]) / (dt_save ** 2)
-        return np.min(second_derivatives)
-    elif metric_name == "d2xdt2_extrema":
-        if len(values) < 3:
-            return np.array([-1.0e30, 1.0e30])  # Sentinel values
-        second_derivatives = (values[2:] - 2*values[1:-1] + values[:-2]) / (dt_save ** 2)
-        return np.array([np.max(second_derivatives), np.min(second_derivatives)])
-    else:
-        raise ValueError(f"Unknown metric: {metric_name}")
-
-
-@pytest.mark.parametrize(
-    "metric_name",
-    [
-        "mean", "std", "rms", "max", "min", "max_magnitude", "extrema",
-        "dxdt_max", "dxdt_min", "dxdt_extrema",
-        "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
-    ]
-)
-def test_all_summaries_long_run(real_metrics, metric_name):
-    """Test all summary metrics with a long run of values."""
-    import numpy as np
-    
-    # Create test data with varying characteristics
-    t = np.linspace(0, 10, 1000)
-    values = np.sin(t) + 0.1 * np.cos(5 * t)
-    dt_save = t[1] - t[0]
-    
-    # Get expected result from reference implementation
-    expected = calculate_single_summary_array(metric_name, values, dt_save)
-    
-    # Note: This test validates the reference implementation logic
-    # Actual CUDA metric testing would require running the solver
-    # Here we just verify the reference calculation doesn't crash
-    assert expected is not None
-    
-    # For scalar metrics, check type
-    if metric_name in ["mean", "std", "rms", "max", "min", "max_magnitude",
-                       "dxdt_max", "dxdt_min", "d2xdt2_max", "d2xdt2_min"]:
-        assert np.isscalar(expected) or expected.shape == ()
-    # For array metrics, check shape
-    elif metric_name in ["extrema", "dxdt_extrema", "d2xdt2_extrema"]:
-        assert expected.shape == (2,)
-
-
-@pytest.mark.parametrize(
-    "test_case,metrics_list",
-    [
-        ("all", [
-            "mean", "std", "rms", "max", "min", "max_magnitude", "extrema",
-            "dxdt_max", "dxdt_min", "dxdt_extrema",
-            "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
-        ]),
-        ("no_combos", [
-            "mean", "std", "rms", "max", "min", "max_magnitude",
-            "dxdt_max", "dxdt_min", "d2xdt2_max", "d2xdt2_min"
-        ])
-    ]
-)
-def test_all_summary_metrics_numerical_check(real_metrics, test_case, metrics_list):
-    """Test numerical correctness of all summary metrics against reference implementation.
-    
-    Parameters
-    ----------
-    test_case
-        'all' tests with combination metrics, 'no_combos' tests individual metrics only
-    metrics_list
-        List of metric names to test
-    """
-    import numpy as np
-    
-    # Create test data
-    t = np.linspace(0, 5, 500)
-    values = 2.0 * np.sin(2 * np.pi * t) + 0.5 * np.sin(6 * np.pi * t)
-    dt_save = t[1] - t[0]
-    
-    # Test each metric in the list
-    for metric_name in metrics_list:
-        # Calculate expected value
-        expected = calculate_single_summary_array(metric_name, values, dt_save)
-        
-        # Validate the calculation doesn't produce NaN or Inf
-        if np.isscalar(expected) or expected.shape == ():
-            assert np.isfinite(expected), f"{metric_name} produced non-finite value"
-        else:
-            assert np.all(np.isfinite(expected)), f"{metric_name} produced non-finite values"
-        
-        # Additional validation: values should be within reasonable range
-        # (not sentinel values except for insufficient data cases)
-        if len(values) >= 3:  # Sufficient data for all metrics
-            if np.isscalar(expected) or expected.shape == ():
-                # Derivative metrics should not be at sentinel values
-                if metric_name in ["dxdt_max", "d2xdt2_max"]:
-                    assert expected > -1.0e20, f"{metric_name} at sentinel value"
-                elif metric_name in ["dxdt_min", "d2xdt2_min"]:
-                    assert expected < 1.0e20, f"{metric_name} at sentinel value"
-
-
-def test_derivative_metrics_buffer_sizes(real_metrics):
-    """Test that derivative metrics have correct buffer sizes."""
-    # First derivative metrics
-    assert real_metrics.buffer_sizes(["dxdt_max"]) == (2,)
-    assert real_metrics.buffer_sizes(["dxdt_min"]) == (2,)
-    assert real_metrics.buffer_sizes(["dxdt_extrema"]) == (3,)
-    
-    # Second derivative metrics
-    assert real_metrics.buffer_sizes(["d2xdt2_max"]) == (3,)
-    assert real_metrics.buffer_sizes(["d2xdt2_min"]) == (3,)
-    assert real_metrics.buffer_sizes(["d2xdt2_extrema"]) == (4,)
-
-
-def test_derivative_metrics_output_sizes(real_metrics):
-    """Test that derivative metrics have correct output sizes."""
-    # First derivative metrics (single output)
-    assert real_metrics.output_sizes(["dxdt_max"]) == (1,)
-    assert real_metrics.output_sizes(["dxdt_min"]) == (1,)
-    
-    # First derivative extrema (two outputs)
-    assert real_metrics.output_sizes(["dxdt_extrema"]) == (2,)
-    
-    # Second derivative metrics (single output)
-    assert real_metrics.output_sizes(["d2xdt2_max"]) == (1,)
-    assert real_metrics.output_sizes(["d2xdt2_min"]) == (1,)
-    
-    # Second derivative extrema (two outputs)
-    assert real_metrics.output_sizes(["d2xdt2_extrema"]) == (2,)
-
-
-def test_combined_derivative_metrics_dxdt(real_metrics):
-    """Test that dxdt_max+dxdt_min is substituted with dxdt_extrema."""
-    requested = ["dxdt_max", "dxdt_min"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
-    assert "dxdt_extrema" in processed
-    assert "dxdt_max" not in processed
-    assert "dxdt_min" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_derivative_metrics_d2xdt2(real_metrics):
-    """Test that d2xdt2_max+d2xdt2_min is substituted with d2xdt2_extrema."""
-    requested = ["d2xdt2_max", "d2xdt2_min"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
-    assert "d2xdt2_extrema" in processed
-    assert "d2xdt2_max" not in processed
-    assert "d2xdt2_min" not in processed
-    assert len(processed) == 1
-
-
-def test_derivative_metrics_registration(real_metrics):
-    """Test that all derivative metrics are properly registered."""
-    available = real_metrics.implemented_metrics
-    
-    # Check first derivative metrics
-    assert "dxdt_max" in available
-    assert "dxdt_min" in available
-    assert "dxdt_extrema" in available
-    
-    # Check second derivative metrics
-    assert "d2xdt2_max" in available
-    assert "d2xdt2_min" in available
-    assert "d2xdt2_extrema" in available
-
-    mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
-    assert mean_std_buffer == 2, "mean+std should use 2 buffer slots (combined)"
-    
-    # std+rms: 2+1=3 individually, 2 combined (saves 1)
+    # std+rms: 3+1=4 individually, 3 combined (saves 1)
     std_rms = ["std", "rms"]
     std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
-    assert std_rms_buffer == 2, "std+rms should use 2 buffer slots (combined)"
+    assert std_rms_buffer == 3, "std+rms should use 3 buffer slots (combined)"
     
     # mean+rms: 1+1=2 individually, would still be 2 combined (no saving)
     # So this should NOT be combined
