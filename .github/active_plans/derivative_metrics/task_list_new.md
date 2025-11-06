@@ -279,7 +279,7 @@ Task groups can be executed with some parallelism where noted.
 
 ---
 
-## Task Group 5: Implement New Derivative Metrics - PARALLEL (6 metrics can be done simultaneously)
+## Task Group 5: Implement dxdt_max Metric - PARALLEL (with 5.2-5.6)
 **Status**: [ ]
 **Dependencies**: Groups 1, 2
 
@@ -293,32 +293,346 @@ Task groups can be executed with some parallelism where noted.
 
 **Tasks**:
 
-### 5.1 Create dxdt_max.py, dxdt_min.py, dxdt_extrema.py
-   - Files: src/cubie/outputhandling/summarymetrics/{dxdt_max.py, dxdt_min.py, dxdt_extrema.py}
+### 5.1 Create dxdt_max.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/dxdt_max.py
    - Action: Create
    - Details:
-     Implement first derivative metrics following the pattern from task_list_new.md Task Group 5.
-     Key points:
-     - Access dt_save via self.compile_settings.dt_save in build()
-     - Capture dt_save in closure for device functions
-     - Use predicated commit pattern with selp()
-     - buffer_size=2 for max/min, 3 for extrema
-     - Scale by dt_save in save() function
-   - Edge cases: buffer[0] == 0.0 guard handles first call
-   - Integration: Auto-register via @register_metric decorator
+     ```python
+     """
+     Maximum first derivative (dxdt) summary metric for CUDA batch integration.
+     
+     This module implements a summary metric that tracks the maximum first
+     derivative computed via backward finite differences of saved state values.
+     """
+     
+     from numba import cuda
+     from cubie.cuda_simsafe import selp
+     
+     from cubie.outputhandling.summarymetrics import summary_metrics
+     from cubie.outputhandling.summarymetrics.metrics import (
+         SummaryMetric,
+         register_metric,
+         MetricFuncCache,
+     )
+     
+     
+     @register_metric(summary_metrics)
+     class DxdtMax(SummaryMetric):
+         """Summary metric that tracks maximum first derivative.
+         
+         Notes
+         -----
+         Uses 2 buffer slots: buffer[0] for previous value, buffer[1] for
+         maximum unscaled dxdt. Scaling by dt_save done at save time.
+         """
+         
+         def __init__(self) -> None:
+             """Initialise the DxdtMax summary metric."""
+             super().__init__(
+                 name="dxdt_max",
+                 buffer_size=2,
+                 output_size=1,
+             )
+         
+         def build(self) -> MetricFuncCache:
+             """Generate CUDA device functions for dxdt_max calculation.
+             
+             Returns
+             -------
+             MetricFuncCache
+                 Cache containing the device update and save callbacks.
+             
+             Notes
+             -----
+             Accesses dt_save from self.compile_settings.dt_save and captures
+             it in closure. Uses predicated commit pattern with selp().
+             """
+             
+             # Access dt_save from compile_settings
+             dt_save = self.compile_settings.dt_save
+             
+             # no cover: start
+             @cuda.jit(
+                 [
+                     "float32, float32[::1], int32, int32",
+                     "float64, float64[::1], int32, int32",
+                 ],
+                 device=True,
+                 inline=True,
+             )
+             def update(
+                 value,
+                 buffer,
+                 current_index,
+                 customisable_variable,
+             ):
+                 """Update maximum dxdt with new value.
+                 
+                 Parameters
+                 ----------
+                 value
+                     float. New state value.
+                 buffer
+                     device array. Storage for [prev_value, max_dxdt_unscaled].
+                 current_index
+                     int. Current integration step index (unused).
+                 customisable_variable
+                     int. Metric parameter placeholder (unused).
+                 
+                 Notes
+                 -----
+                 Uses predicated commit pattern - no conditional returns.
+                 buffer[0] == 0.0 guards against first call.
+                 """
+                 unscaled_dxdt = value - buffer[0]
+                 update_max = (buffer[0] != 0.0) and (unscaled_dxdt > buffer[1])
+                 buffer[1] = selp(update_max, unscaled_dxdt, buffer[1])
+                 buffer[0] = value
+             
+             @cuda.jit(
+                 [
+                     "float32[::1], float32[::1], int32, int32",
+                     "float64[::1], float64[::1], int32, int32",
+                 ],
+                 device=True,
+                 inline=True,
+             )
+             def save(
+                 buffer,
+                 output_array,
+                 summarise_every,
+                 customisable_variable,
+             ):
+                 """Save scaled maximum dxdt and reset buffer.
+                 
+                 Parameters
+                 ----------
+                 buffer
+                     device array. Buffer containing [prev_value, max_dxdt_unscaled].
+                 output_array
+                     device array. Output location for max_dxdt.
+                 summarise_every
+                     int. Number of steps between saves (unused).
+                 customisable_variable
+                     int. Metric parameter placeholder (unused).
+                 
+                 Notes
+                 -----
+                 Scales unscaled difference by dt_save (captured from closure).
+                 Resets buffer to signal reinitialization.
+                 """
+                 output_array[0] = buffer[1] / dt_save
+                 buffer[1] = 0.0
+                 buffer[0] = 0.0
+             
+             # no cover: end
+             return MetricFuncCache(update=update, save=save)
+     ```
+   - Edge cases: buffer[0] == 0.0 check handles first call and post-save
+   - Integration: Auto-registers via @register_metric decorator
 
-### 5.2 Create d2xdt2_max.py, d2xdt2_min.py, d2xdt2_extrema.py
-   - Files: src/cubie/outputhandling/summarymetrics/{d2xdt2_max.py, d2xdt2_min.py, d2xdt2_extrema.py}
+**Outcomes**:
+[Empty - to be filled by do_task agent]
+
+---
+
+## Task Group 5.2: Implement dxdt_min Metric - PARALLEL
+**Status**: [ ]
+**Dependencies**: Groups 1, 2
+
+**Required Context**:
+- File: src/cubie/outputhandling/summarymetrics/dxdt_max.py (pattern reference from 5.1)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### 5.2.1 Create dxdt_min.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/dxdt_min.py
    - Action: Create
    - Details:
-     Implement second derivative metrics.
-     Key points:
-     - Central difference formula: value - 2*buffer[0] + buffer[1]
-     - buffer_size=3 for max/min, 4 for extrema
-     - Guard: buffer[1] != 0.0 ensures two previous values
-     - Scale by dt_save² in save() function
+     Copy dxdt_max.py and modify:
+     - Class name: DxdtMin
+     - name="dxdt_min"
+     - In update(): change `unscaled_dxdt > buffer[1]` to `unscaled_dxdt < buffer[1]`
+     - Docstrings updated to reference minimum instead of maximum
+   - Edge cases: Same as dxdt_max
+   - Integration: Auto-registers
+
+**Outcomes**:
+[Empty - to be filled by do_task agent]
+
+---
+
+## Task Group 5.3: Implement dxdt_extrema Combined Metric - PARALLEL
+**Status**: [ ]
+**Dependencies**: Groups 1, 2
+
+**Required Context**:
+- File: src/cubie/outputhandling/summarymetrics/extrema.py (combined metric pattern)
+- File: src/cubie/outputhandling/summarymetrics/dxdt_max.py (derivative pattern)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### 5.3.1 Create dxdt_extrema.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/dxdt_extrema.py
+   - Action: Create
+   - Details:
+     Combine dxdt_max and dxdt_min patterns:
+     - Class name: DxdtExtrema
+     - name="dxdt_extrema"
+     - buffer_size=3 (prev_value, max_unscaled, min_unscaled)
+     - output_size=2
+     - In update():
+       ```python
+       unscaled_dxdt = value - buffer[0]
+       update_max = (buffer[0] != 0.0) and (unscaled_dxdt > buffer[1])
+       update_min = (buffer[0] != 0.0) and (unscaled_dxdt < buffer[2])
+       buffer[1] = selp(update_max, unscaled_dxdt, buffer[1])
+       buffer[2] = selp(update_min, unscaled_dxdt, buffer[2])
+       buffer[0] = value
+       ```
+     - In save():
+       ```python
+       output_array[0] = buffer[1] / dt_save  # max
+       output_array[1] = buffer[2] / dt_save  # min
+       buffer[1] = 0.0
+       buffer[2] = 0.0
+       buffer[0] = 0.0
+       ```
+   - Edge cases: Same as individual metrics
+   - Integration: Auto-substituted when both dxdt_max and dxdt_min requested
+
+**Outcomes**:
+[Empty - to be filled by do_task agent]
+
+---
+
+## Task Group 5.4: Implement d2xdt2_max Metric - PARALLEL
+**Status**: [ ]
+**Dependencies**: Groups 1, 2
+
+**Required Context**:
+- File: src/cubie/outputhandling/summarymetrics/dxdt_max.py (first derivative pattern)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### 5.4.1 Create d2xdt2_max.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/d2xdt2_max.py
+   - Action: Create
+   - Details:
+     Extend dxdt_max pattern for second derivative:
+     - Class name: D2xdt2Max
+     - name="d2xdt2_max"
+     - buffer_size=3 (prev_value, prev_prev_value, max_unscaled)
+     - output_size=1
+     - In update():
+       ```python
+       # Central difference: d2xdt2 = (x[n] - 2*x[n-1] + x[n-2])
+       unscaled_d2xdt2 = value - 2.0 * buffer[0] + buffer[1]
+       # Only update if we have 2 previous values
+       update_max = (buffer[1] != 0.0) and (unscaled_d2xdt2 > buffer[2])
+       buffer[2] = selp(update_max, unscaled_d2xdt2, buffer[2])
+       # Shift values
+       buffer[1] = buffer[0]
+       buffer[0] = value
+       ```
+     - In save():
+       ```python
+       # Scale by dt_save^2
+       output_array[0] = buffer[2] / (dt_save * dt_save)
+       buffer[2] = 0.0
+       buffer[1] = 0.0
+       buffer[0] = 0.0
+       ```
    - Edge cases: buffer[1] == 0.0 guard handles first two calls
-   - Integration: Auto-register via @register_metric decorator
+   - Integration: Auto-registers
+
+**Outcomes**:
+[Empty - to be filled by do_task agent]
+
+---
+
+## Task Group 5.5: Implement d2xdt2_min Metric - PARALLEL
+**Status**: [ ]
+**Dependencies**: Groups 1, 2
+
+**Required Context**:
+- File: src/cubie/outputhandling/summarymetrics/d2xdt2_max.py (pattern reference from 5.4)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### 5.5.1 Create d2xdt2_min.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/d2xdt2_min.py
+   - Action: Create
+   - Details:
+     Copy d2xdt2_max.py and modify:
+     - Class name: D2xdt2Min
+     - name="d2xdt2_min"
+     - In update(): change `unscaled_d2xdt2 > buffer[2]` to `unscaled_d2xdt2 < buffer[2]`
+     - Docstrings updated to reference minimum
+   - Edge cases: Same as d2xdt2_max
+   - Integration: Auto-registers
+
+**Outcomes**:
+[Empty - to be filled by do_task agent]
+
+---
+
+## Task Group 5.6: Implement d2xdt2_extrema Combined Metric - PARALLEL
+**Status**: [ ]
+**Dependencies**: Groups 1, 2
+
+**Required Context**:
+- File: src/cubie/outputhandling/summarymetrics/d2xdt2_max.py (second derivative pattern)
+- File: src/cubie/outputhandling/summarymetrics/dxdt_extrema.py (combined pattern)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### 5.6.1 Create d2xdt2_extrema.py Metric File
+   - File: src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py
+   - Action: Create
+   - Details:
+     Combine d2xdt2_max and d2xdt2_min patterns:
+     - Class name: D2xdt2Extrema
+     - name="d2xdt2_extrema"
+     - buffer_size=4 (prev_value, prev_prev_value, max_unscaled, min_unscaled)
+     - output_size=2
+     - In update():
+       ```python
+       unscaled_d2xdt2 = value - 2.0 * buffer[0] + buffer[1]
+       update_max = (buffer[1] != 0.0) and (unscaled_d2xdt2 > buffer[2])
+       update_min = (buffer[1] != 0.0) and (unscaled_d2xdt2 < buffer[3])
+       buffer[2] = selp(update_max, unscaled_d2xdt2, buffer[2])
+       buffer[3] = selp(update_min, unscaled_d2xdt2, buffer[3])
+       buffer[1] = buffer[0]
+       buffer[0] = value
+       ```
+     - In save():
+       ```python
+       dt_save_sq = dt_save * dt_save
+       output_array[0] = buffer[2] / dt_save_sq  # max
+       output_array[1] = buffer[3] / dt_save_sq  # min
+       buffer[2] = 0.0
+       buffer[3] = 0.0
+       buffer[1] = 0.0
+       buffer[0] = 0.0
+       ```
+   - Edge cases: Same as individual metrics
+   - Integration: Auto-substituted when both d2xdt2_max and d2xdt2_min requested
 
 **Outcomes**:
 [Empty - to be filled by do_task agent]
@@ -327,7 +641,7 @@ Task groups can be executed with some parallelism where noted.
 
 ## Task Group 6: Update Metric Imports - SEQUENTIAL
 **Status**: [ ]
-**Dependencies**: Group 5
+**Dependencies**: Groups 5, 5.2, 5.3, 5.4, 5.5, 5.6
 
 **Required Context**:
 - File: src/cubie/outputhandling/summarymetrics/__init__.py (lines 16-28, imports)
@@ -360,10 +674,11 @@ Task groups can be executed with some parallelism where noted.
 
 ## Task Group 7: Add Tests for New Metrics - SEQUENTIAL
 **Status**: [ ]
-**Dependencies**: Groups 5, 6
+**Dependencies**: Groups 5, 5.2, 5.3, 5.4, 5.5, 5.6, 6
 
 **Required Context**:
 - File: tests/outputhandling/summarymetrics/test_summary_metrics.py (entire file - understand test patterns)
+- Specific functions to update will be identified after reading file
 
 **Input Validation Required**:
 - None (tests validate metric behavior)
@@ -374,7 +689,7 @@ Task groups can be executed with some parallelism where noted.
    - File: tests/outputhandling/summarymetrics/test_summary_metrics.py
    - Action: Modify
    - Details:
-     Update tests to include new metrics:
+     AFTER reading the file, update the following (exact locations TBD):
      
      1. Add validation logic to `calculate_single_summary_array` helper:
         - For dxdt_max: `np.max(np.diff(values) / dt_save)`
@@ -388,7 +703,7 @@ Task groups can be executed with some parallelism where noted.
         - Add "dxdt_max", "dxdt_min", "d2xdt2_max", "d2xdt2_min" to individual test cases
         - Add combined cases: ["dxdt_max", "dxdt_min"], ["d2xdt2_max", "d2xdt2_min"]
      
-     3. The `test_all_summaries_long_run` should auto-discover new metrics
+     3. The `test_all_summaries_long_run` should auto-discover new metrics via summary_metrics object
    - Edge cases: First/last points may need special handling for finite differences
    - Integration: Validates against numpy reference implementations
 
@@ -399,7 +714,7 @@ Task groups can be executed with some parallelism where noted.
 
 ## Summary
 
-**Total Task Groups**: 7 main groups
+**Total Task Groups**: 7 main groups (1-4, 5 with 6 parallel subgroups, 6, 7)
 
 **Dependency Chain Overview**:
 ```
@@ -407,7 +722,7 @@ Group 1 (MetricConfig) ─┬─> Group 2 (update methods) ─┬─> Group 4 (O
                         │                               │                              │
 Group 3 (OutputConfig) ─┴──────────────────────────────┘                              │
                                                                                         │
-Group 1 + Group 2 ──> Group 5 (6 new metrics in parallel) ──> Group 6 (imports) ──────┤
+Group 1 + Group 2 ──> Groups 5.1-5.6 (6 new metrics in parallel) ──> Group 6 (imports) ─┤
                                                                                         │
                                                                                         ├─> Group 7 (tests)
                                                                                         │
@@ -416,7 +731,7 @@ Group 1 + Group 2 ──> Group 5 (6 new metrics in parallel) ──> Group 6 (i
 
 **Parallel Execution Opportunities**:
 - Group 3 can run parallel with Groups 1-2
-- Within Group 5, all 6 metrics can be implemented in parallel
+- Groups 5.1, 5.2, 5.3, 5.4, 5.5, 5.6 can ALL run in parallel (6 metrics simultaneously)
 
 **Estimated Complexity**: Medium
 - Infrastructure changes: Simple (replace placeholder, add update methods, add field)
@@ -438,5 +753,3 @@ Group 1 + Group 2 ──> Group 5 (6 new metrics in parallel) ──> Group 6 (i
 - src/cubie/outputhandling/summarymetrics/d2xdt2_max.py
 - src/cubie/outputhandling/summarymetrics/d2xdt2_min.py
 - src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py
-
-**Files Unchanged**: 12 existing metric files (NO signature changes, NO functional changes)

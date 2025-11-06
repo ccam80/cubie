@@ -173,11 +173,15 @@ All metrics use **numerical differentiation** of saved state values.
 
 | Metric | Buffer Size | Storage |
 |--------|-------------|---------|
-| dxdt_max | 3 | prev_value, max_dxdt_unscaled, dt_save |
-| dxdt_min | 3 | prev_value, min_dxdt_unscaled, dt_save |
-| dxdt_extrema | 4 | prev_value, max_unscaled, min_unscaled, dt_save |
-| d2xdt2_max | 4 | prev_value, prev_prev_value, max_unscaled, dt_save |
-| d2xdt2_min | 4 | prev_value, prev_prev_value, min_unscaled, dt_save |
+| dxdt_max | 2 | prev_value, max_dxdt_unscaled |
+| dxdt_min | 2 | prev_value, min_dxdt_unscaled |
+| dxdt_extrema | 3 | prev_value, max_unscaled, min_unscaled |
+| d2xdt2_max | 3 | prev_value, prev_prev_value, max_unscaled |
+| d2xdt2_min | 3 | prev_value, prev_prev_value, min_unscaled |
+| d2xdt2_extrema | 4 | prev_value, prev_prev_value, max_unscaled, min_unscaled |
+
+**No initialization flags** - Use buffer[0] == 0.0 guards or assume zeroed memory + save called before updates.
+**dt_save NOT stored in buffers** - Compiled as constant from closure via MetricConfig.
 | d2xdt2_extrema | 5 | prev_value, prev_prev_value, max_unscaled, min_unscaled, dt_save |
 
 **No initialization flags** - Use buffer[0] == 0.0 guards or assume zeroed memory + save called before updates.
@@ -193,11 +197,16 @@ All metrics use **numerical differentiation** of saved state values.
 - `src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py`
 
 **Files to Modify:**
-- `src/cubie/outputhandling/summarymetrics/metrics.py` - Add dt_save to build(), update registry
+- `src/cubie/outputhandling/summarymetrics/metrics.py` - Replace CompileSettingsPlaceholder with MetricConfig, add update methods, update registry
 - `src/cubie/outputhandling/summarymetrics/__init__.py` - Import new metrics
-- `src/cubie/outputhandling/output_functions.py` - Pass dt_save to metric build()
-- ALL existing metric files - Update build(self, dt_save) signature
-- `tests/outputhandling/summarymetrics/test_summary_metrics.py` - Add validation tests
+- `src/cubie/outputhandling/output_config.py` - Add dt_save field  
+- `src/cubie/outputhandling/output_functions.py` - Call summary_metrics.update(dt_save=...)
+- `tests/outputhandling/summarymetrics/test_summary_metrics.py` - Add validation to existing tests
+
+**NO Changes to Existing Metrics:**
+- All 12 existing metric files remain unchanged
+- No build() signature changes
+- No device function signature changes
 
 **Testing:**
 - Add to existing `test_all_summaries_long_run` 
@@ -207,11 +216,13 @@ All metrics use **numerical differentiation** of saved state values.
 
 ### Key Technical Decisions
 
-1. **dt_save Access:** Modify ALL summary metric factory signatures
-   - Add dt_save parameter to build() method: `def build(self, dt_save: float)`
-   - Pass dt_save from output_functions.py during metric compilation
-   - Change customisable_variable type from int32 to float32/64
-   - All existing metrics must be updated for consistency
+1. **dt_save Access (SIMPLIFIED - NO BUILD SIGNATURE CHANGES):**
+   - Replace CompileSettingsPlaceholder with MetricConfig attrs class (add dt_save field)
+   - Add update() method to SummaryMetrics (propagates to all metrics)
+   - Add update() method to SummaryMetric (calls update_compile_settings)
+   - Call summary_metrics.update(dt_save=...) in OutputFunctions.build()
+   - Metrics access via self.compile_settings.dt_save in build()
+   - Capture in closure - NO parameter passing
 
 2. **Initialization:** Use zero guards, no flags
    - buffer[0] == 0.0 means first call or post-save
@@ -224,8 +235,8 @@ All metrics use **numerical differentiation** of saved state values.
    - Reduces roundoff error accumulation
 
 4. **No Conditional Returns:** All CUDA device code must reach end
-   - Use guards with if statements but always continue
-   - No early returns in device functions
+   - Use predicated commit pattern with selp()
+   - No if/else for assignment, no early returns
 
 5. **Combined Metrics:** Follow existing pattern
    - dxdt_max + dxdt_min → dxdt_extrema (auto-substitute)
@@ -238,16 +249,19 @@ All metrics use **numerical differentiation** of saved state values.
 
 ### Expected Impact on Architecture
 
-**Signature Changes (Breaking):**
-- ALL summary metric build() methods must add dt_save parameter
-- customisable_variable changes from int32 to float32/64 in device function signatures
-- Affects ALL existing metrics: mean, max, min, rms, std, peaks, negative_peaks, max_magnitude, extrema, mean_std, std_rms, mean_std_rms
+**NO Breaking Changes:**
+- NO changes to build() signatures (stays `build(self)`)
+- NO changes to existing metrics
+- NO changes to device function signatures (customisable_variable stays int32)
 
-**Minimal Other Changes:**
+**Minimal Changes:**
+- New MetricConfig attrs class replaces CompileSettingsPlaceholder
+- Add update() methods to SummaryMetrics and SummaryMetric classes
+- Add dt_save field to OutputConfig
+- Call summary_metrics.update() in OutputFunctions.build()
 - New metric files follow existing pattern
 - Auto-registration via @register_metric decorator
 - No changes to core integration loop
-- output_functions.py passes dt_save to build()
 
 **Combined Metrics Registry:**
 - Add two new entries to _combined_metrics dict
@@ -256,8 +270,12 @@ All metrics use **numerical differentiation** of saved state values.
 ### Performance Considerations
 
 **Memory:**
-- dxdt_max/min: +3 floats per variable per batch run
-- d2xdt2_max/min: +4 floats per variable per batch run
+- dxdt_max/min: +2 floats per variable per batch run
+- dxdt_extrema: +3 floats per variable per batch run
+- d2xdt2_max/min: +3 floats per variable per batch run
+- d2xdt2_extrema: +4 floats per variable per batch run
+- Combined versions save buffer space
+- Negligible compared to state output arrays
 - Combined versions save 1 buffer slot each
 - Negligible compared to state output arrays
 
