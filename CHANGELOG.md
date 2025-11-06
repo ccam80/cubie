@@ -1,14 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### Performance
-
-* Last-step caching optimization for Runge-Kutta tableaus where final stage weights match a row in the coupling matrix
-* Tableau properties `b_matches_a_row` and `b_hat_matches_a_row` for automatic detection of optimization opportunities
-* Eliminates redundant accumulation in RODAS4P, RODAS5P, and RadauIIA5 methods through compile-time branch optimization
-* Transparent to users (no API changes required)
-
 ## [0.0.5](https://github.com/ccam80/cubie/compare/v0.0.4...v0.0.5) (2025-11-04)
 
 
