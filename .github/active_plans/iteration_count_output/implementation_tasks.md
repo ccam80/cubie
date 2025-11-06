@@ -72,25 +72,37 @@ Implement iteration_counters diagnostic output feature. Tasks ordered by depende
 ---
 
 ### Task 2.2: Newton-Krylov Krylov Count Tracking
-**File**: `src/cubie/integrators/matrix_free_solvers/newton_krylov.py`
+**Files**: 
+- `src/cubie/integrators/matrix_free_solvers/newton_krylov.py`
+- `tests/integrators/algorithms/instrumented/matrix_free_solvers.py`
 
 **Changes** to `newton_krylov_solver_factory()`:
 
-1. Add local accumulator: `total_krylov_iters = int32(0)`
-
-2. After each `linear_solver()` call:
+1. Add `counters` parameter to device function signature (size (2,) int32 array):
    ```python
+   def newton_krylov_solver(
+       stage_increment, parameters, drivers, t, h, a_ij, base_state,
+       shared_scratch, counters):
+   ```
+
+2. Add local accumulator and track Krylov iterations:
+   ```python
+   total_krylov_iters = int32(0)
+   # After each linear_solver() call:
    lin_return = linear_solver(...)
    krylov_iters = (lin_return >> 16) & int32(0xFFFF)
    total_krylov_iters += krylov_iters
    ```
 
-3. Store total before return (options):
-   - Option A: Encode in unused status bits (requires coordination)
-   - Option B: Write to auxiliary buffer passed as parameter
-   - **Recommendation**: Option B with optional buffer parameter
+3. Before return, write to counters array:
+   ```python
+   counters[0] = (newton_iters + 1)  # Newton iteration count
+   counters[1] = total_krylov_iters  # Krylov iteration count
+   ```
 
-**Validation**: Test Newton solver tracks cumulative Krylov iterations
+4. Return status as before (with Newton iters in upper 16 bits)
+
+**Validation**: Test Newton solver writes to counters array correctly
 
 ---
 

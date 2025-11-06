@@ -231,6 +231,7 @@ class DIRKStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -251,6 +252,7 @@ class DIRKStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
@@ -358,6 +360,7 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[0],
                         stage_base,
                         solver_scratch,
+                        counters,
                     )
                     for idx in range(n):
                         stage_base[idx] += (
@@ -437,6 +440,7 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_scratch,
+                        counters,
                     )
 
                     for idx in range(n):

@@ -252,6 +252,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -272,6 +273,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:

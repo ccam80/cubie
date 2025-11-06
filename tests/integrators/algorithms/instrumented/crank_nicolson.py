@@ -196,6 +196,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -233,6 +234,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             typed_zero = numba_precision(0.0)
             status_mask = int32(0xFFFF)
@@ -343,6 +345,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_residuals,
                 linear_squared_norms,
                 linear_preconditioned_vectors,
+                counters,
             )
 
             for idx in range(n):
@@ -379,6 +382,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dummy_linear_residuals,
                 dummy_linear_squared_norms,
                 dummy_linear_preconditioned_vectors,
+                counters,
             )
             status |= be_status & status_mask
 

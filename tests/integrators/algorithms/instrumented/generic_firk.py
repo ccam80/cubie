@@ -259,6 +259,7 @@ class FIRKStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -296,6 +297,7 @@ class FIRKStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             stage_state = cuda.local.array(n, numba_precision)
             observable_count = proposed_observables.shape[0]

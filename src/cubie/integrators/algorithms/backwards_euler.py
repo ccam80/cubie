@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16
+from numba import cuda, int16, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
@@ -164,6 +164,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -184,6 +185,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             """Perform one backward Euler update.
 
@@ -245,6 +247,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                counters,
             )
 
             for i in range(n):

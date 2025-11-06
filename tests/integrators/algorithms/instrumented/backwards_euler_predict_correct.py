@@ -63,6 +63,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -100,6 +101,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
@@ -164,6 +166,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 linear_residuals,
                 linear_squared_norms,
                 linear_preconditioned_vectors,
+                counters,
             )
 
             for idx in range(n):
