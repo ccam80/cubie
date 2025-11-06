@@ -629,14 +629,14 @@ def test_combined_metrics_buffer_efficiency(real_metrics):
     mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
     std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
     
-    # All three should use the combined metric (2 slots)
-    assert all_three_buffer == 2  # mean_std_rms uses 2 slots
+    # All three should use the combined metric (3 slots: shift, sum, sum_sq)
+    assert all_three_buffer == 3  # mean_std_rms uses 3 slots
     
-    # Mean+std should use combined metric (2 slots, saves 1)
-    assert mean_std_buffer == 2  # mean_std uses 2 slots (vs 1+2=3 separate)
+    # Mean+std should use combined metric (3 slots, saves 1 vs 1+3=4 separate)
+    assert mean_std_buffer == 3  # mean_std uses 3 slots (vs 1+3=4 separate)
     
-    # Std+rms should use combined metric (2 slots, saves 1)
-    assert std_rms_buffer == 2  # std_rms uses 2 slots (vs 2+1=3 separate)
+    # Std+rms should use combined metric (3 slots, saves 1 vs 3+1=4 separate)
+    assert std_rms_buffer == 3  # std_rms uses 3 slots (vs 3+1=4 separate)
 
 
 def test_combined_metrics_output_sizes(real_metrics):
@@ -879,7 +879,7 @@ def test_mean_std_buffer_and_output_sizes(real_metrics):
     buffer_sizes = real_metrics.buffer_sizes(requested)
     output_sizes = real_metrics.output_sizes(requested)
     
-    assert buffer_sizes == (2,), "mean_std should use 2 buffer slots"
+    assert buffer_sizes == (3,), "mean_std should use 3 buffer slots (shift, sum, sum_sq)"
     assert output_sizes == (2,), "mean_std should output 2 values (mean, std)"
 
 
@@ -890,21 +890,21 @@ def test_std_rms_buffer_and_output_sizes(real_metrics):
     buffer_sizes = real_metrics.buffer_sizes(requested)
     output_sizes = real_metrics.output_sizes(requested)
     
-    assert buffer_sizes == (2,), "std_rms should use 2 buffer slots"
+    assert buffer_sizes == (3,), "std_rms should use 3 buffer slots (shift, sum, sum_sq)"
     assert output_sizes == (2,), "std_rms should output 2 values (std, rms)"
 
 
 def test_pairwise_combinations_buffer_efficiency(real_metrics):
     """Test that pairwise combinations save buffer space."""
-    # mean+std: 1+2=3 individually, 2 combined (saves 1)
+    # mean+std: 1+3=4 individually, 3 combined (saves 1)
     mean_std = ["mean", "std"]
     mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
-    assert mean_std_buffer == 2, "mean+std should use 2 buffer slots (combined)"
+    assert mean_std_buffer == 3, "mean+std should use 3 buffer slots (combined)"
     
-    # std+rms: 2+1=3 individually, 2 combined (saves 1)
+    # std+rms: 3+1=4 individually, 3 combined (saves 1)
     std_rms = ["std", "rms"]
     std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
-    assert std_rms_buffer == 2, "std+rms should use 2 buffer slots (combined)"
+    assert std_rms_buffer == 3, "std+rms should use 3 buffer slots (combined)"
     
     # mean+rms: 1+1=2 individually, would still be 2 combined (no saving)
     # So this should NOT be combined

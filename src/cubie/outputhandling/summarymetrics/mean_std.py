@@ -24,9 +24,9 @@ class MeanStd(SummaryMetric):
 
     Notes
     -----
-    Uses two buffer slots for sum and sum_of_squares, which are used to
-    compute both output metrics. This is more efficient than computing
-    mean and std separately when both are needed.
+    Uses three buffer slots: shift (first value), sum of shifted values, and
+    sum of squares of shifted values. The shift technique improves numerical
+    stability for the variance calculation.
     
     The output array contains [mean, std] in that order.
     """
@@ -35,7 +35,7 @@ class MeanStd(SummaryMetric):
         """Initialise the MeanStd composite metric."""
         super().__init__(
             name="mean_std",
-            buffer_size=2,
+            buffer_size=3,
             output_size=2,
         )
 
@@ -69,26 +69,33 @@ class MeanStd(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """Update running sums with a new value.
+            """Update running sums with a new value using shifted data.
 
             Parameters
             ----------
             value
                 float. New value to add to the running statistics.
             buffer
-                device array. Storage containing [sum, sum_of_squares].
+                device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
             current_index
-                int. Current integration step index (unused).
+                int. Current integration step index within summary period.
             customisable_variable
                 int. Metric parameter placeholder (unused).
 
             Notes
             -----
-            Adds the value to buffer[0] (sum) and value^2 to buffer[1]
-            (sum of squares).
+            On first sample (current_index == 0), stores value as shift.
+            Computes shifted_value = value - shift and adds it to buffer[1]
+            (sum) and shifted_value^2 to buffer[2] (sum of squares).
             """
-            buffer[0] += value
-            buffer[1] += value * value
+            if current_index == 0:
+                buffer[0] = value
+                buffer[1] = 0.0
+                buffer[2] = 0.0
+            
+            shifted_value = value - buffer[0]
+            buffer[1] += shifted_value
+            buffer[2] += shifted_value * shifted_value
 
         @cuda.jit(
             [
@@ -104,12 +111,12 @@ class MeanStd(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """Calculate mean and std from running sums.
+            """Calculate mean and std from shifted running sums.
 
             Parameters
             ----------
             buffer
-                device array. Buffer containing [sum, sum_of_squares].
+                device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
             output_array
                 device array. Output location for [mean, std].
             summarise_every
@@ -120,20 +127,25 @@ class MeanStd(SummaryMetric):
             Notes
             -----
             Calculates:
-            - mean = sum / n
-            - std = sqrt((sum_sq/n) - (mean)^2)
+            - mean = shift + sum_shifted / n
+            - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+            - std = sqrt(variance)
             
             Saves to output_array[0:2] and resets buffer for next period.
             """
-            mean = buffer[0] / summarise_every
-            mean_of_squares = buffer[1] / summarise_every
-            variance = mean_of_squares - (mean * mean)
+            shift = buffer[0]
+            mean_shifted = buffer[1] / summarise_every
+            mean_of_squares_shifted = buffer[2] / summarise_every
+            
+            mean = shift + mean_shifted
+            variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
             
             output_array[0] = mean
             output_array[1] = sqrt(variance)
             
             buffer[0] = 0.0
             buffer[1] = 0.0
+            buffer[2] = 0.0
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
