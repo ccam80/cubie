@@ -251,9 +251,9 @@ def tolerance(tolerance_override, precision):
     if precision == np.float32:
         return SimpleNamespace(
             abs_loose=1e-5,
-            abs_tight=2e-6,
+            abs_tight=1e-7,
             rel_loose=1e-5,
-            rel_tight=2e-6,
+            rel_tight=1e-7,
         )
 
     if precision == np.float64:
