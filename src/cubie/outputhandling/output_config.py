@@ -161,6 +161,11 @@ class OutputConfig:
         default=attrs.Factory(tuple), init=False
     )
 
+    _dt_save: float = attrs.field(
+        default=0.01,
+        validator=attrs.validators.instance_of(float)
+    )
+
     def __attrs_post_init__(self) -> None:
         """Perform post-initialisation validation and setup.
 
@@ -609,6 +614,11 @@ class OutputConfig:
             compilation.
         """
         return summary_metrics.params(list(self._summary_types))
+
+    @property
+    def dt_save(self) -> float:
+        """Time interval between saved states."""
+        return self._dt_save
 
     @property
     def summaries_buffer_height_per_var(self) -> int:

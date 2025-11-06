@@ -305,6 +305,13 @@ metric_test_output_cases = (
             "max_magnitude",
             "peaks[3]",
             "negative_peaks[3]",
+            "extrema",
+            "dxdt_max",
+            "dxdt_min",
+            "dxdt_extrema",
+            "d2xdt2_max",
+            "d2xdt2_min",
+            "d2xdt2_extrema",
             ],
         },
         { # no combos
@@ -317,6 +324,8 @@ metric_test_output_cases = (
                 "time",
                 "max_magnitude",
                 "negative_peaks[3]",
+                "dxdt_max",
+                "d2xdt2_min",
             ],
         },
         {# 1st generation metrics

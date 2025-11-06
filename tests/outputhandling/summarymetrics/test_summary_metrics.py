@@ -670,7 +670,9 @@ def test_real_summary_metrics_available_metrics(real_metrics):
     expected_metrics = [
         "mean", "std", "rms", "max", "min", "max_magnitude",
         "peaks", "negative_peaks", "mean_std_rms", "extrema",
-        "mean_std", "std_rms"
+        "mean_std", "std_rms",
+        "dxdt_max", "dxdt_min", "dxdt_extrema",
+        "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
     ]
     available_metrics = real_metrics.implemented_metrics
 

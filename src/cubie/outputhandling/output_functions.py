@@ -21,6 +21,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
+from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.update_summaries import update_summary_factory
 
 
@@ -34,6 +35,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
+    "dt_save",  # Time interval for derivative metric scaling
 }
 
 
@@ -189,6 +191,9 @@ class OutputFunctions(CUDAFactory):
         until configuration settings change.
         """
         config = self.compile_settings
+
+        # Update all metrics with current dt_save
+        summary_metrics.update(dt_save=config.dt_save)
 
         buffer_sizes = self.summaries_buffer_sizes
 

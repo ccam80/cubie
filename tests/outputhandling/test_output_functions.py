@@ -553,6 +553,26 @@ def test_all_summaries_long_run(compare_input_output):
 )
 def test_all_summaries_long_window(compare_input_output):
     """Test a long summary window (500 samples)"""
+    # Ensure output_types has all possible metrics
+    output_types = [
+        "state",
+        "observables",
+        "mean",
+        "max",
+        "min",
+        "rms",
+        "std",
+        "max_magnitude",
+        "peaks[3]",
+        "negative_peaks[3]",
+        "extrema",
+        "dxdt_max",
+        "dxdt_min",
+        "dxdt_extrema",
+        "d2xdt2_max",
+        "d2xdt2_min",
+        "d2xdt2_extrema",
+    ]
     pass
 
 
