@@ -164,6 +164,7 @@ class IVPLoop(CUDAFactory):
         summarise_obs_bool = flags.summarise_observables
         summarise_state_bool = flags.summarise_state
         summarise = summarise_obs_bool or summarise_state_bool
+        output_counters_bool = flags.output_iteration_counters
 
         # Indices into shared memory for work buffers
         shared_indices = config.shared_buffer_indices
@@ -356,6 +357,12 @@ class IVPLoop(CUDAFactory):
             dt_eff = dt[0]
             accept_step[0] = int32(0)
 
+            # Initialize iteration counters if active
+            if output_counters_bool:
+                counters_since_save = cuda.local.array(4, int32)
+                for i in range(4):
+                    counters_since_save[i] = int32(0)
+
             if fixed_mode:
                 step_counter = int32(0)
 
@@ -383,6 +390,12 @@ class IVPLoop(CUDAFactory):
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
+                    # Prepare counters for step function call
+                    if output_counters_bool:
+                        step_counters = cuda.local.array(2, int32)
+                    else:
+                        step_counters = cuda.local.array(0, int32)
+
                     step_status = step_function(
                         state_buffer,
                         state_proposal_buffer,
@@ -399,6 +412,7 @@ class IVPLoop(CUDAFactory):
                         prev_step_accepted_flag,
                         remaining_shared_scratch,
                         algo_local,
+                        step_counters,
                     )
 
                     first_step_flag = int16(0)
@@ -420,6 +434,17 @@ class IVPLoop(CUDAFactory):
                         )
 
                         accept = accept_step[0] != int32(0)
+
+                    # Accumulate iteration counters if active
+                    if output_counters_bool:
+                        # Extract and accumulate Newton and Krylov iterations
+                        counters_since_save[0] += step_counters[0]  # Newton
+                        counters_since_save[1] += step_counters[1]  # Krylov
+                        # Track total steps
+                        counters_since_save[2] += int32(1)
+                        # Track rejected steps
+                        if not accept:
+                            counters_since_save[3] += int32(1)
 
                     t_proposal = t + dt_eff
                     t = selp(accept, t_proposal, t)
@@ -481,6 +506,11 @@ class IVPLoop(CUDAFactory):
                                 )
                                 summary_idx += 1
                         save_idx += 1
+                        
+                        # Reset iteration counters after save
+                        if output_counters_bool:
+                            for i in range(4):
+                                counters_since_save[i] = int32(0)
 
             if status == int32(0):
                 #Max iterations exhausted without other error
