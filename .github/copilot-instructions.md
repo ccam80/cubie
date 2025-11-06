@@ -40,6 +40,23 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - Never call `build()` directly on CUDAFactory subclasses; access via properties (they auto-cache)
 - No backwards compatibility enforcement - breaking changes expected during development
 
+### CUDA Device Code Patterns
+- **Prefer predicated commit over conditional branching** in CUDA device functions
+- Use compile-time branching when possible
+- Avoid `if/else` statements; use predicated assignments instead
+- Example pattern:
+  ```python
+  # Instead of:
+  if condition:
+      buffer[0] = new_value
+  
+  # Use predicated commit:
+  update_flag = condition
+  buffer[0] = selp(update_flag, new_value, buffer[0])
+  ```
+- This pattern improves warp efficiency by avoiding divergence
+- Apply to all summary metrics and other CUDA device code
+
 ### Attrs Classes
 - For floating-point attributes: save with leading underscore, add property returning `self.precision(self._attribute)`
 - Never add aliases to underscored variables

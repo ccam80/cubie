@@ -13,6 +13,50 @@ Base class in `src/cubie/CUDAFactory.py` that implements cached compilation of N
 - Methods: `setup_compile_settings()`, `update_compile_settings()`, `get_cached_output()`
 - Cache invalidation is automatic when settings change
 
+#### Compile Settings and Cache Invalidation Pattern
+CUDAFactory subclasses use attrs classes as compile settings to enable automatic cache invalidation:
+
+**Pattern Overview:**
+1. Factory defines attrs class for compile-time configuration
+2. Factory calls `setup_compile_settings(attrs_instance)` during initialization
+3. CUDAFactory stores settings and marks cache as valid on first `build()`
+4. When settings change via `update_compile_settings()`, cache is automatically invalidated
+5. Next property access triggers rebuild with new settings
+
+**Example: OutputFunctions with dt_save**
+```python
+# OutputConfig is an attrs class with dt_save field
+config = OutputConfig(max_states=3, dt_save=0.01, ...)
+
+# OutputFunctions inherits from CUDAFactory
+output_funcs = OutputFunctions(...)
+output_funcs.setup_compile_settings(config)
+
+# First access builds and caches
+funcs = output_funcs.device_function  # build() called
+
+# Update dt_save invalidates cache
+config.dt_save = 0.02
+output_funcs.update_compile_settings(config)  # Cache invalidated
+
+# Next access rebuilds with new dt_save
+funcs = output_funcs.device_function  # build() called again with dt_save=0.02
+```
+
+**Implementation Details:**
+- Compile settings must be attrs classes (supports comparison via `__eq__`)
+- Array fields use `eq=attrs.cmp_using(eq=array_equal)` for numpy array comparison
+- Settings accessible in `build()` via `self.compile_settings`
+- dt_save and other compile-time constants can be captured in closure within `build()`
+- No need to pass constants as device function parameters when in closure
+
+**Adding New Compile-Time Parameters:**
+1. Add field to attrs compile_settings class (e.g., `dt_save` to `OutputConfig`)
+2. Add parameter name to corresponding `ALL_*_PARAMETERS` set (e.g., `ALL_OUTPUT_FUNCTION_PARAMETERS`)
+3. Access in `build()` method via `self.compile_settings.dt_save`
+4. Use in closure when compiling device functions (captured at compile time)
+5. Cache invalidation happens automatically when parameter changes
+
 ### Attrs Classes Pattern
 Used throughout for data containers and compile settings:
 - All configuration classes use `@attrs.define` decorator
