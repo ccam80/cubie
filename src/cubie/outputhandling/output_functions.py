@@ -199,7 +199,7 @@ class OutputFunctions(CUDAFactory):
             config.save_state,
             config.save_observables,
             config.save_time,
-            config.compile_flags.output_iteration_counters,
+            config.save_counters,
         )
 
         update_summary_metrics_func = update_summary_factory(

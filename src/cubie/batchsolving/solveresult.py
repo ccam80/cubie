@@ -217,16 +217,11 @@ class SolveResult:
         summaries_legend = cls.summary_legend_from_solver(solver)
         singlevar_summary_legend = solver.summary_legend_per_variable
         
-        # Get iteration counters if available
-        iteration_counters = None
-        if hasattr(solver, 'iteration_counters'):
-            iteration_counters = solver.iteration_counters
-
         user_arrays = cls(
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
-            iteration_counters=iteration_counters,
+            iteration_counters=solver.iteration_counters,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,

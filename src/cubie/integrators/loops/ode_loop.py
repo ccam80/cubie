@@ -164,7 +164,7 @@ class IVPLoop(CUDAFactory):
         summarise_obs_bool = flags.summarise_observables
         summarise_state_bool = flags.summarise_state
         summarise = summarise_obs_bool or summarise_state_bool
-        output_counters_bool = flags.output_iteration_counters
+        save_counters_bool = flags.save_counters
 
         # Indices into shared memory for work buffers
         shared_indices = config.shared_buffer_indices
@@ -327,7 +327,7 @@ class IVPLoop(CUDAFactory):
                 #Seed initial state and save/update summaries
                 next_save = precision(dt_save)
                 
-                if output_counters_bool:
+                if save_counters_bool:
                     counter_output_slice = iteration_counters_output[save_idx, :]
                 else:
                     counter_output_slice = cuda.local.array(0, int32)
@@ -339,7 +339,7 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     t,
                     counter_output_slice,
-                    counters_since_save if output_counters_bool else cuda.local.array(0, int32),
+                    counters_since_save if save_counters_bool else cuda.local.array(0, int32),
                 )
                 if summarise:
                     #reset temp buffers to starting state - will be overwritten
@@ -369,7 +369,7 @@ class IVPLoop(CUDAFactory):
             accept_step[0] = int32(0)
 
             # Initialize iteration counters if active
-            if output_counters_bool:
+            if save_counters_bool:
                 counters_since_save = cuda.local.array(4, int32)
                 for i in range(4):
                     counters_since_save[i] = int32(0)
@@ -402,7 +402,7 @@ class IVPLoop(CUDAFactory):
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
                     # Prepare counters for step function call
-                    if output_counters_bool:
+                    if save_counters_bool:
                         step_counters = cuda.local.array(2, int32)
                     else:
                         step_counters = cuda.local.array(0, int32)
@@ -447,7 +447,7 @@ class IVPLoop(CUDAFactory):
                         accept = accept_step[0] != int32(0)
 
                     # Accumulate iteration counters if active
-                    if output_counters_bool:
+                    if save_counters_bool:
                         # Extract and accumulate Newton and Krylov iterations
                         counters_since_save[0] += step_counters[0]  # Newton
                         counters_since_save[1] += step_counters[1]  # Krylov
@@ -488,7 +488,7 @@ class IVPLoop(CUDAFactory):
                     )
 
                     if do_save:
-                        if output_counters_bool:
+                        if save_counters_bool:
                             counter_output_slice = iteration_counters_output[save_idx, :]
                         else:
                             counter_output_slice = cuda.local.array(0, int32)
@@ -500,7 +500,7 @@ class IVPLoop(CUDAFactory):
                             observables_output[save_idx * save_obs_bool, :],
                             t,
                             counter_output_slice,
-                            counters_since_save if output_counters_bool else cuda.local.array(0, int32),
+                            counters_since_save if save_counters_bool else cuda.local.array(0, int32),
                         )
                         if summarise:
                             update_summaries(
@@ -526,7 +526,7 @@ class IVPLoop(CUDAFactory):
                         save_idx += 1
                         
                         # Reset iteration counters after save
-                        if output_counters_bool:
+                        if save_counters_bool:
                             for i in range(4):
                                 counters_since_save[i] = int32(0)
 

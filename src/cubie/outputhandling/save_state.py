@@ -17,7 +17,7 @@ def save_state_factory(
     save_state: bool,
     save_observables: bool,
     save_time: bool,
-    output_iteration_counters: bool = False,
+    save_counters: bool = False,
 ) -> Callable:
     """Build a CUDA device function that stores solver state and observables.
 
@@ -36,7 +36,7 @@ def save_state_factory(
     save_time
         When ``True`` the generated function appends the current step to the
         end of the state output window.
-    output_iteration_counters
+    save_counters
         When ``True`` the generated function writes iteration counters to
         the output.
 
@@ -50,10 +50,10 @@ def save_state_factory(
     -----
     The generated device function expects ``current_state``,
     ``current_observables``, ``output_states_slice``,
-    ``output_observables_slice``, and ``current_step`` arguments, and
-    optionally ``output_counters_slice`` and ``counters_array`` when
-    ``output_iteration_counters`` is ``True``. The function mutates
-    the output slices in place.
+    ``output_observables_slice``, ``current_step``, 
+    ``output_counters_slice``, and ``counters_array`` arguments.
+    The function mutates ``output_states_slice``, 
+    ``output_observables_slice``, and ``output_counters_slice`` in place.
     """
     # Extract sizes from heights object
     nobs = len(saved_observable_indices)
@@ -86,11 +86,9 @@ def save_state_factory(
         current_step
             Scalar step or time value associated with the current sample.
         output_counters_slice
-            device array window that receives iteration counter values in
-            place. Only used when ``output_iteration_counters`` is ``True``.
+            device array window that receives iteration counter values in place.
         counters_array
-            device array containing iteration counter values to save. Only
-            used when ``output_iteration_counters`` is ``True``.
+            device array containing iteration counter values to save.
 
         Returns
         -------
@@ -117,7 +115,7 @@ def save_state_factory(
             # Append time at the end of the state output
             output_states_slice[nstates] = current_step
         
-        if output_iteration_counters:
+        if save_counters:
             for i in range(4):
                 output_counters_slice[i] = counters_array[i]
         # no cover: stop
