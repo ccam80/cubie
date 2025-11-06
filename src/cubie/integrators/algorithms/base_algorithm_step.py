@@ -333,6 +333,7 @@ class BaseAlgorithmStep(CUDAFactory):
         super().__init__()
         self._controller_defaults = _controller_defaults.copy()
         self.setup_compile_settings(config)
+        self.is_controller_fixed = False  # Set by check_compatibility
 
     def update(
         self,

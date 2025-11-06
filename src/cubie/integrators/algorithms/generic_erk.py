@@ -1,4 +1,31 @@
-"""Generic explicit Runge--Kutta integration step with streamed accumulators."""
+"""Generic explicit Runge--Kutta integration step with streamed accumulators.
+
+This module provides the :class:`ERKStep` class, which implements generic
+explicit Runge--Kutta methods using configurable Butcher tableaus. The
+implementation supports both adaptive and fixed-step variants, automatically
+selecting appropriate default step controller settings based on whether the
+tableau includes an embedded error estimate.
+
+Key Features
+------------
+- Configurable tableaus via :class:`ERKTableau`
+- Automatic controller defaults selection based on error estimate capability
+- Efficient CUDA kernel generation with streamed accumulation
+- Support for FSAL (First Same As Last) optimization
+
+Notes
+-----
+The module defines two sets of default step controller settings:
+
+- :data:`ERK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded error
+  estimate (e.g., Dormand-Prince). Defaults to PI controller with adaptive
+  stepping.
+- :data:`ERK_FIXED_DEFAULTS`: Used when the tableau lacks an error estimate
+  (e.g., Classical RK4). Defaults to fixed-step controller.
+
+This dynamic selection ensures that users cannot accidentally pair an
+errorless tableau with an adaptive controller, which would fail at runtime.
+"""
 
 from typing import Callable, Optional
 
@@ -21,7 +48,7 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 )
 
 
-ERK_DEFAULTS = StepControlDefaults(
+ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -34,6 +61,45 @@ ERK_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+"""Default step controller settings for adaptive ERK tableaus.
+
+This configuration is used when the ERK tableau has an embedded error
+estimate (``tableau.has_error_estimate == True``), such as Dormand-Prince
+or other embedded RK methods.
+
+The PI controller provides robust adaptive stepping with proportional and
+derivative terms to smooth step size adjustments. The deadband prevents
+unnecessary step size changes for small variations in the error estimate.
+
+Notes
+-----
+These defaults are applied automatically when creating an :class:`ERKStep`
+with an adaptive tableau. Users can override any of these settings by
+explicitly specifying step controller parameters.
+"""
+
+ERK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
+"""Default step controller settings for errorless ERK tableaus.
+
+This configuration is used when the ERK tableau lacks an embedded error
+estimate (``tableau.has_error_estimate == False``), such as Classical RK4
+or Heun's method.
+
+Fixed-step controllers maintain a constant step size throughout the
+integration. This is the only valid choice for errorless tableaus since
+adaptive stepping requires an error estimate to adjust the step size.
+
+Notes
+-----
+These defaults are applied automatically when creating an :class:`ERKStep`
+with an errorless tableau. Users can override the step size ``dt`` by
+explicitly specifying it in the step controller settings.
+"""
 
 
 @attrs.define
@@ -55,7 +121,7 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -64,26 +130,107 @@ class ERKStep(ODEExplicitStep):
         n_drivers: int = 0,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
+        
+        This constructor creates an ERK step object and automatically selects
+        appropriate default step controller settings based on whether the
+        tableau has an embedded error estimate. Tableaus with error estimates
+        default to adaptive stepping (PI controller), while errorless tableaus
+        default to fixed stepping.
 
         Parameters
         ----------
+        precision
+            Floating-point precision for CUDA computations (np.float32 or
+            np.float64).
+        n
+            Number of state variables in the ODE system.
+        dt
+            Initial or fixed step size. When ``None``, the step size is
+            determined by the controller defaults.
+        dxdt_function
+            Compiled CUDA device function computing state derivatives. Should
+            match signature expected by the integration kernel.
+        observables_function
+            Optional compiled CUDA device function computing observable
+            quantities from the state.
+        driver_function
+            Optional compiled CUDA device function computing time-varying
+            driver inputs.
+        get_solver_helper_fn
+            Factory function returning solver helper for implicit stages (not
+            used in explicit methods but included for interface consistency).
         tableau
             Explicit Runge--Kutta tableau describing the coefficients used by
-            the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
+            the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`
+            (Dormand-Prince 5(4)).
+        n_drivers
+            Number of driver variables in the system.
+        
+        Notes
+        -----
+        The step controller defaults are selected dynamically:
+        
+        - If ``tableau.has_error_estimate`` is ``True``:
+          Uses :data:`ERK_ADAPTIVE_DEFAULTS` (PI controller)
+        - If ``tableau.has_error_estimate`` is ``False``:
+          Uses :data:`ERK_FIXED_DEFAULTS` (fixed-step controller)
+        
+        This automatic selection prevents incompatible configurations where
+        an adaptive controller is paired with an errorless tableau. Users
+        can still override these defaults by explicitly specifying step
+        controller settings when creating a :class:`Solver` or calling
+        :func:`solve_ivp`.
+        
+        Examples
+        --------
+        Create an ERK step with the default Dormand-Prince tableau:
+        
+        >>> from cubie.integrators.algorithms.generic_erk import ERKStep
+        >>> import numpy as np
+        >>> step = ERKStep(
+        ...     precision=np.float32,
+        ...     n=3,
+        ...     dt=None,
+        ... )
+        >>> step.controller_defaults.step_controller["step_controller"]
+        'pi'
+        
+        Create an ERK step with Classical RK4 (errorless):
+        
+        >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
+        ...     CLASSICAL_RK4_TABLEAU
+        ... )
+        >>> step = ERKStep(
+        ...     precision=np.float32,
+        ...     n=3,
+        ...     dt=None,
+        ...     tableau=CLASSICAL_RK4_TABLEAU,
+        ... )
+        >>> step.controller_defaults.step_controller["step_controller"]
+        'fixed'
         """
 
-        config = ERKStepConfig(
-            precision=precision,
-            n=n,
-            n_drivers=n_drivers,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            tableau=tableau,
-        )
-        super().__init__(config, ERK_DEFAULTS)
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = ERKStepConfig(**config_kwargs)
+
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
 
     def build_step(
         self,
@@ -99,6 +246,10 @@ class ERKStep(ODEExplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         typed_zero = numba_precision(0.0)
         stage_count = tableau.stage_count
@@ -186,7 +337,11 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 

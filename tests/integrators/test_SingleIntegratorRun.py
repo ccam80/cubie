@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from cubie import SingleIntegratorRun
+from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
 from tests._utils import assert_integration_outputs
 
 
@@ -519,3 +520,161 @@ def test_step_controller_overrides_take_precedence(
         override_settings["min_gain"]
     )
     assert controller_settings["algorithm_order"] == run._algo_step.order
+
+
+# Algorithm-controller compatibility tests
+def test_errorless_euler_with_adaptive_warns_and_replaces(system):
+    """Errorless Euler with adaptive PI warns and replaces with fixed."""
+    import warnings
+    
+    algorithm_settings = {
+        "algorithm": "euler",
+    }
+    step_control_settings = {
+        "step_controller": "pi",
+        "dt_min": 1e-6,
+        "dt_max": 1e-1,
+    }
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        core = SingleIntegratorRunCore(
+            system=system,
+            algorithm_settings=algorithm_settings,
+            step_control_settings=step_control_settings,
+        )
+        
+        # Should issue our compatibility warning (may have other warnings too)
+        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        assert len(compat_warnings) >= 1
+        assert issubclass(compat_warnings[0].category, UserWarning)
+        warn_msg = str(compat_warnings[0].message).lower()
+        assert "euler" in warn_msg
+        assert "pi" in warn_msg
+        assert "fixed" in warn_msg
+        
+        # Controller should be replaced with fixed
+        assert not core._step_controller.is_adaptive
+        assert core._algo_step.is_controller_fixed
+
+
+def test_errorless_rk4_tableau_with_adaptive_warns(system):
+    """Errorless RK4 tableau with adaptive PI warns and replaces."""
+    import warnings
+    from cubie.integrators.algorithms.generic_erk_tableaus import (
+        CLASSICAL_RK4_TABLEAU,
+    )
+    
+    algorithm_settings = {
+        "algorithm": "erk",
+        "tableau": CLASSICAL_RK4_TABLEAU,
+    }
+    step_control_settings = {
+        "step_controller": "pi",
+        "dt_min": 1e-6,
+        "dt_max": 1e-1,
+    }
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        core = SingleIntegratorRunCore(
+            system=system,
+            algorithm_settings=algorithm_settings,
+            step_control_settings=step_control_settings,
+        )
+        
+        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        assert len(compat_warnings) >= 1
+        assert not core._step_controller.is_adaptive
+        assert core._algo_step.is_controller_fixed
+
+
+def test_adaptive_tableau_with_adaptive_succeeds(system):
+    """Adaptive Dormand-Prince with PI controller succeeds without warning."""
+    import warnings
+    from cubie.integrators.algorithms.generic_erk_tableaus import (
+        DORMAND_PRINCE_54_TABLEAU,
+    )
+    
+    algorithm_settings = {
+        "algorithm": "erk",
+        "tableau": DORMAND_PRINCE_54_TABLEAU,
+    }
+    step_control_settings = {
+        "step_controller": "pi",
+        "dt_min": 1e-6,
+        "dt_max": 1e-1,
+    }
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        core = SingleIntegratorRunCore(
+            system=system,
+            algorithm_settings=algorithm_settings,
+            step_control_settings=step_control_settings,
+        )
+        
+        # Should not issue our compatibility warning
+        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        assert len(compat_warnings) == 0
+        assert core._algo_step.is_adaptive
+        assert core._step_controller.is_adaptive
+        assert not core._algo_step.is_controller_fixed
+
+
+def test_errorless_euler_with_fixed_succeeds(system):
+    """Errorless Euler with fixed controller succeeds without warning."""
+    import warnings
+    
+    algorithm_settings = {
+        "algorithm": "euler",
+    }
+    step_control_settings = {
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        core = SingleIntegratorRunCore(
+            system=system,
+            algorithm_settings=algorithm_settings,
+            step_control_settings=step_control_settings,
+        )
+        
+        # Should not issue our compatibility warning
+        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        assert len(compat_warnings) == 0
+        assert not core._algo_step.is_adaptive
+        assert not core._step_controller.is_adaptive
+        assert core._algo_step.is_controller_fixed
+
+
+def test_warning_message_contains_algorithm_and_controller(system):
+    """Warning message includes algorithm and controller names."""
+    import warnings
+    
+    algorithm_settings = {
+        "algorithm": "euler",
+    }
+    step_control_settings = {
+        "step_controller": "pid",
+        "dt_min": 1e-6,
+        "dt_max": 1e-1,
+    }
+    
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        core = SingleIntegratorRunCore(
+            system=system,
+            algorithm_settings=algorithm_settings,
+            step_control_settings=step_control_settings,
+        )
+        
+        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        assert len(compat_warnings) >= 1
+        warn_msg = str(compat_warnings[0].message)
+        assert "euler" in warn_msg
+        assert "pid" in warn_msg
+        assert "error estimate" in warn_msg.lower()
+        assert "fixed" in warn_msg.lower()

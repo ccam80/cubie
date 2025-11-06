@@ -21,7 +21,7 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 )
 
 
-ERK_DEFAULTS = StepControlDefaults(
+ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -32,6 +32,13 @@ ERK_DEFAULTS = StepControlDefaults(
         "deadband_max": 1.1,
         "min_gain": 0.5,
         "max_gain": 2.0,
+    }
+)
+
+ERK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
     }
 )
 
@@ -55,12 +62,13 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
 
@@ -71,17 +79,27 @@ class ERKStep(ODEExplicitStep):
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
         """
 
-        config = ERKStepConfig(
-            precision=precision,
-            n=n,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            tableau=tableau,
-        )
-        super().__init__(config, ERK_DEFAULTS)
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = ERKStepConfig(**config_kwargs)
+        
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+        
+        super().__init__(config, defaults)
 
     def build_step(
         self,
@@ -106,6 +124,8 @@ class ERKStep(ODEExplicitStep):
         multistage = stage_count > 1
         has_error = self.is_adaptive
         first_same_as_last = self.first_same_as_last
+        is_controller_fixed = self.is_controller_fixed
+        dt_compile = dt
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -191,7 +211,11 @@ class ERKStep(ODEExplicitStep):
 
             observable_count = proposed_observables.shape[0]
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 
