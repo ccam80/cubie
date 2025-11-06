@@ -2,12 +2,83 @@
 
 ## Executive Summary
 
-Implement three new summary metrics (dxdt_extrema, d2xdt2_extrema, and optionally dxdt) that compute derivatives via finite differences of consecutive saved state values. This architectural approach avoids invasive changes to the integrator while providing real-time derivative-based feature detection.
+Implement six new summary metrics (dxdt_max, dxdt_min, dxdt_extrema, d2xdt2_max, d2xdt2_min, d2xdt2_extrema) that compute derivatives via finite differences of consecutive saved state values. Combined metrics (extrema) follow the existing combined_metrics pattern. This architectural approach avoids invasive changes to the integrator while providing real-time derivative-based feature detection.
 
-## Component 1: dxdt_extrema Metric (Issue #66)
+**Issue #68 (dxdt time series) is NOT implemented** per user request.
+
+## Component 1: dxdt_max Metric (Issue #66 - part 1)
 
 ### Purpose
-Track maximum and minimum first derivative (slope) values over each summary interval for ECG waveform analysis and similar applications.
+Track maximum first derivative (slope) value over each summary interval for ECG waveform analysis.
+
+### Behavioral Requirements
+
+**Initialization:**
+- Metric name: "dxdt_max"
+- Buffer size: 3 elements per variable
+  - buffer[0]: previous state value (x[n-1])
+  - buffer[1]: maximum dxdt encountered (unscaled)
+  - buffer[2]: dt_save value (stored at first update for scaling at save)
+- Output size: 1 element (max_dxdt)
+
+**Update Behavior:**
+1. Guard: if buffer[0] == 0.0, this is first call or after save
+   - Store current value in buffer[0]
+   - Store dt_save in buffer[2]
+   - Do not update max (no derivative yet)
+   
+2. Otherwise (buffer[0] != 0.0):
+   - Compute unscaled_dxdt = current_value - buffer[0]
+   - Update buffer[1] = max(buffer[1], unscaled_dxdt)
+   - Store current_value in buffer[0] for next iteration
+
+**Save Behavior:**
+1. Scale and write buffer[1] / buffer[2] to output_array[0] (max_dxdt)
+2. Reset buffer[1] = 0.0
+3. Reset buffer[0] = 0.0 (signals reinitialization for next period)
+4. Keep buffer[2] unchanged (dt_save persists)
+
+**dt_save Acquisition:**
+- dt_save passed as compile-time constant to factory build() method
+- Factory signature modified to accept dt_save parameter
+- All summary metrics factory signatures updated for consistency
+
+## Component 2: dxdt_min Metric (Issue #66 - part 2)
+
+### Purpose
+Track minimum first derivative (slope) value over each summary interval.
+
+### Behavioral Requirements
+
+**Initialization:**
+- Metric name: "dxdt_min"
+- Buffer size: 3 elements per variable
+  - buffer[0]: previous state value (x[n-1])
+  - buffer[1]: minimum dxdt encountered (unscaled)
+  - buffer[2]: dt_save value (stored at first update for scaling at save)
+- Output size: 1 element (min_dxdt)
+
+**Update Behavior:**
+1. Guard: if buffer[0] == 0.0, this is first call or after save
+   - Store current value in buffer[0]
+   - Store dt_save in buffer[2]
+   - Do not update min (no derivative yet)
+   
+2. Otherwise (buffer[0] != 0.0):
+   - Compute unscaled_dxdt = current_value - buffer[0]
+   - Update buffer[1] = min(buffer[1], unscaled_dxdt)
+   - Store current_value in buffer[0] for next iteration
+
+**Save Behavior:**
+1. Scale and write buffer[1] / buffer[2] to output_array[0] (min_dxdt)
+2. Reset buffer[1] = 0.0
+3. Reset buffer[0] = 0.0 (signals reinitialization for next period)
+4. Keep buffer[2] unchanged (dt_save persists)
+
+## Component 3: dxdt_extrema Combined Metric (Issue #66 - combined)
+
+### Purpose
+Efficiently compute both max and min first derivatives when both are requested, following the combined_metrics pattern.
 
 ### Behavioral Requirements
 
@@ -15,45 +86,48 @@ Track maximum and minimum first derivative (slope) values over each summary inte
 - Metric name: "dxdt_extrema"
 - Buffer size: 4 elements per variable
   - buffer[0]: previous state value (x[n-1])
-  - buffer[1]: maximum dxdt encountered
-  - buffer[2]: minimum dxdt encountered
-  - buffer[3]: initialization flag (0.0 = uninitialized, 1.0 = ready)
+  - buffer[1]: maximum dxdt encountered (unscaled)
+  - buffer[2]: minimum dxdt encountered (unscaled)
+  - buffer[3]: dt_save value
 - Output size: 2 elements (max_dxdt, min_dxdt)
 
 **Update Behavior:**
-1. On first call (buffer[3] == 0.0):
+1. Guard: if buffer[0] == 0.0
    - Store current value in buffer[0]
-   - Initialize buffer[1] = -1e30 (max sentinel)
-   - Initialize buffer[2] = 1e30 (min sentinel)
-   - Set buffer[3] = 1.0
-   - Return (no derivative computed yet)
-
-2. On subsequent calls:
-   - Compute dxdt = (current_value - buffer[0]) / dt_save
-   - Update buffer[1] = max(buffer[1], dxdt)
-   - Update buffer[2] = min(buffer[2], dxdt)
-   - Store current_value in buffer[0] for next iteration
+   - Store dt_save in buffer[3]
+   - Do not update extrema
+   
+2. Otherwise:
+   - Compute unscaled_dxdt = current_value - buffer[0]
+   - Update buffer[1] = max(buffer[1], unscaled_dxdt)
+   - Update buffer[2] = min(buffer[2], unscaled_dxdt)
+   - Store current_value in buffer[0]
 
 **Save Behavior:**
-1. Write buffer[1] to output_array[0] (max_dxdt)
-2. Write buffer[2] to output_array[1] (min_dxdt)
-3. Reset buffer[1] = -1e30
-4. Reset buffer[2] = 1e30
-5. Keep buffer[0] and buffer[3] unchanged (preserve continuity across summaries)
+1. Write buffer[1] / buffer[3] to output_array[0] (max_dxdt)
+2. Write buffer[2] / buffer[3] to output_array[1] (min_dxdt)
+3. Reset buffer[1] = 0.0
+4. Reset buffer[2] = 0.0
+5. Reset buffer[0] = 0.0
 
-**dt_save Acquisition:**
-- Pass dt_save through customisable_variable parameter
-- Requires coordination with OutputFunctions compilation
-- dt_save is available in output_functions.py from OutputConfig
+**Combined Metrics Registry:**
+- Add to _combined_metrics dict: `frozenset(["dxdt_max", "dxdt_min"]): "dxdt_extrema"`
+- Auto-substitution when both dxdt_max and dxdt_min requested
 
 ### Integration Architecture
+
+**File Locations:**
+- `src/cubie/outputhandling/summarymetrics/dxdt_max.py`
+- `src/cubie/outputhandling/summarymetrics/dxdt_min.py`
+- `src/cubie/outputhandling/summarymetrics/dxdt_extrema.py`
+- `src/cubie/outputhandling/summarymetrics/d2xdt2_max.py`
+- `src/cubie/outputhandling/summarymetrics/d2xdt2_min.py`
+- `src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py`
 
 **Registration:**
 - Use @register_metric(summary_metrics) decorator
 - Auto-registration on module import
-
-**File Location:**
-- `src/cubie/outputhandling/summarymetrics/dxdt_extrema.py`
+- Add to __init__.py imports
 
 **Dependencies:**
 - Inherit from SummaryMetric
@@ -61,316 +135,239 @@ Track maximum and minimum first derivative (slope) values over each summary inte
 - Import cuda from numba
 
 **CUDA Signatures:**
-- Update: `(float32/64, float32/64[::1], int32, int32)` device function
-- Save: `(float32/64[::1], float32/64[::1], int32, int32)` device function
+- Update: `(float32/64, float32/64[::1], int32, float32/64)` device function
+- Save: `(float32/64[::1], float32/64[::1], int32, float32/64)` device function
 - Both must be inline=True, device=True
+- **Note:** customisable_variable changes from int32 to float32/64 for dt_save
 
 ### Edge Cases
 
-1. **First save point:** No derivative computed, extrema remain at sentinel values
-   - Behavior: Output sentinels, document in docstring
+1. **First save point:** No derivative computed, output is 0.0 (from zeroed buffer)
+   - Behavior: Document in docstring that first point may be invalid
    
 2. **Zero dt_save:** Division by zero
    - Assumption: dt_save > 0 enforced by solver configuration
    - No additional checks needed (fail-fast acceptable)
 
 3. **Variable dt_save:** If dt_save changes between summaries
-   - Behavior: Each derivative uses its corresponding dt_save
-   - Continuity maintained via buffer[0] preservation
+   - Behavior: Each period uses its current dt_save value
+   - Stored in buffer at first update, used at save
 
-4. **Single variable vs multiple:** Metrics applied per-variable independently
-   - No special handling needed
-
-## Component 2: d2xdt2_extrema Metric (Issue #67)
-
-### Purpose
-Track maximum and minimum second derivative (acceleration) values over each summary interval for pulse wave analysis and inflection point detection.
-
-### Behavioral Requirements
-
-**Initialization:**
-- Metric name: "d2xdt2_extrema"
-- Buffer size: 5 elements per variable
-  - buffer[0]: previous state value (x[n-1])
-  - buffer[1]: previous-previous state value (x[n-2])
-  - buffer[2]: maximum d2xdt2 encountered
-  - buffer[3]: minimum d2xdt2 encountered
-  - buffer[4]: initialization counter (0.0, 1.0, 2.0 = warmup stages)
-- Output size: 2 elements (max_d2xdt2, min_d2xdt2)
-
-**Update Behavior:**
-1. On first call (buffer[4] == 0.0):
-   - Store current value in buffer[0]
-   - Set buffer[4] = 1.0
-   - Return (insufficient history)
-
-2. On second call (buffer[4] == 1.0):
-   - Store buffer[0] in buffer[1] (shift history)
-   - Store current value in buffer[0]
-   - Initialize buffer[2] = -1e30 (max sentinel)
-   - Initialize buffer[3] = 1e30 (min sentinel)
-   - Set buffer[4] = 2.0
-   - Return (still insufficient history)
-
-3. On subsequent calls (buffer[4] == 2.0):
-   - Compute d2xdt2 = (current_value - 2*buffer[0] + buffer[1]) / (dt_save**2)
-   - Update buffer[2] = max(buffer[2], d2xdt2)
-   - Update buffer[3] = min(buffer[3], d2xdt2)
-   - Shift history: buffer[1] = buffer[0], buffer[0] = current_value
-
-**Save Behavior:**
-1. Write buffer[2] to output_array[0] (max_d2xdt2)
-2. Write buffer[3] to output_array[1] (min_d2xdt2)
-3. Reset buffer[2] = -1e30
-4. Reset buffer[3] = 1e30
-5. Keep buffer[0], buffer[1], buffer[4] unchanged (preserve continuity)
-
-**dt_save Acquisition:**
-- Same as dxdt_extrema: pass through customisable_variable
-- Square dt_save in computation: dt_save_sq = dt_save * dt_save
-
-### Integration Architecture
-
-**Registration:**
-- Use @register_metric(summary_metrics) decorator
-- Auto-registration on module import
-
-**File Location:**
-- `src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py`
-
-**Dependencies:**
-- Identical to dxdt_extrema
-
-**CUDA Signatures:**
-- Identical structure to dxdt_extrema
-- Update and save device functions with same signatures
-
-### Edge Cases
-
-1. **First two save points:** No second derivative computed
-   - Behavior: Output sentinels, document warmup requirement
-   
-2. **Numerical stability:** dt_save^2 in denominator
-   - Assumption: dt_save >> 1e-8 for numerical stability
-   - Document minimum recommended dt_save
-
-3. **Warmup across summaries:** If summary interval < 3 saves
-   - Behavior: First summary may contain sentinels
-   - Document: requires saves_per_summary >= 3 for meaningful output
-
-## Component 3: dxdt Output Metric (Issue #68 - CONDITIONAL)
-
-### Decision Point
-**RECOMMEND: Defer implementation until user confirms real-time requirement.**
-
-Issue #68 explicitly states: "easily done offline, so only add if required in real-time"
-
-### Conditional Implementation (IF REQUESTED)
-
-**Purpose:**
-Output full time series of first derivatives at each save point.
-
-**Behavioral Requirements:**
-
-**Initialization:**
-- Metric name: "dxdt"
-- Buffer size: `lambda n: n + 1` (parameterized)
-  - buffer[0]: previous state value
-  - buffer[1:n+1]: accumulated derivative series
-- Output size: `lambda n: n` (full series)
-- Parameter: number of saves per summary period
-
-**Update Behavior:**
-1. On first call:
-   - Store current value in buffer[0]
-   - Return
-
-2. On subsequent calls:
-   - Compute dxdt = (current_value - buffer[0]) / dt_save
-   - Determine save index within summary: idx = (current_index % saves_per_summary)
-   - Store dxdt in buffer[1 + idx]
-   - Update buffer[0] = current_value
-
-**Save Behavior:**
-1. Copy buffer[1:n+1] to output_array[0:n]
-2. Clear buffer[1:n+1] = 0.0
-3. Keep buffer[0] unchanged
-
-**Memory Implications:**
-- Same footprint as full state output (if all states tracked)
-- Significant for large systems with many save points
-- This is why offline post-processing is typically preferred
+4. **No conditional returns:** All CUDA device code paths must reach end
+   - Guards use if statements but always continue to end of function
 
 ## Cross-Cutting Concerns
 
 ### dt_save Parameter Passing
 
-**Current Architecture:**
-- customisable_variable is int32 in metric signatures
-- dt_save is a float (precision-dependent)
+**Architecture Change:**
+- Modify ALL summary metric factory build() method signatures to accept dt_save
+- dt_save passed as compile-time constant during metric compilation
+- Stored in metric build() and passed to device functions
 
-**Solution Approaches:**
+**Factory Signature Change:**
+```python
+def build(self, dt_save: float) -> MetricFuncCache:
+    # dt_save is available here at compile time
+    # Pass to device functions via closure or as parameter
+```
 
-**Option A (Recommended): Type punning via int32**
-- Cast dt_save float bits to int32 in OutputFunctions
-- Cast back to float in metric update function
-- CUDA device code example:
-  ```python
-  # In output_functions compilation
-  dt_save_bits = cuda.as_dtype(int32)(dt_save_value)
-  
-  # In metric update
-  dt_save_float = cuda.as_dtype(precision)(customisable_variable)
-  ```
+**Modified Files:**
+1. `src/cubie/outputhandling/summarymetrics/metrics.py`
+   - Update SummaryMetric.build() signature (abstract method)
+   - Update SummaryMetric property accessors to pass dt_save
+   
+2. `src/cubie/outputhandling/output_functions.py`
+   - Modify metric compilation to pass dt_save from OutputConfig
+   - Access dt_save via self.output_config.dt_save
 
-**Option B: Store in metric buffer**
-- Each metric stores dt_save in buffer[last_element]
-- Increases buffer size by 1
-- More straightforward but wastes memory
+3. ALL existing metric files (mean.py, max.py, rms.py, etc.)
+   - Update build(self) to build(self, dt_save)
+   - Even if not used, maintain consistent signature
 
-**Option C: Extend metric signature (NOT RECOMMENDED)**
-- Add dt_save as explicit parameter
-- Breaking change to all metrics
-- Violates existing architecture
+**Device Function Signature:**
+- Change customisable_variable from int32 to float32/64
+- Pass dt_save directly as this parameter
+- Consistent across all metrics for uniformity
 
-**Recommendation:** Implement Option A if possible, fallback to Option B
+**Example Implementation:**
+```python
+def build(self, dt_save: float) -> MetricFuncCache:
+    @cuda.jit([
+        "float32, float32[::1], int32, float32",
+        "float64, float64[::1], int32, float64",
+    ], device=True, inline=True)
+    def update(value, buffer, current_index, dt_save_param):
+        # dt_save_param is the dt_save value
+        if buffer[0] == 0.0:
+            buffer[0] = value
+            buffer[2] = dt_save_param
+        else:
+            unscaled_diff = value - buffer[0]
+            if unscaled_diff > buffer[1]:
+                buffer[1] = unscaled_diff
+            buffer[0] = value
+    
+    @cuda.jit([
+        "float32[::1], float32[::1], int32, float32",
+        "float64[::1], float64[::1], int32, float64",
+    ], device=True, inline=True)
+    def save(buffer, output_array, summarise_every, dt_save_param):
+        output_array[0] = buffer[1] / buffer[2]
+        buffer[1] = 0.0
+        buffer[0] = 0.0
+    
+    return MetricFuncCache(update=update, save=save)
+```
 
-### OutputFunctions Integration
+### Combined Metrics Registry Updates
 
-**Required Changes:**
-To pass dt_save to derivative metrics, OutputFunctions needs to:
+**File:** `src/cubie/outputhandling/summarymetrics/metrics.py`
 
-1. Extract dt_save from OutputConfig
-2. Pass dt_save value when calling derivative metric update functions
-3. Use appropriate type conversion (per Option A or B above)
-
-**File:** `src/cubie/outputhandling/output_functions.py`
-
-**Modification Point:**
-- update_summary_factory function
-- chain_metrics call site
-- function_params tuple construction
-
-**Expected Change:**
-- Add conditional logic: if metric_name in ['dxdt_extrema', 'd2xdt2_extrema', 'dxdt'], pass dt_save
-- Otherwise pass 0 (existing behavior)
-
-**Alternative:** 
-- All metrics could receive dt_save (simpler)
-- Unused by non-derivative metrics (no harm)
-- **RECOMMENDED** for cleaner implementation
+**Modifications to __attrs_post_init__:**
+```python
+def __attrs_post_init__(self) -> None:
+    self._params = {}
+    self._combined_metrics = {
+        frozenset(["mean", "std", "rms"]): "mean_std_rms",
+        frozenset(["mean", "std"]): "mean_std",
+        frozenset(["std", "rms"]): "std_rms",
+        frozenset(["max", "min"]): "extrema",
+        frozenset(["dxdt_max", "dxdt_min"]): "dxdt_extrema",  # NEW
+        frozenset(["d2xdt2_max", "d2xdt2_min"]): "d2xdt2_extrema",  # NEW
+    }
+```
 
 ### Testing Strategy
 
-**Unit Tests (per metric):**
-1. Buffer initialization check
-2. Single update warmup behavior
-3. Multiple updates with known dt_save
-4. Save and reset behavior
-5. Continuity across multiple summary periods
-6. Precision variants (float32/64)
+**DO NOT create new test files or performance tests.**
 
-**Integration Tests:**
-1. Simple linear system: x(t) = t → dxdt = 1, d2xdt2 = 0
-2. Quadratic system: x(t) = t² → dxdt = 2t, d2xdt2 = 2
-3. Sinusoidal system: x(t) = sin(t) → validate extrema locations
-4. Comparison with NumPy gradient (post-processing)
-5. Multi-variable system (independence check)
+**Modifications to existing tests:**
 
-**Performance Tests:**
-1. Overhead measurement vs existing extrema metric
-2. Memory footprint validation
-3. Large batch scaling
+1. **test_all_summaries_long_run** in `tests/outputhandling/test_output_functions.py`
+   - Add new metrics to the test case
+   - Metrics auto-discovered via summary_metrics object
+   
+2. **test_all_summary_metrics_numerical_check** in `tests/outputhandling/summarymetrics/test_summary_metrics.py`
+   - Add parametrized test cases for combined metrics
+   - Add separate test cases for individual metrics (dxdt_max, dxdt_min, etc.)
+   - Validate against numpy gradient for first derivatives
+   - Validate against finite differences for second derivatives
 
-**Test Files:**
-- Extend `tests/outputhandling/summarymetrics/test_summary_metrics.py`
-- Add derivative_metrics fixture
-- Parameterize with test signals
-
-### Documentation Requirements
-
-**Per-Metric Docstrings:**
-- Module docstring explaining finite difference approach
-- Class docstring with Notes on warmup behavior
-- Update function docstring with parameter details
-- Save function docstring with reset behavior
-
-**Usage Examples:**
-- How to request derivative metrics in solver
-- Interpretation of warmup periods
-- Recommended dt_save values for accuracy
-
-**User Guide Updates:**
-- Add section on derivative metrics
-- Explain numerical differentiation limitations
-- Compare to offline post-processing
-
-## Dependencies and Imports
-
-**All Metrics:**
+**Test Implementation Details:**
 ```python
-from numba import cuda
-from cubie.outputhandling.summarymetrics import summary_metrics
-from cubie.outputhandling.summarymetrics.metrics import (
-    SummaryMetric,
-    register_metric,
-    MetricFuncCache,
-)
+# In test_all_summary_metrics_numerical_check
+# Add to parametrized cases:
+@pytest.mark.parametrize("metric_name,validation_func", [
+    ("dxdt_max", validate_dxdt_max),
+    ("dxdt_min", validate_dxdt_min),
+    ("d2xdt2_max", validate_d2xdt2_max),
+    ("d2xdt2_min", validate_d2xdt2_min),
+    # Combined versions tested automatically
+])
 ```
 
-**No New Dependencies:**
-- All required packages already in project
-- NumPy/SciPy only for testing (already dev dependencies)
+**Validation Functions:**
+```python
+def validate_dxdt_max(state_values, dt_save):
+    # Use numpy gradient or manual diff
+    dxdt = np.diff(state_values) / dt_save
+    return np.max(dxdt)
 
-## Implementation Sequence
+def validate_d2xdt2_max(state_values, dt_save):
+    # Three-point finite difference
+    d2xdt2 = (state_values[2:] - 2*state_values[1:-1] + state_values[:-2]) / (dt_save**2)
+    return np.max(d2xdt2)
+```
 
-**Phase 1: Core Metrics (Required)**
-1. Implement dxdt_extrema.py
-2. Implement d2xdt2_extrema.py
-3. Solve dt_save parameter passing (Option A or B)
-4. Modify OutputFunctions if needed
+### Implementation Sequence
 
-**Phase 2: Testing**
-1. Unit tests for each metric
-2. Integration tests with simple ODE systems
-3. Validation against NumPy/SciPy
+1. **Update metric infrastructure** (metrics.py)
+   - Add dt_save parameter to build() abstract method
+   - Update property accessors
+   
+2. **Update output_functions.py**
+   - Modify metric compilation to pass dt_save
+   
+3. **Update ALL existing metrics**
+   - Add dt_save parameter to each build() method
+   - Update device function signatures (int32 -> float32/64 for last param)
+   
+4. **Implement new metrics** (in order)
+   - dxdt_max.py
+   - dxdt_min.py
+   - dxdt_extrema.py
+   - d2xdt2_max.py
+   - d2xdt2_min.py
+   - d2xdt2_extrema.py
+   
+5. **Update combined metrics registry**
+   - Add new entries in metrics.py __attrs_post_init__
+   
+6. **Update imports**
+   - Add to summarymetrics/__init__.py
+   
+7. **Update tests**
+   - Add validation functions
+   - Add parametrized test cases
+   
+8. **Validate**
+   - Run full test suite
+   - Check combined metrics substitution works
 
-**Phase 3: Optional dxdt Output (If Requested)**
-1. Confirm user requirement
-2. Implement dxdt.py
-3. Add corresponding tests
+### Success Criteria
 
-**Phase 4: Documentation**
-1. Complete all docstrings
-2. Add usage examples
-3. Update user guide if necessary
+1. All existing tests pass (after updating build() signatures)
+2. New metrics correctly compute derivatives via finite differences
+3. Combined metrics auto-substitute when both requested
+4. Numerical validation passes against numpy/scipy references
+5. No conditional returns in CUDA device code
+6. Buffer usage minimized (no flags, use zero guards)
+7. Scaling done at save time, not during accumulation
 
-## Potential Gotchas
+## Files to Create
 
-1. **CUDA float/int casting:** Ensure precision-safe type punning for dt_save
-2. **Buffer persistence:** Update functions must not reset buffers inappropriately
-3. **Warmup handling:** Clear documentation of initialization behavior
-4. **Summary boundaries:** Ensure state history preserved across summary saves
-5. **Precision modes:** Test both float32 and float64 thoroughly
-6. **Combined metrics:** Future optimization may combine dxdt + d2xdt2 for shared computation
+1. `src/cubie/outputhandling/summarymetrics/dxdt_max.py`
+2. `src/cubie/outputhandling/summarymetrics/dxdt_min.py`
+3. `src/cubie/outputhandling/summarymetrics/dxdt_extrema.py`
+4. `src/cubie/outputhandling/summarymetrics/d2xdt2_max.py`
+5. `src/cubie/outputhandling/summarymetrics/d2xdt2_min.py`
+6. `src/cubie/outputhandling/summarymetrics/d2xdt2_extrema.py`
 
-## Success Criteria
+## Files to Modify
 
-1. ✅ All three metrics (or two if dxdt deferred) implemented and tested
-2. ✅ Pass validation against SciPy/NumPy derivatives on test signals
-3. ✅ Performance overhead < 5% (dxdt_extrema) and < 7% (d2xdt2_extrema)
-4. ✅ Work with all precision modes (float32/64)
-5. ✅ Work with all integration algorithms
-6. ✅ Auto-register and integrate seamlessly with existing metric system
-7. ✅ Complete docstrings and usage documentation
-8. ✅ All tests passing in CI
+1. `src/cubie/outputhandling/summarymetrics/metrics.py`
+   - Add dt_save to build() signature
+   - Add new combined metrics to registry
+   - Update customisable_variable type in signatures
 
-## Non-Goals (Out of Scope)
+2. `src/cubie/outputhandling/output_functions.py`
+   - Pass dt_save to metric build() methods
+   - Update metric compilation
 
-- ❌ Higher-order derivatives (d3xdt3, etc.)
-- ❌ Adaptive finite difference methods
-- ❌ Richardson extrapolation for accuracy
-- ❌ Accessing ODE solver analytical derivatives
-- ❌ Modifying integration loop architecture
-- ❌ GPU-based spline differentiation
-- ❌ Combined derivative metrics (defer to future optimization)
+3. `src/cubie/outputhandling/summarymetrics/__init__.py`
+   - Import new metric modules
+
+4. ALL existing metric files:
+   - `mean.py` - Update build(self, dt_save)
+   - `max.py` - Update build(self, dt_save)
+   - `min.py` - Update build(self, dt_save)
+   - `rms.py` - Update build(self, dt_save)
+   - `std.py` - Update build(self, dt_save)
+   - `peaks.py` - Update build(self, dt_save)
+   - `negative_peaks.py` - Update build(self, dt_save)
+   - `max_magnitude.py` - Update build(self, dt_save)
+   - `extrema.py` - Update build(self, dt_save)
+   - `mean_std.py` - Update build(self, dt_save)
+   - `std_rms.py` - Update build(self, dt_save)
+   - `mean_std_rms.py` - Update build(self, dt_save)
+
+5. `tests/outputhandling/summarymetrics/test_summary_metrics.py`
+   - Add validation functions for derivatives
+   - Add parametrized test cases
+
+## NOT Implemented
+
+- Issue #68 (dxdt full time series) - Deferred per user request
+- Performance testing - Not required per user
+- Examples and user guides - Not required per user
