@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 import pytest
 
+from cubie import summary_metrics
 from tests._utils import assert_integration_outputs
 
 Array = NDArray[np.floating]
@@ -280,21 +281,78 @@ def  test_loop(
     )
     assert device_loop_outputs.status == 0
 
+# One per metric
+#Awful to read, but we add [2] to peaks or negative peaks, clumsily
+metric_test_output_cases = tuple({"output_types": [metric]} if metric not in ["peaks",
+         "negative_peaks"] else {"output_types": [metric + "[2]"]} for
+                                 metric in
+         summary_metrics.implemented_metrics )
+metric_test_ids = tuple(metric for metric in
+                        summary_metrics.implemented_metrics)
+# Add combos
+metric_test_output_cases = (
+        *metric_test_output_cases,
+        {"output_types": [  #combined metrics
+            "state",
+            "mean",
+            "std",
+            "rms",
+            "max",
+            "min",
+            "time",
+            "max_magnitude",
+            "peaks[3]",
+            "negative_peaks[3]",
+            ],
+        },
+        { # no combos
+            "output_types": [
+                "state",
+                "mean",
+                "rms",
+                "max",
+                "min",
+                "time",
+                "max_magnitude",
+                "negative_peaks[3]",
+            ],
+        },
+        {# 1st generation metrics
+            "output_types": [
+                "state",
+                "mean",
+                "rms",
+                "max",
+                "time",
+                "peaks[3]",
+            ],
+        },
+)
 
+metric_test_ids = (
+        *metric_test_ids,
+        "combined metrics",
+        "no combos",
+        "1st generation metrics"
+)
+
+@pytest.mark.parametrize("system_override", ["linear"], ids=[""],
+                         indirect=True)
+@pytest.mark.parametrize("solver_settings_override2",
+     [{
+        "algorithm": "euler",
+        "duration": 0.2,
+        "dt": 0.0025,
+        "dt_save": 0.01,
+        "dt_summarise": 0.1,
+    }],
+    indirect=True,
+    ids = [""]
+)
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [
-        {
-            "algorithm": "euler",
-            "output_types": [
-                "state", "mean", "std", "rms", "max", "min", 
-                "max_magnitude", "peaks[3]", "negative_peaks[3]"
-            ],
-            "dt": 0.00003,
-            "dt_save": 0.001,
-            "dt_summarise": 0.1,
-        },
-    ],
+    metric_test_output_cases,
+    ids = metric_test_ids,
     indirect=True,
 )
 def test_all_summary_metrics_numerical_check(
@@ -304,20 +362,13 @@ def test_all_summary_metrics_numerical_check(
     tolerance,
 ):
     """Verify all summary metrics produce numerically correct results in loop context."""
-    # This test ensures that std, min, max_magnitude, and negative_peaks
-    # metrics work correctly in a loop integration context, not just
-    # in isolation. It checks numerical parity with CPU reference.
-    
-    if not output_functions.compile_flags.save_summaries:
-        pytest.skip("Summary metrics are not saved for this configuration.")
-    
     # Check state summaries match reference
-    np.testing.assert_allclose(
-        device_loop_outputs.state_summaries,
-        cpu_loop_outputs["state_summaries"],
+    assert_integration_outputs(
+        cpu_loop_outputs,
+        device_loop_outputs,
+        output_functions,
         rtol=tolerance.rel_tight,
         atol=tolerance.abs_tight,
-        err_msg="State summaries don't match CPU reference"
     )
     
     assert device_loop_outputs.status == 0, "Integration should complete successfully"

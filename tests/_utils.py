@@ -660,7 +660,7 @@ def assert_integration_outputs(
             reference.state_summaries,
             rtol=rtol,
             atol=atol,
-            err_msg="observables_summary mismatch.\n"
+            err_msg="state summaries mismatch.\n"
                     f"device: {device.state_summaries}\n"
                     f"reference: {reference.state_summaries}")
 
@@ -670,7 +670,7 @@ def assert_integration_outputs(
             reference.observable_summaries,
             rtol=rtol,
             atol=atol,
-            err_msg="state_summary mismatch.\n"
+            err_msg="observable summary mismatch.\n"
             f"device: {device.observable_summaries}\n"
             f"reference: {reference.observable_summaries}",
         )
