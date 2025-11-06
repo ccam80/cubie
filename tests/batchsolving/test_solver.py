@@ -515,6 +515,7 @@ def test_solver_with_different_algorithms(system, solver_settings):
             system,
             algorithm=algorithm,
             dt_min=solver_settings["dt_min"],
+            dt=solver_settings["dt"],
             dt_max=solver_settings["dt_max"],
             precision=solver_settings["precision"],
             memory_manager=solver_settings["memory_manager"],

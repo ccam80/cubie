@@ -124,6 +124,8 @@ class ERKStep(ODEExplicitStep):
         multistage = stage_count > 1
         has_error = self.is_adaptive
         first_same_as_last = self.first_same_as_last
+        is_controller_fixed = self.is_controller_fixed
+        dt_compile = dt
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)

@@ -428,7 +428,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             if is_controller_fixed:
                 dt_value = dt_compile
             else:
-                dt_value = dt_value
+                dt_value = dt_scalar
             
             current_time = time_scalar
             end_time = current_time + dt_value
