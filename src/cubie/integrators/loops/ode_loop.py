@@ -380,6 +380,8 @@ class IVPLoop(CUDAFactory):
             # Initialize iteration counters
             for i in range(4):
                 counters_since_save[i] = int32(0)
+            for i in range(2):
+                proposed_counters[i] = int32(0)
 
             if fixed_mode:
                 step_counter = int32(0)
@@ -473,10 +475,10 @@ class IVPLoop(CUDAFactory):
                         old_obs = observables_buffer[i]
                         observables_buffer[i] = selp(accept, new_obs, old_obs)
 
-                    for i in range(2):
-                        new_ctr = proposed_counters[i]
-                        old_ctr = counters_since_save[i]
-                        counters_since_save[i] = selp(accept, new_ctr, old_ctr)
+                    # Accumulate Newton and Krylov iteration counts if step accepted
+                    if accept:
+                        for i in range(2):
+                            counters_since_save[i] += proposed_counters[i]
 
                     prev_step_accepted_flag = selp(
                         accept,
