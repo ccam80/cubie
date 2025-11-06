@@ -42,37 +42,28 @@ This plan details the implementation of iteration count outputs for CuBIE's impl
 
 **Required Changes**:
 
-**New Output Types** (add to recognized types):
-- `"newton_iterations"` - Newton iteration counts
-- `"krylov_iterations"` - Krylov/linear solver iteration counts
-- `"step_counts"` - Total steps between saves
-- `"rejected_steps"` - Rejected steps between saves (adaptive only)
-- `"step_size"` - Step size at save point
+**New Output Type** (add to recognized types):
+- `"iteration_counters"` - All iteration diagnostics in single array
 
-**New Compile Flags** (add to `OutputCompileFlags` attrs class):
+**New Compile Flag** (add to `OutputCompileFlags` attrs class):
 ```python
-output_newton_iterations: bool = False
-output_krylov_iterations: bool = False
-output_step_counts: bool = False
-output_rejected_steps: bool = False
-output_step_size: bool = False
+output_iteration_counters: bool = False
 ```
 
 **Behavior**:
-- When user provides `output_types=["state", "newton_iterations"]`
-- `OutputConfig.__attrs_post_init__()` sets corresponding flags to `True`
-- Flags passed to `save_state_factory()` for compile-time branching
-- Flags accessible via `OutputFunctions.compile_flags` property
+- When user provides `output_types=["state", "iteration_counters"]`
+- `OutputConfig.__attrs_post_init__()` sets `output_iteration_counters=True`
+- Flag passed to `save_state_factory()` for compile-time branching
+- Flag accessible via `OutputFunctions.compile_flags` property
 
 **Validation**:
-- No special validation needed (iteration outputs don't have indices)
-- Accept any combination of iteration output types
-- Warning if iteration outputs requested but algorithm is explicit (no iterations to track)
+- No special validation needed (iteration counters don't have indices)
+- Optional: Warning if iteration counters requested but algorithm is explicit (no iterations to track)
 
 **Files**:
 - `OutputCompileFlags` class definition
 - `OutputConfig.__attrs_post_init__()` flag setting logic
-- `ALL_OUTPUT_FUNCTION_PARAMETERS` set (add new type names)
+- `ALL_OUTPUT_FUNCTION_PARAMETERS` set (add "iteration_counters")
 
 ### 3. Save State Function Signature Extension (`src/cubie/outputhandling/save_state.py`)
 
@@ -88,30 +79,26 @@ def save_state_func(current_state, current_observables,
 def save_state_func(current_state, current_observables,
                     output_states_slice, output_observables_slice,
                     current_step,
-                    output_newton_iters_slice, newton_iters,
-                    output_krylov_iters_slice, krylov_iters,
-                    output_steps_slice, steps_count,
-                    output_rejected_slice, rejected_count,
-                    output_stepsize_slice, step_size):
+                    output_counters_slice, counters_array):
 ```
 
-**Alternative Design** (cleaner, recommended):
-Pass output slices as a dict-like structure or use compile-time selection to omit unused parameters. However, Numba device functions have limitations, so explicit parameters are safer.
-
 **Behavior**:
-- Compile-time branching based on `OutputCompileFlags`
-- If `flags.output_newton_iterations`: write `newton_iters` to `output_newton_iters_slice[0]`
+- Compile-time branching based on `OutputCompileFlags.output_iteration_counters`
+- If `flags.output_iteration_counters`: write all 4 values from `counters_array` to `output_counters_slice`
 - If flag is `False`: entire branch is compiled away (zero overhead)
-- Similar pattern for each iteration output type
 
 **Implementation Pattern**:
 ```python
-if flags.output_newton_iterations:
-    output_newton_iters_slice[0] = newton_iters
-if flags.output_krylov_iterations:
-    output_krylov_iters_slice[0] = krylov_iters
-# ... etc
+if flags.output_iteration_counters:
+    for i in range(4):
+        output_counters_slice[i] = counters_array[i]
 ```
+
+**Counters Array Layout**:
+- Index 0: Newton iteration count
+- Index 1: Krylov iteration count
+- Index 2: Total steps count
+- Index 3: Rejected steps count
 
 **Files**:
 - `save_state_factory()` function
@@ -128,13 +115,12 @@ if flags.output_krylov_iterations:
 **Required Changes**:
 
 #### Local Memory Allocation
-Add iteration counter variables in loop initialization:
+Add iteration counters array in loop initialization:
 ```python
-# Allocate counters in persistent_local or as local variables
-newton_iters_since_save = int32(0)
-krylov_iters_since_save = int32(0)
-steps_since_save = int32(0)
-rejected_steps_since_save = int32(0)
+# Allocate counters array (4 int32 values)
+counters_since_save = cuda.local.array(4, int32)
+for i in range(4):
+    counters_since_save[i] = int32(0)
 ```
 
 #### Iteration Tracking in Main Loop
@@ -144,6 +130,7 @@ step_status = step_function(...)
 
 # Extract Newton iterations (already done)
 niters = (step_status >> 16) & status_mask
+counters_since_save[0] += niters
 
 # Extract Krylov iterations from Newton solver's linear solver return
 # This requires Newton solver to pass through linear solver's upper 16 bits
@@ -152,16 +139,19 @@ niters = (step_status >> 16) & status_mask
 kriters = extracted_krylov_count  # See Newton Solver section
 
 # Accumulate iterations
-if flags.output_newton_iterations:
-    newton_iters_since_save += niters
-if flags.output_krylov_iterations:
-    krylov_iters_since_save += kriters
+counters_since_save[0] += niters
+
+# Extract Krylov iterations from Newton solver's linear solver return
+# (Linear solver modified to return Krylov count in upper 16 bits)
+kriters = (lin_status >> 16) & 0xFFFF
+counters_since_save[1] += kriters
 
 # Track steps
-if flags.output_step_counts or flags.output_rejected_steps:
-    steps_since_save += int32(1)
-    if not accept:
-        rejected_steps_since_save += int32(1)
+counters_since_save[2] += int32(1)
+
+# Track rejected steps
+if not accept:
+    counters_since_save[3] += int32(1)
 ```
 
 #### Modified Save Call
@@ -172,32 +162,22 @@ if do_save:
         state_output[save_idx * save_state_bool, :],
         observables_output[save_idx * save_obs_bool, :],
         t,
-        # New iteration output slices
-        newton_iters_output[save_idx, :],  # or just [save_idx]
-        newton_iters_since_save,
-        krylov_iters_output[save_idx, :],
-        krylov_iters_since_save,
-        steps_output[save_idx, :],
-        steps_since_save,
-        rejected_output[save_idx, :],
-        rejected_steps_since_save,
-        stepsize_output[save_idx, :],
-        dt[0],  # current step size
+        # New iteration counters output
+        counters_output[save_idx * output_counters_bool, :],
+        counters_since_save,
     )
     
-    # Reset accumulators
-    newton_iters_since_save = int32(0)
-    krylov_iters_since_save = int32(0)
-    steps_since_save = int32(0)
-    rejected_steps_since_save = int32(0)
+    # Reset all counters
+    for i in range(4):
+        counters_since_save[i] = int32(0)
 ```
 
-**Key Consideration**: The loop function signature must receive new output array slices. This propagates up to `IVPLoop.__init__()` and `ODELoopConfig`.
+**Key Consideration**: The loop function signature must receive the counters output array slice. This propagates up to `IVPLoop.__init__()` and `ODELoopConfig`.
 
 **Files**:
 - `IVPLoop.build()` method (loop_fn device function definition)
 - Loop function signature in main loop
-- Counter variable initialization
+- Counter array initialization
 - Save call site
 
 ### 5. Newton-Krylov Solver Krylov Count Propagation (`src/cubie/integrators/matrix_free_solvers/newton_krylov.py`)
@@ -274,43 +254,39 @@ Then algorithm step wrapper extracts from buffer and makes available to loop.
 **Required Changes**:
 
 **New Loop Function Parameters**:
-Add output array parameters for iteration counts:
+Add output array parameter for iteration counters:
 ```python
 def loop_fn(initial_states, parameters, driver_coefficients,
             shared_scratch, persistent_local,
             state_output, observables_output,
             state_summaries_output, observable_summaries_output,
             # NEW:
-            newton_iters_output, krylov_iters_output,
-            steps_count_output, rejected_steps_output,
-            step_size_output,
+            iteration_counters_output,
             duration, settling_time, t0):
 ```
 
 **Conditional Parameters**:
-Use compile-time flags to omit unused parameters. However, Numba may require consistent signatures. Alternative: Always pass arrays but make them size-0 when disabled.
+Use compile-time flag to control whether counters output is used. Can use size-0 array pattern when disabled.
 
 **Size-0 Array Pattern**:
 ```python
 # In loop construction:
-if flags.output_newton_iterations:
-    newton_iters_output = actual_array
+if flags.output_iteration_counters:
+    counters_output = actual_array
 else:
-    newton_iters_output = cuda.local.array(0, int32)  # zero-size, compiled away
+    counters_output = cuda.local.array((0, 0), int32)  # zero-size, compiled away
 
 # In save call:
-if flags.output_newton_iterations:
-    newton_iters_output[save_idx, :] = ...
+if flags.output_iteration_counters:
+    counters_output[save_idx, :] = ...
 # Else: branch compiled away, no array access
 ```
 
 **Files**:
-- `ODELoopConfig` (add iteration output flags to config)
+- `ODELoopConfig` (add iteration_counters output flag to config)
 - `IVPLoop.build()` (loop signature and array handling)
-- `LoopSharedIndices` (if iteration counters stored in shared memory)
-- `LoopLocalIndices` (if iteration counters stored in local memory)
 
-**Decision**: Store iteration counters in local variables (not shared/local memory slices) for simplicity.
+**Decision**: Store iteration counters in local array variable (not shared/local memory slices) for simplicity.
 
 ### 7. Output Array Management (`src/cubie/batchsolving/arrays/BatchOutputArrays.py`)
 
@@ -321,35 +297,25 @@ if flags.output_newton_iterations:
 
 **Required Changes**:
 
-**New Array Container Fields** (add to `OutputArrayContainer`):
+**New Array Container Field** (add to `OutputArrayContainer`):
 ```python
-newton_iterations: Optional[NDArray] = None
-krylov_iterations: Optional[NDArray] = None
-step_counts: Optional[NDArray] = None
-rejected_steps: Optional[NDArray] = None
-step_sizes: Optional[NDArray] = None
+iteration_counters: Optional[NDArray] = None
 ```
 
 **Array Allocation**:
 In `OutputArrays._allocate_outputs()` or similar:
 ```python
-if compile_flags.output_newton_iterations:
-    shape = (n_runs, n_saves)
-    self.newton_iterations = allocate_device_array(shape, dtype=np.int32)
-
-if compile_flags.output_krylov_iterations:
-    shape = (n_runs, n_saves)
-    self.krylov_iterations = allocate_device_array(shape, dtype=np.int32)
-
-# ... similar for other iteration types
+if compile_flags.output_iteration_counters:
+    shape = (n_runs, n_saves, 4)  # 4 counter types
+    self.iteration_counters = allocate_device_array(shape, dtype=np.int32)
 ```
 
 **Array Transfer**:
-Iteration arrays transferred to host after kernel execution, following same pattern as state/observable arrays.
+Iteration counters array transferred to host after kernel execution, following same pattern as state/observable arrays.
 
 **Files**:
 - `OutputArrayContainer` class
-- `ActiveOutputs` class (add iteration flags)
+- `ActiveOutputs` class (add iteration_counters flag)
 - `OutputArrays` class allocation and transfer logic
 
 ### 8. Solve Result Exposure (`src/cubie/batchsolving/solveresult.py`)
@@ -360,38 +326,27 @@ Iteration arrays transferred to host after kernel execution, following same patt
 
 **Required Changes**:
 
-**New Properties**:
+**New Property**:
 ```python
 @property
-def newton_iterations(self) -> Optional[NDArray]:
-    """Newton iteration counts at each save point."""
-    return self._output_arrays.newton_iterations
-
-@property
-def krylov_iterations(self) -> Optional[NDArray]:
-    """Krylov/linear solver iteration counts at each save point."""
-    return self._output_arrays.krylov_iterations
-
-@property
-def step_counts(self) -> Optional[NDArray]:
-    """Total integration steps between save points."""
-    return self._output_arrays.step_counts
-
-@property
-def rejected_steps(self) -> Optional[NDArray]:
-    """Rejected steps between save points (adaptive controllers only)."""
-    return self._output_arrays.rejected_steps
-
-@property
-def step_sizes(self) -> Optional[NDArray]:
-    """Step size at each save point."""
-    return self._output_arrays.step_sizes
+def iteration_counters(self) -> Optional[NDArray]:
+    """Iteration counters at each save point.
+    
+    Returns array of shape (n_runs, n_saves, 4) where:
+    - [:, :, 0]: Newton iteration counts
+    - [:, :, 1]: Krylov iteration counts  
+    - [:, :, 2]: Total steps between saves
+    - [:, :, 3]: Rejected steps between saves
+    
+    Returns None if iteration_counters output was not requested.
+    """
+    return self._output_arrays.iteration_counters
 ```
 
 **Behavior**:
-- Returns `None` if corresponding iteration output was not requested
-- Returns NumPy array of shape `(n_runs, n_saves)` if enabled
-- Dtype is `np.int32` for iteration counts, `precision` for step_sizes
+- Returns `None` if iteration_counters output was not requested
+- Returns NumPy array of shape `(n_runs, n_saves, 4)` if enabled
+- Dtype is `np.int32`
 
 **Files**:
 - `SolveResult` class
@@ -406,13 +361,13 @@ def step_sizes(self) -> Optional[NDArray]:
 **Required Changes**:
 
 **New Height Calculations**:
-Iteration count arrays are simpler than state/observable arrays:
-- Always height=1 per save (single scalar value)
+Iteration counters array is simpler than state/observable arrays:
+- Always 4 values per save (fixed size array)
 - No per-variable indexing (applies to entire integration)
-- Calculated based on compile flags
+- Calculated based on compile flag
 
 **Behavior**:
-May not require changes if iteration arrays are managed separately from state/observable sizing logic. Review and add helper methods if beneficial.
+May not require changes if iteration counters array is managed separately from state/observable sizing logic. Review and add helper methods if beneficial.
 
 **Files**:
 - Potentially `OutputArrayHeights` or new helper class
@@ -428,23 +383,19 @@ May not require changes if iteration arrays are managed separately from state/ob
 **Required Changes**:
 
 **Kernel Call Site**:
-Pass new iteration output arrays to loop function:
+Pass new iteration counters output array to loop function:
 ```python
 loop_fn(
     # ... existing parameters ...
-    newton_iters_output=newton_iters_device,
-    krylov_iters_output=krylov_iters_device,
-    steps_count_output=steps_count_device,
-    rejected_steps_output=rejected_steps_device,
-    step_size_output=step_size_device,
+    iteration_counters_output=counters_device,
     # ... rest ...
 )
 ```
 
 **Array Slicing for Chunking**:
-When chunking, slice iteration arrays like state/observable arrays:
+When chunking, slice iteration counters array like state/observable arrays:
 ```python
-chunk_newton_iters = newton_iters_output[chunk_start:chunk_end, :]
+chunk_counters = iteration_counters_output[chunk_start:chunk_end, :, :]
 # Pass chunk slice to kernel
 ```
 
@@ -569,21 +520,21 @@ Currently, algorithm step functions return a single `int32` status code with ite
 2. **Adaptive Controller Step Tracking**
    - Run PI controller with step count and rejection tracking
    - Verify rejected_steps < total_steps
-   - Verify step_sizes vary adaptively
+   - Verify step counts reflect adaptive behavior
 
-3. **Multiple Output Types**
-   - Enable all iteration outputs simultaneously
-   - Verify no conflicts or memory issues
+3. **All Counters Enabled**
+   - Enable iteration_counters output type
+   - Verify all 4 counter values are populated
    - Check performance overhead
 
 4. **Disabled vs. Enabled Performance**
-   - Benchmark with all iteration outputs off (baseline)
-   - Benchmark with all iteration outputs on
+   - Benchmark with iteration_counters off (baseline)
+   - Benchmark with iteration_counters on
    - Verify overhead is minimal (<1-2%)
 
-5. **Chunking with Iteration Outputs**
-   - Force chunking with large batch + iteration outputs
-   - Verify iteration arrays chunked correctly
+5. **Chunking with Iteration Counters**
+   - Force chunking with large batch + iteration_counters output
+   - Verify counters array chunked correctly
    - Verify no data corruption across chunks
 
 ### Validation Tests

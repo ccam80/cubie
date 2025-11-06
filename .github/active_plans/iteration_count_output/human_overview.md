@@ -40,12 +40,11 @@
 
 ### Story 4: Integration Step Information
 **As a** user analyzing solver performance  
-**I want to** see the number of integration steps between save points and optionally the step size at save  
+**I want to** see the number of integration steps between save points  
 **So that I can** understand the computational work distribution and adaptive behavior over time
 
 **Acceptance Criteria:**
 - Number of steps since last save is optionally output
-- Step size at save point is optionally output
 - Memory-efficient approach (no dense time-step arrays)
 - Controlled by compile-time flags
 
@@ -56,27 +55,27 @@ This feature adds optional diagnostic iteration count outputs to CuBIE's implici
 ### Key Technical Decisions
 
 1. **Output Architecture**: Use existing `OutputConfig` + `OutputCompileFlags` pattern
-2. **Data Flow**: Iteration counts accumulate in loop, passed to `save_state` function
-3. **Memory Strategy**: Small scalar counters (1-3 per thread), reset between saves
+2. **Data Flow**: Iteration counts accumulate in loop, passed to `save_state` function as array
+3. **Memory Strategy**: Single `counters` array with 4 int32 values, reset between saves
 4. **Status Word Enhancement**: Linear solver returns iteration count like Newton solver
-5. **User Interface**: New `output_types` entries control compilation
+5. **User Interface**: Single "iteration_counters" output type (all-or-nothing)
 
 ### Implementation Scope
 
-**New Output Types** (added to `output_types` list):
-- `"newton_iterations"` - Newton iteration counts per save
-- `"krylov_iterations"` - Linear solver iteration counts per save  
-- `"step_counts"` - Total integration steps between saves
-- `"rejected_steps"` - Rejected steps between saves (adaptive only)
-- `"step_size"` - Current step size at save point
+**New Output Type** (added to `output_types` list):
+- `"iteration_counters"` - All iteration diagnostics in one array per save
+  - Index 0: Newton iteration counts
+  - Index 1: Krylov/linear solver iteration counts
+  - Index 2: Total integration steps between saves
+  - Index 3: Rejected steps between saves (adaptive only, 0 for fixed-step)
 
 **Modified Components**:
-- `save_state_factory()` - Extended signature for iteration counts
+- `save_state_factory()` - Extended signature to accept counters array
 - `linear_solver_factory()` - Return iteration count in status word
-- `IVPLoop.build()` - Track iteration counts, pass to save_state
-- `OutputConfig` - Recognize new output types, create flags
-- `OutputArrays` - Allocate new output arrays
-- `SolveResult` - Expose iteration count arrays
+- `IVPLoop.build()` - Track iteration counts in array, pass to save_state
+- `OutputConfig` - Recognize "iteration_counters" output type, create flag
+- `OutputArrays` - Allocate counters output array (shape: n_saves × 4)
+- `SolveResult` - Expose iteration_counters array property
 
 ## Architecture Diagram
 
@@ -84,35 +83,30 @@ This feature adds optional diagnostic iteration count outputs to CuBIE's implici
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Integration Loop (ode_loop.py)               │
 │                                                                 │
-│  Iteration Counters (local/shared memory):                     │
+│  Iteration Counters Array (local memory):                      │
 │  ┌────────────────────────────────────────────────────────┐   │
-│  │ newton_iters_since_save    : int32 (accumulator)       │   │
-│  │ krylov_iters_since_save    : int32 (accumulator)       │   │
-│  │ steps_since_save           : int32 (counter)           │   │
-│  │ rejected_steps_since_save  : int32 (counter)           │   │
+│  │ counters_since_save: int32[4]                           │   │
+│  │   [0] newton_iters        : int32 (accumulator)         │   │
+│  │   [1] krylov_iters        : int32 (accumulator)         │   │
+│  │   [2] steps               : int32 (counter)             │   │
+│  │   [3] rejected_steps      : int32 (counter)             │   │
 │  └────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  Main Loop:                                                     │
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │ 1. step_status = step_function(...)                     │   │
 │  │ 2. Extract Newton iters from status: (status >> 16)     │   │
-│  │ 3. newton_iters_since_save += niters                    │   │
-│  │ 4. Extract Krylov iters: (status >> 32) & 0xFFFF       │   │
-│  │ 5. krylov_iters_since_save += kriters                   │   │
-│  │ 6. steps_since_save += 1                                │   │
-│  │ 7. if accept: rejected_steps_since_save += 0            │   │
-│  │    else:      rejected_steps_since_save += 1            │   │
+│  │ 3. counters_since_save[0] += niters                     │   │
+│  │ 4. Extract Krylov iters: (lin_status >> 16)             │   │
+│  │ 5. counters_since_save[1] += kriters                    │   │
+│  │ 6. counters_since_save[2] += 1                          │   │
+│  │ 7. if not accept: counters_since_save[3] += 1           │   │
 │  │                                                          │   │
 │  │ 8. if do_save:                                           │   │
-│  │      save_state(..., newton_iters_since_save,           │   │
-│  │                     krylov_iters_since_save,            │   │
-│  │                     steps_since_save,                   │   │
-│  │                     rejected_steps_since_save,          │   │
-│  │                     current_dt)                         │   │
-│  │      newton_iters_since_save = 0  # reset               │   │
-│  │      krylov_iters_since_save = 0  # reset               │   │
-│  │      steps_since_save = 0         # reset               │   │
-│  │      rejected_steps_since_save = 0 # reset              │   │
+│  │      save_state(..., counters_output_slice,             │   │
+│  │                     counters_since_save)                │   │
+│  │      for i in range(4):                                  │   │
+│  │          counters_since_save[i] = 0  # reset            │   │
 │  └────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -124,16 +118,13 @@ This feature adds optional diagnostic iteration count outputs to CuBIE's implici
 │  save_state_func(current_state, current_observables,           │
 │                  output_states_slice, output_observables_slice,│
 │                  current_step,                                  │
-│                  newton_iters, krylov_iters,  ← NEW            │
-│                  steps_count, rejected_count,  ← NEW           │
-│                  step_size)                    ← NEW           │
+│                  output_counters_slice,    ← NEW               │
+│                  counters_array)           ← NEW               │
 │                                                                 │
 │  Compile-time branching based on OutputCompileFlags:           │
-│  if flags.output_newton_iterations:                            │
-│      output_newton_iters_slice[0] = newton_iters               │
-│  if flags.output_krylov_iterations:                            │
-│      output_krylov_iters_slice[0] = krylov_iters               │
-│  ... etc for other iteration types                             │
+│  if flags.output_iteration_counters:                           │
+│      for i in range(4):                                         │
+│          output_counters_slice[i] = counters_array[i]          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -172,35 +163,32 @@ Proposed (64-bit):
 ## Data Flow Summary
 
 1. **Compilation Phase**:
-   - User specifies `output_types=["state", "newton_iterations", ...]`
-   - `OutputConfig` creates flags: `output_newton_iterations=True`
-   - `save_state_factory()` receives flags, compiles with conditional branches
-   - `IVPLoop` allocates iteration counter variables based on flags
+   - User specifies `output_types=["state", "iteration_counters"]`
+   - `OutputConfig` creates flag: `output_iteration_counters=True`
+   - `save_state_factory()` receives flag, compiles with conditional branch
+   - `IVPLoop` allocates counters array (4 int32 values) based on flag
 
 2. **Execution Phase**:
-   - Loop tracks iterations in local counters
-   - On save: passes current counts to `save_state_func()`
-   - `save_state_func()` writes to device output arrays (compile-time branched)
-   - Counters reset to zero after save
+   - Loop tracks iterations in `counters_since_save` array
+   - On save: passes counters array to `save_state_func()`
+   - `save_state_func()` writes all 4 values to device output array (compile-time branched)
+   - All 4 counters reset to zero after save
 
 3. **Output Phase**:
-   - `OutputArrays` transfers iteration count arrays to host
-   - `SolveResult` exposes arrays via properties
-   - User accesses: `result.newton_iterations`, `result.krylov_iterations`, etc.
+   - `OutputArrays` transfers counters array to host (shape: n_saves × 4)
+   - `SolveResult` exposes array via property
+   - User accesses: `result.iteration_counters[:, 0]` for Newton, etc.
 
 ## Memory Impact
 
 Per-thread memory additions (only when enabled):
-- Newton iterations accumulator: 4 bytes (int32)
-- Krylov iterations accumulator: 4 bytes (int32)
-- Steps counter: 4 bytes (int32)
-- Rejected steps counter: 4 bytes (int32)
+- Counters array: 4 × 4 bytes = 16 bytes (int32[4])
 - **Total**: 16 bytes local memory per thread (negligible)
 
 Output array memory (host + device):
-- Each enabled iteration type: `n_saves * sizeof(dtype)` bytes per run
-- Example: 1000 saves × 4 bytes × 5 iteration types = 20 KB per run
-- For 1M runs: ~20 GB (significant but comparable to state outputs)
+- Single counters array: `n_saves × 4 × sizeof(int32)` bytes per run
+- Example: 1000 saves × 4 × 4 bytes = 16 KB per run
+- For 1M runs: ~16 GB (significant but comparable to state outputs)
 
 ## Trade-offs Considered
 
@@ -220,9 +208,15 @@ Output array memory (host + device):
 - **Alternative**: 64-bit status (rejected: requires changes throughout)
 
 ### Compile-time vs. Runtime Flags
-**Decision**: Compile-time flags (existing pattern)
+**Decision**: Compile-time flag (existing pattern)
 - **Reasoning**: Zero overhead when disabled, follows CuBIE conventions
 - **Alternative**: Runtime checks (rejected: performance cost)
+
+### All-or-Nothing vs. Individual Counter Flags
+**Decision**: Single "iteration_counters" output type
+- **Reasoning**: Simplifies flag logic, signature changes, and user interface
+- **Reasoning**: Diagnostic outputs are typically used together
+- **Alternative**: Individual flags (rejected: complexity, multiple arrays)
 
 ## Expected Impact on Existing Architecture
 
