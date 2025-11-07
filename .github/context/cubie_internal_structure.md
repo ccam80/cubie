@@ -69,7 +69,7 @@ Used throughout for data containers and compile settings:
 - Use validators from `cubie._utils` (imported from full path) rather than `instance_of(float)`
 - `cubie._utils` validators are tolerant of NumPy dtypes (e.g., `np.floating`, `np.integer`)
 - Available validators: `getype_validator(dtype, min)`, `gttype_validator(dtype, min)`, `letype_validator(dtype, max)`, `lttype_validator(dtype, max)`, `inrangetype_validator(dtype, min, max)`
-- For optional fields, use `validators.optional(...)` wrapper around cubie._utils validators
+- For optional fields, use the `opt_*` versions: `opt_getype_validator(dtype, min)`, `opt_gttype_validator(dtype, min)`, `opt_letype_validator(dtype, max)`, `opt_lttype_validator(dtype, max)`, `opt_inrangetype_validator(dtype, min, max)` (these already include `validators.optional()` wrapper)
 
 ### Precision System
 Centralized in `src/cubie/_utils.py`:
