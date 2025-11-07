@@ -365,6 +365,11 @@ class LoopSharedIndices:
         """Return the number of observables."""
         return int(self.observables.stop - self.observables.start)
 
+    @property
+    def n_counters(self) -> int:
+        """Return the number of counter elements (4 if enabled, 0 if not)."""
+        return int(self.counters.stop - self.counters.start)
+
 
 @define
 class ODELoopConfig:
