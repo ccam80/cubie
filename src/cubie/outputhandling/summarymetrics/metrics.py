@@ -10,7 +10,9 @@ from typing import Any, Callable, Optional, Union
 from warnings import warn
 from abc import abstractmethod
 import attrs
+import attrs.validators as val
 
+from cubie._utils import gttype_validator
 from cubie.CUDAFactory import CUDAFactory
 
 @attrs.define
@@ -41,7 +43,7 @@ class MetricConfig:
     
     _dt_save: float = attrs.field(
         default=0.01,
-        validator=attrs.validators.instance_of(float)
+        validator=val.optional(gttype_validator(float, 0.0))
     )
     
     @property
@@ -93,6 +95,8 @@ class SummaryMetric(CUDAFactory):
         Callable. Compiled CUDA device update function for the metric.
     save_device_func
         Callable. Compiled CUDA device save function for the metric.
+    dt_save
+        save interval. Defaults to 0.01.
 
     Notes
     -----
@@ -108,6 +112,7 @@ class SummaryMetric(CUDAFactory):
         buffer_size: Union[int, Callable],
         output_size: Union[int, Callable],
         name: str,
+        dt_save: float = 0.01,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -129,7 +134,7 @@ class SummaryMetric(CUDAFactory):
         self.name = name
 
         # Instantiate empty settings object for CUDAFactory compatibility
-        self.setup_compile_settings(MetricConfig())
+        self.setup_compile_settings(MetricConfig(dt_save=dt_save))
 
 
     @abstractmethod

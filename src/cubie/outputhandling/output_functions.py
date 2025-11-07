@@ -7,7 +7,7 @@ helper factories consume an :class:`~cubie.outputhandling.output_config.OutputCo
 instance so the compiled functions always reflect the active configuration.
 """
 
-from typing import Callable, Sequence, Union
+from typing import Callable, Sequence, Union, Optional
 
 import attrs
 import numpy as np
@@ -101,6 +101,7 @@ class OutputFunctions(CUDAFactory):
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
+        dt_save: Optional[float] = None,
     ):
         super().__init__()
 
@@ -116,6 +117,7 @@ class OutputFunctions(CUDAFactory):
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
+            dt_save=dt_save,
         )
         self.setup_compile_settings(config)
 
@@ -192,7 +194,6 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        # Update all metrics with current dt_save
         summary_metrics.update(dt_save=config.dt_save)
 
         buffer_sizes = self.summaries_buffer_sizes

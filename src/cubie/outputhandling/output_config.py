@@ -15,6 +15,7 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
+from cubie._utils import gttype_validator
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -120,6 +121,8 @@ class OutputConfig:
         *saved_observable_indices*.
     output_types
         Requested output type names, including summary metric identifiers.
+    dt_save
+        Time between saved samples. Defaults to 0.01 seconds.
 
     Notes
     -----
@@ -166,10 +169,9 @@ class OutputConfig:
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
     )
-
     _dt_save: float = attrs.field(
         default=0.01,
-        validator=attrs.validators.instance_of(float)
+        validator=attrs.validators.optional(gttype_validator(float, 0.0))
     )
 
     def __attrs_post_init__(self) -> None:
@@ -845,6 +847,7 @@ class OutputConfig:
         summarised_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
         max_states: int = 0,
         max_observables: int = 0,
+        dt_save: Optional[float] = 0.01,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -868,6 +871,8 @@ class OutputConfig:
             Total number of state variables in the system.
         max_observables
             Total number of observable variables in the system.
+        dt_save
+            Time interval between saved states. Defaults to ``0.01`` if
 
         Returns
         -------
@@ -902,4 +907,5 @@ class OutputConfig:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
+            dt_save=dt_save,
         )
