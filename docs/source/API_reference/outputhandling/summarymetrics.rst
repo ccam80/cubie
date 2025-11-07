@@ -26,6 +26,12 @@ Summary metrics
    summarymetrics/metrics/extrema
    summarymetrics/metrics/negative_peaks
    summarymetrics/metrics/mean_std_rms
+   summarymetrics/metrics/dxdt_max
+   summarymetrics/metrics/dxdt_min
+   summarymetrics/metrics/dxdt_extrema
+   summarymetrics/metrics/d2xdt2_max
+   summarymetrics/metrics/d2xdt2_min
+   summarymetrics/metrics/d2xdt2_extrema
 
 The ``summarymetrics`` package houses the summary metric registry used by output
 handling to accumulate reductions during integration. Importing the package
@@ -55,6 +61,12 @@ Built-in metrics
 * :doc:`Peaks <summarymetrics/metrics/peaks>` – peak detection (local maxima).
 * :doc:`NegativePeaks <summarymetrics/metrics/negative_peaks>` – negative peak detection (local minima).
 * :doc:`MeanStdRms <summarymetrics/metrics/mean_std_rms>` – composite metric computing mean, std, and rms efficiently.
+* :doc:`DxdtMax <summarymetrics/metrics/dxdt_max>` – maximum first derivative (slope).
+* :doc:`DxdtMin <summarymetrics/metrics/dxdt_min>` – minimum first derivative (slope).
+* :doc:`DxdtExtrema <summarymetrics/metrics/dxdt_extrema>` – both maximum and minimum first derivative.
+* :doc:`D2xdt2Max <summarymetrics/metrics/d2xdt2_max>` – maximum second derivative (acceleration).
+* :doc:`D2xdt2Min <summarymetrics/metrics/d2xdt2_min>` – minimum second derivative (acceleration).
+* :doc:`D2xdt2Extrema <summarymetrics/metrics/d2xdt2_extrema>` – both maximum and minimum second derivative.
 
 Dependencies
 ------------
