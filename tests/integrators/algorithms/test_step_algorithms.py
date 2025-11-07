@@ -693,6 +693,7 @@ def device_step_results(
     proposed_state = np.zeros_like(state)
     error = np.zeros(n_states, dtype=precision)
     status = np.full(1, 0, dtype=np.int32)
+    counters = np.zeros(2, dtype=np.int32)
 
     shared_elems = step_object.shared_memory_required
     shared_bytes = precision(0).itemsize * shared_elems
@@ -712,6 +713,7 @@ def device_step_results(
     d_proposed_drivers = cuda.to_device(proposed_drivers)
     d_error = cuda.to_device(error)
     d_status = cuda.to_device(status)
+    d_counters = cuda.to_device(counters)
 
     driver_function = driver_array.evaluation_function
     observables_function = system.observables_function
@@ -728,6 +730,7 @@ def device_step_results(
         proposed_observables_vec,
         error_vec,
         status_vec,
+        counters_vec,
         dt_scalar,
         time_scalar,
     ) -> None:
@@ -758,6 +761,7 @@ def device_step_results(
             accepted_flag,
             shared,
             persistent,
+            counters_vec,
         )
         status_vec[0] = result
 
@@ -772,6 +776,7 @@ def device_step_results(
         d_proposed_observables,
         d_error,
         d_status,
+        d_counters,
         dt_value,
         numba_precision(0.0),
     )
@@ -828,6 +833,8 @@ def _execute_step_twice(
     proposed_observables_second = np.zeros(n_observables, dtype=precision)
 
     status = np.zeros(2, dtype=np.int32)
+    counters_first = np.zeros(2, dtype=np.int32)
+    counters_second = np.zeros(2, dtype=np.int32)
 
     shared_bytes = precision(0).itemsize * shared_elems
     persistent_len = max(1, step_object.persistent_local_required)
@@ -853,6 +860,8 @@ def _execute_step_twice(
     d_error_second = cuda.to_device(error_second)
 
     d_status = cuda.to_device(status)
+    d_counters_first = cuda.to_device(counters_first)
+    d_counters_second = cuda.to_device(counters_second)
 
     state_len = int(n_states)
     driver_len = int(n_drivers)
@@ -874,6 +883,8 @@ def _execute_step_twice(
         error_vec_first,
         error_vec_second,
         status_vec,
+        counters_vec_first,
+        counters_vec_second,
         dt_scalar,
     ) -> None:
         idx = cuda.grid(1)
@@ -912,6 +923,7 @@ def _execute_step_twice(
             int16(1),
             shared,
             persistent,
+            counters_vec_first,
         )
         status_vec[0] = first_status
 
@@ -940,6 +952,7 @@ def _execute_step_twice(
             int16(1),
             shared,
             persistent,
+            counters_vec_second,
         )
         status_vec[1] = second_status
 
@@ -958,6 +971,8 @@ def _execute_step_twice(
         d_error_first,
         d_error_second,
         d_status,
+        d_counters_first,
+        d_counters_second,
         dt_value,
     )
     cuda.synchronize()
