@@ -25,7 +25,7 @@ from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
 )
 
 
-FIRK_DEFAULTS = StepControlDefaults(
+FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -36,6 +36,13 @@ FIRK_DEFAULTS = StepControlDefaults(
         "deadband_max": 1.1,
         "min_gain": 0.5,
         "max_gain": 2.0,
+    }
+)
+
+FIRK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
     }
 )
 
@@ -68,7 +75,7 @@ class FIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -87,29 +94,38 @@ class FIRKStep(ODEImplicitStep):
         """Initialise the FIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        config = FIRKStepConfig(
-            precision=precision,
-            n=n,
-            n_drivers=n_drivers,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-            tableau=tableau,
-            beta=1.0,
-            gamma=1.0,
-            M=mass,
-        )
-        super().__init__(config, FIRK_DEFAULTS)
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "newton_tolerance": newton_tolerance,
+            "max_newton_iters": max_newton_iters,
+            "newton_damping": newton_damping,
+            "newton_max_backtracks": newton_max_backtracks,
+            "tableau": tableau,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "M": mass,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = FIRKStepConfig(**config_kwargs)
+        
+        if tableau.has_error_estimate:
+            defaults = FIRK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = FIRK_FIXED_DEFAULTS
+        
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,
@@ -206,6 +222,10 @@ class FIRKStep(ODEImplicitStep):
         nonlinear_solver = solver_fn
         stage_count = self.stage_count
         all_stages_n = config.all_stages_n
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive

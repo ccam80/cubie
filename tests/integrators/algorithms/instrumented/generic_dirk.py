@@ -7,6 +7,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -25,7 +26,7 @@ from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
 )
 
 
-DIRK_DEFAULTS = StepControlDefaults(
+DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
         "dt_min": 1e-6,
@@ -38,6 +39,14 @@ DIRK_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+
+DIRK_FIXED_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
+
 @attrs.define
 class DIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the DIRK integrator."""
@@ -54,7 +63,7 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
+        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -68,33 +77,44 @@ class DIRKStep(ODEImplicitStep):
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
+        n_drivers: int = 0,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        config = DIRKStepConfig(
-            precision=precision,
-            n=n,
-            dt=dt,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-            tableau=tableau,
-            beta=1.0,
-            gamma=1.0,
-            M=mass,
-        )
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "newton_tolerance": newton_tolerance,
+            "max_newton_iters": max_newton_iters,
+            "newton_damping": newton_damping,
+            "newton_max_backtracks": newton_max_backtracks,
+            "tableau": tableau,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "M": mass,
+        }
+        if dt is not None:
+            config_kwargs["dt"] = dt
+        
+        config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
-        super().__init__(config, DIRK_DEFAULTS)
+        
+        if tableau.has_error_estimate:
+            defaults = DIRK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = DIRK_FIXED_DEFAULTS
+        
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,
@@ -175,6 +195,10 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         nonlinear_solver = solver_fn
         stage_count = tableau.stage_count
+        
+        # Capture dt and controller type for compile-time optimization
+        dt_compile = dt
+        is_controller_fixed = self.is_controller_fixed
 
         # Compile-time toggles
         has_driver_function = driver_function is not None
@@ -284,7 +308,11 @@ class DIRKStep(ODEImplicitStep):
             base_state_snapshot = cuda.local.array(n, numba_precision)
             observable_count = proposed_observables.shape[0]
 
-            dt_value = dt_scalar
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 
@@ -314,9 +342,15 @@ class DIRKStep(ODEImplicitStep):
 
             first_step = first_step_flag != int16(0)
             prev_state_accepted = accepted_flag != int16(0)
-            use_cached_rhs = (
-                first_same_as_last and not first_step and prev_state_accepted
-            )
+            use_cached_rhs = False
+            # Only use cache if all threads in warp can - otherwise no gain
+            if first_same_as_last and multistage:
+                if not first_step_flag:
+                    mask = activemask()
+                    all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                    use_cached_rhs = all_threads_accepted
+            else:
+                use_cached_rhs = False
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]
