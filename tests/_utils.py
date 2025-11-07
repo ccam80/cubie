@@ -459,8 +459,8 @@ class LoopRunResult:
     observables: Array
     state_summaries: Array
     observable_summaries: Array
-    counters: Array
     status: int
+    counters: Array = None
 
 
 def run_device_loop(
