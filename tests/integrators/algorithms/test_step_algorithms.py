@@ -50,7 +50,6 @@ from tests.integrators.cpu_reference.algorithms import (
 )
 
 Array = np.ndarray
-STATUS_MASK = 0xFFFF
 
 @dataclass
 class StepResult:
@@ -783,12 +782,13 @@ def device_step_results(
     cuda.synchronize()
     
     status_value = int(d_status.copy_to_host()[0])
+    counters_value = d_counters.copy_to_host()
     return StepResult(
         state=d_proposed.copy_to_host(),
         observables=d_proposed_observables.copy_to_host(),
         error=d_error.copy_to_host(),
-        status=status_value & STATUS_MASK,
-        niters=(status_value >> 16) & STATUS_MASK,
+        status=status_value,
+        niters=int(counters_value[0]),
     )
 
 
@@ -978,6 +978,8 @@ def _execute_step_twice(
     cuda.synchronize()
 
     status_host = d_status.copy_to_host()
+    counters_first_host = d_counters_first.copy_to_host()
+    counters_second_host = d_counters_second.copy_to_host()
 
     first_state = d_proposed_first.copy_to_host()
     second_state = d_proposed_second.copy_to_host()
@@ -989,8 +991,8 @@ def _execute_step_twice(
     second_error = d_error_second.copy_to_host()
 
     statuses = (
-        int(status_host[0]) & STATUS_MASK,
-        int(status_host[1]) & STATUS_MASK,
+        int(status_host[0]),
+        int(status_host[1]),
     )
 
     return DualStepResult(
@@ -1066,8 +1068,8 @@ def _execute_cpu_step_twice(
         first_error=first_result.error.astype(precision, copy=True),
         second_error=second_result.error.astype(precision, copy=True),
         statuses=(
-            first_result.status & STATUS_MASK,
-            second_result.status & STATUS_MASK,
+            first_result.status,
+            second_result.status,
         ),
     )
 
@@ -1119,8 +1121,8 @@ def cpu_step_results(
         state=result.state.astype(cpu_system.precision, copy=True),
         observables=result.observables.astype(cpu_system.precision, copy=True),
         error=result.error.astype(cpu_system.precision, copy=True),
-        status=result.status & STATUS_MASK,
-        niters=(result.status >> 16) & STATUS_MASK,
+        status=result.status,
+        niters=result.niters,
     )
 
 
