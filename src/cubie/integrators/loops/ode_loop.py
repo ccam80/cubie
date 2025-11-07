@@ -453,7 +453,7 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] += proposed_counters[i]
                             elif i == 2:
                                 counters_since_save[i] += int32(1)
-                            elif accept:
+                            elif not accept:
                                 counters_since_save[i] += int32(1)
 
                     t_proposal = t + dt_eff
