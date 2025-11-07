@@ -646,7 +646,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     for idx in range(n):
                         increment = stage_increment[idx]
                         proposed_state[idx] += solution_weight * increment
-
+                elif b_row == stage_idx:
+                    for idx in range(n): # Quick EOD attempt
+                        proposed_state[idx] = stage_rhs[idx]
                 if has_error:
                     if accumulates_error:
                         # Standard accumulation path for error
@@ -657,14 +659,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             # ----------------------------------------------------------- #
 
-            if not accumulates_output:
-                # Direct copy optimization for proposed_state
-                stage_slice_start = b_row * n
-                stage_slice_end = stage_slice_start + n
-                for idx in range(n):
-                    proposed_state[idx] = (
-                            state[idx] + stage_store[stage_slice_start + idx]
-                    )
+            # if not accumulates_output:
+            #     # Direct copy optimization for proposed_state
+            #     stage_slice_start = b_row * n
+            #     stage_slice_end = stage_slice_start + n
+            #     for idx in range(n):
+            #         proposed_state[idx] = (
+            #                 state[idx] + stage_store[stage_slice_start + idx]
+            #         ) # Quick EOD attempt
             if not accumulates_error:
                 # Direct copy optimization for error
                 error_slice_start = b_hat_row * n
