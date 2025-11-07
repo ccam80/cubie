@@ -134,7 +134,11 @@ class ERKStep(ODEExplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
-        # Check for last-step caching optimization opportunities
+        # Last-step caching optimization (issue #163):
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 
@@ -228,8 +232,9 @@ class ERKStep(ODEExplicitStep):
                 stage_cache = stage_accumulator[:n]
 
             for idx in range(n):
-                proposed_state[idx] = typed_zero
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] = typed_zero
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
 
             for idx in range(n):
@@ -286,16 +291,17 @@ class ERKStep(ODEExplicitStep):
             for idx in range(n):
                 increment = stage_rhs[idx]
                 # Use compile-time optimization for last-step caching
-                if b_row == 0:
-                    # Only accumulate stage 0 if b_row matches
-                    proposed_state[idx] = solution_weights[0] * increment
-                else:
+                if accumulates_output:
                     proposed_state[idx] += solution_weights[0] * increment
+                elif b_row == 0: # Unlikely
+                    proposed_state[idx] = increment
+
                 if has_error:
-                    if b_hat_row == 0:
-                        error[idx] = error_weights[0] * increment
-                    else:
+                    if accumulates_error:
                         error[idx] += error_weights[0] * increment
+                    elif b_hat_row == 0: # Unlikely
+                        error[idx] = increment
+
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -373,30 +379,23 @@ class ERKStep(ODEExplicitStep):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
                     stage_increments[stage_idx, idx] = dt_value * stage_rhs[idx]
 
-                # Accumulate with compile-time optimization for last-step caching
+
+                # Accumulate or just copy if a stage matches output
+                solution_weight = solution_weights[stage_idx]
+                error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     increment = stage_rhs[idx]
-                    if b_row == stage_idx:
-                        # Direct assignment when this stage matches b_row
-                        proposed_state[idx] = (
-                            solution_weights[stage_idx] * increment
-                        )
-                    else:
-                        # Standard accumulation
-                        proposed_state[idx] += (
-                            solution_weights[stage_idx] * increment
-                        )
+                    if accumulates_output:
+                        proposed_state[idx] += solution_weight * increment
+                    elif b_row == stage_idx:
+                        proposed_state[idx] = increment
+
                     if has_error:
-                        if b_hat_row == stage_idx:
+                        if accumulates_error:
+                            error[idx] += error_weight * increment
+                        elif b_hat_row == stage_idx:
                             # Direct assignment for error
-                            error[idx] = (
-                                error_weights[stage_idx] * increment
-                            )
-                        else:
-                            # Standard accumulation
-                            error[idx] += (
-                                error_weights[stage_idx] * increment
-                            )
+                            error[idx] = increment
 
 
             # ----------------------------------------------------------- #
@@ -406,10 +405,9 @@ class ERKStep(ODEExplicitStep):
                 if has_error:
                     error[idx] *= dt_value
 
-            final_time = end_time
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -419,7 +417,7 @@ class ERKStep(ODEExplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
             if first_same_as_last:
                 for idx in range(n):

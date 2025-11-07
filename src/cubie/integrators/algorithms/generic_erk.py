@@ -477,20 +477,18 @@ class ERKStep(ODEExplicitStep):
                 )
 
                 # Accumulate or just copy if a stage matches output
+                solution_weight = solution_weights[stage_idx]
+                error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     increment = stage_rhs[idx]
                     if accumulates_output:
-                        proposed_state[idx] += (
-                            solution_weights[stage_idx] * increment
-                        )
+                        proposed_state[idx] += solution_weight * increment
                     elif b_row == stage_idx:
                         proposed_state[idx] = increment
 
                     if has_error:
                         if accumulates_error:
-                            error[idx] += (
-                                    error_weights[stage_idx] * increment
-                            )
+                            error[idx] += error_weight * increment
                         elif b_hat_row == stage_idx:
                             # Direct assignment for error
                             error[idx] = increment

@@ -1,6 +1,5 @@
 """Unit tests for ButcherTableau row-matching properties."""
 
-import pytest
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RODAS4P_TABLEAU,
     RODAS5P_TABLEAU,
@@ -8,7 +7,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 )
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     RADAU_IIA_5_TABLEAU,
-    GAUSS_LEGENDRE_4_TABLEAU,
 )
 
 
@@ -64,7 +62,7 @@ def test_b_hat_matches_a_row_none_when_no_b_hat():
     )
 
     test_tableau = ButcherTableau(
-        a=((0.0,), (0.5, 0.5)),
+        a=((0.0, 0.0), (0.5, 0.5)),
         b=(0.0, 1.0),
         c=(0.0, 1.0),
         order=1,
@@ -88,7 +86,7 @@ def test_floating_point_tolerance():
     b_value = 1.0 / 3.0  # Should match within 1e-15
 
     test_tableau = ButcherTableau(
-        a=((0.0,), (a_row_value, 0.0)),
+        a=((0.0, 0.0), (a_row_value, 1.0 - a_row_value)),
         b=(b_value, 1.0 - b_value),
         c=(0.0, 1.0),
         order=1,

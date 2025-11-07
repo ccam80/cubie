@@ -509,7 +509,7 @@ class FIRKStep(ODEImplicitStep):
                 )
 
             # Accumulate proposed_state and error using compile-time optimization
-            if accumulates_output:
+            if not accumulates_output:
                 # Direct copy optimization for proposed_state
                 rhs_slice_start = b_row * n
                 for comp_idx in range(n):
@@ -530,7 +530,7 @@ class FIRKStep(ODEImplicitStep):
 
             # Handle error estimate separately
             if has_error:
-                if accumulates_error:
+                if not accumulates_error:
                     # Direct copy optimization for error
                     error_slice_start = b_hat_row * n
                     for comp_idx in range(n):

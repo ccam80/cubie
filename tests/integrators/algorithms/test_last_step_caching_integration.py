@@ -5,8 +5,6 @@ numerically equivalent results to the standard accumulation path.
 """
 
 import pytest
-import numpy as np
-from numpy.testing import assert_allclose
 
 
 @pytest.mark.parametrize(
@@ -49,40 +47,3 @@ def test_firk_last_step_caching_properties():
         f"got {tableau.b_matches_a_row}"
     )
 
-
-@pytest.mark.parametrize("precision", [np.float32, np.float64])
-@pytest.mark.parametrize("tableau_name", ["rodas4p", "rodas5p"])
-def test_rosenbrock_optimization_numerical_equivalence(
-    precision, tableau_name
-):
-    """Test optimized path produces same results as standard accumulation.
-
-    This test verifies that the compile-time optimization for last-step
-    caching does not change numerical results compared to the standard
-    accumulation path.
-
-    Note: This is a placeholder test demonstrating the pattern. Full
-    integration would require:
-    - Setting up a complete ODE system
-    - Running both optimized and unoptimized versions
-    - Comparing results within numerical tolerance
-    """
-    # This test demonstrates the intended structure but is marked as
-    # a placeholder since full integration testing requires GPU access
-    # and complex test infrastructure
-    pytest.skip(
-        "Full integration test requires GPU access and is covered by "
-        "existing algorithm tests"
-    )
-
-
-@pytest.mark.parametrize("precision", [np.float32, np.float64])
-def test_firk_optimization_numerical_equivalence(precision):
-    """Test RadauIIA5 optimization produces correct results.
-
-    Note: This is a placeholder test demonstrating the pattern.
-    """
-    pytest.skip(
-        "Full integration test requires GPU access and is covered by "
-        "existing algorithm tests"
-    )
