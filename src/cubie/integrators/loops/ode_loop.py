@@ -201,7 +201,8 @@ class IVPLoop(CUDAFactory):
         n_parameters = shared_indices.n_parameters
         n_observables = shared_indices.n_observables
         n_drivers = shared_indices.n_drivers
-
+        n_counters = shared_indices.n_counters
+        
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
@@ -283,17 +284,14 @@ class IVPLoop(CUDAFactory):
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
-            
-            # Set up counter buffers
+            counters_since_save = shared_scratch[counters_shared_ind]
+
             if save_counters_bool:
                 # When enabled, use shared memory buffers
-                counters_since_save = shared_scratch[counters_shared_ind]
                 proposed_counters = shared_scratch[proposed_counters_shared_ind]
             else:
-                # When disabled, use dummy local arrays
-                dummy_counters = cuda.local.array(4, int32)
-                counters_since_save = dummy_counters
-                proposed_counters = dummy_counters[:2]
+                # When disabled, use a dummy local "proposed_counters" buffer
+                proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
             
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
@@ -344,11 +342,10 @@ class IVPLoop(CUDAFactory):
                     state_buffer,
                     observables_buffer,
                     counters_since_save,
+                    t,
                     state_output[save_idx * save_state_bool, :],
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
-
-                    t,
                 )
                 if summarise:
                     #reset temp buffers to starting state - will be overwritten
@@ -378,10 +375,10 @@ class IVPLoop(CUDAFactory):
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
-            for i in range(4):
+            for i in range(n_counters):
                 counters_since_save[i] = int32(0)
-            for i in range(2):
-                proposed_counters[i] = int32(0)
+                if i < 2:
+                    proposed_counters[i] = int32(0)
 
             if fixed_mode:
                 step_counter = int32(0)
@@ -409,7 +406,6 @@ class IVPLoop(CUDAFactory):
                         dt_eff = selp(do_save, next_save - t, dt[0])
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
-
 
                     step_status = step_function(
                         state_buffer,
@@ -452,10 +448,13 @@ class IVPLoop(CUDAFactory):
 
                     # Accumulate iteration counters if active
                     if save_counters_bool:
-                        counters_since_save[2] += int32(1)
-                        # Track rejected steps
-                        if not accept:
-                            counters_since_save[3] += int32(1)
+                        for i in range(n_counters):
+                            if i < 2:
+                                counters_since_save[i] += proposed_counters[i]
+                            elif i == 2:
+                                counters_since_save[i] += int32(1)
+                            elif accept:
+                                counters_since_save[i] += int32(1)
 
                     t_proposal = t + dt_eff
                     t = selp(accept, t_proposal, t)
@@ -475,11 +474,6 @@ class IVPLoop(CUDAFactory):
                         old_obs = observables_buffer[i]
                         observables_buffer[i] = selp(accept, new_obs, old_obs)
 
-                    # Accumulate Newton and Krylov iteration counts if step accepted
-                    if accept:
-                        for i in range(2):
-                            counters_since_save[i] += proposed_counters[i]
-
                     prev_step_accepted_flag = selp(
                         accept,
                         int16(1),
@@ -492,15 +486,14 @@ class IVPLoop(CUDAFactory):
 
                     if do_save:
 
-                        
                         save_state(
                             state_buffer,
                             observables_buffer,
                             counters_since_save,
+                            t,
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
                             iteration_counters_output[save_idx * save_counters_bool, :],
-                            t,
                         )
                         if summarise:
                             update_summaries(
@@ -527,7 +520,7 @@ class IVPLoop(CUDAFactory):
 
                         # Reset iteration counters after save
                         if save_counters_bool:
-                            for i in range(4):
+                            for i in range(n_counters):
                                 counters_since_save[i] = int32(0)
 
             if status == int32(0):
