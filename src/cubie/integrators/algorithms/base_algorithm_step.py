@@ -16,6 +16,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
     gttype_validator,
+    opt_gttype_validator,
 )
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -210,7 +211,7 @@ class BaseStepConfig(ABC):
     n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
     dt: Optional[float] = attrs.field(
         default=None,
-        validator=validators.optional(gttype_validator(float, 0))
+        validator=opt_gttype_validator(float, 0)
     )
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,

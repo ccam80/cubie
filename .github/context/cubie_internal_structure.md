@@ -65,6 +65,12 @@ Used throughout for data containers and compile settings:
 - Never add aliases to underscored variables
 - Compile settings containers must be attrs classes when passed to CUDAFactory
 
+#### Validators
+- Use validators from `cubie._utils` (imported from full path) rather than `instance_of(float)`
+- `cubie._utils` validators are tolerant of NumPy dtypes (e.g., `np.floating`, `np.integer`)
+- Available validators: `getype_validator(dtype, min)`, `gttype_validator(dtype, min)`, `letype_validator(dtype, max)`, `lttype_validator(dtype, max)`, `inrangetype_validator(dtype, min, max)`
+- For optional fields, use `validators.optional(...)` wrapper around cubie._utils validators
+
 ### Precision System
 Centralized in `src/cubie/_utils.py`:
 - `PrecisionDType` type alias for np.float16/32/64 types
