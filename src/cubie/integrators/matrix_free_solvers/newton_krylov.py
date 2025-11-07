@@ -51,17 +51,17 @@ def newton_krylov_solver_factory(
     -------
     Callable
         CUDA device function implementing the damped Newton--Krylov scheme.
-        The return value encodes the iteration count in the upper 16 bits and
-        a :class:`~cubie.integrators.matrix_free_solvers.SolverRetCodes`
-        value in the lower 16 bits.
+        The return value is a :class:`~cubie.integrators.matrix_free_solvers.SolverRetCodes`
+        status code. Iteration counts are returned via the counters parameter.
 
     Notes
     -----
-    The lower 16 bits of the returned status report the convergence outcome:
+    The returned status reports the convergence outcome:
     ``0`` for success, ``1`` when backtracking cannot find a suitable step,
     ``2`` when the Newton iteration limit is exceeded, and ``4`` when the
-    inner linear solver signals failure. The upper 16 bits hold the number of
-    Newton iterations performed.
+    inner linear solver signals failure. Iteration counts are written to
+    the counters array: counters[0] holds Newton iterations and counters[1]
+    holds total Krylov iterations.
     """
 
     precision_dtype = np.dtype(precision)
@@ -242,10 +242,9 @@ def newton_krylov_solver_factory(
         if status < 0:
             status = int32(2)
 
-        counters[0] = iters_count + int32(1)
+        counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= (iters_count + 1) << 16
         return status
 
 
