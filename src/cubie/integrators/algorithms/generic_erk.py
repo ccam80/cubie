@@ -407,13 +407,13 @@ class ERKStep(ODEExplicitStep):
                 if accumulates_output:
                     proposed_state[idx] += solution_weights[0] * increment
                 elif b_row == 0: # Unlikely
-                    proposed_state[idx] = solution_weights[0] * increment
+                    proposed_state[idx] = increment
 
                 if has_error:
                     if accumulates_error:
                         error[idx] += error_weights[0] * increment
                     elif b_hat_row == 0: # Unlikely
-                        error[idx] = error_weights[0] * increment
+                        error[idx] = increment
 
 
             for idx in range(accumulator_length):
@@ -484,14 +484,17 @@ class ERKStep(ODEExplicitStep):
                     if accumulates_output:
                         proposed_state[idx] += solution_weight * increment
                     elif b_row == stage_idx:
-                        proposed_state[idx] = solution_weight * increment
+                        # When b[row] matches a[row], copy the stage state
+                        # After final transformation (state + dt * proposed_state),
+                        # this gives us Y_k as the final result
+                        proposed_state[idx] = (stage_state[idx] - state[idx]) / dt_value
 
                     if has_error:
                         if accumulates_error:
                             error[idx] += error_weight * increment
                         elif b_hat_row == stage_idx:
                             # Direct assignment for error
-                            error[idx] = error_weight * increment
+                            error[idx] = increment
 
             # ----------------------------------------------------------- #
             for idx in range(n):
