@@ -369,7 +369,6 @@ class ERKStep(ODEExplicitStep):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
 
-            status_code = int32(0)
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #

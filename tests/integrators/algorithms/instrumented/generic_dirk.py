@@ -337,9 +337,7 @@ class DIRKStep(ODEImplicitStep):
                     error[idx] = typed_zero
                 stage_increment[idx] = increment_cache[idx] # cache spent
 
-
             status_code = int32(0)
-
             # --------------------------------------------------------------- #
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
@@ -361,7 +359,8 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(n):
                 stage_base[idx] = state[idx]
-                proposed_state[idx] = typed_zero
+                if accumulates_output:
+                    proposed_state[idx] = typed_zero
 
             # Only caching achievable is reusing rhs for FSAL
             if use_cached_rhs:
@@ -449,14 +448,14 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] += solution_weight * rhs_value
                 elif b_row == 0:
                     # Direct assignment when stage 0 matches b_row
-                    proposed_state[idx] = rhs_value
+                    proposed_state[idx] = stage_base[idx]
                 if has_error:
                     if accumulates_error:
                         # Standard accumulation
                         error[idx] += error_weight * rhs_value
                     elif b_hat_row == 0:
                         # Direct assignment for error
-                        error[idx] = rhs_value
+                        error[idx] = stage_base[idx]
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -566,21 +565,25 @@ class DIRKStep(ODEImplicitStep):
                     if accumulates_output:
                         proposed_state[idx] += solution_weight * increment
                     elif b_row == stage_idx:
-                        proposed_state[idx] = increment
+                        proposed_state[idx] = stage_base[idx]
 
                     if has_error:
                         if accumulates_error:
                             error[idx] += error_weight * increment
                         elif b_hat_row == stage_idx:
                             # Direct assignment for error
-                            error[idx] = increment
+                            error[idx] = stage_base[idx]
 
 
             for idx in range(n):
-                proposed_state[idx] *= dt_value
-                proposed_state[idx] += state[idx]
+                if accumulates_output:
+                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] += state[idx]
                 if has_error:
-                    error[idx] *= dt_value
+                    if accumulates_output:
+                        error[idx] *= dt_value
+                    else:
+                        error[idx] = proposed_state[idx] - error[idx]
 
             # --------------------------------------------------------------- #
             if has_driver_function:
