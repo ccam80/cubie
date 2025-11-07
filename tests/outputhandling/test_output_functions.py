@@ -177,8 +177,9 @@ def empty_output_arrays(output_test_settings, output_functions):
     observable_summary = np.zeros(
         (num_summaries, observable_summary_height), dtype=precision
     )
+    counters_out = np.zeros((num_samples, 4), dtype=np.int32)
 
-    return state_out, observable_out, state_summary, observable_summary
+    return state_out, observable_out, state_summary, observable_summary, counters_out
 
 
 @pytest.fixture(scope="function")
@@ -290,6 +291,7 @@ def output_functions_test_kernel(
         _observable_output,
         _state_summaries_output,
         _observable_summaries_output,
+        _counters_output,
     ):
         """Test kernel for output functions."""
 
@@ -341,6 +343,10 @@ def output_functions_test_kernel(
         state_summaries[:] = 0.0
         observable_summaries[:] = 0.0
 
+        # Counters buffer - always use local memory for simplicity
+        counters = cuda.local.array(4, dtype=np.int32)
+        counters[:] = 0
+
         for i in range(_state_input.shape[0]):
             for j in range(num_states):
                 current_state[j] = _state_input[i, j]
@@ -351,9 +357,11 @@ def output_functions_test_kernel(
             save_state_func(
                 current_state,
                 current_observable,
+                counters,
+                i,  # time is just loop index here
                 _state_output[i, :],
                 _observable_output[i, :],
-                i,  # time is just loop index here
+                _counters_output[i, :],
             )
 
             update_summary_metrics_func(
@@ -398,6 +406,7 @@ def compare_input_output(
         observable_output,
         state_summaries_output,
         observable_summaries_output,
+        counters_output,
     ) = empty_output_arrays
 
     n_summarised_states = output_functions.n_summarised_states
@@ -413,6 +422,7 @@ def compare_input_output(
     d_observable_output = cuda.to_device(observable_output)
     d_state_summaries_output = cuda.to_device(state_summaries_output)
     d_observable_summaries_output = cuda.to_device(observable_summaries_output)
+    d_counters_output = cuda.to_device(counters_output)
 
     kernel_shared_memory = (
         n_states + n_observables
@@ -432,6 +442,7 @@ def compare_input_output(
         d_observable_output,
         d_state_summaries_output,
         d_observable_summaries_output,
+        d_counters_output,
     )
 
     # Synchronize and copy results back
