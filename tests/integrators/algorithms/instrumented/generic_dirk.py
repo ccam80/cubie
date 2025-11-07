@@ -237,6 +237,7 @@ class DIRKStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -274,6 +275,7 @@ class DIRKStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             stage_increment = cuda.local.array(n, numba_precision)
             base_state_snapshot = cuda.local.array(n, numba_precision)
@@ -359,6 +361,7 @@ class DIRKStep(ODEImplicitStep):
                             linear_residuals,
                             linear_squared_norms,
                             linear_preconditioned_vectors,
+                            counters,
                     )
 
                     for idx in range(n):
@@ -469,6 +472,7 @@ class DIRKStep(ODEImplicitStep):
                         linear_residuals,
                         linear_squared_norms,
                         linear_preconditioned_vectors,
+                        counters,
                     )
                     status_code |= solver_ret
 

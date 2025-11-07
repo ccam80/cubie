@@ -348,6 +348,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observables,
                 self.output_arrays.device_state_summaries,
                 self.output_arrays.device_observable_summaries,
+                self.output_arrays.device_iteration_counters,
                 self.output_arrays.device_status_codes,
                 chunk_params.duration,
                 chunk_warmup,
@@ -508,6 +509,7 @@ class BatchSolverKernel(CUDAFactory):
             observables_output,
             state_summaries_output,
             observables_summaries_output,
+            iteration_counters_output,
             status_codes_output,
             duration,
             warmup=precision(0.0),
@@ -532,6 +534,8 @@ class BatchSolverKernel(CUDAFactory):
                 Device array containing state summary reductions.
             observables_summaries_output
                 Device array containing observable summary reductions.
+            iteration_counters_output
+                Device array storing iteration counter values at each save point.
             status_codes_output
                 Device array storing per-run solver status codes.
             duration
@@ -581,6 +585,9 @@ class BatchSolverKernel(CUDAFactory):
             rx_observables_summaries = observables_summaries_output[
                 :, run_index * save_state_summaries, :
             ]
+            rx_iteration_counters = iteration_counters_output[
+                run_index, :, :
+            ]
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -591,6 +598,7 @@ class BatchSolverKernel(CUDAFactory):
                 rx_observables,
                 rx_state_summaries,
                 rx_observables_summaries,
+                rx_iteration_counters,
                 duration,
                 warmup,
                 t0,
@@ -1011,6 +1019,12 @@ class BatchSolverKernel(CUDAFactory):
         """Host view of observable summary reductions."""
 
         return self.output_arrays.observable_summaries
+
+    @property
+    def iteration_counters(self) -> Any:
+        """Host view of iteration counters at each save point."""
+
+        return self.output_arrays.iteration_counters
 
     @property
     def initial_values(self) -> Any:

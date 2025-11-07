@@ -17,6 +17,7 @@ def save_state_factory(
     save_state: bool,
     save_observables: bool,
     save_time: bool,
+    save_counters: bool = False,
 ) -> Callable:
     """Build a CUDA device function that stores solver state and observables.
 
@@ -35,6 +36,9 @@ def save_state_factory(
     save_time
         When ``True`` the generated function appends the current step to the
         end of the state output window.
+    save_counters
+        When ``True`` the generated function writes iteration counters to
+        the output.
 
     Returns
     -------
@@ -46,8 +50,10 @@ def save_state_factory(
     -----
     The generated device function expects ``current_state``,
     ``current_observables``, ``output_states_slice``,
-    ``output_observables_slice``, and ``current_step`` arguments and mutates
-    the output slices in place.
+    ``output_observables_slice``, ``current_step``, 
+    ``output_counters_slice``, and ``counters_array`` arguments.
+    The function mutates ``output_states_slice``, 
+    ``output_observables_slice``, and ``output_counters_slice`` in place.
     """
     # Extract sizes from heights object
     nobs = len(saved_observable_indices)
@@ -57,9 +63,11 @@ def save_state_factory(
     def save_state_func(
         current_state,
         current_observables,
+        current_counters,
+        current_step,
         output_states_slice,
         output_observables_slice,
-        current_step,
+        output_counters_slice,
     ):
         """Write selected state, observable, and time values to device buffers.
 
@@ -69,14 +77,20 @@ def save_state_factory(
             device array containing the latest integrator state values.
         current_observables
             device array containing the latest observable values.
+        current_counters
+            device array containing iteration counter values to save.
+        current_step
+            Scalar step or time value associated with the current sample.
         output_states_slice
             device array window that receives saved state (and optional time)
             values in place.
         output_observables_slice
             device array window that receives saved observable values in
             place.
-        current_step
-            Scalar step or time value associated with the current sample.
+        output_counters_slice
+            device array window that receives iteration counter values in place.
+
+
 
         Returns
         -------
@@ -102,6 +116,10 @@ def save_state_factory(
         if save_time:
             # Append time at the end of the state output
             output_states_slice[nstates] = current_step
+        
+        if save_counters:
+            for i in range(4):
+                output_counters_slice[i] = current_counters[i]
         # no cover: stop
 
     return save_state_func

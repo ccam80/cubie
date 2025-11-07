@@ -72,6 +72,8 @@ class OutputCompileFlags:
     summarise_state
         Whether to compute summaries for state variables. Defaults to
         ``False``.
+    save_counters
+        Whether to save iteration counters. Defaults to ``False``.
     """
 
     save_state: bool = attrs.field(
@@ -87,6 +89,9 @@ class OutputCompileFlags:
         default=False, validator=attrs.validators.instance_of(bool)
     )
     summarise_state: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    save_counters: bool = attrs.field(
         default=False, validator=attrs.validators.instance_of(bool)
     )
 
@@ -157,6 +162,7 @@ class OutputConfig:
     _save_state: bool = attrs.field(default=True, init=False)
     _save_observables: bool = attrs.field(default=True, init=False)
     _save_time: bool = attrs.field(default=False, init=False)
+    _save_counters: bool = attrs.field(default=False, init=False)
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
     )
@@ -230,12 +236,13 @@ class OutputConfig:
             self._save_state
             or self._save_observables
             or self._save_time
+            or self._save_counters
             or self.save_summaries
         )
         if not any_output:
             raise ValueError(
                 "At least one output type must be enabled (state, "
-                "observables, time, summaries)"
+                "observables, time, iteration_counters, summaries)"
             )
 
     def _check_saved_indices(self) -> None:
@@ -378,6 +385,11 @@ class OutputConfig:
         return self._save_time
 
     @property
+    def save_counters(self) -> bool:
+        """Whether iteration counters should be saved."""
+        return self._save_counters
+
+    @property
     def save_summaries(self) -> bool:
         """Whether any summary metric is configured."""
         return len(self._summary_types) > 0
@@ -408,6 +420,7 @@ class OutputConfig:
             summarise=self.save_summaries,
             summarise_observables=self.summarise_observables,
             summarise_state=self.summarise_state,
+            save_counters=self.save_counters,
         )
 
     @property
@@ -792,12 +805,14 @@ class OutputConfig:
             self._save_state = False
             self._save_observables = False
             self._save_time = False
+            self._save_counters = False
 
         else:
             self._output_types = output_types
             self._save_state = "state" in output_types
             self._save_observables = "observables" in output_types
             self._save_time = "time" in output_types
+            self._save_counters = "iteration_counters" in output_types
 
             summary_types = []
             for output_type in output_types:
@@ -808,7 +823,7 @@ class OutputConfig:
                     )
                 ):
                     summary_types.append(output_type)
-                elif output_type in ["state", "observables", "time"]:
+                elif output_type in ["state", "observables", "time", "iteration_counters"]:
                     continue
                 else:
                     warn(

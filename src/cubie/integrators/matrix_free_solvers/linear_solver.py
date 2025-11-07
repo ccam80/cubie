@@ -139,7 +139,9 @@ def linear_solver_factory(
         mask = activemask()
         converged = acc <= tol_squared
 
+        iter_count = int32(0)
         for _ in range(max_iters):
+            iter_count += int32(1)
             if preconditioned:
                 preconditioner(
                     state,
@@ -197,8 +199,12 @@ def linear_solver_factory(
             converged = converged or (acc <= tol_squared)
 
             if all_sync(mask, converged):
-                return int32(0)
-        return int32(4)
+                return_status = int32(0)
+                return_status |= (iter_count + int32(1)) << 16
+                return return_status
+        return_status = int32(4)
+        return_status |= (iter_count + int32(1)) << 16
+        return return_status
 
     # no cover: end
     return linear_solver
@@ -260,7 +266,9 @@ def linear_solver_cached_factory(
         mask = activemask()
         converged = acc <= tol_squared
 
+        iter_count = int32(0)
         for _ in range(max_iters):
+            iter_count += int32(1)
             if preconditioned:
                 preconditioner(
                     state,
@@ -320,8 +328,12 @@ def linear_solver_cached_factory(
             converged = converged or (acc <= tol_squared)
 
             if all_sync(mask, converged):
-                return int32(0)
-        return int32(4)
+                return_status = int32(0)
+                return_status |= (iter_count + int32(1)) << 16
+                return return_status
+        return_status = int32(4)
+        return_status |= (iter_count + int32(1)) << 16
+        return return_status
 
     # no cover: end
     return linear_solver_cached

@@ -51,6 +51,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     def kernel(state, base, flag, h):
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         time_scalar = precision(0.0)
@@ -63,6 +64,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             a_ij,
             base,
             shared,
+            counters,
         )
 
     h = precision(0.01)
@@ -132,6 +134,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     def kernel(state, base, flag, h):
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         time_scalar = precision(0.0)
@@ -144,6 +147,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
             a_ij,
             base,
             shared,
+            counters,
         )
 
     base_vals = system_setup["base_state"].copy_to_host()
@@ -195,6 +199,7 @@ def test_newton_krylov_failure(precision):
         state = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
@@ -208,6 +213,7 @@ def test_newton_krylov_failure(precision):
             a_ij,
             base,
             shared,
+            counters,
         )
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
@@ -238,6 +244,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
     def kernel(state, base, flag, h):
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         time_scalar = precision(0.0)
@@ -250,6 +257,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
             a_ij,
             base,
             shared,
+            counters,
         )
 
     h = precision(0.01)
@@ -297,6 +305,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         state = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
@@ -310,6 +319,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             a_ij,
             base,
             shared,
+            counters,
         )
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
