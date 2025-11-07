@@ -496,17 +496,23 @@ class FIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + 1) * n
-                ]
-                dxdt_fn(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
+                # Skip dxdt for stages we won't use when not accumulating
+                compute_dxdt = accumulates_output or stage_idx == b_row
+                if has_error:
+                    compute_dxdt = compute_dxdt or accumulates_error or stage_idx == b_hat_row
+                
+                if compute_dxdt:
+                    stage_rhs = stage_rhs_flat[
+                        stage_idx * n:(stage_idx + 1) * n
+                    ]
+                    dxdt_fn(
+                        stage_state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_rhs,
+                        stage_time,
+                    )
 
             # Accumulate proposed_state and error using compile-time optimization
             if not accumulates_output:

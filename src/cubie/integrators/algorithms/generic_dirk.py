@@ -618,14 +618,22 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
-                    stage_base,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
+                # Skip dxdt if we're copying stage state for output
+                # and not using derivative for error estimate
+                skip_dxdt = (
+                    not accumulates_output and b_row == stage_idx and
+                    (accumulates_error or b_hat_row != stage_idx)
                 )
+                
+                if not skip_dxdt:
+                    dxdt_fn(
+                        stage_base,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_rhs,
+                        stage_time,
+                    )
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
