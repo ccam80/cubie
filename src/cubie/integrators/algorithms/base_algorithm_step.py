@@ -161,6 +161,16 @@ class ButcherTableau:
 
         return bool(self.c and (self.c[0] == 0.0))
 
+    @property
+    def accumulates_output(self) -> bool:
+        """Returns `False` if one stage's state equals the output. """
+        return self.b_matches_a_row is None
+
+    @property
+    def accumulates_error(self) -> bool:
+        """Returns `False` if one stage's error equals the output. """
+        return self.b_hat_matches_a_row is None
+
     def _find_matching_row(
         self, target_weights: Optional[Tuple[float, ...]]
     ) -> Optional[int]:

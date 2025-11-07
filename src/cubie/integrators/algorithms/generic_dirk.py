@@ -203,8 +203,10 @@ class DIRKStep(ODEImplicitStep):
         diagonal_coeffs = tableau.diagonal(numba_precision)
 
         # Last-step caching optimization (issue #163):
-        # Replaces streaming accumulation with direct assignment when
+        # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 
@@ -314,7 +316,7 @@ class DIRKStep(ODEImplicitStep):
                 stage_base = cuda.local.array(n, numba_precision)
 
             for idx in range(n):
-                if has_error:
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
                 stage_increment[idx] = increment_cache[idx] # cache spent
 
@@ -393,21 +395,21 @@ class DIRKStep(ODEImplicitStep):
             error_weight = error_weights[0]
             for idx in range(n):
                 rhs_value = stage_rhs[idx]
-                # Use compile-time optimization for last-step caching
-                if b_row == 0:
-                    # Direct assignment when stage 0 matches b_row
-                    proposed_state[idx] = solution_weight * rhs_value
-                else:
+                # Accumulate if required; save directly if tableau allows
+                if accumulates_output:
                     # Standard accumulation
                     proposed_state[idx] += solution_weight * rhs_value
+                elif b_row == 0:
+                    # Direct assignment when stage 0 matches b_row
+                    proposed_state[idx] = rhs_value
                 if has_error:
-                    if b_hat_row == 0:
-                        # Direct assignment for error
-                        error[idx] = error_weight * rhs_value
-                    else:
+                    if accumulates_error:
                         # Standard accumulation
                         error[idx] += error_weight * rhs_value
-                            
+                    elif b_hat_row == 0:
+                        # Direct assignment for error
+                        error[idx] = error_weight * rhs_value
+
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
 
@@ -480,21 +482,22 @@ class DIRKStep(ODEImplicitStep):
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
                 for idx in range(n):
-                    rhs_value = stage_rhs[idx]
-                    # Use compile-time optimization for last-step caching
-                    if b_row == stage_idx:
-                        # Direct assignment when this stage matches b_row
-                        proposed_state[idx] = solution_weight * rhs_value
-                    else:
-                        # Standard accumulation
-                        proposed_state[idx] += solution_weight * rhs_value
+                    increment = stage_rhs[idx]
+                    if accumulates_output:
+                        proposed_state[idx] += (
+                            solution_weights[stage_idx] * increment
+                        )
+                    elif b_row == stage_idx:
+                        proposed_state[idx] = increment
+
                     if has_error:
-                        if b_hat_row == stage_idx:
+                        if accumulates_error:
+                            error[idx] += (
+                                    error_weights[stage_idx] * increment
+                            )
+                        elif b_hat_row == stage_idx:
                             # Direct assignment for error
-                            error[idx] = error_weight * rhs_value
-                        else:
-                            # Standard accumulation
-                            error[idx] += error_weight * rhs_value
+                            error[idx] = increment
 
             # --------------------------------------------------------------- #
 

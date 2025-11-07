@@ -219,8 +219,10 @@ class FIRKStep(ODEImplicitStep):
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
         # Last-step caching optimization (issue #163):
-        # Direct copy from stage_rhs_flat when b or b_hat match a coupling
-        # matrix row, avoiding redundant accumulation.
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 
@@ -364,7 +366,7 @@ class FIRKStep(ODEImplicitStep):
                 )
 
             # Accumulate proposed_state and error using compile-time optimization
-            if b_row is not None:
+            if accumulates_output:
                 # Direct copy optimization for proposed_state
                 rhs_slice_start = b_row * n
                 for comp_idx in range(n):
@@ -385,7 +387,7 @@ class FIRKStep(ODEImplicitStep):
 
             # Handle error estimate separately
             if has_error:
-                if b_hat_row is not None:
+                if accumulates_error:
                     # Direct copy optimization for error
                     error_slice_start = b_hat_row * n
                     for comp_idx in range(n):

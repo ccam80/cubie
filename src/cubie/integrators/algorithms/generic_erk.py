@@ -116,8 +116,10 @@ class ERKStep(ODEExplicitStep):
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
         # Last-step caching optimization (issue #163):
-        # Replaces streaming accumulation with direct assignment when
+        # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 
@@ -199,9 +201,11 @@ class ERKStep(ODEExplicitStep):
             if multistage:
                 stage_cache = stage_accumulator[:n]
 
+
             for idx in range(n):
-                proposed_state[idx] = typed_zero
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] = typed_zero
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
 
             status_code = int32(0)
@@ -236,16 +240,17 @@ class ERKStep(ODEExplicitStep):
             for idx in range(n):
                 increment = stage_rhs[idx]
                 # Use compile-time optimization for last-step caching
-                if b_row == 0:
-                    # Only accumulate stage 0 if b_row matches
-                    proposed_state[idx] = solution_weights[0] * increment
-                else:
+                if accumulates_output:
                     proposed_state[idx] += solution_weights[0] * increment
+                elif b_row == 0: # Unlikely
+                    proposed_state[idx] = increment
+
                 if has_error:
-                    if b_hat_row == 0:
-                        error[idx] = error_weights[0] * increment
-                    else:
+                    if accumulates_error:
                         error[idx] += error_weights[0] * increment
+                    elif b_hat_row == 0: # Unlikely
+                        error[idx] = increment
+
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -307,30 +312,25 @@ class ERKStep(ODEExplicitStep):
                     stage_time,
                 )
 
-                # Accumulate with compile-time optimization for last-step caching
+                # Accumulate or just copy if a stage matches output
                 for idx in range(n):
                     increment = stage_rhs[idx]
-                    if b_row == stage_idx:
-                        # Direct assignment when this stage matches b_row
-                        proposed_state[idx] = (
-                            solution_weights[stage_idx] * increment
-                        )
-                    else:
-                        # Standard accumulation
+                    if accumulates_output:
                         proposed_state[idx] += (
                             solution_weights[stage_idx] * increment
                         )
+                    elif b_row == stage_idx:
+                        proposed_state[idx] = increment
+
                     if has_error:
-                        if b_hat_row == stage_idx:
-                            # Direct assignment for error
-                            error[idx] = (
-                                error_weights[stage_idx] * increment
-                            )
-                        else:
-                            # Standard accumulation
+                        if accumulates_error:
                             error[idx] += (
-                                error_weights[stage_idx] * increment
+                                    error_weights[stage_idx] * increment
                             )
+                        elif b_hat_row == stage_idx:
+                            # Direct assignment for error
+                            error[idx] = increment
+
             # ----------------------------------------------------------- #
             for idx in range(n):
                 proposed_state[idx] *= dt_value
