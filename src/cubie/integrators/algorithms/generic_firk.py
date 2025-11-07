@@ -475,18 +475,18 @@ class FIRKStep(ODEImplicitStep):
                     for idx in range (n_drivers):
                         proposed_drivers[idx] = stage_slice[idx]
 
-                for comp_idx in range(n):
-                    value = state[comp_idx]
+                for idx in range(n):
+                    value = state[idx]
                     for contrib_idx in range(stage_count):
                         coeff = stage_rhs_coeffs[stage_idx][contrib_idx]
                         if coeff != typed_zero:
                             value += (
                                 coeff
                                 * stage_increment[
-                                    contrib_idx * n + comp_idx
-                                ]
+                                    contrib_idx * n + idx
+                                    ]
                             )
-                    stage_state[comp_idx] = value
+                    stage_state[idx] = value
 
                 observables_function(
                     stage_state,
@@ -508,42 +508,31 @@ class FIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-            # Accumulate proposed_state and error using compile-time optimization
-            if not accumulates_output:
-                # Direct copy optimization for proposed_state
-                rhs_slice_start = b_row * n
-                for comp_idx in range(n):
-                    rhs_value = stage_rhs_flat[rhs_slice_start + comp_idx]
-                    proposed_state[comp_idx] = (
-                        state[comp_idx] + dt_value * rhs_value
-                    )
-            else:
-                # Standard accumulation path for proposed_state
-                for comp_idx in range(n):
+                # Capture precalculated outputs if tableau allows
+                if not accumulates_output:
+                    if b_row == stage_idx:
+                        for idx in range(n):
+                            proposed_state[idx] = stage_state[idx]
+                if not accumulates_error:
+                    for idx in range(n):
+                        error[idx] = stage_state[idx]
+
+            if accumulates_output:
+                for idx in range(n):
                     solution_acc = typed_zero
                     for stage_idx in range(stage_count):
-                        rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
                         solution_acc += solution_weights[stage_idx] * rhs_value
-                    proposed_state[comp_idx] = (
-                        state[comp_idx] + dt_value * solution_acc
-                    )
+                    proposed_state[idx] = state[idx] + dt_value * solution_acc
 
-            # Handle error estimate separately
-            if has_error:
-                if not accumulates_error:
-                    # Direct copy optimization for error
-                    error_slice_start = b_hat_row * n
-                    for comp_idx in range(n):
-                        rhs_value = stage_rhs_flat[error_slice_start + comp_idx]
-                        error[comp_idx] = dt_value * rhs_value
-                else:
-                    # Standard accumulation path for error
-                    for comp_idx in range(n):
-                        error_acc = typed_zero
-                        for stage_idx in range(stage_count):
-                            rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
-                            error_acc += error_weights[stage_idx] * rhs_value
-                        error[comp_idx] = dt_value * error_acc
+            if has_error and accumulates_error:
+                # Standard accumulation path for error
+                for idx in range(n):
+                    error_acc = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        error_acc += error_weights[stage_idx] * rhs_value
+                    error[idx] = dt_value * error_acc
 
             if not ends_at_one:
                 if has_driver_function:
@@ -560,6 +549,10 @@ class FIRKStep(ODEImplicitStep):
                     proposed_observables,
                     end_time,
                 )
+
+            if not accumulates_error:
+                for idx in range(n):
+                    error[idx] = proposed_state[idx] - error[idx]
 
             return status_code
 

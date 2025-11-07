@@ -352,7 +352,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 final_stage_base : final_stage_base + n
             ]
 
-            idt = numba_precision(1.0) / dt_value
+            inv_dt = numba_precision(1.0) / dt_value
 
             prepare_jacobian(
                 state,
@@ -371,7 +371,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             else:
                 proposed_drivers[:] = numba_precision(0.0)
 
-                # Stage 0 slice copies the cached final increment as its guess.
+                # Stage 0 copies the cached final increment as its guess.
                 stage_increment = stage_store[:n]
                 for idx in range(n):
                     stage_increment[idx] = time_derivative[idx]
@@ -403,7 +403,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_time = current_time + dt_value * stage_time_fractions[0]
 
             # Stage 0:
-
             dxdt_fn(
                 state,
                 parameters,
@@ -509,6 +508,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_time,
                 )
 
+                # Capture precalculated outputs here, before overwrite
+                if b_row == stage_idx:
+                    for idx in range(n):
+                        proposed_state[idx] = stage_slice[idx]
+                if b_hat_row == stage_idx:
+                    for idx in range(n):
+                        error[idx] = stage_slice[idx]
+
+                #LOGGING
+                for idx in range(n):
+                    stage_states[stage_idx, idx] = stage_slice[idx]
+
+                # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - 1:
                     if has_driver_function:
                         driver_del_t(
@@ -546,12 +558,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         correction += (c_coeff * stage_store[base + idx])
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
-                    rhs_value = f_stage_val + correction * idt + deriv_val
+                    rhs_value = f_stage_val + correction * inv_dt + deriv_val
                     stage_rhs[idx] = rhs_value * dt_value * gamma
 
                     # LOGGING
                     stage_derivatives[stage_idx, idx] = f_stage_val
-                    stage_states[stage_idx, idx] = stage_slice[idx]
                     residuals[stage_idx, idx] = rhs_value * dt_value
 
                 stage_increment = stage_slice
@@ -581,7 +592,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 status_code |= solver_ret
 
-                if accumulates_output:
+                increment_non_accumulating = False
+                if not accumulates_output:
+                    if stage_idx > b_row:
+                        increment_non_accumulating = True
+
+                if increment_non_accumulating or accumulates_output:
                     # Standard accumulation path for proposed_state
                     solution_weight = solution_weights[stage_idx]
                     for idx in range(n):
@@ -595,26 +611,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         for idx in range(n):
                             increment = stage_increment[idx]
                             error[idx] += error_weight * increment
-
-            # ----------------------------------------------------------- #
-
-            if not accumulates_output:
-                # Direct copy optimization for proposed_state
-                stage_slice_start = b_row * n
-                stage_slice_end = stage_slice_start + n
-                for idx in range(n):
-                    proposed_state[idx] = (
-                            state[idx] + stage_store[stage_slice_start + idx]
-                    )
-            if not accumulates_error:
-                # Direct copy optimization for error
-                error_slice_start = b_hat_row * n
-                for idx in range(n):
-                    error[idx] = stage_store[error_slice_start + idx]
-
                 # LOGGING
+                for idx in range(n):
+                    increment = stage_increment[idx]
                     stage_increments[stage_idx, idx] = increment
                     jacobian_updates[stage_idx, idx] = increment
+            # ----------------------------------------------------------- #
+
+            if not accumulates_error:
+                for idx in range(n):
+                    error[idx] = proposed_state[idx] - error[idx]
+
 
             if has_driver_function:
                 driver_function(

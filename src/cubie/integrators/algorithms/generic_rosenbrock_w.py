@@ -585,6 +585,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_time,
                 )
 
+                # Capture precalculated outputs here, before overwrite
+                # i.e. sum[i<j](a_ij * y_nj)
+                if b_row == stage_idx:
+                    for idx in range(n):
+                        proposed_state[idx] = stage_slice[idx]
+                if b_hat_row == stage_idx:
+                    for idx in range(n):
+                        error[idx] = stage_slice[idx]
+
+                # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - 1:
                     if has_driver_function:
                         driver_del_t(
@@ -640,15 +650,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_increment,
                 )
 
-                if accumulates_output:
+                increment_non_accumulating = False
+                if not accumulates_output:
+                    if stage_idx > b_row:
+                        increment_non_accumulating = True
+
+                if increment_non_accumulating or accumulates_output:
                     # Standard accumulation path for proposed_state
                     solution_weight = solution_weights[stage_idx]
                     for idx in range(n):
                         increment = stage_increment[idx]
                         proposed_state[idx] += solution_weight * increment
-                elif b_row == stage_idx:
-                    for idx in range(n): # Quick EOD attempt
-                        proposed_state[idx] = stage_rhs[idx]
+
                 if has_error:
                     if accumulates_error:
                         # Standard accumulation path for error
@@ -658,21 +671,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                             error[idx] += error_weight * increment
 
             # ----------------------------------------------------------- #
-
-            # if not accumulates_output:
-            #     # Direct copy optimization for proposed_state
-            #     stage_slice_start = b_row * n
-            #     stage_slice_end = stage_slice_start + n
-            #     for idx in range(n):
-            #         proposed_state[idx] = (
-            #                 state[idx] + stage_store[stage_slice_start + idx]
-            #         ) # Quick EOD attempt
             if not accumulates_error:
-                # Direct copy optimization for error
-                error_slice_start = b_hat_row * n
                 for idx in range(n):
-                    error[idx] = stage_store[error_slice_start + idx]
-
+                    error[idx] = proposed_state[idx] - error[idx]
 
             if has_driver_function:
                 driver_function(

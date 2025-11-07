@@ -443,14 +443,8 @@ class FIRKStep(ODEImplicitStep):
                     # Accumulate proposed_state and error using compile-time optimization
                     if not accumulates_output:
                         # Direct copy optimization for proposed_state
-                        rhs_slice_start = b_row * n
-                        for comp_idx in range(n):
-                            rhs_value = stage_rhs_flat[
-                                rhs_slice_start + comp_idx
-                            ]
-                            proposed_state[comp_idx] = (
-                                state[comp_idx] + dt_value * rhs_value
-                            )
+                        for idx in range(n):
+                            proposed_state[idx] = stage_state[idx]
                     else:
                         # Standard accumulation path for proposed_state
                         for comp_idx in range(n):
