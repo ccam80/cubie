@@ -514,8 +514,9 @@ class FIRKStep(ODEImplicitStep):
                         for idx in range(n):
                             proposed_state[idx] = stage_state[idx]
                 if not accumulates_error:
-                    for idx in range(n):
-                        error[idx] = stage_state[idx]
+                    if b_hat_row == stage_idx:
+                        for idx in range(n):
+                            error[idx] = stage_state[idx]
 
             if accumulates_output:
                 for idx in range(n):

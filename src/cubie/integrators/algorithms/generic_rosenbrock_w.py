@@ -587,12 +587,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Capture precalculated outputs here, before overwrite
                 # i.e. sum[i<j](a_ij * y_nj)
-                if b_row == stage_idx:
-                    for idx in range(n):
-                        proposed_state[idx] = stage_slice[idx]
-                if b_hat_row == stage_idx:
-                    for idx in range(n):
-                        error[idx] = stage_slice[idx]
+                if not accumulates_output:
+                    if b_row == stage_idx:
+                        for idx in range(n):
+                            proposed_state[idx] = stage_slice[idx]
+                if not accumulates_error:
+                    if b_hat_row == stage_idx:
+                        for idx in range(n):
+                            error[idx] = stage_slice[idx]
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - 1:
