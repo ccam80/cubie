@@ -153,7 +153,7 @@ class ButcherTableau:
 
         return bool(self.c
                     and self.c[0] == 0.0 and self.c[-1] == 1.0
-                    and self.a[0][0] == 0.0)
+                    and self.a[-1] == self.b)
 
     @property
     def can_reuse_accepted_start(self) -> bool:

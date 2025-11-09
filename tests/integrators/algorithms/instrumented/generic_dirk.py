@@ -580,7 +580,7 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] *= dt_value
                     proposed_state[idx] += state[idx]
                 if has_error:
-                    if accumulates_output:
+                    if accumulates_error:
                         error[idx] *= dt_value
                     else:
                         error[idx] = proposed_state[idx] - error[idx]

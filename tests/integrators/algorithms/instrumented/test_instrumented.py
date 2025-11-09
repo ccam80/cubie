@@ -12,7 +12,8 @@ from ..test_step_algorithms import STEP_OVERRIDES
 
 STEP_SETTINGS = STEP_OVERRIDES.copy()
 STEP_SETTINGS.update(
-     {'max_linear_iters': 3,
+       {'dt': 0.01,   
+      'max_linear_iters': 3,
       'max_newton_iters': 3,
       'newton_max_backtracks': 2,
       'krylov_tolerance': 1e-7,

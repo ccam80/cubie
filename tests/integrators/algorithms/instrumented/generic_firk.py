@@ -420,11 +420,11 @@ class FIRKStep(ODEImplicitStep):
                 )
 
                 for obs_idx in range(observable_count):
-                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[stage_idx, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + 1) * n
-                ]
+                stage_rhs = stage_rhs_flat[stage_idx * n : (stage_idx + 1) * n]
                 dxdt_fn(
                     stage_state,
                     parameters,
@@ -434,50 +434,32 @@ class FIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                for idx in range(n):
-                    stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                    residuals[stage_idx, idx] = solver_scratch[
-                        all_stages_n + stage_idx * n + idx
-                    ]
-
-                    # Accumulate proposed_state and error using compile-time optimization
-                    if not accumulates_output:
-                        # Direct copy optimization for proposed_state
+                # Capture precalculated outputs if tableau allows
+                if not accumulates_output:
+                    if b_row == stage_idx:
                         for idx in range(n):
                             proposed_state[idx] = stage_state[idx]
-                    else:
-                        # Standard accumulation path for proposed_state
-                        for comp_idx in range(n):
-                            solution_acc = typed_zero
-                            for stage_idx in range(stage_count):
-                                rhs_value = stage_rhs_flat[
-                                    stage_idx * n + comp_idx
-                                ]
-                                solution_acc += (
-                                    solution_weights[stage_idx] * rhs_value
-                                )
-                            proposed_state[comp_idx] = (
-                                state[comp_idx] + dt_value * solution_acc
-                            )
+                if not accumulates_error:
+                    if b_hat_row == stage_idx:
+                        for idx in range(n):
+                            error[idx] = stage_state[idx]
 
-                    # Handle error estimate separately
-                    if has_error:
-                        if not accumulates_error:
-                            # Direct copy optimization for error
-                            error_slice_start = b_hat_row * n
-                            for comp_idx in range(n):
-                                rhs_value = stage_rhs_flat[
-                                    error_slice_start + comp_idx
-                                ]
-                                error[comp_idx] = dt_value * rhs_value
-                        else:
-                            # Standard accumulation path for error
-                            for comp_idx in range(n):
-                                error_acc = typed_zero
-                                for stage_idx in range(stage_count):
-                                    rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
-                                    error_acc += error_weights[stage_idx] * rhs_value
-                                error[comp_idx] = dt_value * error_acc
+            if accumulates_output:
+                for idx in range(n):
+                    solution_acc = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        solution_acc += solution_weights[stage_idx] * rhs_value
+                    proposed_state[idx] = state[idx] + dt_value * solution_acc
+
+            if has_error and accumulates_error:
+                # Standard accumulation path for error
+                for idx in range(n):
+                    error_acc = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        error_acc += error_weights[stage_idx] * rhs_value
+                    error[idx] = dt_value * error_acc
 
             if not ends_at_one:
                 if has_driver_function:

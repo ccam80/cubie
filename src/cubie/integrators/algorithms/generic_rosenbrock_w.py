@@ -449,7 +449,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 final_stage_base : final_stage_base + n
             ]
 
-            idt = numba_precision(1.0) / dt_value
+            inv_dt = numba_precision(1.0) / dt_value
 
             prepare_jacobian(
                 state,
@@ -515,10 +515,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 stage_rhs[idx] = rhs_value * gamma
 
+            # Create an unused reference for solver signature consistency.
+            base_state_placeholder = shared[0:0]
 
             # Use stored copy as the initial guess for the first stage.
-
-            base_state_placeholder = shared[0:0]
             status_code |= linear_solver(
                 state,
                 parameters,
@@ -533,8 +533,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                proposed_state[idx] += stage_increment[idx] * solution_weights[0]
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] += stage_increment[idx] * solution_weights[0]
+                if has_error and accumulates_error:
                     error[idx] += stage_increment[idx] * error_weights[0]
 
             # --------------------------------------------------------------- #
@@ -587,6 +588,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Capture precalculated outputs here, before overwrite
                 # i.e. sum[i<j](a_ij * y_nj)
+                # if not accumulates output, b_row never == stage_idx.
                 if b_row == stage_idx:
                     for idx in range(n):
                         proposed_state[idx] = stage_slice[idx]
@@ -626,8 +628,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
-                    stage_rhs[idx] = (correction * idt + f_stage_val +
-                                      deriv_val) * dt_value * gamma
+                    rhs_value = f_stage_val + correction * inv_dt + deriv_val
+                    stage_rhs[idx] = rhs_value * dt_value * gamma
+
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_slice
@@ -650,12 +653,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_increment,
                 )
 
-                increment_non_accumulating = False
-                if not accumulates_output:
-                    if stage_idx > b_row:
-                        increment_non_accumulating = True
-
-                if increment_non_accumulating or accumulates_output:
+                if accumulates_output:
                     # Standard accumulation path for proposed_state
                     solution_weight = solution_weights[stage_idx]
                     for idx in range(n):

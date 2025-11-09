@@ -455,8 +455,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 increment = stage_increment[idx]
-                proposed_state[idx] += solution_weights[0] * increment
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] += solution_weights[0] * increment
+                if has_error and accumulates_error:
                     error[idx] += error_weights[0] * increment
 
                 # LOGGING
@@ -515,6 +516,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 if b_hat_row == stage_idx:
                     for idx in range(n):
                         error[idx] = stage_slice[idx]
+
 
                 #LOGGING
                 for idx in range(n):
@@ -592,12 +594,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 status_code |= solver_ret
 
-                increment_non_accumulating = False
-                if not accumulates_output:
-                    if stage_idx > b_row:
-                        increment_non_accumulating = True
-
-                if increment_non_accumulating or accumulates_output:
+                if accumulates_output:
                     # Standard accumulation path for proposed_state
                     solution_weight = solution_weights[stage_idx]
                     for idx in range(n):
