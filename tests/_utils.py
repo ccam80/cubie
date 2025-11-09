@@ -27,6 +27,7 @@ def calculate_expected_summaries(
     output_types,
     summary_height_per_variable,
     precision,
+    dt_save=1.0,
 ):
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
@@ -38,6 +39,7 @@ def calculate_expected_summaries(
     - summarise_every: Number of samples to summarise over (batch size)
     - output_types: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - precision: Numpy dtype to use for the output arrays (e.g. np.float32 or np.float64)
+    - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
 
     Returns:
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
@@ -77,6 +79,7 @@ def calculate_expected_summaries(
             output_types,
             output_array=_output_array,
             n_peaks=n_peaks,
+            dt_save=dt_save,
         )
 
     return expected_state_summaries, expected_obs_summaries
@@ -89,6 +92,7 @@ def calculate_single_summary_array(
     output_functions_list,
     output_array,
     n_peaks=0,
+    dt_save=1.0,
 ):
     """Summarise states in input array in the same way that the device functions do.
 
@@ -99,6 +103,7 @@ def calculate_single_summary_array(
     - output_functions_list: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - n_peaks: Number of peaks to find in the "peaks[n]" output function
     - output_array: 2D array to store the summarised output, shape (n_items * summary_size_per_state, n_samples)
+    - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
 
     Returns:
     - None, but output_array is filled with the summarised values.
@@ -277,6 +282,103 @@ def calculate_single_summary_array(
                     output_array[
                         i, j * summary_size_per_state + summary_index + 1
                     ] = _rms
+                    summary_index += 2
+
+                if output_type == "dxdt_max":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_max = np.max(derivatives)
+                    else:
+                        _dxdt_max = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_max
+                    summary_index += 1
+
+                if output_type == "dxdt_min":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_min = np.min(derivatives)
+                    else:
+                        _dxdt_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_min
+                    summary_index += 1
+
+                if output_type == "dxdt_extrema":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_max = np.max(derivatives)
+                        _dxdt_min = np.min(derivatives)
+                    else:
+                        _dxdt_max = 0.0
+                        _dxdt_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _dxdt_min
+                    summary_index += 2
+
+                if output_type == "d2xdt2_max":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_max = np.max(second_derivatives)
+                    else:
+                        _d2xdt2_max = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_max
+                    summary_index += 1
+
+                if output_type == "d2xdt2_min":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_min = np.min(second_derivatives)
+                    else:
+                        _d2xdt2_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_min
+                    summary_index += 1
+
+                if output_type == "d2xdt2_extrema":
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_max = np.max(second_derivatives)
+                        _d2xdt2_min = np.min(second_derivatives)
+                    else:
+                        _d2xdt2_max = 0.0
+                        _d2xdt2_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _d2xdt2_min
                     summary_index += 2
 
 
