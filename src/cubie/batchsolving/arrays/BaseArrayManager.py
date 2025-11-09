@@ -53,7 +53,9 @@ class ManagedArray:
     )
 
     def __attrs_post_init__(self):
-        defaultshape = (1,) * len(self.stride_order)
+        shape = self.shape
+        stride_order = self.stride_order
+        defaultshape = shape if shape else (1,) * len(stride_order)
         self._array = np.zeros(defaultshape, dtype=self.dtype)
 
     @property

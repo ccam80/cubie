@@ -99,7 +99,8 @@ def test_linear_solver_placeholder(
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
+    code = flag.copy_to_host()[0] & 0xFF
+    assert code == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
@@ -145,7 +146,8 @@ def test_linear_solver_symbolic(
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
+    code = flag.copy_to_host()[0] & 0xFF
+    assert code == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
@@ -180,7 +182,5 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    assert (
-        flag.copy_to_host()[0]
-        == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
-    )
+    code = flag.copy_to_host()[0] & 0xFF
+    assert code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED

@@ -185,6 +185,7 @@ class ERKStep(ODEExplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             stage_rhs = cuda.local.array(n, numba_precision)
 
