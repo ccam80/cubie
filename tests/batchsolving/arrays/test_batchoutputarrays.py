@@ -91,6 +91,7 @@ class TestOutputArrayContainer:
         """Test that container has correct arrays after initialization"""
         container = OutputArrayContainer()
         expected_arrays = {
+            "iteration_counters",
             "state",
             "observables",
             "state_summaries",
@@ -195,6 +196,7 @@ class TestOutputArrays:
         """Test that containers have correct array types after initialization"""
         # Check host container arrays
         expected_arrays = {
+            "iteration_counters",
             "state",
             "observables",
             "state_summaries",

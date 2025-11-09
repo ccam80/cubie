@@ -18,6 +18,8 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
+    opt_getype_validator,
+    opt_gttype_validator,
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
@@ -53,10 +55,10 @@ class LoopLocalIndices:
     )
     algorithm: Optional[slice] = field(default=None, validator=valid_opt_slice)
     loop_end: Optional[int] = field(
-        default=None, validator=validators.optional(getype_validator(int, 0))
+        default=None, validator=opt_getype_validator(int, 0)
     )
     total_end: Optional[int] = field(
-        default=None, validator=validators.optional(getype_validator(int, 0))
+        default=None, validator=opt_getype_validator(int, 0)
     )
     all: Optional[slice] = field(default=None, validator=valid_opt_slice)
 
@@ -216,7 +218,7 @@ class LoopSharedIndices:
     )
     local_end: Optional[int] = field(
             default=None,
-            validator=validators.optional(getype_validator(int, 0))
+            validator=opt_getype_validator(int, 0)
     )
     scratch: Optional[slice] = field(
             default=None,
@@ -467,15 +469,15 @@ class ODELoopConfig:
     )
     _dt0: Optional[float] = field(
         default=0.01,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     _dt_min: Optional[float] = field(
         default=0.01,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     _dt_max: Optional[float] = field(
         default=0.1,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     is_adaptive: Optional[bool] = field(
             default=False,

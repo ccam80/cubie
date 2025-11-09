@@ -15,7 +15,7 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
-from cubie._utils import gttype_validator
+from cubie._utils import gttype_validator, opt_gttype_validator
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -171,7 +171,7 @@ class OutputConfig:
     )
     _dt_save: float = attrs.field(
         default=0.01,
-        validator=attrs.validators.optional(gttype_validator(float, 0.0))
+        validator=opt_gttype_validator(float, 0.0)
     )
 
     def __attrs_post_init__(self) -> None:

@@ -460,6 +460,7 @@ class LoopRunResult:
     state_summaries: Array
     observable_summaries: Array
     status: int
+    counters: Array = None
 
 
 def run_device_loop(
@@ -504,6 +505,9 @@ def run_device_loop(
     observable_summary_output = np.zeros(
         (summary_samples, observable_summary_width), dtype=precision
     )
+    
+    # Iteration counters output (4 counters per save)
+    counters_output = np.zeros((save_samples, 4), dtype=np.int32)
 
     params = np.array(
         system.parameters.values_array,
@@ -529,6 +533,7 @@ def run_device_loop(
     d_obs_out = cuda.to_device(observables_output)
     d_state_sum = cuda.to_device(state_summary_output)
     d_obs_sum = cuda.to_device(observable_summary_output)
+    d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
     shared_elements = sharedmem_required
@@ -546,6 +551,7 @@ def run_device_loop(
         obs_out_arr,
         state_sum_arr,
         obs_sum_arr,
+        counters_out_arr,
         status_arr,
     ):
         idx = cuda.grid(1)
@@ -566,6 +572,7 @@ def run_device_loop(
             obs_out_arr,
             state_sum_arr,
             obs_sum_arr,
+            counters_out_arr,
             precision(duration),
             precision(warmup),
             precision(0.0),
@@ -579,6 +586,7 @@ def run_device_loop(
         d_obs_out,
         d_state_sum,
         d_obs_sum,
+        d_counters_out,
         d_status,
     )
     cuda.synchronize()
@@ -587,6 +595,7 @@ def run_device_loop(
     observables_host = d_obs_out.copy_to_host()
     state_summary_host = d_state_sum.copy_to_host()
     observable_summary_host = d_obs_sum.copy_to_host()
+    counters_host = d_counters_out.copy_to_host()
     status_value = int(d_status.copy_to_host()[0])
 
     return LoopRunResult(
@@ -594,6 +603,7 @@ def run_device_loop(
         observables=observables_host,
         state_summaries=state_summary_host,
         observable_summaries=observable_summary_host,
+        counters=counters_host,
         status=status_value,
     )
 

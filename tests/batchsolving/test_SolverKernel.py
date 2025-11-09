@@ -208,6 +208,7 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         "saved_observable_indices": np.asarray([0, 1, 2]),
         "summarised_state_indices": np.asarray([0]),
         "summarised_observable_indices": np.asarray([0]),
+        "dt_save": 0.01,
         "output_types": [
             "state",
             "observables",

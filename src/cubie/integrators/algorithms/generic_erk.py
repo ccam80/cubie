@@ -153,6 +153,7 @@ class ERKStep(ODEExplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
