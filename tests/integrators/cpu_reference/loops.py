@@ -224,6 +224,7 @@ def run_reference_loop(
         output_functions.compile_settings.output_types,
         output_functions.summaries_output_height_per_var,
         precision,
+        dt_save=dt_save,
     )
     final_status = status_flags & STATUS_MASK
 
