@@ -866,6 +866,7 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
+        precision: Optional[np.dtype] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -891,6 +892,9 @@ class OutputConfig:
             Total number of observable variables in the system.
         dt_save
             Time interval between saved states. Defaults to ``0.01`` if
+        precision
+            Numerical precision for output calculations. Defaults to
+            ``np.float32`` if not provided.
 
         Returns
         -------
@@ -916,6 +920,9 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
+        
+        if precision is None:
+            precision = np.float32
 
         return cls(
             max_states=max_states,
@@ -926,4 +933,5 @@ class OutputConfig:
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
             dt_save=dt_save,
+            precision=precision,
         )
