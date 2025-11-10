@@ -54,6 +54,8 @@ class MeanStdRms(SummaryMetric):
         and clears the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -90,8 +92,8 @@ class MeanStdRms(SummaryMetric):
             """
             if current_index == 0:
                 buffer[0] = value
-                buffer[1] = 0.0
-                buffer[2] = 0.0
+                buffer[1] = precision(0.0)
+                buffer[2] = precision(0.0)
             
             shifted_value = value - buffer[0]
             buffer[1] += shifted_value
@@ -147,16 +149,16 @@ class MeanStdRms(SummaryMetric):
             
             # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
             # = mean_of_squares_shifted + 2*shift*mean_shifted + shift^2
-            mean_of_squares = mean_of_squares_shifted + 2.0 * shift * mean_shifted + shift * shift
+            mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
             rms = sqrt(mean_of_squares)
             
             output_array[0] = mean
             output_array[1] = std
             output_array[2] = rms
             
-            buffer[0] = 0.0
-            buffer[1] = 0.0
-            buffer[2] = 0.0
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(0.0)
+            buffer[2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

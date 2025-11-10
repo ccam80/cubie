@@ -54,6 +54,7 @@ class D2xdt2Max(SummaryMetric):
         """
 
         dt_save = self.compile_settings.dt_save
+        precision = self.compile_settings.precision
 
         # no cover: start
         @cuda.jit(
@@ -90,8 +91,8 @@ class D2xdt2Max(SummaryMetric):
             Uses predicated commit pattern to avoid warp divergence. Guard on
             buffer[1] ensures two previous values are available.
             """
-            second_derivative_unscaled = value - 2.0 * buffer[0] + buffer[1]
-            update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != 0.0)
+            second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+            update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
             buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
             buffer[1] = buffer[0]
             buffer[0] = value
@@ -128,8 +129,10 @@ class D2xdt2Max(SummaryMetric):
             Scales the maximum unscaled second derivative by dt_save² and saves
             to output_array[0], then resets buffers to sentinel values.
             """
-            output_array[0] = buffer[2] / (dt_save * dt_save)
-            buffer[2] = -1.0e30
+            output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(0.0)
+            buffer[2] = precision(-1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

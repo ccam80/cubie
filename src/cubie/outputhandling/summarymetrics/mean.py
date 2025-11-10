@@ -48,6 +48,8 @@ class Mean(SummaryMetric):
         callback divides by ``summarise_every`` and resets the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -115,7 +117,7 @@ class Mean(SummaryMetric):
             result to ``output_array[0]`` before resetting ``buffer[0]``.
             """
             output_array[0] = buffer[0] / summarise_every
-            buffer[0] = 0.0
+            buffer[0] = precision(0.0)
 
         # no cover: end
-        return MetricFuncCache(update = update, save = save)
+        return MetricFuncCache(update=update, save=save)

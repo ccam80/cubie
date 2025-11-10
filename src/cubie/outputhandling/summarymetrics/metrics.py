@@ -11,8 +11,14 @@ from warnings import warn
 from abc import abstractmethod
 import attrs
 import attrs.validators as val
+import numpy as np
 
-from cubie._utils import gttype_validator
+from cubie._utils import (
+    gttype_validator,
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 from cubie.CUDAFactory import CUDAFactory
 
 @attrs.define
@@ -39,17 +45,30 @@ class MetricConfig:
     dt_save
         Time interval between saved states. Used by derivative
         metrics to scale finite differences. Defaults to 0.01.
+    precision
+        Numerical precision for metric calculations. Defaults to
+        np.float32.
     """
     
     _dt_save: float = attrs.field(
         default=0.01,
         validator=val.optional(gttype_validator(float, 0.0))
     )
+    _precision: PrecisionDType = attrs.field(
+        default=np.float32,
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     
     @property
     def dt_save(self) -> float:
         """Time interval between saved states."""
         return self._dt_save
+    
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for metric calculations."""
+        return self._precision
 
 
 def register_metric(registry: "SummaryMetrics") -> Callable:
@@ -97,6 +116,8 @@ class SummaryMetric(CUDAFactory):
         Callable. Compiled CUDA device save function for the metric.
     dt_save
         save interval. Defaults to 0.01.
+    precision
+        Numerical precision for metric calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -113,6 +134,7 @@ class SummaryMetric(CUDAFactory):
         output_size: Union[int, Callable],
         name: str,
         dt_save: float = 0.01,
+        precision: PrecisionDType = np.float32,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -126,6 +148,11 @@ class SummaryMetric(CUDAFactory):
             metric parameter.
         name
             str. Identifier used for registration.
+        dt_save
+            float. Time interval for save operations. Defaults to 0.01.
+        precision
+            PrecisionDType. Numerical precision for metric calculations.
+            Defaults to np.float32.
         """
 
         super().__init__()
@@ -134,7 +161,9 @@ class SummaryMetric(CUDAFactory):
         self.name = name
 
         # Instantiate empty settings object for CUDAFactory compatibility
-        self.setup_compile_settings(MetricConfig(dt_save=dt_save))
+        self.setup_compile_settings(
+            MetricConfig(dt_save=dt_save, precision=precision)
+        )
 
 
     @abstractmethod
@@ -169,6 +198,11 @@ class SummaryMetric(CUDAFactory):
         """CUDA device save function for the metric."""
 
         return self.get_cached_output("save")
+
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for metric calculations."""
+        return self.compile_settings.precision
 
     def update(self, **kwargs) -> None:
         """Update metric compile settings.
@@ -263,7 +297,7 @@ class SummaryMetrics:
         Parameters
         ----------
         **kwargs
-            Compile settings to update (e.g., dt_save=0.02).
+            Compile settings to update (e.g., dt_save=0.02, precision=np.float64).
             
         Returns
         -------

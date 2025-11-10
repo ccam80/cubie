@@ -54,6 +54,7 @@ class D2xdt2Extrema(SummaryMetric):
         """
 
         dt_save = self.compile_settings.dt_save
+        precision = self.compile_settings.precision
 
         # no cover: start
         @cuda.jit(
@@ -92,9 +93,9 @@ class D2xdt2Extrema(SummaryMetric):
             warp divergence. Guard on buffer[1] ensures two previous values
             are available.
             """
-            second_derivative_unscaled = value - 2.0 * buffer[0] + buffer[1]
-            update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != 0.0)
-            update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != 0.0)
+            second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+            update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
+            update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
             buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
             buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
             buffer[1] = buffer[0]
@@ -134,11 +135,13 @@ class D2xdt2Extrema(SummaryMetric):
             Scales the extrema by dt_save² and saves to output_array[0] (max)
             and output_array[1] (min), then resets buffers to sentinel values.
             """
-            dt_save_sq = dt_save * dt_save
+            dt_save_sq = precision(dt_save) * precision(dt_save)
             output_array[0] = buffer[2] / dt_save_sq
             output_array[1] = buffer[3] / dt_save_sq
-            buffer[2] = -1.0e30
-            buffer[3] = 1.0e30
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(0.0)
+            buffer[2] = precision(-1.0e30)
+            buffer[3] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

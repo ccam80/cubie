@@ -48,6 +48,8 @@ class Extrema(SummaryMetric):
         writes both results and resets the buffers.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -120,8 +122,8 @@ class Extrema(SummaryMetric):
             """
             output_array[0] = buffer[0]
             output_array[1] = buffer[1]
-            buffer[0] = -1.0e30
-            buffer[1] = 1.0e30
+            buffer[0] = precision(-1.0e30)
+            buffer[1] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

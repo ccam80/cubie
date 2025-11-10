@@ -49,6 +49,8 @@ class Peaks(SummaryMetric):
         resets the buffer for the next period.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -91,7 +93,7 @@ class Peaks(SummaryMetric):
             if (
                 (current_index >= 2)
                 and (peak_counter < npeaks)
-                and (prev_prev != 0.0)
+                and (prev_prev != precision(0.0))
             ):
                 if prev > value and prev_prev < prev:
                     # Bingo
@@ -135,8 +137,8 @@ class Peaks(SummaryMetric):
             n_peaks = customisable_variable
             for p in range(n_peaks):
                 output_array[p] = buffer[3 + p]
-                buffer[3 + p] = 0.0
-            buffer[2] = 0.0
+                buffer[3 + p] = precision(0.0)
+            buffer[2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update = update, save = save)

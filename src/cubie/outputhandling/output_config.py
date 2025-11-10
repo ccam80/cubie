@@ -15,7 +15,13 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
-from cubie._utils import gttype_validator, opt_gttype_validator
+from cubie._utils import (
+    gttype_validator,
+    opt_gttype_validator,
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -123,6 +129,8 @@ class OutputConfig:
         Requested output type names, including summary metric identifiers.
     dt_save
         Time between saved samples. Defaults to 0.01 seconds.
+    precision
+        Numerical precision for output calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -172,6 +180,11 @@ class OutputConfig:
     _dt_save: float = attrs.field(
         default=0.01,
         validator=opt_gttype_validator(float, 0.0)
+    )
+    _precision: PrecisionDType = attrs.field(
+        default=np.float32,
+        converter=precision_converter,
+        validator=precision_validator,
     )
 
     def __attrs_post_init__(self) -> None:
@@ -636,6 +649,11 @@ class OutputConfig:
         return self._dt_save
 
     @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for output calculations."""
+        return self._precision
+
+    @property
     def summaries_buffer_height_per_var(self) -> int:
         """
         Calculate buffer size per variable for summary calculations.
@@ -848,6 +866,7 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
+        precision: Optional[np.dtype] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -873,6 +892,9 @@ class OutputConfig:
             Total number of observable variables in the system.
         dt_save
             Time interval between saved states. Defaults to ``0.01`` if
+        precision
+            Numerical precision for output calculations. Defaults to
+            ``np.float32`` if not provided.
 
         Returns
         -------
@@ -898,6 +920,9 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
+        
+        if precision is None:
+            precision = np.float32
 
         return cls(
             max_states=max_states,
@@ -908,4 +933,5 @@ class OutputConfig:
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
             dt_save=dt_save,
+            precision=precision,
         )

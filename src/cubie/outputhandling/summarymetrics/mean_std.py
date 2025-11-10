@@ -54,6 +54,8 @@ class MeanStd(SummaryMetric):
         and clears the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -90,8 +92,8 @@ class MeanStd(SummaryMetric):
             """
             if current_index == 0:
                 buffer[0] = value
-                buffer[1] = 0.0
-                buffer[2] = 0.0
+                buffer[1] = precision(0.0)
+                buffer[2] = precision(0.0)
             
             shifted_value = value - buffer[0]
             buffer[1] += shifted_value
@@ -143,9 +145,9 @@ class MeanStd(SummaryMetric):
             output_array[0] = mean
             output_array[1] = sqrt(variance)
             
-            buffer[0] = 0.0
-            buffer[1] = 0.0
-            buffer[2] = 0.0
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(0.0)
+            buffer[2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

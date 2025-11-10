@@ -50,6 +50,8 @@ class Std(SummaryMetric):
         save callback computes the standard deviation and clears the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -88,8 +90,8 @@ class Std(SummaryMetric):
             """
             if current_index == 0:
                 buffer[0] = value  # Store shift value
-                buffer[1] = 0.0    # Reset sum
-                buffer[2] = 0.0    # Reset sum of squares
+                buffer[1] = precision(0.0)    # Reset sum
+                buffer[2] = precision(0.0)    # Reset sum of squares
             
             shifted_value = value - buffer[0]
             buffer[1] += shifted_value
@@ -133,9 +135,9 @@ class Std(SummaryMetric):
             mean_of_squares_shifted = buffer[2] / summarise_every
             variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
             output_array[0] = sqrt(variance)
-            buffer[0] = 0.0
-            buffer[1] = 0.0
-            buffer[2] = 0.0
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(0.0)
+            buffer[2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
