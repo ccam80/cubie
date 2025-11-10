@@ -622,7 +622,7 @@ class FIRKStep(ODEImplicitStep):
     def solver_shared_elements(self) -> int:
         """Return solver scratch elements accounting for flattened stages."""
 
-        return 3 * self.compile_settings.all_stages_n
+        return 2 * self.compile_settings.all_stages_n
 
     @property
     def algorithm_shared_elements(self) -> int:
