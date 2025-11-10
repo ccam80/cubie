@@ -8,21 +8,21 @@ cellmlmanip = pytest.importorskip("cellmlmanip")
 
 
 @pytest.fixture
-def fixtures_dir():
+def cellml_fixtures_dir():
     """Return path to cellml test fixtures directory."""
     return Path(__file__).parent.parent.parent / "fixtures" / "cellml"
 
 
 @pytest.fixture
-def basic_model_path(fixtures_dir):
+def basic_model_path(cellml_fixtures_dir):
     """Return path to basic ODE CellML model."""
-    return fixtures_dir / "basic_ode.cellml"
+    return cellml_fixtures_dir / "basic_ode.cellml"
 
 
 @pytest.fixture
-def beeler_reuter_model_path(fixtures_dir):
+def beeler_reuter_model_path(cellml_fixtures_dir):
     """Return path to Beeler-Reuter CellML model."""
-    return fixtures_dir / "beeler_reuter_model_1977.cellml"
+    return cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
 
 
 def test_load_simple_cellml_model(basic_model_path):
