@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16
+from numba import cuda, int16, int32
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
@@ -71,6 +71,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -91,6 +92,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             """Advance the state using an explicit predictor and implicit corrector.
 
@@ -162,6 +164,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                counters,
             )
 
             for i in range(n):

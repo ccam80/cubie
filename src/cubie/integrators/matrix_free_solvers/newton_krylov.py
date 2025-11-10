@@ -53,7 +53,8 @@ def newton_krylov_solver_factory(
         CUDA device function implementing the damped Newton--Krylov scheme.
         The return value encodes the iteration count in the upper 16 bits and
         a :class:`~cubie.integrators.matrix_free_solvers.SolverRetCodes`
-        value in the lower 16 bits.
+        value in the lower 16 bits. Iteration counts are also returned via
+        the counters parameter.
 
     Notes
     -----
@@ -61,7 +62,9 @@ def newton_krylov_solver_factory(
     ``0`` for success, ``1`` when backtracking cannot find a suitable step,
     ``2`` when the Newton iteration limit is exceeded, and ``4`` when the
     inner linear solver signals failure. The upper 16 bits hold the number of
-    Newton iterations performed.
+    Newton iterations performed. Iteration counts are also written to
+    the counters array: counters[0] holds Newton iterations and counters[1]
+    holds total Krylov iterations.
     """
 
     precision_dtype = np.dtype(precision)
@@ -86,6 +89,7 @@ def newton_krylov_solver_factory(
         a_ij,
         base_state,
         shared_scratch,
+        counters,
     ):
         """Solve a nonlinear system with a damped Newton--Krylov iteration.
 
@@ -111,6 +115,10 @@ def newton_krylov_solver_factory(
             direction, the next ``n`` entries store the residual, and the final
             ``n`` entries store the stage state ``base_state + a_ij *
             stage_increment``.
+        counters
+            Size (2,) int32 array for iteration counters. Index 0 receives
+            Newton iteration count, index 1 receives cumulative Krylov
+            iteration count.
 
         Returns
         -------
@@ -156,6 +164,7 @@ def newton_krylov_solver_factory(
             status = int32(0)
 
         iters_count = int32(0)
+        total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
             if all_sync(mask, status >= 0):
@@ -177,8 +186,11 @@ def newton_krylov_solver_factory(
                     residual,
                     delta,
                 )
-                if lin_return != int32(0):
-                    status = int32(lin_return)
+                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
+                total_krylov_iters += krylov_iters
+                lin_status = lin_return & int32(0xFFFF)
+                if lin_status != int32(0):
+                    status = int32(lin_status)
 
             scale = typed_one
             scale_applied = typed_zero
@@ -233,7 +245,10 @@ def newton_krylov_solver_factory(
         if status < 0:
             status = int32(2)
 
-        status |= (iters_count + 1) << 16
+        counters[0] = iters_count
+        counters[1] = total_krylov_iters
+
+        status |= iters_count << 16
         return status
 
 

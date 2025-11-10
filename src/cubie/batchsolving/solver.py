@@ -678,6 +678,11 @@ class Solver:
         return self.kernel.observable_summaries
 
     @property
+    def iteration_counters(self):
+        """Expose iteration counters at each save point."""
+        return self.kernel.iteration_counters
+
+    @property
     def parameters(self):
         """Expose parameter array used in the last run."""
         return self.kernel.parameters

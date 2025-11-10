@@ -135,6 +135,11 @@ class SolveResult:
         default=attrs.Factory(lambda: np.array([])),
         validator=val.optional(val.instance_of(np.ndarray)),
     )
+    iteration_counters: Optional[NDArray] = attrs.field(
+        default=None,
+        validator=val.optional(val.instance_of(np.ndarray)),
+        eq=attrs.cmp_using(eq=np.array_equal),
+    )
     time_domain_legend: Optional[dict[int, str]] = attrs.field(
         default=attrs.Factory(dict),
         validator=val.optional(val.instance_of(dict)),
@@ -211,11 +216,12 @@ class SolveResult:
 
         summaries_legend = cls.summary_legend_from_solver(solver)
         singlevar_summary_legend = solver.summary_legend_per_variable
-
+        
         user_arrays = cls(
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
+            iteration_counters=solver.iteration_counters,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,

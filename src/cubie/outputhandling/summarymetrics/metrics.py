@@ -10,7 +10,15 @@ from typing import Any, Callable, Optional, Union
 from warnings import warn
 from abc import abstractmethod
 import attrs
+import attrs.validators as val
+import numpy as np
 
+from cubie._utils import (
+    gttype_validator,
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 from cubie.CUDAFactory import CUDAFactory
 
 @attrs.define
@@ -29,10 +37,38 @@ class MetricFuncCache:
     save: Callable = attrs.field(default=None)
 
 @attrs.define
-class CompileSettingsPlaceholder:
-    """Placeholder container for compile settings."""
-
-    empty_dict: dict = attrs.field(factory=dict)
+class MetricConfig:
+    """Configuration for summary metric compilation.
+    
+    Attributes
+    ----------
+    dt_save
+        Time interval between saved states. Used by derivative
+        metrics to scale finite differences. Defaults to 0.01.
+    precision
+        Numerical precision for metric calculations. Defaults to
+        np.float32.
+    """
+    
+    _dt_save: float = attrs.field(
+        default=0.01,
+        validator=val.optional(gttype_validator(float, 0.0))
+    )
+    _precision: PrecisionDType = attrs.field(
+        default=np.float32,
+        converter=precision_converter,
+        validator=precision_validator,
+    )
+    
+    @property
+    def dt_save(self) -> float:
+        """Time interval between saved states."""
+        return self._dt_save
+    
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for metric calculations."""
+        return self._precision
 
 
 def register_metric(registry: "SummaryMetrics") -> Callable:
@@ -78,6 +114,10 @@ class SummaryMetric(CUDAFactory):
         Callable. Compiled CUDA device update function for the metric.
     save_device_func
         Callable. Compiled CUDA device save function for the metric.
+    dt_save
+        save interval. Defaults to 0.01.
+    precision
+        Numerical precision for metric calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -93,6 +133,8 @@ class SummaryMetric(CUDAFactory):
         buffer_size: Union[int, Callable],
         output_size: Union[int, Callable],
         name: str,
+        dt_save: float = 0.01,
+        precision: PrecisionDType = np.float32,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -106,6 +148,11 @@ class SummaryMetric(CUDAFactory):
             metric parameter.
         name
             str. Identifier used for registration.
+        dt_save
+            float. Time interval for save operations. Defaults to 0.01.
+        precision
+            PrecisionDType. Numerical precision for metric calculations.
+            Defaults to np.float32.
         """
 
         super().__init__()
@@ -114,7 +161,9 @@ class SummaryMetric(CUDAFactory):
         self.name = name
 
         # Instantiate empty settings object for CUDAFactory compatibility
-        self.setup_compile_settings(CompileSettingsPlaceholder())
+        self.setup_compile_settings(
+            MetricConfig(dt_save=dt_save, precision=precision)
+        )
 
 
     @abstractmethod
@@ -149,6 +198,31 @@ class SummaryMetric(CUDAFactory):
         """CUDA device save function for the metric."""
 
         return self.get_cached_output("save")
+
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for metric calculations."""
+        return self.compile_settings.precision
+
+    def update(self, **kwargs) -> None:
+        """Update metric compile settings.
+        
+        Parameters
+        ----------
+        **kwargs
+            Compile settings to update (e.g., dt_save=0.02).
+            
+        Returns
+        -------
+        None
+            Returns None.
+            
+        Notes
+        -----
+        Updates the MetricConfig and invalidates cache if values change.
+        Triggers recompilation on next device_function access.
+        """
+        self.update_compile_settings(kwargs, silent=True)
 
 @attrs.define
 class SummaryMetrics:
@@ -194,11 +268,49 @@ class SummaryMetrics:
         factory=dict,
         init=False,
     )
+    _combined_metrics: dict[frozenset[str], str] = attrs.field(
+        validator=attrs.validators.instance_of(dict),
+        factory=dict,
+        init=False,
+    )
 
     def __attrs_post_init__(self) -> None:
-        """Reset the parsed parameter cache."""
+        """Reset the parsed parameter cache and define combined metrics."""
 
         self._params = {}
+        # Define combined metrics registry:
+        # Maps frozenset of individual metrics to the combined metric name
+        # Only combine when ALL constituent parts are requested
+        # This ensures user gets exactly what they requested
+        self._combined_metrics = {
+            frozenset(["mean", "std", "rms"]): "mean_std_rms",
+            frozenset(["mean", "std"]): "mean_std",
+            frozenset(["std", "rms"]): "std_rms",
+            frozenset(["max", "min"]): "extrema",
+            frozenset(["dxdt_max", "dxdt_min"]): "dxdt_extrema",
+            frozenset(["d2xdt2_max", "d2xdt2_min"]): "d2xdt2_extrema",
+        }
+
+    def update(self, **kwargs) -> None:
+        """Update compile settings for all registered metrics.
+        
+        Parameters
+        ----------
+        **kwargs
+            Compile settings to update (e.g., dt_save=0.02, precision=np.float64).
+            
+        Returns
+        -------
+        None
+            Returns None.
+            
+        Notes
+        -----
+        Propagates updates to all registered metric objects.
+        Each metric invalidates its cache if values change.
+        """
+        for metric in self._metric_objects.values():
+            metric.update(**kwargs)
 
     def register_metric(self, metric: SummaryMetric) -> None:
         """Register a new summary metric with the system.
@@ -228,6 +340,62 @@ class SummaryMetrics:
         self._metric_objects[metric.name] = metric
         self._params[metric.name] = 0
 
+    def _apply_combined_metrics(self, request: list[str]) -> list[str]:
+        """Substitute individual metrics with combined metrics when beneficial.
+
+        Parameters
+        ----------
+        request
+            List of metric names to check for substitution.
+
+        Returns
+        -------
+        list[str]
+            Modified list with combined metrics substituted where applicable.
+
+        Notes
+        -----
+        Checks if subsets of requested metrics match any combined metric
+        patterns and substitutes them with the more efficient combined version.
+        Prioritizes larger combinations (more metrics combined).
+        Preserves the original order of metrics in the request.
+        """
+        result = []
+        used = set()
+        
+        # Sort by size (descending) to prefer larger combinations
+        sorted_combinations = sorted(
+            self._combined_metrics.items(),
+            key=lambda x: len(x[0]),
+            reverse=True
+        )
+        
+        # Process each metric in the original request order
+        for metric in request:
+            if metric in used:
+                # Already processed as part of a combination
+                continue
+                
+            # Check if this metric is part of any combination
+            combined_found = False
+            for metric_set, combined_name in sorted_combinations:
+                if metric in metric_set and metric_set.issubset(request):
+                    # Check if combined metric is registered and not already used
+                    if combined_name in self._names and combined_name not in result:
+                        result.append(combined_name)
+                        used.update(metric_set)
+                        # Add parameter entry for combined metric (always 0)
+                        self._params[combined_name] = 0
+                        combined_found = True
+                        break
+            
+            if not combined_found:
+                # No combination found, add the metric as-is
+                result.append(metric)
+                used.add(metric)
+        
+        return result
+
     def preprocess_request(self, request: list[str]) -> list[str]:
         """Parse parameters from metric specifications and validate.
 
@@ -240,14 +408,20 @@ class SummaryMetrics:
         Returns
         -------
         list[str]
-            Validated metric names after parameter parsing.
+            Validated metric names after parameter parsing and combined
+            metric substitution.
 
         Notes
         -----
         Invalid metric names trigger a warning and are removed from the
-        returned list.
+        returned list. Combined metrics are automatically substituted when
+        multiple individual metrics can be computed more efficiently together.
         """
         clean_request = self.parse_string_for_params(request)
+        
+        # Apply combined metric substitutions
+        clean_request = self._apply_combined_metrics(clean_request)
+        
         # Validate that all metrics exist and filter out unregistered ones
         validated_request = []
         for metric in clean_request:

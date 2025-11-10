@@ -528,6 +528,9 @@ class BatchOutputSizes(ArraySizingClass):
     status_codes: Tuple[int] = attrs.field(
         default=(1,), validator=attrs.validators.instance_of(Tuple)
     )
+    iteration_counters: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 4), validator=attrs.validators.instance_of(Tuple)
+    )
     stride_order: Tuple[str, ...] = attrs.field(
         default=("time", "run", "variable"),
         validator=attrs.validators.deep_iterable(
@@ -580,11 +583,21 @@ class BatchOutputSizes(ArraySizingClass):
             single_run_sizes.observable_summaries[1],
         )
         status_codes = (num_runs,)
+        
+        # Iteration counters have shape (n_runs, n_saves, 4)
+        # where 4 is for [Newton, Krylov, steps, rejections]
+        iteration_counters = (
+            num_runs,
+            single_run_sizes.state[0],  # n_saves
+            4,
+        )
+        
         obj = cls(
             state,
             observables,
             state_summaries,
             observable_summaries,
             status_codes,
+            iteration_counters,
         )
         return obj

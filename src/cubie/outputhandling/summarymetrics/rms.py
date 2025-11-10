@@ -48,11 +48,13 @@ class RMS(SummaryMetric):
         save callback computes the RMS and clears the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
-                "float32, float32[::1], int64, int64",
-                "float64, float64[::1], int64, int64",
+                "float32, float32[::1], int32, int32",
+                "float64, float64[::1], int32, int32",
             ],
             device=True,
             inline=True,
@@ -83,14 +85,14 @@ class RMS(SummaryMetric):
             """
             sum_of_squares = buffer[0]
             if current_index == 0:
-                sum_of_squares = 0.0
+                sum_of_squares = precision(0.0)
             sum_of_squares += value * value
             buffer[0] = sum_of_squares
 
         @cuda.jit(
             [
-                "float32[::1], float32[::1], int64, int64",
-                "float64[::1], float64[::1], int64, int64",
+                "float32[::1], float32[::1], int32, int32",
+                "float64[::1], float64[::1], int32, int32",
             ],
             device=True,
             inline=True,
@@ -120,7 +122,7 @@ class RMS(SummaryMetric):
             and resets ``buffer[0]`` for the next summary period.
             """
             output_array[0] = sqrt(buffer[0] / summarise_every)
-            buffer[0] = 0.0
+            buffer[0] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update = update, save = save)

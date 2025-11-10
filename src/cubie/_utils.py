@@ -491,6 +491,31 @@ def getype_validator(dtype, min_):
     )
 
 
+def opt_inrangetype_validator(dtype, min_, max_):
+    """Optional validator that accepts None or values in specified range."""
+    return validators.optional(inrangetype_validator(dtype, min_, max_))
+
+
+def opt_lttype_validator(dtype, max_):
+    """Optional validator that accepts None or values less than max."""
+    return validators.optional(lttype_validator(dtype, max_))
+
+
+def opt_gttype_validator(dtype, min_):
+    """Optional validator that accepts None or values greater than min."""
+    return validators.optional(gttype_validator(dtype, min_))
+
+
+def opt_letype_validator(dtype, max_):
+    """Optional validator that accepts None or values less than or equal to max."""
+    return validators.optional(letype_validator(dtype, max_))
+
+
+def opt_getype_validator(dtype, min_):
+    """Optional validator that accepts None or values greater than or equal to min."""
+    return validators.optional(getype_validator(dtype, min_))
+
+
 def ensure_nonzero_size(
     value: Union[int, Tuple[int, ...]],
 ) -> Union[int, Tuple[int, ...]]:

@@ -141,7 +141,9 @@ def inst_linear_solver_factory(
 
             iteration += int32(1)
 
-        return status
+        return_status = status
+        return_status |= (iteration + int32(1)) << 16
+        return return_status
 
     # no cover: end
     return linear_solver
@@ -293,7 +295,9 @@ def inst_linear_solver_cached_factory(
 
             iteration += int32(1)
 
-        return status
+        return_status = status
+        return_status |= (iteration + int32(1)) << 16
+        return return_status
 
     # no cover: end
     return linear_solver_cached
@@ -333,6 +337,7 @@ def inst_newton_krylov_solver_factory(
         a_ij,
         base_state,
         shared_scratch,
+        counters,
         stage_index,
         newton_initial_guesses,
         newton_iteration_guesses,
@@ -386,6 +391,7 @@ def inst_newton_krylov_solver_factory(
             status = int32(0)
 
         iters_count = int32(0)
+        total_krylov_iters = int32(0)
         mask = activemask()
         stage_increment_snapshot = cuda.local.array(n, numba_precision)
         residual_snapshot = cuda.local.array(n, numba_precision)
@@ -418,8 +424,11 @@ def inst_newton_krylov_solver_factory(
                     linear_squared_norms,
                     linear_preconditioned_vectors,
                 )
-                if lin_return != int32(0):
-                    status = int32(lin_return)
+                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
+                total_krylov_iters += krylov_iters
+                lin_status = lin_return & int32(0xFFFF)
+                if lin_status != int32(0):
+                    status = int32(lin_status)
 
             scale = typed_one
             scale_applied = typed_zero
@@ -492,6 +501,9 @@ def inst_newton_krylov_solver_factory(
 
         if status < 0:
             status = int32(2)
+
+        counters[0] = iters_count + int32(1)
+        counters[1] = total_krylov_iters
 
         status |= (iters_count + 1) << 16
         return status

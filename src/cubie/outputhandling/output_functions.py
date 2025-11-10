@@ -7,7 +7,7 @@ helper factories consume an :class:`~cubie.outputhandling.output_config.OutputCo
 instance so the compiled functions always reflect the active configuration.
 """
 
-from typing import Callable, Sequence, Union
+from typing import Callable, Sequence, Union, Optional
 
 import attrs
 import numpy as np
@@ -21,6 +21,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
+from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.update_summaries import update_summary_factory
 
 
@@ -34,6 +35,8 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
+    "dt_save",  # Time interval for derivative metric scaling
+    "precision",  # Numerical precision for output calculations
 }
 
 
@@ -81,6 +84,10 @@ class OutputFunctions(CUDAFactory):
         Indices of state variables to include in summary calculations.
     summarised_observable_indices
         Indices of observable variables to include in summary calculations.
+    dt_save
+        Time interval for save operations. Defaults to None.
+    precision
+        Numerical precision for output calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -99,11 +106,16 @@ class OutputFunctions(CUDAFactory):
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
+        dt_save: Optional[float] = None,
+        precision: Optional[np.dtype] = None,
     ):
         super().__init__()
 
         if output_types is None:
             output_types = ["state"]
+
+        if precision is None:
+            precision = np.float32
 
         # Create and setup output configuration as compile settings
         config = OutputConfig.from_loop_settings(
@@ -114,6 +126,8 @@ class OutputFunctions(CUDAFactory):
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
+            dt_save=dt_save,
+            precision=precision,
         )
         self.setup_compile_settings(config)
 
@@ -190,6 +204,8 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
+        summary_metrics.update(dt_save=config.dt_save, precision=config.precision)
+
         buffer_sizes = self.summaries_buffer_sizes
 
         # Build functions using output sizes objects
@@ -199,6 +215,7 @@ class OutputFunctions(CUDAFactory):
             config.save_state,
             config.save_observables,
             config.save_time,
+            config.save_counters,
         )
 
         update_summary_metrics_func = update_summary_factory(

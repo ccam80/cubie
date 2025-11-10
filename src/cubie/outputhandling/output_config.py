@@ -15,6 +15,13 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
+from cubie._utils import (
+    gttype_validator,
+    opt_gttype_validator,
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -72,6 +79,8 @@ class OutputCompileFlags:
     summarise_state
         Whether to compute summaries for state variables. Defaults to
         ``False``.
+    save_counters
+        Whether to save iteration counters. Defaults to ``False``.
     """
 
     save_state: bool = attrs.field(
@@ -87,6 +96,9 @@ class OutputCompileFlags:
         default=False, validator=attrs.validators.instance_of(bool)
     )
     summarise_state: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    save_counters: bool = attrs.field(
         default=False, validator=attrs.validators.instance_of(bool)
     )
 
@@ -115,6 +127,10 @@ class OutputConfig:
         *saved_observable_indices*.
     output_types
         Requested output type names, including summary metric identifiers.
+    dt_save
+        Time between saved samples. Defaults to 0.01 seconds.
+    precision
+        Numerical precision for output calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -157,8 +173,18 @@ class OutputConfig:
     _save_state: bool = attrs.field(default=True, init=False)
     _save_observables: bool = attrs.field(default=True, init=False)
     _save_time: bool = attrs.field(default=False, init=False)
+    _save_counters: bool = attrs.field(default=False, init=False)
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
+    )
+    _dt_save: float = attrs.field(
+        default=0.01,
+        validator=opt_gttype_validator(float, 0.0)
+    )
+    _precision: PrecisionDType = attrs.field(
+        default=np.float32,
+        converter=precision_converter,
+        validator=precision_validator,
     )
 
     def __attrs_post_init__(self) -> None:
@@ -225,12 +251,13 @@ class OutputConfig:
             self._save_state
             or self._save_observables
             or self._save_time
+            or self._save_counters
             or self.save_summaries
         )
         if not any_output:
             raise ValueError(
                 "At least one output type must be enabled (state, "
-                "observables, time, summaries)"
+                "observables, time, iteration_counters, summaries)"
             )
 
     def _check_saved_indices(self) -> None:
@@ -373,6 +400,11 @@ class OutputConfig:
         return self._save_time
 
     @property
+    def save_counters(self) -> bool:
+        """Whether iteration counters should be saved."""
+        return self._save_counters
+
+    @property
     def save_summaries(self) -> bool:
         """Whether any summary metric is configured."""
         return len(self._summary_types) > 0
@@ -403,6 +435,7 @@ class OutputConfig:
             summarise=self.save_summaries,
             summarise_observables=self.summarise_observables,
             summarise_state=self.summarise_state,
+            save_counters=self.save_counters,
         )
 
     @property
@@ -611,6 +644,16 @@ class OutputConfig:
         return summary_metrics.params(list(self._summary_types))
 
     @property
+    def dt_save(self) -> float:
+        """Time interval between saved states."""
+        return self._dt_save
+
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for output calculations."""
+        return self._precision
+
+    @property
     def summaries_buffer_height_per_var(self) -> int:
         """
         Calculate buffer size per variable for summary calculations.
@@ -782,12 +825,14 @@ class OutputConfig:
             self._save_state = False
             self._save_observables = False
             self._save_time = False
+            self._save_counters = False
 
         else:
             self._output_types = output_types
             self._save_state = "state" in output_types
             self._save_observables = "observables" in output_types
             self._save_time = "time" in output_types
+            self._save_counters = "iteration_counters" in output_types
 
             summary_types = []
             for output_type in output_types:
@@ -798,7 +843,7 @@ class OutputConfig:
                     )
                 ):
                     summary_types.append(output_type)
-                elif output_type in ["state", "observables", "time"]:
+                elif output_type in ["state", "observables", "time", "iteration_counters"]:
                     continue
                 else:
                     warn(
@@ -820,6 +865,8 @@ class OutputConfig:
         summarised_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
         max_states: int = 0,
         max_observables: int = 0,
+        dt_save: Optional[float] = 0.01,
+        precision: Optional[np.dtype] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -843,6 +890,11 @@ class OutputConfig:
             Total number of state variables in the system.
         max_observables
             Total number of observable variables in the system.
+        dt_save
+            Time interval between saved states. Defaults to ``0.01`` if
+        precision
+            Numerical precision for output calculations. Defaults to
+            ``np.float32`` if not provided.
 
         Returns
         -------
@@ -868,6 +920,9 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
+        
+        if precision is None:
+            precision = np.float32
 
         return cls(
             max_states=max_states,
@@ -877,4 +932,6 @@ class OutputConfig:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
+            dt_save=dt_save,
+            precision=precision,
         )

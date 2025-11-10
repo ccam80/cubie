@@ -314,6 +314,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             state_summaries_buffer_height=state_summaries_buffer_height,
             observable_summaries_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
+            save_counters=compile_flags.save_counters,
         )
         local_indices = LoopLocalIndices.from_sizes(
             controller_len=controller_local_elements,
@@ -426,6 +427,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summaries_buffer_height=self._output_functions
             .observable_summaries_buffer_height,
             n_error=self.n_error,
+            save_counters=self._output_functions.compile_flags.save_counters,
         )
         local_indices = LoopLocalIndices.from_sizes(
             controller_len=self._step_controller.local_memory_elements,

@@ -27,6 +27,7 @@ def calculate_expected_summaries(
     output_types,
     summary_height_per_variable,
     precision,
+    dt_save=1.0,
 ):
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
@@ -38,6 +39,7 @@ def calculate_expected_summaries(
     - summarise_every: Number of samples to summarise over (batch size)
     - output_types: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - precision: Numpy dtype to use for the output arrays (e.g. np.float32 or np.float64)
+    - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
 
     Returns:
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
@@ -61,8 +63,8 @@ def calculate_expected_summaries(
     )
 
     for output in output_types:
-        if output.startswith("peaks"):
-            n_peaks = int(output[6:-1]) if len(output) > 6 else 0
+        if output.startswith("peaks") or output.startswith("negative_peaks"):
+            n_peaks = int(output.split('[')[1].split(']')[0]) if '[' in output else 0
         else:
             n_peaks = 0
 
@@ -70,14 +72,11 @@ def calculate_expected_summaries(
         (state, expected_state_summaries),
         (observables, expected_obs_summaries),
     ):
-        calculate_single_summary_array(
-            _input_array,
-            summarise_every,
-            summary_height_per_variable,
-            output_types,
-            output_array=_output_array,
-            n_peaks=n_peaks,
-        )
+        calculate_single_summary_array(_input_array, summarise_every,
+                                       summary_height_per_variable,
+                                       output_types,
+                                       output_array=_output_array,
+                                       dt_save=dt_save)
 
     return expected_state_summaries, expected_obs_summaries
 
@@ -88,7 +87,7 @@ def calculate_single_summary_array(
     summary_size_per_state,
     output_functions_list,
     output_array,
-    n_peaks=0,
+    dt_save=1.0,
 ):
     """Summarise states in input array in the same way that the device functions do.
 
@@ -99,6 +98,7 @@ def calculate_single_summary_array(
     - output_functions_list: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - n_peaks: Number of peaks to find in the "peaks[n]" output function
     - output_array: 2D array to store the summarised output, shape (n_items * summary_size_per_state, n_samples)
+    - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
 
     Returns:
     - None, but output_array is filled with the summarised values.
@@ -127,6 +127,8 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type.startswith("peaks"):
+                    n_peaks = output_type.split("[", 1)[1].split("]", 1)[0]
+                    n_peaks = int(n_peaks) if n_peaks else 0
                     # Use the last two samples, like the live version does
                     start_index = i * summarise_every - 2 if i > 0 else 0
                     maxima = (
@@ -164,11 +166,252 @@ def calculate_single_summary_array(
                     ] = rms
                     summary_index += 1
 
+                if output_type == "std":
+                    std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = std
+                    summary_index += 1
+
+                if output_type == "min":
+                    _min = np.min(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _min
+                    summary_index += 1
+
+                if output_type == "max_magnitude":
+                    max_mag = np.max(
+                        np.abs(input_array[start_index:end_index, j]), axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = max_mag
+                    summary_index += 1
+
+                if output_type == "extrema":
+                    _max = np.max(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _min = np.min(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _min
+                    summary_index += 2
+
+                if output_type.startswith("negative_peaks"):
+                    # Use the last two samples, like the live version does
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+                    n_peaks = output_type.split("[", 1)[1].split("]", 1)[0]
+                    n_peaks = int(n_peaks) if n_peaks else 0
+                    minima = (
+                        local_minima(
+                            input_array[start_index:end_index, j],
+                        )[:n_peaks]
+                        + start_index
+                    )
+                    output_start_index = (
+                        j * summary_size_per_state + summary_index
+                    )
+                    output_array[
+                        i,
+                        output_start_index : output_start_index + minima.size,
+                    ] = minima
+                    summary_index += n_peaks
+
+                if output_type == "mean_std_rms":
+                    _mean = np.mean(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _rms = np.sqrt(
+                        np.mean(
+                            input_array[start_index:end_index, j] ** 2, axis=0
+                        )
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _mean
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _std
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 2
+                    ] = _rms
+                    summary_index += 3
+
+                if output_type == "mean_std":
+                    _mean = np.mean(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _mean
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _std
+                    summary_index += 2
+
+                if output_type == "std_rms":
+                    _std = np.std(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    _rms = np.sqrt(
+                        np.mean(
+                            input_array[start_index:end_index, j] ** 2, axis=0
+                        )
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _std
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _rms
+                    summary_index += 2
+
+                if output_type == "dxdt_max":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_max = np.max(derivatives)
+                    else:
+                        _dxdt_max = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_max
+                    summary_index += 1
+
+                if output_type == "dxdt_min":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_min = np.min(derivatives)
+                    else:
+                        _dxdt_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_min
+                    summary_index += 1
+
+                if output_type == "dxdt_extrema":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 1:
+                        derivatives = np.diff(values) / dt_save
+                        _dxdt_max = np.max(derivatives)
+                        _dxdt_min = np.min(derivatives)
+                    else:
+                        _dxdt_max = 0.0
+                        _dxdt_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _dxdt_max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _dxdt_min
+                    summary_index += 2
+
+                if output_type == "d2xdt2_max":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_max = np.max(second_derivatives)
+                    else:
+                        _d2xdt2_max = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_max
+                    summary_index += 1
+
+                if output_type == "d2xdt2_min":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_min = np.min(second_derivatives)
+                    else:
+                        _d2xdt2_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_min
+                    summary_index += 1
+
+                if output_type == "d2xdt2_extrema":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
+                    values = input_array[start_index:end_index, j]
+                    if len(values) > 2:
+                        dt_save_sq = dt_save * dt_save
+                        # Vectorized calculation matching np.diff
+                        v2 = values[2:]
+                        v1 = values[1:-1]
+                        v0 = values[:-2]
+                        second_derivatives = (v2 - 2.0 * v1 + v0) / dt_save_sq
+                        _d2xdt2_max = np.max(second_derivatives)
+                        _d2xdt2_min = np.min(second_derivatives)
+                    else:
+                        _d2xdt2_max = 0.0
+                        _d2xdt2_min = 0.0
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _d2xdt2_max
+                    output_array[
+                        i, j * summary_size_per_state + summary_index + 1
+                    ] = _d2xdt2_min
+                    summary_index += 2
+
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     return (
         np.flatnonzero(
             (signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])
+        )
+        + 1
+    )
+
+
+def local_minima(signal: np.ndarray) -> np.ndarray:
+    return (
+        np.flatnonzero(
+            (signal[1:-1] < signal[:-2]) & (signal[1:-1] < signal[2:])
         )
         + 1
     )
@@ -336,6 +579,7 @@ class LoopRunResult:
     state_summaries: Array
     observable_summaries: Array
     status: int
+    counters: Array = None
 
 
 def run_device_loop(
@@ -380,6 +624,9 @@ def run_device_loop(
     observable_summary_output = np.zeros(
         (summary_samples, observable_summary_width), dtype=precision
     )
+    
+    # Iteration counters output (4 counters per save)
+    counters_output = np.zeros((save_samples, 4), dtype=np.int32)
 
     params = np.array(
         system.parameters.values_array,
@@ -405,6 +652,7 @@ def run_device_loop(
     d_obs_out = cuda.to_device(observables_output)
     d_state_sum = cuda.to_device(state_summary_output)
     d_obs_sum = cuda.to_device(observable_summary_output)
+    d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
     shared_elements = sharedmem_required
@@ -422,6 +670,7 @@ def run_device_loop(
         obs_out_arr,
         state_sum_arr,
         obs_sum_arr,
+        counters_out_arr,
         status_arr,
     ):
         idx = cuda.grid(1)
@@ -442,6 +691,7 @@ def run_device_loop(
             obs_out_arr,
             state_sum_arr,
             obs_sum_arr,
+            counters_out_arr,
             precision(duration),
             precision(warmup),
             precision(0.0),
@@ -455,6 +705,7 @@ def run_device_loop(
         d_obs_out,
         d_state_sum,
         d_obs_sum,
+        d_counters_out,
         d_status,
     )
     cuda.synchronize()
@@ -463,6 +714,7 @@ def run_device_loop(
     observables_host = d_obs_out.copy_to_host()
     state_summary_host = d_state_sum.copy_to_host()
     observable_summary_host = d_obs_sum.copy_to_host()
+    counters_host = d_counters_out.copy_to_host()
     status_value = int(d_status.copy_to_host()[0])
 
     return LoopRunResult(
@@ -470,6 +722,7 @@ def run_device_loop(
         observables=observables_host,
         state_summaries=state_summary_host,
         observable_summaries=observable_summary_host,
+        counters=counters_host,
         status=status_value,
     )
 
@@ -507,17 +760,16 @@ def assert_integration_outputs(
         )
 
     if flags.save_state:
-            assert_allclose(
-                state_dev,
-                state_ref,
-                rtol=rtol,
-                atol=atol,
-                verbose=True,
-                err_msg="state mismatch.\n"
-                f"device: {state_dev}\nreference: {state_ref}\ndelta (ref - "
-                        f"dev): {state_ref - state_dev}\n",
-            )
-
+        assert_allclose(
+            state_dev,
+            state_ref,
+            rtol=rtol,
+            atol=atol,
+            verbose=True,
+            err_msg="state mismatch.\n"
+            f"device: {state_dev}\nreference: {state_ref}\ndelta (ref - "
+            f"dev): {state_ref - state_dev}\n",
+        )
 
     if flags.save_observables:
         assert_allclose(
@@ -536,7 +788,7 @@ def assert_integration_outputs(
             reference.state_summaries,
             rtol=rtol,
             atol=atol,
-            err_msg="observables_summary mismatch.\n"
+            err_msg="state summaries mismatch.\n"
                     f"device: {device.state_summaries}\n"
                     f"reference: {reference.state_summaries}")
 
@@ -546,7 +798,7 @@ def assert_integration_outputs(
             reference.observable_summaries,
             rtol=rtol,
             atol=atol,
-            err_msg="state_summary mismatch.\n"
+            err_msg="observable summary mismatch.\n"
             f"device: {device.observable_summaries}\n"
             f"reference: {reference.observable_summaries}",
         )

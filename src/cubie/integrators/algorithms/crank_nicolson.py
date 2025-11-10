@@ -176,6 +176,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -196,6 +197,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             """Advance the state using Crank–Nicolson with embedded error check.
 
@@ -280,6 +282,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                counters,
             )
 
             for i in range(n):
@@ -296,6 +299,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                counters,
             ) & int32(0xFFFF)  # don't record Newton iterations for error check
 
             # Compute error as difference between Crank-Nicolson and Backward Euler

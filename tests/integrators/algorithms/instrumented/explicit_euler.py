@@ -101,6 +101,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -138,6 +139,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             typed_zero = numba_precision(0.0)
             step_size = cached_dt

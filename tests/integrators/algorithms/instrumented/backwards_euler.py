@@ -183,6 +183,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -220,6 +221,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
@@ -262,6 +264,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                counters,
                 int32(0),
                 newton_initial_guesses,
                 newton_iteration_guesses,

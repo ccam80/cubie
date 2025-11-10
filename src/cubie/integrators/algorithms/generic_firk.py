@@ -383,6 +383,7 @@ class FIRKStep(ODEImplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
@@ -403,6 +404,7 @@ class FIRKStep(ODEImplicitStep):
             accepted_flag,
             shared,
             persistent_local,
+            counters,
         ):
             stage_state = cuda.local.array(n, numba_precision)
 
@@ -452,6 +454,7 @@ class FIRKStep(ODEImplicitStep):
                 typed_zero,
                 state,
                 solver_scratch,
+                counters,
             )
 
             for stage_idx in range(stage_count):

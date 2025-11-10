@@ -18,6 +18,8 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
+    opt_getype_validator,
+    opt_gttype_validator,
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
@@ -53,10 +55,10 @@ class LoopLocalIndices:
     )
     algorithm: Optional[slice] = field(default=None, validator=valid_opt_slice)
     loop_end: Optional[int] = field(
-        default=None, validator=validators.optional(getype_validator(int, 0))
+        default=None, validator=opt_getype_validator(int, 0)
     )
     total_end: Optional[int] = field(
-        default=None, validator=validators.optional(getype_validator(int, 0))
+        default=None, validator=opt_getype_validator(int, 0)
     )
     all: Optional[slice] = field(default=None, validator=valid_opt_slice)
 
@@ -154,6 +156,10 @@ class LoopSharedIndices:
         Slice covering aggregated observable summaries.
     error
         Slice covering the shared error buffer reused by adaptive algorithms.
+    counters
+        Slice covering the iteration counters buffer.
+    proposed_counters
+        Slice covering the proposed iteration counters buffer.
     local_end
         Offset of the end of loop-managed shared memory.
     scratch
@@ -202,9 +208,17 @@ class LoopSharedIndices:
             default=None,
             validator=valid_opt_slice
     )
+    counters: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
+    proposed_counters: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
     local_end: Optional[int] = field(
             default=None,
-            validator=validators.optional(getype_validator(int, 0))
+            validator=opt_getype_validator(int, 0)
     )
     scratch: Optional[slice] = field(
             default=None,
@@ -244,6 +258,7 @@ class LoopSharedIndices:
                    state_summaries_buffer_height: int,
                    observable_summaries_buffer_height: int,
                    n_error: int = 0,
+                   save_counters: bool = False,
                    ) -> "LoopSharedIndices":
         """Build index slices from component sizes.
 
@@ -261,6 +276,8 @@ class LoopSharedIndices:
             Number of state summary buffer elements.
         observable_summaries_buffer_height
             Number of observable summary buffer elements.
+        save_counters
+            Whether to allocate space for iteration counters.
 
         Returns
         -------
@@ -287,6 +304,18 @@ class LoopSharedIndices:
             obs_summ_start_index + observable_summaries_buffer_height
         )
         error_stop_index = error_start_index + n_error
+        
+        # Add counters if enabled
+        # counters_since_save has 4 elements: newton, krylov, steps, rejections
+        # proposed_counters has 2 elements: newton, krylov (from step function)
+        counters_since_save_size = 4 if save_counters else 0
+        proposed_counters_size = 2 if save_counters else 0
+        counters_start_index = error_stop_index
+        counters_stop_index = counters_start_index + counters_since_save_size
+        proposed_counters_start_index = counters_stop_index
+        proposed_counters_stop_index = proposed_counters_start_index + proposed_counters_size
+        
+        final_stop_index = proposed_counters_stop_index
 
         return cls(
             state=slice(state_start_idx, state_proposal_start_idx),
@@ -305,8 +334,10 @@ class LoopSharedIndices:
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
             observable_summaries=slice(obs_summ_start_index, error_start_index),
             error=slice(error_start_index, error_stop_index),
-            local_end=error_stop_index,
-            scratch=slice(error_stop_index, None),
+            counters=slice(counters_start_index, counters_stop_index),
+            proposed_counters=slice(proposed_counters_start_index, proposed_counters_stop_index),
+            local_end=final_stop_index,
+            scratch=slice(final_stop_index, None),
             all=slice(None),
         )
 
@@ -335,6 +366,11 @@ class LoopSharedIndices:
     def n_observables(self) -> int:
         """Return the number of observables."""
         return int(self.observables.stop - self.observables.start)
+
+    @property
+    def n_counters(self) -> int:
+        """Return the number of counter elements (4 if enabled, 0 if not)."""
+        return int(self.counters.stop - self.counters.start)
 
 
 @define
@@ -433,15 +469,15 @@ class ODELoopConfig:
     )
     _dt0: Optional[float] = field(
         default=0.01,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     _dt_min: Optional[float] = field(
         default=0.01,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     _dt_max: Optional[float] = field(
         default=0.1,
-        validator=validators.optional(gttype_validator(float, 0)),
+        validator=opt_gttype_validator(float, 0),
     )
     is_adaptive: Optional[bool] = field(
             default=False,
