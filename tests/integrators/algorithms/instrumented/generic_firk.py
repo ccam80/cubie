@@ -237,6 +237,15 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        # Last-step caching optimization (issue #163):
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        # accumulates_output = 1
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         solver_shared_elements = self.solver_shared_elements
@@ -322,26 +331,33 @@ class FIRKStep(ODEImplicitStep):
             stage_state = cuda.local.array(n, numba_precision)
             observable_count = proposed_observables.shape[0]
 
-            dt_value = numba_precision(dt_scalar)
+            # Use compile-time constant dt if fixed controller, else runtime dt
+            if is_controller_fixed:
+                dt_value = dt_compile
+            else:
+                dt_value = dt_scalar
+
+            current_time = time_scalar
             end_time = time_scalar + dt_value
-            status_code = int32(0)
 
             stage_increment = shared[stages_start:stages_end]
             stage_driver_stack = shared[drivers_start:drivers_end]
             solver_scratch = shared[:solver_shared_elements]
             stage_rhs_flat = solver_scratch[:all_stages_n]
+            status_code = int32(0)
 
             for idx in range(n):
-                proposed_state[idx] = state[idx]
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] = state[idx]
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
 
             if has_driver_function:
-                for driver_idx in range(stage_count):
+                for stage_idx in range(stage_count):
                     stage_time = time_scalar + (
-                        stage_time_fractions[driver_idx] * dt_value
+                        stage_time_fractions[stage_idx] * dt_value
                     )
-                    driver_offset = driver_idx * n_drivers
+                    driver_offset = stage_idx * n_drivers
                     driver_slice = stage_driver_stack[
                         driver_offset : driver_offset + n_drivers
                     ]
@@ -355,7 +371,7 @@ class FIRKStep(ODEImplicitStep):
                 stage_increment,
                 parameters,
                 stage_driver_stack,
-                time_scalar,
+                current_time,
                 dt_value,
                 typed_zero,
                 state,
@@ -375,8 +391,8 @@ class FIRKStep(ODEImplicitStep):
             status_code |= solver_ret
 
             for stage_idx in range(stage_count):
-                stage_time = time_scalar + (
-                    stage_time_fractions[stage_idx] * dt_value
+                stage_time = (
+                    current_time + dt_value * stage_time_fractions[stage_idx]
                 )
 
                 if has_driver_function:
@@ -384,67 +400,88 @@ class FIRKStep(ODEImplicitStep):
                     stage_slice = stage_driver_stack[
                         stage_base:stage_base + n_drivers
                     ]
-                    for idx in range (n_drivers):
+                    for idx in range(n_drivers):
                         proposed_drivers[idx] = stage_slice[idx]
 
-                for comp_idx in range(n):
-                    value = state[comp_idx]
+                for idx in range(n):
+                    value = state[idx]
                     for contrib_idx in range(stage_count):
                         coeff = stage_rhs_coeffs[stage_idx][contrib_idx]
                         if coeff != typed_zero:
                             value += (
-                                coeff
-                                * stage_increment[
-                                    contrib_idx * n + comp_idx
-                                ]
+                                coeff * stage_increment[contrib_idx * n + idx]
                             )
-                    stage_state[comp_idx] = value
+                    stage_state[idx] = value
 
                 for idx in range(n):
                     stage_states[stage_idx, idx] = stage_state[idx]
                     stage_increments[stage_idx, idx] = stage_increment[stage_idx * n + idx]
                     jacobian_updates[stage_idx, idx] = typed_zero
 
-                observables_function(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
 
-                for obs_idx in range(observable_count):
-                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
+                # Capture precalculated outputs if tableau allows
+                if not accumulates_output:
+                    if b_row == stage_idx:
+                        for idx in range(n):
+                            proposed_state[idx] = stage_state[idx]
+                if not accumulates_error:
+                    if b_hat_row == stage_idx:
+                        for idx in range(n):
+                            error[idx] = stage_state[idx]
 
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + 1) * n
-                ]
-                dxdt_fn(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
+                # If error and output can be derived from stage_state,
+                # don't bother evaluating f at each stage.
+                do_more_work = (
+                    has_error and accumulates_error
+                ) or accumulates_output
 
+                if do_more_work:
+                    observables_function(
+                        stage_state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_time,
+                    )
+
+                    for obs_idx in range(observable_count):
+                        stage_observables[stage_idx, obs_idx] = (
+                            proposed_observables[obs_idx]
+                        )
+
+                    stage_rhs = stage_rhs_flat[stage_idx * n : (stage_idx + 1) * n]
+                    dxdt_fn(
+                            stage_state,
+                            parameters,
+                            proposed_drivers,
+                            proposed_observables,
+                            stage_rhs,
+                            stage_time,
+                    )
+
+            #use a Kahan summation algorithm to reduce floating point errors
+            #see https://en.wikipedia.org/wiki/Kahan_summation_algorithm
+            if accumulates_output:
                 for idx in range(n):
-                    stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                    residuals[stage_idx, idx] = solver_scratch[all_stages_n + stage_idx * n + idx]
+                    solution_acc = typed_zero
+                    compensation = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        term = (solution_weights[stage_idx] * rhs_value -
+                                compensation)
+                        temp = solution_acc + term
+                        compensation = (temp - solution_acc) - term
+                        solution_acc += solution_weights[stage_idx] * rhs_value
+                    proposed_state[idx] = state[idx] + solution_acc * dt_value
 
-            for comp_idx in range(n):
-                solution_acc = typed_zero
-                error_acc = typed_zero
-                for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + comp_idx]
-                    solution_acc += solution_weights[stage_idx] * rhs_value
-                    if has_error:
+            if has_error and accumulates_error:
+                # Standard accumulation path for error
+                for idx in range(n):
+                    error_acc = typed_zero
+                    for stage_idx in range(stage_count):
+                        rhs_value = stage_rhs_flat[stage_idx * n + idx]
                         error_acc += error_weights[stage_idx] * rhs_value
-                proposed_state[comp_idx] = (
-                    state[comp_idx] + dt_value * solution_acc
-                )
-                if has_error:
-                    error[comp_idx] = dt_value * error_acc
+                    error[idx] = dt_value * error_acc
 
             if not ends_at_one:
                 if has_driver_function:
@@ -461,6 +498,10 @@ class FIRKStep(ODEImplicitStep):
                     proposed_observables,
                     end_time,
                 )
+
+            if not accumulates_error:
+                for idx in range(n):
+                    error[idx] = proposed_state[idx] - error[idx]
 
             return status_code
 

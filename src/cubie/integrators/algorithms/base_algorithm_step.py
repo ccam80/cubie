@@ -154,13 +154,104 @@ class ButcherTableau:
 
         return bool(self.c
                     and self.c[0] == 0.0 and self.c[-1] == 1.0
-                    and self.a[0][0] == 0.0)
+                    and self.a[-1] == self.b)
 
     @property
     def can_reuse_accepted_start(self) -> bool:
         """Return ``True`` when an accepted step can reuse the start state."""
 
         return bool(self.c and (self.c[0] == 0.0))
+
+    @property
+    def accumulates_output(self) -> bool:
+        """Returns `False` if one stage's state equals the output. """
+        return self.b_matches_a_row is None
+
+    @property
+    def accumulates_error(self) -> bool:
+        """Returns `False` if one stage's error equals the output. """
+        return self.b_hat_matches_a_row is None
+
+    def _find_matching_row(
+        self, target_weights: Optional[Tuple[float, ...]]
+    ) -> Optional[int]:
+        """Find row in coupling matrix that matches target weights.
+
+        Parameters
+        ----------
+        target_weights : Optional[Tuple[float, ...]]
+            Weight vector to match against rows of coupling matrix `a`.
+            If None, returns None immediately.
+
+        Returns
+        -------
+        Optional[int]
+            Zero-based row index where a[row] matches target_weights
+            within tolerance of 1e-15. If multiple rows match, returns
+            the last matching row. Returns None if no match found.
+        """
+        if target_weights is None:
+            return None
+
+        tolerance = 1e-15
+        stage_count = self.stage_count
+        matching_row = None
+
+        # Iterate through all rows to find matches, preferring the last
+        for row_idx in range(len(self.a)):
+            row = self.a[row_idx]
+            # Compare only up to stage_count elements
+            row_slice = row[:stage_count]
+            target_slice = target_weights[:stage_count]
+
+            # Check element-wise equality within tolerance
+            matches = True
+            for i in range(stage_count):
+                if abs(row_slice[i] - target_slice[i]) > tolerance:
+                    matches = False
+                    break
+
+            if matches:
+                matching_row = row_idx
+
+        return matching_row
+
+    @property
+    def b_matches_a_row(self) -> Optional[int]:
+        """Return row index where a[row] equals b, or None if no match.
+
+        This property identifies tableaus where the last stage increment
+        already contains the exact combination needed for the proposed
+        state, enabling compile-time optimization to avoid redundant
+        accumulation.
+
+        Returns
+        -------
+        Optional[int]
+            Zero-based row index where a[row] matches b within tolerance
+            of 1e-15, preferring the last matching row if multiple exist.
+            Returns None if no match is found.
+        """
+        return self._find_matching_row(self.b)
+
+    @property
+    def b_hat_matches_a_row(self) -> Optional[int]:
+        """Return row index where a[row] equals b_hat, or None if no match.
+
+        This property identifies tableaus where a stage increment already
+        contains the exact combination needed for the embedded error
+        estimate, enabling compile-time optimization to avoid redundant
+        accumulation.
+
+        Returns
+        -------
+        Optional[int]
+            Zero-based row index where a[row] matches b_hat within
+            tolerance of 1e-15, preferring the last matching row if
+            multiple exist. Returns None if b_hat is None or no match
+            is found.
+        """
+        return self._find_matching_row(self.b_hat)
 
 
 @attrs.define

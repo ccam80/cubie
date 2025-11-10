@@ -360,6 +360,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        # Last-step caching optimization (issue #163):
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
 
         stage_buffer_n = stage_count * n
         cached_auxiliary_count = self.cached_auxiliary_count
@@ -444,7 +451,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 final_stage_base : final_stage_base + n
             ]
 
-            idt = numba_precision(1.0) / dt_value
+            inv_dt = numba_precision(1.0) / dt_value
 
             prepare_jacobian(
                 state,
@@ -510,10 +517,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 stage_rhs[idx] = rhs_value * gamma
 
+            # Create an unused reference for solver signature consistency.
+            base_state_placeholder = shared[0:0]
 
             # Use stored copy as the initial guess for the first stage.
-
-            base_state_placeholder = shared[0:0]
             status_code |= linear_solver(
                 state,
                 parameters,
@@ -528,8 +535,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                proposed_state[idx] += stage_increment[idx] * solution_weights[0]
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] += stage_increment[idx] * solution_weights[0]
+                if has_error and accumulates_error:
                     error[idx] += stage_increment[idx] * error_weights[0]
 
             # --------------------------------------------------------------- #
@@ -580,6 +588,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_time,
                 )
 
+                # Capture precalculated outputs here, before overwrite
+                # i.e. sum[i<j](a_ij * y_nj)
+                # if not accumulates output, b_row never == stage_idx.
+                if b_row == stage_idx:
+                    for idx in range(n):
+                        proposed_state[idx] = stage_slice[idx]
+                if b_hat_row == stage_idx:
+                    for idx in range(n):
+                        error[idx] = stage_slice[idx]
+
+                # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - 1:
                     if has_driver_function:
                         driver_del_t(
@@ -611,8 +630,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
-                    stage_rhs[idx] = (correction * idt + f_stage_val +
-                                      deriv_val) * dt_value * gamma
+                    rhs_value = f_stage_val + correction * inv_dt + deriv_val
+                    stage_rhs[idx] = rhs_value * dt_value * gamma
+
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_slice
@@ -635,20 +655,25 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_increment,
                 )
 
-                solution_weight = solution_weights[stage_idx]
-                error_weight = error_weights[stage_idx]
-                for idx in range(n):
-                    increment = stage_increment[idx]
-                    proposed_state[idx] += solution_weight * increment
-                    if has_error:
-                        error[idx] += error_weight * increment
+                if accumulates_output:
+                    # Standard accumulation path for proposed_state
+                    solution_weight = solution_weights[stage_idx]
+                    for idx in range(n):
+                        increment = stage_increment[idx]
+                        proposed_state[idx] += solution_weight * increment
+
+                if has_error:
+                    if accumulates_error:
+                        # Standard accumulation path for error
+                        error_weight = error_weights[stage_idx]
+                        for idx in range(n):
+                            increment = stage_increment[idx]
+                            error[idx] += error_weight * increment
 
             # ----------------------------------------------------------- #
-            # Apply final dt scaling at end to reduce round-off error
-            # for idx in range(n):
-            #     proposed_state[idx] *= dt_value
-            #     if has_error:
-            #         error[idx] *= dt_value
+            if not accumulates_error:
+                for idx in range(n):
+                    error[idx] = proposed_state[idx] - error[idx]
 
             if has_driver_function:
                 driver_function(

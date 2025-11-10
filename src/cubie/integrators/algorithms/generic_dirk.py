@@ -338,6 +338,15 @@ class DIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         diagonal_coeffs = tableau.diagonal(numba_precision)
+
+        # Last-step caching optimization (issue #163):
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
         accumulator_length = max(stage_count - 1, 0) * n
@@ -450,7 +459,7 @@ class DIRKStep(ODEImplicitStep):
                 stage_base = cuda.local.array(n, numba_precision)
 
             for idx in range(n):
-                if has_error:
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
                 stage_increment[idx] = increment_cache[idx] # cache spent
 
@@ -477,9 +486,9 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(n):
                 stage_base[idx] = state[idx]
-                proposed_state[idx] = typed_zero
+                if accumulates_output:
+                    proposed_state[idx] = typed_zero
 
-            # Only caching achievable is reusing rhs for FSAL
             if use_cached_rhs:
                 # RHS is aliased onto solver scratch cache at step-end
                 pass
@@ -537,10 +546,21 @@ class DIRKStep(ODEImplicitStep):
             error_weight = error_weights[0]
             for idx in range(n):
                 rhs_value = stage_rhs[idx]
-                proposed_state[idx] += solution_weight * rhs_value
+                # Accumulate if required; save directly if tableau allows
+                if accumulates_output:
+                    # Standard accumulation
+                    proposed_state[idx] += solution_weight * rhs_value
+                elif b_row == 0:
+                    # Direct assignment when stage 0 matches b_row
+                    proposed_state[idx] = stage_base[idx]
                 if has_error:
-                    error[idx] += error_weight * rhs_value
-                            
+                    if accumulates_error:
+                        # Standard accumulation
+                        error[idx] += error_weight * rhs_value
+                    elif b_hat_row == 0:
+                        # Direct assignment for error
+                        error[idx] = stage_base[idx]
+                        
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
 
@@ -614,18 +634,30 @@ class DIRKStep(ODEImplicitStep):
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
                 for idx in range(n):
-                    rhs_value = stage_rhs[idx]
-                    proposed_state[idx] += solution_weight * rhs_value
+                    increment = stage_rhs[idx]
+                    if accumulates_output:
+                        proposed_state[idx] += solution_weight * increment
+                    elif b_row == stage_idx:
+                        proposed_state[idx] = stage_base[idx]
+
                     if has_error:
-                        error[idx] += error_weight * rhs_value
+                        if accumulates_error:
+                            error[idx] += error_weight * increment
+                        elif b_hat_row == stage_idx:
+                            # Direct assignment for error
+                            error[idx] = stage_base[idx]
 
             # --------------------------------------------------------------- #
 
             for idx in range(n):
-                proposed_state[idx] *= dt_value
-                proposed_state[idx] += state[idx]
+                if accumulates_output:
+                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] += state[idx]
                 if has_error:
-                    error[idx] *= dt_value
+                    if accumulates_error:
+                        error[idx] *= dt_value
+                    else:
+                        error[idx] = proposed_state[idx] - error[idx]
 
             if has_driver_function:
                 driver_function(

@@ -262,10 +262,22 @@ class ERKStep(ODEExplicitStep):
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
-        error_weights = tableau.error_weights(numba_precision)
-        if error_weights is None or not has_error:
+        stage_nodes = tableau.typed_vector(tableau.c, numba_precision)
+
+        if has_error:
+            embedded_weights = tableau.typed_vector(tableau.b_hat, numba_precision)
+            error_weights = tableau.error_weights(numba_precision)
+        else:
+            embedded_weights = tuple(typed_zero for _ in range(stage_count))
             error_weights = tuple(typed_zero for _ in range(stage_count))
-        stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+
+        # Last-step caching optimization (issue #163):
+        # Replace streaming accumulation with direct assignment when
+        # stage matches b or b_hat row in coupling matrix.
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
 
         # no cover: start
         @cuda.jit(
@@ -333,7 +345,8 @@ class ERKStep(ODEExplicitStep):
             #         shared memory, keeping lifetimes separate.
             # error: size n, global memory (adaptive runs only).
             #   Default behaviour:
-            #       - Accumulates weighted stage increments during the loop.
+            #       - Accumulates error-weighted f(y_jn) during the
+            #       loop.
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
@@ -343,6 +356,7 @@ class ERKStep(ODEExplicitStep):
                 dt_value = dt_compile
             else:
                 dt_value = dt_scalar
+
             current_time = time_scalar
             end_time = current_time + dt_value
 
@@ -351,11 +365,11 @@ class ERKStep(ODEExplicitStep):
                 stage_cache = stage_accumulator[:n]
 
             for idx in range(n):
-                proposed_state[idx] = typed_zero
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] = typed_zero
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
 
-            status_code = int32(0)
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
@@ -392,11 +406,15 @@ class ERKStep(ODEExplicitStep):
                     current_time,
                 )
 
+            # b weights can't match a rows for erk, as they would return 0
+            # So we include ifs to skip accumulating but do no direct assign.
             for idx in range(n):
                 increment = stage_rhs[idx]
-                proposed_state[idx] += solution_weights[0] * increment
+                if accumulates_output:
+                    proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
-                    error[idx] += error_weights[0] * increment
+                    if accumulates_error:
+                        error[idx] += error_weights[0] * increment
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -421,18 +439,19 @@ class ERKStep(ODEExplicitStep):
                         stage_accumulator[base + idx] += contribution
 
                 stage_offset = (stage_idx - 1) * n
-                stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
-                )
+                dt_stage = dt_value * stage_nodes[stage_idx]
+                stage_time = current_time + dt_stage
 
+                # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] = (
-                        state[idx] + stage_accumulator[stage_offset + idx] *
-                        dt_value
-                    )
+                    stage_accumulator[stage_offset + idx] *= dt_value
+                    stage_accumulator[stage_offset + idx] += state[idx]
 
+                # Rename the slice for clarity
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
 
+
+                # get rhs for next stage
                 stage_drivers = proposed_drivers
                 if has_driver_function:
                     driver_function(
@@ -442,11 +461,11 @@ class ERKStep(ODEExplicitStep):
                     )
 
                 observables_function(
-                    stage_state,
-                    parameters,
-                    stage_drivers,
-                    proposed_observables,
-                    stage_time,
+                        stage_state,
+                        parameters,
+                        stage_drivers,
+                        proposed_observables,
+                        stage_time,
                 )
 
                 dxdt_fn(
@@ -458,25 +477,43 @@ class ERKStep(ODEExplicitStep):
                     stage_time,
                 )
 
+                # Accumulate f(y_jn) terms or capture direct stage state
+                solution_weight = solution_weights[stage_idx]
+                error_weight = error_weights[stage_idx]
                 for idx in range(n):
-                    increment = stage_rhs[idx]
-                    proposed_state[idx] += (
-                        solution_weights[stage_idx] * increment
-                    )
+                    if accumulates_output:
+                        increment = stage_rhs[idx]
+                        proposed_state[idx] += solution_weight * increment
+                    elif b_row == stage_idx:
+                        proposed_state[idx] = stage_state[idx]
+
                     if has_error:
-                        error[idx] += (
-                            error_weights[stage_idx] * increment
-                        )
+                        if accumulates_error:
+                            increment = stage_rhs[idx]
+                            error[idx] += error_weight * increment
+                        elif b_hat_row == stage_idx:
+                            error[idx] = stage_state[idx]
+
             # ----------------------------------------------------------- #
             for idx in range(n):
-                proposed_state[idx] *= dt_value
-                proposed_state[idx] += state[idx]
+
+                # Scale and shift f(Y_n) value if accumulated
+                if accumulates_output:
+                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] += state[idx]
+
                 if has_error:
-                    error[idx] *= dt_value
-            final_time = end_time
+                    # Scale error if accumulated
+                    if accumulates_error:
+                        error[idx] *= dt_value
+
+                    #Or form error from difference if captured from a-row
+                    else:
+                        error[idx] = proposed_state[idx] - error[idx]
+
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -486,11 +523,13 @@ class ERKStep(ODEExplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
+
             if first_same_as_last:
                 for idx in range(n):
                     stage_cache[idx] = stage_rhs[idx]
+
             return int32(0)
 
         return StepCache(step=step)
