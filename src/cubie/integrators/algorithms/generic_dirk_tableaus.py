@@ -64,12 +64,25 @@ TRAPEZOIDAL_DIRK_TABLEAU = DIRKTableau(
     b=(0.5, 0.5),
     c=(0.0, 1.0),
     order=2,
+    b_interp=(
+        (0.0, 0.0),
+        (0.5, 0.5),
+    ),
 )
 """DIRK tableau for the Crank--Nicolson (trapezoidal) rule.
 
 The first stage is explicit while the second stage is implicit, placing
 this scheme in the ESDIRK family. It is A-stable and time-reversible,
 which makes it a popular choice for moderately stiff problems.
+
+Dense output uses linear interpolation (placeholder). The interpolant
+coefficients ``b_interp`` provide 1st-order continuous extension:
+``y(t + theta*dt) = y(t) + dt * sum(b_interp_i(theta) * k_i)``
+where ``b_interp_i(theta) = b_interp[0][i] + theta*b_interp[1][i]``.
+
+NOTE: This is a placeholder using simple linear interpolation. A proper
+2nd-order Hermite interpolant would require cubic coefficients. See
+INTERPOLANTS_INVESTIGATION.md for details.
 
 References
 ----------
