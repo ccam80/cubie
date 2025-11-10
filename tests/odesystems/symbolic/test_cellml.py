@@ -31,8 +31,8 @@ def test_load_simple_cellml_model(basic_model_path):
     
     assert len(states) == 1
     assert len(equations) == 1
-    # State names include component prefix (e.g., "main$x")
-    assert "x" in states[0].name
+    # CellML state names include component prefix (e.g., "main$x")
+    assert states[0].name.endswith("$x") or states[0].name == "x"
 
 
 def test_load_complex_cellml_model(beeler_reuter_model_path):
@@ -85,7 +85,7 @@ def test_all_states_have_derivatives(beeler_reuter_model_path):
     assert derivative_vars == state_set
 
 
-def test_integration_with_symbolic_ode(basic_model_path):
+def test_equation_format_compatibility(basic_model_path):
     """Verify CellML equation format is compatible with cubie."""
     states, equations = load_cellml_model(str(basic_model_path))
     
@@ -96,4 +96,33 @@ def test_integration_with_symbolic_ode(basic_model_path):
         assert isinstance(eq.rhs, sp.Expr)
         # RHS should contain symbols
         assert len(eq.rhs.free_symbols) > 0
+
+
+def test_invalid_path_type():
+    """Verify TypeError raised for non-string path."""
+    with pytest.raises(TypeError, match="path must be a string"):
+        load_cellml_model(123)
+
+
+def test_nonexistent_file():
+    """Verify FileNotFoundError raised for missing file."""
+    with pytest.raises(FileNotFoundError, match="CellML file not found"):
+        load_cellml_model("/nonexistent/path/model.cellml")
+
+
+def test_invalid_extension():
+    """Verify ValueError raised for non-.cellml extension."""
+    import tempfile
+    import os
+    
+    # Create a temporary file with wrong extension
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml',
+                                     delete=False) as f:
+        temp_path = f.name
+    
+    try:
+        with pytest.raises(ValueError, match="must have .cellml extension"):
+            load_cellml_model(temp_path)
+    finally:
+        os.unlink(temp_path)
 
