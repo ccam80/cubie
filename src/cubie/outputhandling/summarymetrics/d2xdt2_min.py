@@ -130,8 +130,6 @@ class D2xdt2Min(SummaryMetric):
             to output_array[0], then resets buffers to sentinel values.
             """
             output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-            buffer[0] = precision(0.0)
-            buffer[1] = precision(0.0)
             buffer[2] = precision(1.0e30)
 
         # no cover: end
