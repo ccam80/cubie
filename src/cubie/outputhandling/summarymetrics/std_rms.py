@@ -149,7 +149,8 @@ class StdRms(SummaryMetric):
             output_array[0] = std
             output_array[1] = rms
             
-            buffer[0] = precision(0.0)
+            mean = shift + mean_shifted
+            buffer[0] = mean
             buffer[1] = precision(0.0)
             buffer[2] = precision(0.0)
 
