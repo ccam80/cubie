@@ -156,7 +156,7 @@ class MeanStdRms(SummaryMetric):
             output_array[1] = std
             output_array[2] = rms
             
-            buffer[0] = precision(0.0)
+            buffer[0] = mean
             buffer[1] = precision(0.0)
             buffer[2] = precision(0.0)
 
