@@ -110,11 +110,9 @@ def newton_krylov_solver_factory(
         base_state
             Reference state used when evaluating the residual.
         shared_scratch
-            Shared scratch buffer providing Newton direction, residual, and
-            evaluation state storage. The first ``n`` entries store the Newton
-            direction, the next ``n`` entries store the residual, and the final
-            ``n`` entries store the stage state ``base_state + a_ij *
-            stage_increment``.
+            Shared scratch buffer providing Newton direction and residual
+            storage. The first ``n`` entries store the Newton direction and
+            the next ``n`` entries store the residual.
         counters
             Size (2,) int32 array for iteration counters. Index 0 receives
             Newton iteration count, index 1 receives cumulative Krylov
@@ -127,20 +125,19 @@ def newton_krylov_solver_factory(
 
         Notes
         -----
-        Scratch space requirements total three vectors of length ``n`` drawn
+        Scratch space requirements total two vectors of length ``n`` drawn
         from ``shared_scratch``. No need to zero scratch space before
         passing - it's write-first in this function.
         ``delta`` is reset to zero before the first linear solve so it can be
-        reused as the Newton direction buffer. ``eval_state`` stores the stage
-        state ``base_state + a_ij * stage_increment`` for the Jacobian
-        evaluations. The linear solver is invoked on the Jacobian system
-        ``J * delta = rhs`` with ``rhs`` stored in ``residual``. The tentative
-        state updates are reverted if no acceptable backtracking step is found.
+        reused as the Newton direction buffer. The linear solver is invoked
+        on the Jacobian system ``J * delta = rhs`` with ``rhs`` stored in
+        ``residual``. Operators and residuals compute the evaluation state
+        ``base_state + a_ij * stage_increment`` inline. The tentative state
+        updates are reverted if no acceptable backtracking step is found.
         """
 
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
-        eval_state = shared_scratch[2 * n: 3 * n]
 
         residual_function(
             stage_increment,
@@ -172,11 +169,8 @@ def newton_krylov_solver_factory(
 
             iters_count += int32(1)
             if status < 0:
-                n_base = base_state.shape[0]
-                for i in range(n):
-                    eval_state[i] = base_state[i % n_base] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
-                    eval_state,
+                    stage_increment,
                     parameters,
                     drivers,
                     base_state,
