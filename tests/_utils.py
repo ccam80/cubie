@@ -72,15 +72,11 @@ def calculate_expected_summaries(
         (state, expected_state_summaries),
         (observables, expected_obs_summaries),
     ):
-        calculate_single_summary_array(
-            _input_array,
-            summarise_every,
-            summary_height_per_variable,
-            output_types,
-            output_array=_output_array,
-            n_peaks=n_peaks,
-            dt_save=dt_save,
-        )
+        calculate_single_summary_array(_input_array, summarise_every,
+                                       summary_height_per_variable,
+                                       output_types,
+                                       output_array=_output_array,
+                                       dt_save=dt_save)
 
     return expected_state_summaries, expected_obs_summaries
 
@@ -91,7 +87,6 @@ def calculate_single_summary_array(
     summary_size_per_state,
     output_functions_list,
     output_array,
-    n_peaks=0,
     dt_save=1.0,
 ):
     """Summarise states in input array in the same way that the device functions do.
@@ -132,6 +127,8 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type.startswith("peaks"):
+                    n_peaks = output_type.split("[", 1)[1].split("]", 1)[0]
+                    n_peaks = int(n_peaks) if n_peaks else 0
                     # Use the last two samples, like the live version does
                     start_index = i * summarise_every - 2 if i > 0 else 0
                     maxima = (
@@ -214,6 +211,8 @@ def calculate_single_summary_array(
                 if output_type.startswith("negative_peaks"):
                     # Use the last two samples, like the live version does
                     start_index = i * summarise_every - 2 if i > 0 else 0
+                    n_peaks = output_type.split("[", 1)[1].split("]", 1)[0]
+                    n_peaks = int(n_peaks) if n_peaks else 0
                     minima = (
                         local_minima(
                             input_array[start_index:end_index, j],
@@ -285,6 +284,9 @@ def calculate_single_summary_array(
                     summary_index += 2
 
                 if output_type == "dxdt_max":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 1:
                         derivatives = np.diff(values) / dt_save
@@ -297,6 +299,9 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type == "dxdt_min":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 1:
                         derivatives = np.diff(values) / dt_save
@@ -309,6 +314,9 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type == "dxdt_extrema":
+                    # Get sample before to simulate continuity
+                    start_index = i * summarise_every - 1 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 1:
                         derivatives = np.diff(values) / dt_save
@@ -326,6 +334,9 @@ def calculate_single_summary_array(
                     summary_index += 2
 
                 if output_type == "d2xdt2_max":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 2:
                         dt_save_sq = dt_save * dt_save
@@ -343,6 +354,9 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type == "d2xdt2_min":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 2:
                         dt_save_sq = dt_save * dt_save
@@ -360,6 +374,9 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type == "d2xdt2_extrema":
+                    # Get two samples before to simulate buffer continuity
+                    start_index = i * summarise_every - 2 if i > 0 else 0
+
                     values = input_array[start_index:end_index, j]
                     if len(values) > 2:
                         dt_save_sq = dt_save * dt_save
@@ -743,17 +760,16 @@ def assert_integration_outputs(
         )
 
     if flags.save_state:
-            assert_allclose(
-                state_dev,
-                state_ref,
-                rtol=rtol,
-                atol=atol,
-                verbose=True,
-                err_msg="state mismatch.\n"
-                f"device: {state_dev}\nreference: {state_ref}\ndelta (ref - "
-                        f"dev): {state_ref - state_dev}\n",
-            )
-
+        assert_allclose(
+            state_dev,
+            state_ref,
+            rtol=rtol,
+            atol=atol,
+            verbose=True,
+            err_msg="state mismatch.\n"
+            f"device: {state_dev}\nreference: {state_ref}\ndelta (ref - "
+            f"dev): {state_ref - state_dev}\n",
+        )
 
     if flags.save_observables:
         assert_allclose(
@@ -767,6 +783,31 @@ def assert_integration_outputs(
         )
 
     if flags.summarise_state:
+        import pandas as pd
+
+        # Summary_debug:
+        legend = list(output_functions.summary_legend_per_variable.values())
+        dev = np.asarray(device.state_summaries)
+        ref = np.asarray(reference.state_summaries)
+        delta = dev - ref
+
+        # Determine repeats and legend length
+        total = dev.shape[1]
+        n_legend = len(legend)
+        repeats = int(total/n_legend)
+
+        # Build row index: e.g. test1_0, test2_0, test1_1, ...
+        # Row index: legend_entry_0 .. legend_entry_{repeats-1}
+        index = [f"{label}_{r}" for r in range(repeats) for label in legend]
+        # Columns: dev_n, ref_n, delta_n for n = 1..n_variables - 1
+        data = {}
+        for i in range(0, dev.shape[0]):
+            data[f"dev_{i}"] = dev[i, :]
+            data[f"ref_{i}"] = ref[i, :]
+            data[f"delta_{i}"] = delta[i, :]
+
+        summary_df = pd.DataFrame(data, index=index)
+        print(summary_df)
         assert_allclose(
             device.state_summaries,
             reference.state_summaries,
