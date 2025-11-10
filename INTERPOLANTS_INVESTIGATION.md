@@ -1,10 +1,10 @@
-# Interpolants Investigation: Requirements for FIRK, DIRK, and Rosenbrock
+# Interpolants Implementation Plan
 
-## Executive Summary
+## Overview
 
-This document investigates what is required to implement dense output (continuous extension) via interpolants for generic_firk, generic_dirk, and generic_rosenbrock_w, as requested in the interpolants feature issue.
+This document provides an implementation plan for adding dense output (continuous extension) via interpolants to generic_firk, generic_dirk, and generic_rosenbrock_w, as requested in issue #180.
 
-**Status**: Infrastructure added (`has_interpolant` property, `b_interp` field). Full implementation requires additional research and development.
+**Status**: Infrastructure added (`has_interpolant` property, `b_interp` field). This document outlines the implementation approach based on investigation and feedback.
 
 ## Background
 
@@ -19,13 +19,13 @@ The truncated `dt_eff` is passed to step functions, but the resulting error esti
 
 ### Proposed Solution
 
-Use interpolants to:
-1. Always take **full steps** (use `dt[0]`, never truncate)
-2. Compute **accurate error estimates** for full steps
-3. When save points fall within steps, compute **interpolated values** at those points
-4. Save interpolated values while the integration continues with full steps
+Instead of truncating steps, the solver will:
+1. Take **truncated steps when approaching save points** (preserving the truncation behavior)
+2. But the step will be **repeated** after the save, eliminating the wasted work
+3. The error estimate will be **commensurate with the truncated step**, addressing the inflation issue
+4. This approach duplicates a portion of the next step but avoids the error estimate problem
 
-This preserves error estimate accuracy while hitting save points precisely.
+This solution trades some duplicate computation for accurate error estimates without requiring additional buffer space.
 
 ## Changes Required
 
@@ -46,24 +46,24 @@ This preserves error estimate accuracy while hitting save points precisely.
 **File**: `src/cubie/integrators/loops/ode_loop.py`
 
 **Required Changes**:
-1. Add `next_save` to step function call parameters (line ~410)
-2. Add compile-time toggle based on `tableau.has_interpolant`:
+1. Pass `next_save` via shared memory buffer to avoid changing step function signatures
+2. Step functions will check on every iteration whether to compute interpolant
+3. Use conditional commit with `selp` to avoid warp divergence:
    ```python
-   has_interpolant = <from step function metadata>
-   if not has_interpolant:
-       dt_eff = selp(do_save, next_save - t, dt[0])  # Current behavior
-   else:
-       dt_eff = dt[0]  # Always full step
+   # Execute interpolation logic on every step
+   needs_interp = do_save and has_interpolant and (next_save >= t) and (next_save <= t + dt)
+   
+   # Compute theta for interpolation (always computed, conditionally used)
+   theta = (next_save - t) / dt
+   
+   # Interpolate to next_save, writing to proposed_state/observables buffers
+   # Use selp to conditionally commit the interpolated values
+   t_save = selp(needs_interp, next_save, t + dt)
    ```
-3. Add interpolated state/observables buffers to shared memory layout
-4. When `do_save=True` and `has_interpolant=True`, save interpolated values
+4. Write interpolated values directly to `proposed_state` and `proposed_observables` buffers
+5. Update time with `selp(needs_interp, next_save, t + dt)` to handle save point
 
-**Shared Memory Layout Changes**:
-Current layout in `LoopSharedIndices` needs additional slices for:
-- `interpolated_state`: size `n_states` (when interpolants enabled)
-- `interpolated_observables`: size `n_observables` (when interpolants enabled)
-
-**Alternative Approach**: Pass `next_save` via shared memory to avoid changing step function signatures.
+**No Additional Buffers Required**: Reuse existing `proposed_state`, `proposed_observables` buffers with careful timing.
 
 ### 3. Step Function Modifications
 
@@ -78,31 +78,33 @@ Each of the three step types needs similar modifications. Using DIRK as the exam
 has_interpolant = self.tableau.has_interpolant
 
 # Inside the device function @cuda.jit step(...):
-if has_interpolant:
-    # Check if next_save falls in [current_time, current_time + dt_value]
-    save_in_step = (next_save >= current_time) and (
-        next_save <= current_time + dt_value
-    )
-    
-    if save_in_step:
-        # Compute theta = (next_save - current_time) / dt_value
-        theta = (next_save - current_time) / dt_value
-        
-        # Evaluate interpolant using b_interp coefficients and stage values
-        # Details depend on interpolant formula (see below)
-        for idx in range(n):
-            interpolated_state[idx] = evaluate_interpolant(
-                theta, state[idx], stage_rhs, b_interp_coeffs
-            )
-        
-        # Compute interpolated observables
-        observables_function(
-            interpolated_state,
-            parameters,
-            drivers_at_save,  # May need driver evaluation at next_save
-            interpolated_observables,
-            next_save,
-        )
+# Retrieve next_save from shared memory buffer
+next_save = shared_next_save_buffer[0]
+
+# Always compute these (executed on every step to avoid warp divergence)
+needs_interp = do_save and has_interpolant and (next_save >= current_time) and (next_save <= current_time + dt_value)
+theta = (next_save - current_time) / dt_value
+
+# Evaluate interpolant using b_interp coefficients and stage values
+# This is always computed but only conditionally committed
+for idx in range(n):
+    y_interp = evaluate_interpolant(theta, state[idx], stage_rhs, b_interp_coeffs)
+    # Conditional commit: use interpolated value if needed, else use step-end value
+    proposed_state[idx] = selp(needs_interp, y_interp, proposed_state[idx])
+
+# Update time with selp - use next_save if interpolating, else step-end time
+t_proposed = selp(needs_interp, next_save, current_time + dt_value)
+
+# Compute observables at the appropriate time
+# Use selped time and drivers buffer
+t_obs = selp(needs_interp, next_save, current_time + dt_value)
+observables_function(
+    proposed_state,
+    parameters,
+    drivers_buffer,  # Evaluated at appropriate time
+    proposed_observables,
+    t_obs,
+)
 ```
 
 **Similar changes needed for**:
@@ -121,17 +123,16 @@ Each tableau that supports dense output needs `b_interp` coefficients added.
 
 1. **TRAPEZOIDAL_DIRK_TABLEAU** (Crank-Nicolson)
    - Method: 2nd order, 2 stages at c=[0, 1]
-   - Interpolant: Cubic Hermite (3rd order dense output)
-   - Coefficients: Need to derive from Hermite basis
-   - Complexity: **Moderate** (well-documented)
+   - Interpolant: Coefficients available in literature
+   - Source: Hairer & Wanner (1996) or similar
+   - Complexity: **Low** (coefficients can be read from literature)
 
 2. **LOBATTO_IIIC_3_TABLEAU**
    - Method: 4th order, 3 stages
-   - Interpolant: Requires 4th+ order dense output
-   - Coefficients: Available in Hairer & Wanner (1996)
-   - Complexity: **High** (complex derivation)
+   - Interpolant: Coefficients available in Hairer & Wanner (1996)
+   - Complexity: **Low** (coefficients available in literature)
 
-3. **Other DIRK tableaus**: Lower priority, would follow same pattern
+3. **Other DIRK tableaus**: Only implement if coefficients exist in literature or are part of the `a` matrix
 
 #### 4.2 FIRK Tableaus
 
@@ -141,15 +142,14 @@ Each tableau that supports dense output needs `b_interp` coefficients added.
 
 1. **GAUSS_LEGENDRE_2_TABLEAU**
    - Method: 4th order, 2 stages
-   - Interpolant: 3rd order Hermite typically used
-   - Coefficients: Available in literature
-   - Complexity: **High** (symmetric stages complicate derivation)
+   - Interpolant: Coefficients available in literature
+   - Source: Hairer & Wanner (1996)
+   - Complexity: **Low** (coefficients available in literature)
 
 2. **RADAU_IIA_5_TABLEAU**
    - Method: 5th order, 3 stages
-   - Interpolant: 4th+ order dense output
-   - Coefficients: Available in Hairer & Wanner
-   - Complexity: **Very High**
+   - Interpolant: Coefficients available in Hairer & Wanner
+   - Complexity: **Low** (coefficients available in literature)
 
 #### 4.3 Rosenbrock Tableaus
 
@@ -159,9 +159,10 @@ Each tableau that supports dense output needs `b_interp` coefficients added.
 
 1. **ROS3P_TABLEAU**
    - Method: 3rd order, 3 stages
-   - Interpolant: Likely documented in Lang & Verwer (2001)
-   - Coefficients: Need to check original paper
-   - Complexity: **Moderate** (linear implicit methods have simpler dense output)
+   - Interpolant: Coefficients may be documented in Lang & Verwer (2001) or related literature
+   - Complexity: **Low** if coefficients are available in literature
+
+**Note**: For all tableaus, interpolants will only be added if coefficients are available in published literature or can be derived from the existing `a` matrix. No original derivation of interpolant coefficients will be performed.
 
 ## Dense Output Formulas
 
@@ -302,12 +303,6 @@ C. Pass via persistent local memory
    - Measure step acceptance rate improvement
    - Benchmark interpolation overhead
 
-### Performance Tests
-
-1. **Memory Usage**: Check shared memory requirements with interpolation buffers
-2. **Warp Efficiency**: Profile divergence in interpolation branches
-3. **Throughput**: Benchmark steps/second with/without interpolation
-
 ## Literature References
 
 ### Primary Sources
@@ -340,33 +335,36 @@ C. Pass via persistent local memory
 - [x] Identify implementation challenges
 - [x] Create testing strategy
 
-### Phase 2 (Optional Follow-up)
+### Phase 2 (Implementation)
 
-- [ ] Derive/research `b_interp` coefficients for one simple tableau (e.g., trapezoidal)
-- [ ] Implement interpolation in one step type as proof-of-concept
-- [ ] Modify loop for single tableau case
-- [ ] Write tests for proof-of-concept
+- [ ] Look up `b_interp` coefficients from literature for available tableaus
+- [ ] Implement interpolation in step functions (DIRK, FIRK, Rosenbrock)
+- [ ] Modify loop to pass `next_save` via shared memory
+- [ ] Add compile-time toggle based on `has_interpolant`
+- [ ] Write unit and integration tests
 
-### Phase 3 (Full Implementation)
+### Phase 3 (Validation)
 
-- [ ] Derive coefficients for all supported tableaus
-- [ ] Implement interpolation in all three step types
-- [ ] Comprehensive testing suite
-- [ ] Performance optimization
-- [ ] Documentation updates
+- [ ] Verify coefficients match literature
+- [ ] Test against reference implementations (scipy, Julia)
+- [ ] Validate on stiff test problems
+- [ ] Document which tableaus have interpolants available
 
 ## Conclusion
 
-Implementing dense output via interpolants is **feasible** but requires:
+Implementing dense output via interpolants is **feasible** and has **low implementation complexity** when:
 
-1. **Moderate effort** for infrastructure and simple tableaus (trapezoidal)
-2. **High effort** for complex tableaus (FIRK methods, high-order DIRK)
-3. **Careful testing** to ensure interpolant accuracy and performance
+1. Interpolant coefficients are available in published literature (Hairer & Wanner, Lang & Verwer, etc.)
+2. No additional buffers are required - reuse existing `proposed_state` and `proposed_observables`
+3. Warp divergence is avoided by executing interpolation on every step with conditional commits using `selp`
 
-The main technical challenges are:
-- Deriving/verifying interpolant coefficients from literature
-- Managing additional buffer requirements
-- Maintaining warp efficiency with predicated interpolation
+**Implementation approach**:
+- Pass `next_save` via shared memory buffer
+- Execute interpolation logic on every step (no branching)
+- Use `selp` for conditional commits to avoid warp divergence
+- Reuse existing observables function with `selp`ed time and drivers
+
+**Key constraint**: Only implement interpolants where coefficients exist in literature or can be derived from the existing `a` matrix. No original derivation will be performed.
 
 The main **benefit** is eliminating error estimate inflation, which should improve step controller efficiency and allow larger time steps on average.
 
