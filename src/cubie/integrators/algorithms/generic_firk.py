@@ -360,11 +360,9 @@ class FIRKStep(ODEImplicitStep):
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
-        # DISABLED: Non-accumulation pathway causes numerical drift due to
-        # finite solver tolerance. stage_increment from Newton-Krylov solver
-        # differs from dt*f(stage_state) by ~1e-7, accumulating over steps.
-        accumulates_output = True
-        accumulates_error = True
+        # accumulates_output = 1
+        accumulates_output = tableau.accumulates_output
+        accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
 
