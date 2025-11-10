@@ -53,6 +53,13 @@ class ButcherTableau:
     order
         Classical order of the accuracy of the method - error grows like O(
         n^order)
+    b_interp
+        Optional dense output polynomial coefficients for continuous
+        extension. When provided, should be a tuple of stage weight vectors,
+        where each vector provides coefficients for one power of theta in
+        the interpolating polynomial. For a kth-order interpolant, b_interp
+        contains k+1 vectors corresponding to powers theta^0, theta^1, ...,
+        theta^k.
 
     Methods
     -------
@@ -60,6 +67,8 @@ class ButcherTableau:
         Return the number of stages described by the tableau.
     has_error_estimate
         Returns ``True`` when embedded error weights are supplied.
+    has_interpolant
+        Returns ``True`` when dense output coefficients are supplied.
     typed_rows(rows, numba_precision)
         Returns a given matrix (rows) as precision-typed tuples for each stage.
     """
@@ -69,6 +78,9 @@ class ButcherTableau:
     c: Tuple[float, ...] = attrs.field()
     order: int = attrs.field()
     b_hat: Optional[Tuple[float, ...]] = attrs.field(default=None)
+    b_interp: Optional[Tuple[Tuple[float, ...], ...]] = attrs.field(
+        default=None
+    )
 
     def __attrs_post_init__(self) -> None:
         """Validate tableau coefficients after initialisation."""
@@ -76,6 +88,13 @@ class ButcherTableau:
         stage_count = self.stage_count
         if self.b_hat is not None and len(self.b_hat) != stage_count:
             raise ValueError("b_hat must match the number of stages in b")
+        if self.b_interp is not None:
+            for idx, interp_row in enumerate(self.b_interp):
+                if len(interp_row) != stage_count:
+                    raise ValueError(
+                        f"b_interp row {idx} must match the number of "
+                        f"stages in b"
+                    )
 
     @property
     def d(self) -> Optional[Tuple[float, ...]]:
@@ -100,6 +119,11 @@ class ButcherTableau:
         if error_coeffs is None:
             return False
         return any(weight != 0.0 for weight in error_coeffs)
+
+    @property
+    def has_interpolant(self) -> bool:
+        """Return ``True`` when dense output coefficients are supplied."""
+        return self.b_interp is not None
 
     def typed_rows(
         self,
@@ -147,6 +171,16 @@ class ButcherTableau:
         if not self.has_error_estimate:
             return None
         return self.typed_vector(self.b_hat, numba_precision)
+
+    def interpolant_coefficients(
+        self,
+        numba_precision: type,
+    ) -> Optional[Tuple[Tuple[float, ...], ...]]:
+        """Return dense output coefficients typed to ``numba_precision``."""
+
+        if not self.has_interpolant:
+            return None
+        return self.typed_rows(self.b_interp, numba_precision)
 
     @property
     def first_same_as_last(self) -> bool:
