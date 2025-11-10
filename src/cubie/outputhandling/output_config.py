@@ -15,7 +15,13 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
-from cubie._utils import gttype_validator, opt_gttype_validator
+from cubie._utils import (
+    gttype_validator,
+    opt_gttype_validator,
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -123,6 +129,8 @@ class OutputConfig:
         Requested output type names, including summary metric identifiers.
     dt_save
         Time between saved samples. Defaults to 0.01 seconds.
+    precision
+        Numerical precision for output calculations. Defaults to np.float32.
 
     Notes
     -----
@@ -172,6 +180,11 @@ class OutputConfig:
     _dt_save: float = attrs.field(
         default=0.01,
         validator=opt_gttype_validator(float, 0.0)
+    )
+    _precision: PrecisionDType = attrs.field(
+        default=np.float32,
+        converter=precision_converter,
+        validator=precision_validator,
     )
 
     def __attrs_post_init__(self) -> None:
@@ -634,6 +647,11 @@ class OutputConfig:
     def dt_save(self) -> float:
         """Time interval between saved states."""
         return self._dt_save
+
+    @property
+    def precision(self) -> type[np.floating]:
+        """Numerical precision for output calculations."""
+        return self._precision
 
     @property
     def summaries_buffer_height_per_var(self) -> int:

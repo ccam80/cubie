@@ -53,6 +53,7 @@ class DxdtMin(SummaryMetric):
         """
 
         dt_save = self.compile_settings.dt_save
+        precision = self.compile_settings.precision
 
         # no cover: start
         @cuda.jit(
@@ -89,7 +90,7 @@ class DxdtMin(SummaryMetric):
             warp divergence.
             """
             derivative_unscaled = value - buffer[0]
-            update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != 0.0)
+            update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
             buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
             buffer[0] = value
 
@@ -125,9 +126,9 @@ class DxdtMin(SummaryMetric):
             Scales the minimum unscaled derivative by dt_save and saves to
             output_array[0], then resets buffers to sentinel values.
             """
-            output_array[0] = buffer[1] / dt_save
-            buffer[0] = 0.0
-            buffer[1] = 1.0e30
+            output_array[0] = buffer[1] / precision(dt_save)
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
