@@ -783,31 +783,6 @@ def assert_integration_outputs(
         )
 
     if flags.summarise_state:
-        import pandas as pd
-
-        # Summary_debug:
-        legend = list(output_functions.summary_legend_per_variable.values())
-        dev = np.asarray(device.state_summaries)
-        ref = np.asarray(reference.state_summaries)
-        delta = dev - ref
-
-        # Determine repeats and legend length
-        total = dev.shape[1]
-        n_legend = len(legend)
-        repeats = int(total/n_legend)
-
-        # Build row index: e.g. test1_0, test2_0, test1_1, ...
-        # Row index: legend_entry_0 .. legend_entry_{repeats-1}
-        index = [f"{label}_{r}" for r in range(repeats) for label in legend]
-        # Columns: dev_n, ref_n, delta_n for n = 1..n_variables - 1
-        data = {}
-        for i in range(0, dev.shape[0]):
-            data[f"dev_{i}"] = dev[i, :]
-            data[f"ref_{i}"] = ref[i, :]
-            data[f"delta_{i}"] = delta[i, :]
-
-        summary_df = pd.DataFrame(data, index=index)
-        print(summary_df)
         assert_allclose(
             device.state_summaries,
             reference.state_summaries,
