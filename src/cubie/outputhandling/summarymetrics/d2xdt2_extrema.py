@@ -137,8 +137,6 @@ class D2xdt2Extrema(SummaryMetric):
             dt_save_sq = dt_save * dt_save
             output_array[0] = buffer[2] / dt_save_sq
             output_array[1] = buffer[3] / dt_save_sq
-            buffer[0] = 0.0
-            buffer[1] = 0.0
             buffer[2] = -1.0e30
             buffer[3] = 1.0e30
 

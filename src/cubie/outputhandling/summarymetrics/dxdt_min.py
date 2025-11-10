@@ -126,7 +126,6 @@ class DxdtMin(SummaryMetric):
             output_array[0], then resets buffers to sentinel values.
             """
             output_array[0] = buffer[1] / dt_save
-            buffer[0] = 0.0
             buffer[1] = 1.0e30
 
         # no cover: end

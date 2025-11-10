@@ -129,8 +129,6 @@ class D2xdt2Max(SummaryMetric):
             to output_array[0], then resets buffers to sentinel values.
             """
             output_array[0] = buffer[2] / (dt_save * dt_save)
-            buffer[0] = 0.0
-            buffer[1] = 0.0
             buffer[2] = -1.0e30
 
         # no cover: end

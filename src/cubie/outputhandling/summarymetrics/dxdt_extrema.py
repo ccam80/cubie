@@ -129,7 +129,6 @@ class DxdtExtrema(SummaryMetric):
             """
             output_array[0] = buffer[1] / dt_save
             output_array[1] = buffer[2] / dt_save
-            buffer[0] = 0.0
             buffer[1] = -1.0e30
             buffer[2] = 1.0e30
 
