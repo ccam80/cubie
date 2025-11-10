@@ -27,7 +27,7 @@ def beeler_reuter_model_path(cellml_fixtures_dir):
 
 def test_load_simple_cellml_model(basic_model_path):
     """Load a simple CellML model successfully."""
-    states, equations = load_cellml_model(str(basic_model_path))
+    states, equations, algebraic = load_cellml_model(str(basic_model_path))
     
     assert len(states) == 1
     assert len(equations) == 1
@@ -37,16 +37,20 @@ def test_load_simple_cellml_model(basic_model_path):
 
 def test_load_complex_cellml_model(beeler_reuter_model_path):
     """Load Beeler-Reuter cardiac model successfully."""
-    states, equations = load_cellml_model(str(beeler_reuter_model_path))
+    states, equations, algebraic = load_cellml_model(
+        str(beeler_reuter_model_path)
+    )
     
     # Beeler-Reuter has 8 state variables
     assert len(states) == 8
     assert len(equations) == 8
+    # Beeler-Reuter also has many algebraic equations (intermediate calcs)
+    assert len(algebraic) > 0
 
 
 def test_states_are_symbols(basic_model_path):
     """Verify states are sympy.Symbol instances (not Dummy)."""
-    states, _ = load_cellml_model(str(basic_model_path))
+    states, _, _ = load_cellml_model(str(basic_model_path))
     
     for state in states:
         assert isinstance(state, sp.Symbol)
@@ -55,7 +59,7 @@ def test_states_are_symbols(basic_model_path):
 
 def test_equations_are_sympy_eq(basic_model_path):
     """Verify equations are sympy.Eq instances."""
-    _, equations = load_cellml_model(str(basic_model_path))
+    _, equations, _ = load_cellml_model(str(basic_model_path))
     
     for eq in equations:
         assert isinstance(eq, sp.Eq)
@@ -63,7 +67,7 @@ def test_equations_are_sympy_eq(basic_model_path):
 
 def test_derivatives_in_equation_lhs(basic_model_path):
     """Verify equation LHS contains derivatives."""
-    _, equations = load_cellml_model(str(basic_model_path))
+    _, equations, _ = load_cellml_model(str(basic_model_path))
     
     for eq in equations:
         assert isinstance(eq.lhs, sp.Derivative)
@@ -71,7 +75,7 @@ def test_derivatives_in_equation_lhs(basic_model_path):
 
 def test_all_states_have_derivatives(beeler_reuter_model_path):
     """Verify each state variable has a corresponding derivative."""
-    states, equations = load_cellml_model(str(beeler_reuter_model_path))
+    states, equations, _ = load_cellml_model(str(beeler_reuter_model_path))
     
     # Extract derivative arguments from equations
     derivative_vars = set()
@@ -87,7 +91,7 @@ def test_all_states_have_derivatives(beeler_reuter_model_path):
 
 def test_equation_format_compatibility(basic_model_path):
     """Verify CellML equation format is compatible with cubie."""
-    states, equations = load_cellml_model(str(basic_model_path))
+    states, equations, _ = load_cellml_model(str(basic_model_path))
     
     # Verify we can extract the RHS expressions
     for eq in equations:
@@ -96,6 +100,26 @@ def test_equation_format_compatibility(basic_model_path):
         assert isinstance(eq.rhs, sp.Expr)
         # RHS should contain symbols
         assert len(eq.rhs.free_symbols) > 0
+
+
+def test_algebraic_equations_extracted(beeler_reuter_model_path):
+    """Verify algebraic equations are extracted from CellML models."""
+    _, equations, algebraic = load_cellml_model(
+        str(beeler_reuter_model_path)
+    )
+    
+    # Beeler-Reuter has many algebraic equations
+    assert len(algebraic) > 0
+    
+    # Algebraic equations should not have derivatives on LHS
+    for eq in algebraic:
+        assert isinstance(eq, sp.Eq)
+        assert not isinstance(eq.lhs, sp.Derivative)
+    
+    # All equations should be Symbol instances, not Dummy
+    for eq in algebraic:
+        for atom in eq.atoms(sp.Symbol):
+            assert not isinstance(atom, sp.Dummy)
 
 
 def test_invalid_path_type():

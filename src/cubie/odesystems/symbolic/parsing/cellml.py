@@ -20,11 +20,12 @@ Basic CellML model loading workflow:
 >>> import sympy as sp
 >>> 
 >>> # Load a CellML model file
->>> states, equations = load_cellml_model("cardiac_model.cellml")
+>>> states, equations, algebraic = load_cellml_model("cardiac_model.cellml")
 >>> 
 >>> # Inspect the extracted data
 >>> print(f"Found {len(states)} state variables")
 >>> print(f"State names: {[s.name for s in states]}")
+>>> print(f"Found {len(algebraic)} algebraic equations")
 >>> 
 >>> # Verify equation format
 >>> for eq in equations:
@@ -54,12 +55,16 @@ import sympy as sp
 from pathlib import Path
 
 
-def load_cellml_model(path: str) -> tuple[list[sp.Symbol], list[sp.Eq]]:
-    """Load a CellML model and extract states and derivatives.
+def load_cellml_model(
+    path: str
+) -> tuple[list[sp.Symbol], list[sp.Eq], list[sp.Eq]]:
+    """Load a CellML model and extract states, derivatives, and algebraic
+    equations.
 
     This function uses the cellmlmanip library to parse CellML files
-    and extract the state variables and differential equations in a
-    format compatible with CuBIE's SymbolicODE system.
+    and extract the state variables, differential equations, and
+    algebraic equations in a format compatible with CuBIE's SymbolicODE
+    system.
 
     Parameters
     ----------
@@ -74,6 +79,10 @@ def load_cellml_model(path: str) -> tuple[list[sp.Symbol], list[sp.Eq]]:
     equations : list[sympy.Eq]
         List of sympy.Eq objects with derivatives on LHS and RHS
         expressions containing state variables.
+    algebraic_equations : list[sympy.Eq]
+        List of sympy.Eq objects representing algebraic constraints
+        and intermediate calculations. These can be passed as
+        observables to create_ODE_system.
 
     Raises
     ------
@@ -91,20 +100,23 @@ def load_cellml_model(path: str) -> tuple[list[sp.Symbol], list[sp.Eq]]:
     --------
     Load a CellML model and verify structure:
 
-    >>> states, equations = load_cellml_model("model.cellml")
+    >>> states, equations, algebraic = load_cellml_model("model.cellml")
     >>> len(states)  # Number of state variables
     8
     >>> isinstance(states[0], sp.Symbol)
     True
+    >>> len(algebraic)  # Number of algebraic equations
+    28
 
     Notes
     -----
-    - Only differential equations are extracted (algebraic equations
-      filtered)
+    - Differential equations are ODEs for state variables
+    - Algebraic equations are intermediate calculations and constraints
     - State variables are converted from sympy.Dummy to sympy.Symbol
     - Supports CellML 1.0 and 1.1 formats
     - CellML models from Physiome repository are compatible
     - The cellmlmanip library handles the complex CellML XML parsing
+    - Algebraic equations can be used as observables in create_ODE_system
     """
     if cellmlmanip is None:  # pragma: no cover
         raise ImportError("cellmlmanip is required for CellML parsing")
@@ -142,11 +154,21 @@ def load_cellml_model(path: str) -> tuple[list[sp.Symbol], list[sp.Eq]]:
         else:
             states.append(raw_state)
     
-    # Filter derivative equations and substitute symbols
-    equations = [
-        eq.subs(dummy_to_symbol)
-        for eq in model.equations
-        if eq.lhs in raw_derivatives
-    ]
+    # Also convert any other Dummy symbols in the model equations
+    for eq in model.equations:
+        for atom in eq.atoms(sp.Dummy):
+            if atom not in dummy_to_symbol:
+                dummy_to_symbol[atom] = sp.Symbol(atom.name)
     
-    return states, equations
+    # Filter differential equations and algebraic equations separately
+    differential_equations = []
+    algebraic_equations = []
+    
+    for eq in model.equations:
+        eq_substituted = eq.subs(dummy_to_symbol)
+        if eq.lhs in raw_derivatives:
+            differential_equations.append(eq_substituted)
+        else:
+            algebraic_equations.append(eq_substituted)
+    
+    return states, differential_equations, algebraic_equations
