@@ -49,6 +49,10 @@ You do NOT have access to custom-agent tool. You are a leaf node in the agent tr
 - Distinguishing user-facing vs. internal code paths
 - Following established code patterns
 
+## Performance Note
+
+Do not include explicit performance goals or performance-based tests in your implementation. Focus on implementing logic correctly. Performance improvements are presumed to occur if the logic executes correctly.
+
 ## Input
 
 Receive from detailed_implementer:
