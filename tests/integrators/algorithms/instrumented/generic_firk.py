@@ -416,28 +416,6 @@ class FIRKStep(ODEImplicitStep):
                     stage_increments[stage_idx, idx] = stage_increment[stage_idx * n + idx]
                     jacobian_updates[stage_idx, idx] = typed_zero
 
-                observables_function(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
-
-                for obs_idx in range(observable_count):
-                    stage_observables[stage_idx, obs_idx] = (
-                        proposed_observables[obs_idx]
-                    )
-
-                stage_rhs = stage_rhs_flat[stage_idx * n : (stage_idx + 1) * n]
-                dxdt_fn(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
 
                 # Capture precalculated outputs if tableau allows
                 if not accumulates_output:
@@ -449,11 +427,48 @@ class FIRKStep(ODEImplicitStep):
                         for idx in range(n):
                             error[idx] = stage_state[idx]
 
+                # If error and output can be derived from stage_state,
+                # don't bother evaluating f at each stage.
+                do_more_work = (
+                    has_error and accumulates_error
+                ) or accumulates_output
+
+                if do_more_work:
+                    observables_function(
+                        stage_state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_time,
+                    )
+
+                    for obs_idx in range(observable_count):
+                        stage_observables[stage_idx, obs_idx] = (
+                            proposed_observables[obs_idx]
+                        )
+
+                    stage_rhs = stage_rhs_flat[stage_idx * n : (stage_idx + 1) * n]
+                    dxdt_fn(
+                            stage_state,
+                            parameters,
+                            proposed_drivers,
+                            proposed_observables,
+                            stage_rhs,
+                            stage_time,
+                    )
+
+            #use a Kahan summation algorithm to reduce floating point errors
+            #see https://en.wikipedia.org/wiki/Kahan_summation_algorithm
             if accumulates_output:
                 for idx in range(n):
                     solution_acc = typed_zero
+                    compensation = typed_zero
                     for stage_idx in range(stage_count):
                         rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        term = (solution_weights[stage_idx] * rhs_value -
+                                compensation)
+                        temp = solution_acc + term
+                        compensation = (temp - solution_acc) - term
                         solution_acc += solution_weights[stage_idx] * rhs_value
                     proposed_state[idx] = state[idx] + solution_acc * dt_value
 
