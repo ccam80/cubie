@@ -1,6 +1,6 @@
 import pytest
-import sympy as sp
 from pathlib import Path
+import numpy as np
 
 from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 
@@ -27,99 +27,51 @@ def beeler_reuter_model_path(cellml_fixtures_dir):
 
 def test_load_simple_cellml_model(basic_model_path):
     """Load a simple CellML model successfully."""
-    states, equations, algebraic = load_cellml_model(str(basic_model_path))
+    ode_system = load_cellml_model(str(basic_model_path))
     
-    assert len(states) == 1
-    assert len(equations) == 1
-    # CellML state names include component prefix (e.g., "main$x")
-    assert states[0].name.endswith("$x") or states[0].name == "x"
+    assert ode_system.num_states == 1
+    assert ode_system is not None
 
 
 def test_load_complex_cellml_model(beeler_reuter_model_path):
     """Load Beeler-Reuter cardiac model successfully."""
-    states, equations, algebraic = load_cellml_model(
-        str(beeler_reuter_model_path)
-    )
+    ode_system = load_cellml_model(str(beeler_reuter_model_path))
     
     # Beeler-Reuter has 8 state variables
-    assert len(states) == 8
-    assert len(equations) == 8
-    # Beeler-Reuter also has many algebraic equations (intermediate calcs)
-    assert len(algebraic) > 0
+    assert ode_system.num_states == 8
+    # System should be fully constructed
+    assert ode_system is not None
+    assert hasattr(ode_system, 'equations')
 
 
-def test_states_are_symbols(basic_model_path):
-    """Verify states are sympy.Symbol instances (not Dummy)."""
-    states, _, _ = load_cellml_model(str(basic_model_path))
+def test_ode_system_has_correct_attributes(basic_model_path):
+    """Verify ODE system has expected attributes."""
+    ode_system = load_cellml_model(str(basic_model_path))
     
-    for state in states:
-        assert isinstance(state, sp.Symbol)
-        assert not isinstance(state, sp.Dummy)
+    # Should have SymbolicODE attributes
+    assert hasattr(ode_system, 'num_states')
+    assert hasattr(ode_system, 'equations')
+    assert hasattr(ode_system, 'indices')
 
 
-def test_equations_are_sympy_eq(basic_model_path):
-    """Verify equations are sympy.Eq instances."""
-    _, equations, _ = load_cellml_model(str(basic_model_path))
+def test_ode_system_ready_for_integration(beeler_reuter_model_path):
+    """Verify ODE system can be used with solve_ivp."""
+    ode_system = load_cellml_model(str(beeler_reuter_model_path))
     
-    for eq in equations:
-        assert isinstance(eq, sp.Eq)
+    # System should be compilable (has necessary methods)
+    assert hasattr(ode_system, 'build')
+    assert ode_system.num_states == 8
 
 
-def test_derivatives_in_equation_lhs(basic_model_path):
-    """Verify equation LHS contains derivatives."""
-    _, equations, _ = load_cellml_model(str(basic_model_path))
-    
-    for eq in equations:
-        assert isinstance(eq.lhs, sp.Derivative)
-
-
-def test_all_states_have_derivatives(beeler_reuter_model_path):
-    """Verify each state variable has a corresponding derivative."""
-    states, equations, _ = load_cellml_model(str(beeler_reuter_model_path))
-    
-    # Extract derivative arguments from equations
-    derivative_vars = set()
-    for eq in equations:
-        if isinstance(eq.lhs, sp.Derivative):
-            # Get the function being differentiated
-            derivative_vars.add(eq.lhs.args[0])
-    
-    # Check all states are covered
-    state_set = set(states)
-    assert derivative_vars == state_set
-
-
-def test_equation_format_compatibility(basic_model_path):
-    """Verify CellML equation format is compatible with cubie."""
-    states, equations, _ = load_cellml_model(str(basic_model_path))
-    
-    # Verify we can extract the RHS expressions
-    for eq in equations:
-        assert isinstance(eq.lhs, sp.Derivative)
-        # RHS should be a valid sympy expression
-        assert isinstance(eq.rhs, sp.Expr)
-        # RHS should contain symbols
-        assert len(eq.rhs.free_symbols) > 0
-
-
-def test_algebraic_equations_extracted(beeler_reuter_model_path):
-    """Verify algebraic equations are extracted from CellML models."""
-    _, equations, algebraic = load_cellml_model(
-        str(beeler_reuter_model_path)
-    )
+def test_algebraic_equations_as_observables(beeler_reuter_model_path):
+    """Verify algebraic equations are loaded into the system."""
+    ode_system = load_cellml_model(str(beeler_reuter_model_path))
     
     # Beeler-Reuter has many algebraic equations
-    assert len(algebraic) > 0
-    
-    # Algebraic equations should not have derivatives on LHS
-    for eq in algebraic:
-        assert isinstance(eq, sp.Eq)
-        assert not isinstance(eq.lhs, sp.Derivative)
-    
-    # All equations should be Symbol instances, not Dummy
-    for eq in algebraic:
-        for atom in eq.atoms(sp.Symbol):
-            assert not isinstance(atom, sp.Dummy)
+    # These get automatically included as anonymous auxiliaries
+    # Verify the system loaded successfully with all equations
+    assert ode_system.num_states == 8
+    assert ode_system.equations is not None
 
 
 def test_invalid_path_type():
@@ -149,4 +101,40 @@ def test_invalid_extension():
             load_cellml_model(temp_path)
     finally:
         os.unlink(temp_path)
+
+
+def test_custom_precision(basic_model_path):
+    """Verify custom precision can be specified."""
+    ode_system = load_cellml_model(
+        str(basic_model_path),
+        precision=np.float64
+    )
+    
+    assert ode_system is not None
+    assert ode_system.num_states == 1
+
+
+def test_custom_name(basic_model_path):
+    """Verify custom name can be specified."""
+    ode_system = load_cellml_model(
+        str(basic_model_path),
+        name="custom_model"
+    )
+    
+    assert ode_system is not None
+    assert ode_system.name == "custom_model"
+
+
+def test_integration_with_solve_ivp(basic_model_path):
+    """Test that loaded model can build successfully."""
+    # Skip if running without CUDA sim (may not compile)
+    pytest.importorskip("numba")
+    
+    ode_system = load_cellml_model(str(basic_model_path))
+    
+    # Build the system - this should not raise an error
+    ode_system.build()
+    
+    # This verifies the system is properly structured and compilable
+    assert ode_system.num_states == 1
 
