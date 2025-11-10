@@ -31,8 +31,27 @@ def load_cellml_model(path: str) -> tuple[list[sp.Symbol], list[sp.Eq]]:
     """
     if cellmlmanip is None:  # pragma: no cover
         raise ImportError("cellmlmanip is required for CellML parsing")
+    
     model = cellmlmanip.load_model(path)
-    states = list(model.get_state_variables())
-    derivatives = list(model.get_derivatives())
-    equations = [eq for eq in model.equations if eq.lhs in derivatives]
+    raw_states = list(model.get_state_variables())
+    raw_derivatives = list(model.get_derivatives())
+    
+    # Convert Dummy symbols to regular Symbols
+    # cellmlmanip returns Dummy symbols but we need regular Symbols
+    dummy_to_symbol = {}
+    for dummy_state in raw_states:
+        if isinstance(dummy_state, sp.Dummy):
+            symbol = sp.Symbol(dummy_state.name)
+            dummy_to_symbol[dummy_state] = symbol
+    
+    states = [dummy_to_symbol.get(s, s) for s in raw_states]
+    
+    # Filter equations and substitute Dummy with Symbol
+    equations = []
+    for eq in model.equations:
+        if eq.lhs in raw_derivatives:
+            # Substitute all Dummy symbols with regular Symbols
+            eq_substituted = eq.subs(dummy_to_symbol)
+            equations.append(eq_substituted)
+    
     return states, equations
