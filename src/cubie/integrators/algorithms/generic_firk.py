@@ -360,6 +360,7 @@ class FIRKStep(ODEImplicitStep):
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
+        # accumulates_output = 1
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
@@ -419,6 +420,7 @@ class FIRKStep(ODEImplicitStep):
                 dt_value = dt_compile
             else:
                 dt_value = dt_scalar
+
             current_time = time_scalar
             end_time = current_time + dt_value
 
@@ -429,8 +431,9 @@ class FIRKStep(ODEImplicitStep):
             status_code = int32(0)
 
             for idx in range(n):
-                proposed_state[idx] = state[idx]
-                if has_error:
+                if accumulates_output:
+                    proposed_state[idx] = state[idx]
+                if has_error and accumulates_error:
                     error[idx] = typed_zero
 
             # Fill stage_drivers_stack if driver arrays provided
@@ -440,14 +443,14 @@ class FIRKStep(ODEImplicitStep):
                         current_time
                         + dt_value * stage_time_fractions[stage_idx]
                     )
-                    stage_base = stage_idx * n_drivers
-                    stage_slice = stage_driver_stack[
-                        stage_base:stage_base + n_drivers
+                    driver_offset = stage_idx * n_drivers
+                    driver_slice = stage_driver_stack[
+                        driver_offset:driver_offset + n_drivers
                     ]
                     driver_function(
                             stage_time,
                             driver_coeffs,
-                            stage_slice
+                            driver_slice
                     )
 
 
@@ -481,10 +484,7 @@ class FIRKStep(ODEImplicitStep):
                         coeff = stage_rhs_coeffs[stage_idx][contrib_idx]
                         if coeff != typed_zero:
                             value += (
-                                coeff
-                                * stage_increment[
-                                    contrib_idx * n + idx
-                                    ]
+                                coeff * stage_increment[contrib_idx * n + idx]
                             )
                     stage_state[idx] = value
 
@@ -496,9 +496,7 @@ class FIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + 1) * n
-                ]
+                stage_rhs = stage_rhs_flat[stage_idx * n:(stage_idx + 1) * n]
                 dxdt_fn(
                     stage_state,
                     parameters,
