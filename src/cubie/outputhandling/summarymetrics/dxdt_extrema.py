@@ -53,6 +53,7 @@ class DxdtExtrema(SummaryMetric):
         """
 
         dt_save = self.compile_settings.dt_save
+        precision = self.compile_settings.precision
 
         # no cover: start
         @cuda.jit(
@@ -89,8 +90,8 @@ class DxdtExtrema(SummaryMetric):
             commit pattern to avoid warp divergence.
             """
             derivative_unscaled = value - buffer[0]
-            update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != 0.0)
-            update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != 0.0)
+            update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
+            update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
             buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
             buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
             buffer[0] = value
@@ -127,11 +128,11 @@ class DxdtExtrema(SummaryMetric):
             Scales the extrema by dt_save and saves to output_array[0] (max)
             and output_array[1] (min), then resets buffers to sentinel values.
             """
-            output_array[0] = buffer[1] / dt_save
-            output_array[1] = buffer[2] / dt_save
-            buffer[0] = 0.0
-            buffer[1] = -1.0e30
-            buffer[2] = 1.0e30
+            output_array[0] = buffer[1] / precision(dt_save)
+            output_array[1] = buffer[2] / precision(dt_save)
+            buffer[0] = precision(0.0)
+            buffer[1] = precision(-1.0e30)
+            buffer[2] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

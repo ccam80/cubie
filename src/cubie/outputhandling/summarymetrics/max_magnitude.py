@@ -48,6 +48,8 @@ class MaxMagnitude(SummaryMetric):
         the save callback writes the result and resets the buffer.
         """
 
+        precision = self.compile_settings.precision
+
         # no cover: start
         @cuda.jit(
             [
@@ -118,7 +120,7 @@ class MaxMagnitude(SummaryMetric):
             to ``0.0`` for the next period.
             """
             output_array[0] = buffer[0]
-            buffer[0] = 0.0
+            buffer[0] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
