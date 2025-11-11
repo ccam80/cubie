@@ -46,7 +46,7 @@ except Exception:  # pragma: no cover
 import sympy as sp
 from pathlib import Path
 import numpy as np
-from typing import Optional
+from typing import Optional, List
 import re
 
 from cubie._utils import PrecisionDType
@@ -84,6 +84,8 @@ def load_cellml_model(
     path: str,
     precision: PrecisionDType = np.float32,
     name: Optional[str] = None,
+    parameters: Optional[List[str]] = None,
+    observables: Optional[List[str]] = None,
 ):
     """Load a CellML model and return an initialized SymbolicODE system.
 
@@ -102,13 +104,20 @@ def load_cellml_model(
     name : str, optional
         Identifier for the generated system. If None, uses the
         filename without extension.
+    parameters : list of str, optional
+        List of symbol names to assign as parameters. Otherwise,
+        these symbols become constants or anonymous auxiliaries.
+    observables : list of str, optional
+        List of symbol names to assign as observables. Otherwise,
+        these symbols become anonymous auxiliaries.
 
     Returns
     -------
     SymbolicODE
         Fully initialized ODE system ready for use with solve_ivp.
-        State variables are configured, and algebraic equations are
-        set up as observables.
+        State variables are configured with initial values from the
+        CellML model, and algebraic equations are set up according
+        to the parameters and observables specifications.
 
     Raises
     ------
@@ -142,8 +151,9 @@ def load_cellml_model(
     Notes
     -----
     - Differential equations become state equations in the ODE system
-    - Algebraic equations become observables (intermediate calculations)
+    - Algebraic equations become observables or anonymous auxiliaries
     - State variables are converted from sympy.Dummy to sympy.Symbol
+    - Initial values from CellML are preserved in the ODE system
     - Supports CellML 1.0 and 1.1 formats
     - CellML models from Physiome repository are compatible
     - The cellmlmanip library handles the complex CellML XML parsing
@@ -176,6 +186,9 @@ def load_cellml_model(
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
     
+    # Extract initial values from CellML model
+    initial_values = {}
+    
     # Convert Dummy symbols to regular Symbols with sanitized names
     # cellmlmanip returns Dummy symbols but we need regular Symbols
     states = []
@@ -185,6 +198,10 @@ def load_cellml_model(
         symbol = sp.Symbol(clean_name)
         dummy_to_symbol[raw_state] = symbol
         states.append(symbol)
+        
+        # Get initial value if available
+        if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
+            initial_values[clean_name] = float(raw_state.initial_value)
     
     # Also convert any other Dummy symbols in the model equations
     for eq in model.equations:
@@ -209,25 +226,29 @@ def load_cellml_model(
     for eq in differential_equations:
         # Get the state variable from the derivative
         state_var = eq.lhs.args[0]
-        # Format as "dstate/dt = rhs"
-        dxdt_str = f"d{state_var.name}/dt = {eq.rhs}"
+        # Format as "dstate_name = rhs" (no slash)
+        dxdt_str = f"d{state_var.name} = {eq.rhs}"
         dxdt_strings.append(dxdt_str)
     
-    # Convert algebraic equations to observable strings
-    # Observables need to be defined in the dxdt equations
-    # We need to include them as assignments in the dxdt
+    # Convert algebraic equations to strings
+    # These will be included in the equations list
     all_equations = dxdt_strings.copy()
     for eq in algebraic_equations:
         # Format as "lhs = rhs"
         obs_str = f"{eq.lhs} = {eq.rhs}"
         all_equations.append(obs_str)
     
-    # Import SymbolicODE here to avoid circular imports
+    # Import here to avoid circular import with codegen modules
+    # cellml is imported by parsing/__init__.py which is imported
+    # during SymbolicODE initialization, creating a circular dependency
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
     
     # Create and return the SymbolicODE system
     return SymbolicODE.create(
         dxdt=all_equations,
+        states=initial_values if initial_values else None,
+        parameters=parameters,
+        observables=observables,
         name=name,
         precision=precision,
         strict=False,
