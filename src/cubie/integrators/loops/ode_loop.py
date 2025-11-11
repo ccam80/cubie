@@ -371,7 +371,6 @@ class IVPLoop(CUDAFactory):
 
             status = int32(0)
             dt[0] = dt0
-            dt_eff = dt[0]
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
@@ -403,9 +402,14 @@ class IVPLoop(CUDAFactory):
                             step_counter = int32(0)
                     else:
                         do_save = (t + dt[0]  +equality_breaker) >= next_save
-                        dt_eff = selp(do_save, next_save - t, dt[0])
+                        
+                        # Write next_save to shared memory (thread 0 only)
+                        # Using first element of remaining_shared_scratch
+                        if cuda.threadIdx.x == 0:
+                            remaining_shared_scratch[0] = next_save
+                        cuda.syncthreads()
 
-                        status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
+                        status |= selp(next_save - t <= precision(0.0), int32(16), int32(0))
 
                     step_status = step_function(
                         state_buffer,
@@ -417,7 +421,7 @@ class IVPLoop(CUDAFactory):
                         observables_buffer,
                         observables_proposal_buffer,
                         error,
-                        dt_eff,
+                        dt[0],
                         t,
                         first_step_flag,
                         prev_step_accepted_flag,

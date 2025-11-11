@@ -32,6 +32,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
+from cubie.cuda_simsafe import selp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -356,6 +357,16 @@ class FIRKStep(ODEImplicitStep):
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+        
+        # Interpolant support (compile-time constants)
+        has_interpolant = tableau.has_interpolant
+        b_interp_coeffs = (
+            tableau.interpolant_coefficients(numba_precision) 
+            if has_interpolant else None
+        )
+        interpolant_order = (
+            len(b_interp_coeffs) - 1 if has_interpolant else 0
+        )
 
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
@@ -416,6 +427,16 @@ class FIRKStep(ODEImplicitStep):
             counters,
         ):
             stage_state = cuda.local.array(n, numba_precision)
+            
+            # Allocate storage for stage derivatives (for dense output)
+            if has_interpolant:
+                # Store all stage derivatives for interpolation
+                stage_derivatives = cuda.local.array(
+                    stage_count * n, numba_precision
+                )
+            else:
+                # Dummy allocation (won't be used)
+                stage_derivatives = cuda.local.array(1, numba_precision)
 
             # Use compile-time constant dt if fixed controller, else runtime dt
             if is_controller_fixed:
@@ -524,6 +545,11 @@ class FIRKStep(ODEImplicitStep):
                         stage_rhs,
                         stage_time,
                     )
+                    
+                    # Save stage derivative for interpolation
+                    if has_interpolant:
+                        for idx in range(n):
+                            stage_derivatives[stage_idx * n + idx] = stage_rhs[idx]
 
 
             #use a Kahan summation algorithm to reduce floating point errors
@@ -534,6 +560,9 @@ class FIRKStep(ODEImplicitStep):
                     compensation = typed_zero
                     for stage_idx in range(stage_count):
                         rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                        # Save stage derivative for interpolation
+                        if has_interpolant:
+                            stage_derivatives[stage_idx * n + idx] = rhs_value
                         term = (solution_weights[stage_idx] * rhs_value -
                                 compensation)
                         temp = solution_acc + term
@@ -550,25 +579,79 @@ class FIRKStep(ODEImplicitStep):
                         error_acc += error_weights[stage_idx] * rhs_value
                     error[idx] = dt_value * error_acc   
 
-            if not ends_at_one:
-                if has_driver_function:
-                    driver_function(
-                        end_time,
-                        driver_coeffs,
-                        proposed_drivers,
-                    )
-
-                observables_function(
-                    proposed_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    end_time,
-                )
-
             if not accumulates_error:
                 for idx in range(n):
                     error[idx] = proposed_state[idx] - error[idx]
+            
+            # Dense output interpolation (if supported by tableau)
+            # Read next_save from shared memory (written by loop)
+            next_save_value = shared[0]
+            
+            # Compute interpolation conditions (always computed - predicated execution)
+            equality_breaker = numba_precision(1e-12)
+            do_save = (time_scalar + dt_value + equality_breaker) >= next_save_value
+            
+            # Check if interpolation is needed
+            needs_interp = (
+                has_interpolant and 
+                do_save and 
+                (next_save_value >= time_scalar) and 
+                (next_save_value <= time_scalar + dt_value)
+            )
+            
+            # Compute theta (always, even if not used)
+            theta = (next_save_value - time_scalar) / dt_value
+            
+            # Clamp theta to [0, 1] for floating-point safety
+            theta = max(numba_precision(0.0), min(numba_precision(1.0), theta))
+            
+            # Evaluate interpolant (always, even if not used - predicated commit)
+            y_interp = cuda.local.array(n, dtype=numba_precision)
+            
+            for idx in range(n):
+                y_interp[idx] = state[idx]  # Start with y(t)
+                
+                # Add stage contributions with polynomial weights
+                if has_interpolant:  # Compile-time branch
+                    for stage_idx in range(stage_count):
+                        # Evaluate polynomial: sum(b_interp[p][stage] * theta^p)
+                        weight = numba_precision(0.0)
+                        theta_power = numba_precision(1.0)
+                        
+                        for poly_idx in range(interpolant_order + 1):
+                            weight += b_interp_coeffs[poly_idx][stage_idx] * theta_power
+                            theta_power *= theta
+                        
+                        # Add weighted stage derivative contribution
+                        k_i = stage_derivatives[stage_idx * n + idx]
+                        y_interp[idx] += dt_value * weight * k_i
+
+            # Conditional commit (no branching - predicated execution)
+            for idx in range(n):
+                # Use selp to choose interpolated vs full-step result
+                proposed_state[idx] = selp(
+                    needs_interp,
+                    y_interp[idx],          # Interpolated state if saving
+                    proposed_state[idx]     # Full-step result otherwise
+                )
+            
+            # Determine time for observables evaluation
+            t_obs = selp(needs_interp, next_save_value, end_time)
+
+            if has_driver_function:
+                driver_function(
+                    t_obs,
+                    driver_coeffs,
+                    proposed_drivers,
+                )
+
+            observables_function(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                t_obs,
+            )
 
             return status_code
 
