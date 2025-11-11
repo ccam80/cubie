@@ -265,6 +265,8 @@ Host/device buffer coordination:
 
 ## Testing Infrastructure
 
+Never mark a test xfail, or use importorskip, or do anything that would cause behaviour to be conditionally untested.
+
 ### Pytest Configuration
 - Root conftest.py in `tests/`
 - Markers: nocudasim, cupy, slow, specific_algos, sim_only

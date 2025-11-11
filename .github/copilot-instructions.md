@@ -123,26 +123,34 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 
 When the user says "run pipeline on issue #X" or similar commands, interpret this as a request to execute the custom agent pipeline for that issue. The pipeline automates feature development through specialized agents.
 
+**Important**: Pipeline coordination is handled by the **default Copilot agent** (you). Custom agents do NOT have the ability to invoke other custom agents. You are responsible for invoking each agent in the proper sequence based on the `return_after` parameter.
+
 **Command variations to recognize:**
-- "run pipeline on issue #X"
+- "run pipeline on issue #X, return after [level]"
 - "execute pipeline for issue #X"
-- "run the agent pipeline on #X"
+- "run the agent pipeline on #X, return after [level]"
 - "pipeline issue #X"
 
 **How to handle pipeline commands:**
 
 1. **Fetch the issue details** using GitHub tools to understand the request
-2. **Invoke plan_new_feature agent** with the issue content and appropriate `return_after` level
-3. **Default return_after level**: Use `docstring_guru` for complete implementation with documentation
-4. **User can specify level**: If user says "plan only" use `plan_new_feature`, "implement only" use `taskmaster`, etc.
+2. **Invoke plan_new_feature agent** with the issue content
+3. **Invoke subsequent agents in sequence** based on the `return_after` level:
+   - If return_after > plan_new_feature: invoke detailed_implementer
+   - If return_after > detailed_implementer: invoke taskmaster
+   - If return_after > taskmaster: invoke reviewer
+   - If return_after > reviewer AND reviewer suggests edits: invoke taskmaster again (2nd time)
+   - If return_after = docstring_guru: invoke docstring_guru
+4. **Default return_after level**: Use `docstring_guru` for complete implementation
+5. **Default starting agent**: `plan_new_feature` unless specified otherwise
 
 **Pipeline levels (in order):**
 1. `plan_new_feature` - Creates user stories, overview, and architectural plan
 2. `detailed_implementer` - Creates detailed task list
-3. `taskmaster` - Executes all tasks via do_task agents
+3. `taskmaster` - Executes all tasks directly
 4. `reviewer` - Reviews implementation against user stories
-5. `taskmaster_2` - Applies review edits
-6. `docstring_guru` - Adds complete documentation
+5. `taskmaster_2` - Applies review edits (second invocation of taskmaster)
+6. `docstring_guru` - Adds complete docstrings
 
 **Example interpretation:**
 
@@ -153,16 +161,15 @@ Your action:
 1. Use github/issue_read to get issue #123 details
 2. Invoke plan_new_feature agent with:
    - Prompt: "Issue #123 content and context"
-   - return_after: docstring_guru (for complete pipeline)
-3. The plan_new_feature agent will automatically chain through the pipeline
+3. Wait for plan_new_feature to complete
+4. Invoke detailed_implementer with plan_new_feature outputs
+5. Wait for detailed_implementer to complete
+6. Invoke taskmaster with detailed_implementer outputs
+7. Wait for taskmaster to complete
+8. Invoke reviewer with taskmaster outputs
+9. Wait for reviewer to complete
+10. If reviewer suggests edits, invoke taskmaster again with review outputs
+11. Wait for taskmaster (2nd) to complete
+12. Invoke docstring_guru with all outputs
+13. Summarize and return to user
 ```
-
-**Note on current limitation:** Due to platform limitations, custom agents cannot currently invoke other custom agents (see `.github/TEST_RESULTS.md`). Until this is resolved, you (the main Copilot agent) must coordinate the pipeline manually by invoking each agent in sequence based on the return_after level requested.
-
-**Manual pipeline coordination:**
-1. Invoke `plan_new_feature` with the issue
-2. If return_after > plan_new_feature, invoke `detailed_implementer` with the created plan
-3. If return_after > detailed_implementer, you would invoke `taskmaster`, but this currently requires manual invocation due to platform limitations
-4. Continue through the pipeline levels as specified by return_after
-
-For now, interpret "run pipeline" as invoking `plan_new_feature` with the appropriate return_after level, and note in your response that subsequent agents may need to be invoked manually until the platform limitation is resolved.

@@ -6,7 +6,6 @@ tools:
   - github/search_code
   - github/list_commits
   - github/get_commit
-  - taskmaster
   - read
   - edit
   - create
@@ -45,29 +44,6 @@ Then proceed according to your role as defined below.
 
 Convert high-level architectural plans (agent_plan.md) into detailed, function-level implementation tasks organized by dependency order and execution strategy.
 
-## Downstream Agents
-
-You have access to invoke the following downstream agent:
-
-- **taskmaster**: Call when `return_after` is set to `taskmaster` or later. Pass the path to your created `task_list.md` and specify `return_after` level.
-- **reviewer**: Do NOT call directly - taskmaster will handle this if needed.
-
-## Return After Argument
-
-Accept a `return_after` argument that controls the pipeline execution level:
-
-- **plan_new_feature**: Invalid for this agent (you shouldn't be called).
-- **detailed_implementer** (default): Create `task_list.md` and return. Do NOT call any downstream agents.
-- **taskmaster**: Create `task_list.md`, then invoke taskmaster agent.
-- **reviewer**: Create `task_list.md`, invoke taskmaster → reviewer.
-- **taskmaster_2**: Create `task_list.md`, invoke taskmaster → reviewer → taskmaster (for review edits).
-- **docstring_guru**: Complete full pipeline through taskmaster_2, then invoke docstring_guru.
-
-**Implementation**:
-- If `return_after` is not provided, default to `detailed_implementer` (create task_list.md and stop).
-- If `return_after` is beyond `detailed_implementer`, create your output first, then invoke the next agent in the pipeline.
-- Always pass the `return_after` value to downstream agents.
-
 ## Expertise
 
 - Python 3.8+ advanced patterns
@@ -102,10 +78,10 @@ Receive from plan_new_feature agent:
    - Core implementations SECOND (main functionality)
    - Integration code THIRD (wiring components together)
    - Tests LAST (validation)
-5. **Execution Grouping**: Group tasks for do_task agent
+5. **Execution Grouping**: Group tasks for taskmaster agent
    - Mark groups as SEQUENTIAL or PARALLEL
    - Each group should be cohesive and independently executable
-   - Include all context needed (no searching required by do_task)
+   - Include all context needed (no searching required by taskmaster)
 
 ## Output: task_list.md
 
@@ -126,7 +102,7 @@ Structure:
 **Input Validation Required**:
 - param1: Check type is np.ndarray, shape matches expected dimensions
 - param2: Validate range 0 < param2 < 1.0
-- [List exact validation needed - do_task will implement ONLY these]
+- [List exact validation needed - taskmaster will implement ONLY these]
 
 **Tasks**:
 1. **[Task Name]**
@@ -146,7 +122,7 @@ Structure:
 2. [Next task...]
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+[Empty - to be filled by taskmaster agent]
 
 ---
 
@@ -159,8 +135,8 @@ Structure:
 - **Explicit Context**: List ALL files and line numbers needed for each group
 - **Complete Signatures**: Full type hints, parameter names, return types
 - **Detailed Logic**: Step-by-step implementation instructions
-- **Input Validation Required**: Exact validation to perform (do_task adds NO extra validation)
-- **No Ambiguity**: do_task should not need to make design decisions
+- **Input Validation Required**: Exact validation to perform (taskmaster adds NO extra validation)
+- **No Ambiguity**: taskmaster should not need to make design decisions
 - **CuBIE Conventions**: Follow repository guidelines strictly
 
 ## Behavior Guidelines
@@ -186,10 +162,4 @@ After completing task_list.md, update the user with your progress, showing:
 3. Parallel execution opportunities
 4. Estimated complexity
 
-**If `return_after` is `detailed_implementer`**: Return task_list.md to user and ask if they would like to continue with downstream agents.
-
-**If `return_after` is beyond `detailed_implementer`**: After creating your output, invoke the next agent in the pipeline:
-- Call the `taskmaster` tool to invoke that agent
-- Pass the path to the `task_list.md` you created
-- Pass the same `return_after` value
-- Let the downstream agent handle the rest of the pipeline
+Return task_list.md to user. The default Copilot agent will coordinate any subsequent pipeline steps.
