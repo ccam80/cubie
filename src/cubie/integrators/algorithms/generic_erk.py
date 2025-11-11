@@ -297,6 +297,7 @@ class ERKStep(ODEExplicitStep):
                 int16,
                 numba_precision[:],
                 numba_precision[:],
+                int32[:],
             ),
             device=True,
             inline=True,
