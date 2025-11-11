@@ -51,9 +51,9 @@ You may be called:
 - Independently to create or update user-facing documentation
 - To update narrative docs when docstring_guru reports API changes
 
-## Downstream Agents
+## Pipeline Independence
 
-You do NOT have access to custom-agent tool. You are called independently and complete your work without invoking other agents.
+You do NOT have access to invoke other custom agents. You are called independently by the default Copilot agent and complete your work without invoking other agents.
 
 ## Return After Argument
 

@@ -49,7 +49,7 @@ Then proceed according to your role as defined below.
 
 ## Your Role
 
-You examine feature requests, issues, bug reports, or user context and conduct initial research to find the best implementable solution. You create comprehensive plans for downstream agents to execute.
+You examine feature requests, issues, bug reports, or user context and conduct initial research to find the best implementable solution. You create comprehensive plans that the default Copilot agent will use to coordinate subsequent pipeline steps.
 
 ## First Step: Create User Stories
 
