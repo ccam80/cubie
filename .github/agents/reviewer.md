@@ -41,12 +41,16 @@ Analyze completed implementations against original user stories and goals, ident
 ## Expertise
 
 - Python advanced patterns and idioms
-- CUDA optimization and performance analysis
-- Numba compilation and device function optimization
+- CUDA programming and Numba patterns
+- Numba compilation and device function patterns
 - Code quality and maintainability
 - Design pattern recognition
 - Refactoring and simplification
 - CuBIE architecture deep knowledge
+
+## Performance Note
+
+Do not include explicit performance goals or performance-based tests in your review. Focus on logical correctness, code quality, and whether acceptance criteria are met. Performance improvements are presumed to occur if the logic executes correctly.
 
 ## Input
 

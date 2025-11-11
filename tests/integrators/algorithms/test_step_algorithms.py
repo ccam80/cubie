@@ -113,14 +113,14 @@ def _expected_memory_requirements(
     if isinstance(step_object, DIRKStep):
         stage_count = tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * n_states
-        shared = accumulator_span + 3 * n_states + extra_shared
+        shared = accumulator_span + 2 * n_states + extra_shared
         local = 2 * n_states
         return shared, local
     if isinstance(step_object, FIRKStep):
         stage_count = tableau.stage_count
         driver_stack = stage_count * n_drivers
         accumulator_span = stage_count * n_states
-        solver_elements = 3 * accumulator_span
+        solver_elements = 2 * accumulator_span
         shared = solver_elements + driver_stack + accumulator_span
         local = n_states
         return shared, local
@@ -134,7 +134,7 @@ def _expected_memory_requirements(
         step_object,
         (BackwardsEulerStep, BackwardsEulerPCStep, CrankNicolsonStep),
     ):
-        shared = 3 * n_states + extra_shared
+        shared = 2 * n_states + extra_shared
         return shared, 0
     if isinstance(step_object, ExplicitEulerStep):
         return 0, 0

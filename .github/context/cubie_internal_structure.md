@@ -344,6 +344,14 @@ Located in `tests/integrators/cpu_reference.py`:
 - Output buffer strides computed by output_sizes helpers
 - Summaries stored flat with stride calculations for multi-variable arrays
 
+### Comment Style
+- Describe functionality and current behavior, NOT implementation changes or history
+- Bad: "now computed inline by operators, eliminating the need for a buffer"
+- Good: "computed inline by operators; no dedicated buffer required"
+- Comments are for understanding current code, not justifying past decisions
+- Remove language like "now", "changed from", "no longer", "eliminated", etc.
+- Comments should explain what code does, not what it used to do or why it changed
+
 ## Build and Test Commands
 
 ### Installation
@@ -454,12 +462,28 @@ tests/
 ├── integrators/                   # Integrator tests
 │   ├── cpu_reference.py           # Reference implementations
 │   ├── algorithms/
+│   │   └── instrumented/          # Logging-enabled device function copies
 │   ├── loops/
 │   └── step_control/
 ├── memory/                        # Memory tests
 ├── odesystems/                    # ODE system tests
 └── outputhandling/                # Output tests
 ```
+
+### Instrumented Test Directory
+
+The `tests/integrators/algorithms/instrumented/` directory contains logging-enabled copies of CUDA device functions from `src/cubie/integrators/algorithms/` and `src/cubie/integrators/matrix_free_solvers/`.
+
+**IMPORTANT**: Any changes to algorithm or solver device functions in the source must be replicated in the instrumented versions.
+
+**Files that must be kept in sync:**
+- `src/cubie/integrators/algorithms/*.py` ↔ `tests/integrators/algorithms/instrumented/*.py`
+- `src/cubie/integrators/matrix_free_solvers/*.py` ↔ `tests/integrators/algorithms/instrumented/matrix_free_solvers.py`
+
+**Instrumentation changes only:**
+- Additional logging arrays passed as parameters
+- Snapshot recording within iteration loops
+- No functional logic changes except logging
 
 ---
 *This file is maintained by agents to provide architectural context for future development work.*

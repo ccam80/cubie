@@ -163,6 +163,20 @@ def _build_operator_body(
     a_ij_sym = sp.Symbol("a_ij")
     h_sym = sp.Symbol("h")
 
+    # Add state substitution for inline evaluation when not using cached aux
+    # For Newton-Krylov (use_cached_aux=False): state param is stage_increment,
+    #   need to evaluate at base_state + a_ij * stage_increment
+    # For Rosenbrock (use_cached_aux=True): state param is actual state,
+    #   evaluate at state directly (no substitution needed)
+    state_subs = {}
+    if not use_cached_aux:
+        state_symbols = list(index_map.states.index_map.keys())
+        state_indexed = sp.IndexedBase("state")
+        base_state_indexed = sp.IndexedBase("base_state")
+        for i, state_sym in enumerate(state_symbols):
+            eval_point = base_state_indexed[i] + a_ij_sym * state_indexed[i]
+            state_subs[state_sym] = eval_point
+
     mass_assigns = []
     out_updates = []
     for i in range(n_out):
@@ -174,7 +188,9 @@ def _build_operator_body(
             sym = sp.Symbol(f"m_{i}{j}")
             mass_assigns.append((sym, entry))
             mv += sym * v[j]
-        rhs = beta_sym * mv - gamma_sym * a_ij_sym * h_sym * jvp_terms[i]
+        # Apply state substitution to jvp_terms (only for non-cached case)
+        jvp_substituted = jvp_terms[i].subs(state_subs) if state_subs else jvp_terms[i]
+        rhs = beta_sym * mv - gamma_sym * a_ij_sym * h_sym * jvp_substituted
         out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
 
     if use_cached_aux:
@@ -195,7 +211,9 @@ def _build_operator_body(
             if lhs in seen:
                 continue
             seen.add(lhs)
-            aux_assignments.append((lhs, rhs))
+            # Apply state substitution to auxiliary assignments (non-cached only)
+            rhs_substituted = rhs.subs(state_subs) if state_subs else rhs
+            aux_assignments.append((lhs, rhs_substituted))
 
     exprs = mass_assigns + aux_assignments + out_updates
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)

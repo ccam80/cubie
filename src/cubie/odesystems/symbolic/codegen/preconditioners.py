@@ -152,11 +152,52 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "    return preconditioner\n"
 )
 
+def _build_neumann_body_with_state_subs(
+    jvp_equations: JVPEquations,
+    index_map: IndexedBases,
+) -> str:
+    """Build non-cached Neumann JVP body with inline state evaluation.
+    
+    For Newton-Krylov usage: state param is stage_increment,
+    need to evaluate at base_state + a_ij * stage_increment
+    """
+    
+    # Add state substitution for inline evaluation
+    state_subs = {}
+    state_symbols = list(index_map.states.index_map.keys())
+    state_indexed = sp.IndexedBase("state")
+    base_state_indexed = sp.IndexedBase("base_state")
+    a_ij_sym = sp.Symbol("a_ij")
+    
+    for i, state_sym in enumerate(state_symbols):
+        eval_point = base_state_indexed[i] + a_ij_sym * state_indexed[i]
+        state_subs[state_sym] = eval_point
+    
+    # Apply substitution to all assignments
+    assignments = jvp_equations.ordered_assignments
+    substituted_assignments = [
+        (lhs, rhs.subs(state_subs)) for lhs, rhs in assignments
+    ]
+    
+    lines = print_cuda_multiple(substituted_assignments, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        lines = ["pass"]
+    else:
+        lines = [
+            ln.replace("v[", "out[").replace("jvp[", "jvp[")
+            for ln in lines
+        ]
+    return "\n".join("            " + ln for ln in lines)
+
 def _build_cached_neumann_body(
     equations: JVPEquations,
     index_map: IndexedBases,
 ) -> str:
-    """Build the cached Neumann-series Jacobian-vector body."""
+    """Build the cached Neumann-series Jacobian-vector body.
+    
+    For Rosenbrock usage: state param is actual state,
+    evaluate at state directly (no substitution needed)
+    """
 
     cached_aux, runtime_aux, _ = equations.cached_partition()
     jvp_terms = equations.jvp_terms
@@ -394,7 +435,10 @@ def generate_neumann_preconditioner_code(
     cse: bool = True,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
-    """Generate the Neumann preconditioner factory."""
+    """Generate the Neumann preconditioner factory.
+    
+    For Newton-Krylov usage: applies inline state evaluation.
+    """
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -406,16 +450,7 @@ def generate_neumann_preconditioner_code(
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    assignments = jvp_equations.ordered_assignments
-    lines = print_cuda_multiple(assignments, symbol_map=index_map.all_arrayrefs)
-    if not lines:
-        lines = ["pass"]
-    else:
-        lines = [
-            ln.replace("v[", "out[").replace("jvp[", "jvp[")
-            for ln in lines
-        ]
-    jv_body = "\n".join("            " + ln for ln in lines)
+    jv_body = _build_neumann_body_with_state_subs(jvp_equations, index_map)
     return NEUMANN_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
@@ -430,7 +465,11 @@ def generate_neumann_preconditioner_cached_code(
     cse: bool = True,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
-    """Generate the cached Neumann preconditioner factory."""
+    """Generate the cached Neumann preconditioner factory.
+    
+    For Rosenbrock usage: state param is actual state,
+    no inline substitution needed.
+    """
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)

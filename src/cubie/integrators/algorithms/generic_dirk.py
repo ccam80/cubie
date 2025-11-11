@@ -421,9 +421,9 @@ class DIRKStep(ODEImplicitStep):
             #       - increment_cache: second slice (size n)
             #           - Receives the accepted increment at step end for FSAL.
             #           - Solver stops touching it once convergence is reached.
-            #       - eval_state: third slice (size n)
-            #           - Stores base_state + a_ij * stage_increment.
-            #           - Reserved for Newton Jacobian evaluations.
+            #   Note:
+            #       - Evaluation state is computed inline by operators and
+            #         residuals; no dedicated buffer required.
             # stage_increment: size n, per-thread local memory.
             #   Default behaviour:
             #       - Starts as the Newton guess and finishes as the step.

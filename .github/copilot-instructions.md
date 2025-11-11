@@ -27,6 +27,13 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - Do NOT import from `__future__ import annotations` (assume Python 3.8+)
 - Comments should explain complex operations to future developers, NOT narrate changes to users
 
+### Comment Style
+- Describe functionality and behavior, NOT implementation changes or history
+- Bad: "now computed inline by operators, eliminating the need for a buffer"
+- Good: "computed inline by operators; no dedicated buffer required"
+- Comments are for understanding current code, not justifying past decisions
+- Remove language like "now", "changed from", "no longer", "eliminated", etc.
+
 ### Commit Messages
 - Use Conventional Commit format for all commit and PR messages
 - `fix:` - when completely fixing a bug

@@ -66,8 +66,11 @@ These user stories will be used by the reviewer to validate the final implementa
 - CUDA programming and GPU architecture  
 - Numba JIT compilation and CUDA kernels
 - Batch integration of ODEs/SDEs
-- High-performance computing patterns
 - Software architecture and design patterns
+
+## Performance Note
+
+Do not include explicit performance goals or performance-based tests in user stories or acceptance criteria. Focus on logical correctness and behavioral outcomes. Performance improvements are presumed to occur if the logic executes correctly.
 
 ## File Permissions
 
@@ -113,7 +116,7 @@ Create a new directory in `.github/active_plans/` with a snake_case name (1-3 wo
 
 #### Overview Section
 - Executive summary of the planned implementation
-- ASCII/text diagrams 
+- Mermaid diagrams (use ```mermaid code blocks)
 - Data flow diagrams showing how components interact
 - Key technical decisions and rationale
 - References to research findings
@@ -148,7 +151,7 @@ Keep this document concise.
 - Consider CuBIE's architecture: CUDA kernels via Numba, attrs classes, precision handling
 - Ensure plans align with repository conventions
 - Follow repository structure documented in AGENTS.md
-- Consider GPU memory constraints and performance implications
+- Consider GPU memory constraints
 - Plan for both CUDA and CUDASIM environments where applicable
 
 ## Tools and When to Use Them
