@@ -331,6 +331,7 @@ def instrumented_step_results(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+        counters = cuda.local.array(2, dtype=int32)
         zero = numba_precision(0.0)
         for cache_idx in range(shared_elems):
             shared[cache_idx] = zero
@@ -387,6 +388,7 @@ def instrumented_step_results(
                 accepted_flag,
                 shared,
                 persistent,
+                counters,
             )
             status_vec[step_idx] = result
 
