@@ -342,6 +342,14 @@ Located in `tests/integrators/cpu_reference.py`:
 - Output buffer strides computed by output_sizes helpers
 - Summaries stored flat with stride calculations for multi-variable arrays
 
+### Comment Style
+- Describe functionality and current behavior, NOT implementation changes or history
+- Bad: "now computed inline by operators, eliminating the need for a buffer"
+- Good: "computed inline by operators; no dedicated buffer required"
+- Comments are for understanding current code, not justifying past decisions
+- Remove language like "now", "changed from", "no longer", "eliminated", etc.
+- Comments should explain what code does, not what it used to do or why it changed
+
 ## Build and Test Commands
 
 ### Installation

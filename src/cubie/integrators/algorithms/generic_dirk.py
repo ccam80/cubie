@@ -422,9 +422,8 @@ class DIRKStep(ODEImplicitStep):
             #           - Receives the accepted increment at step end for FSAL.
             #           - Solver stops touching it once convergence is reached.
             #   Note:
-            #       - State evaluation (base_state + a_ij * stage_increment) is
-            #         now computed inline by operators and residuals, eliminating
-            #         the need for a dedicated eval_state buffer.
+            #       - Evaluation state is computed inline by operators and
+            #         residuals; no dedicated buffer required.
             # stage_increment: size n, per-thread local memory.
             #   Default behaviour:
             #       - Starts as the Newton guess and finishes as the step.
