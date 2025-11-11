@@ -23,8 +23,7 @@ Each agent has restricted file creation/edit permissions:
 
 - **plan_new_feature**: `.github/active_plans/<feature>/user_stories.md`, `human_overview.md`, `agent_plan.md`
 - **detailed_implementer**: `.github/active_plans/<feature>/task_list.md`
-- **taskmaster**: `.github/active_plans/<feature>/task_list.md` (updates only)
-- **do_task**: Files listed in assigned task group only
+- **taskmaster**: Files listed in task groups, `.github/active_plans/<feature>/task_list.md` (updates), `.github/active_plans/<feature>/review_report.md` (updates)
 - **reviewer**: `.github/active_plans/<feature>/review_report.md`
 - **docstring_guru**: Any `.py` files, `docs/` files, `.github/context/cubie_internal_structure.md`
 - **narrative_documenter**: `docs/` directory only (plus `readme.md`)
@@ -87,22 +86,7 @@ Executes:
 - Progress tracking and issue flagging
 - Handoff preparation for reviewer
 
-### 4. do_task
-**Role**: Senior developer and implementer  
-**Purpose**: Execute individual task groups when called directly (typically taskmaster handles full execution)  
-**MCP Tools**: None
-**Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
-**Output**: Git patches and updated `task_list.md` with outcomes
-**File Permissions**: Can create/edit only files listed in assigned task group
-
-Executes:
-- Code changes per specifications exactly for a single task group
-- Adds educational comments (not docstrings)
-- Performs ONLY validation from "Input Validation Required"
-- Runs tests ONLY when explicitly added with CUDASIM enabled
-- Flags bugs/risks in outcomes (executes without deviation)
-
-### 5. reviewer
+### 4. reviewer
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
 **MCP Tools**: None
@@ -118,7 +102,7 @@ Reviews for:
 - Convention compliance
 - Performance issues (buffer reuse, math vs memory)
 
-### 6. docstring_guru
+### 5. docstring_guru
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
 **MCP Tools**: None
@@ -135,7 +119,7 @@ Enforces:
 - Updates `.github/context/cubie_internal_structure.md` with insights
 - Escapes all backslashes in docstrings
 
-### 7. narrative_documenter
+### 6. narrative_documenter
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
 **MCP Tools**: None
@@ -348,12 +332,6 @@ and create a detailed task list with function signatures and implementation step
 in parallel and sequential mode as specified.
 ```
 
-Or for individual task groups (when not using the full pipeline):
-
-```
-@do_task Execute task group 3 from task_list.md in .github/active_plans/rosenbrock_w/
-```
-
 **Reviewing Implementation**:
 
 ```
@@ -421,7 +399,7 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
-- **pytest**: Test running (taskmaster and do_task, only for added tests with CUDASIM)
+- **pytest**: Test running (taskmaster only, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
 
@@ -461,12 +439,9 @@ These are enforced in agent instructions:
   * Specify exact "Input Validation Required"
   * Mark task groups as PARALLEL or SEQUENTIAL
 - **taskmaster**: 
-  * Implement code directly (no delegation to do_task agents)
+  * Implement code directly
   * Execute all task groups in the task_list.md
-- **do_task**: 
-  * Execute exactly as specified for individual task groups
-  * Perform ONLY validation from "Input Validation Required"
-  * Typically not used when taskmaster handles full execution
+  * Handle both full implementation plans and review edit applications
 - **reviewer**: 
   * Validate against user_stories.md
   * Be harsh but fair
@@ -512,7 +487,7 @@ If an agent doesn't follow instructions:
 
 If the workflow stalls:
 1. Each agent should ask for approval before proceeding
-2. taskmaster and do_task don't ask questions - they execute as specified
+2. taskmaster doesn't ask questions - it executes as specified
 3. Agents can be invoked out of order for special cases
 4. Documentation agents can work independently of implementation flow
 

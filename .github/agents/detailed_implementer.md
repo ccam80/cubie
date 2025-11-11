@@ -78,10 +78,10 @@ Receive from plan_new_feature agent:
    - Core implementations SECOND (main functionality)
    - Integration code THIRD (wiring components together)
    - Tests LAST (validation)
-5. **Execution Grouping**: Group tasks for do_task agent
+5. **Execution Grouping**: Group tasks for taskmaster agent
    - Mark groups as SEQUENTIAL or PARALLEL
    - Each group should be cohesive and independently executable
-   - Include all context needed (no searching required by do_task)
+   - Include all context needed (no searching required by taskmaster)
 
 ## Output: task_list.md
 
@@ -102,7 +102,7 @@ Structure:
 **Input Validation Required**:
 - param1: Check type is np.ndarray, shape matches expected dimensions
 - param2: Validate range 0 < param2 < 1.0
-- [List exact validation needed - do_task will implement ONLY these]
+- [List exact validation needed - taskmaster will implement ONLY these]
 
 **Tasks**:
 1. **[Task Name]**
@@ -122,7 +122,7 @@ Structure:
 2. [Next task...]
 
 **Outcomes**: 
-[Empty - to be filled by do_task agent]
+[Empty - to be filled by taskmaster agent]
 
 ---
 
@@ -135,8 +135,8 @@ Structure:
 - **Explicit Context**: List ALL files and line numbers needed for each group
 - **Complete Signatures**: Full type hints, parameter names, return types
 - **Detailed Logic**: Step-by-step implementation instructions
-- **Input Validation Required**: Exact validation to perform (do_task adds NO extra validation)
-- **No Ambiguity**: do_task should not need to make design decisions
+- **Input Validation Required**: Exact validation to perform (taskmaster adds NO extra validation)
+- **No Ambiguity**: taskmaster should not need to make design decisions
 - **CuBIE Conventions**: Follow repository guidelines strictly
 
 ## Behavior Guidelines

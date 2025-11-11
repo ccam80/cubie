@@ -249,5 +249,5 @@ After completing review:
 1. Present executive summary
 2. Highlight top 3-5 most critical issues
 3. Highlight user story validation results
-4. Recommend whether edits should be made by do_task agents
-5. If edits needed, prepare suggested edits section for do_task consumption
+4. Recommend whether edits should be made by taskmaster
+5. If edits needed, prepare suggested edits section for taskmaster consumption
