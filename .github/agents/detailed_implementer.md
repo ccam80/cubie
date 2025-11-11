@@ -6,7 +6,6 @@ tools:
   - github/search_code
   - github/list_commits
   - github/get_commit
-  - taskmaster
   - read
   - edit
   - create
@@ -163,4 +162,4 @@ After completing task_list.md, update the user with your progress, showing:
 3. Parallel execution opportunities
 4. Estimated complexity
 
-Return task_list.md to user and ask if they would like to continue with downstream agents.
+Return task_list.md to user. The default Copilot agent will coordinate any subsequent pipeline steps.

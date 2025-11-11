@@ -48,11 +48,9 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 **Role**: Expert project manager and technical architect  
 **Purpose**: User story creation, research, and implementation planning  
 **MCP Tools**: GitHub (always), Playwright (web browsing), bash (for directory creation)
-**Custom Agent Tools**: `detailed_implementer`
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
 **File Permissions**: Can create/edit directory and files in `.github/active_plans/<feature>/` only (creates directory first using bash)
-**Downstream Agents**: Can call `detailed_implementer` when `return_after` > `plan_new_feature`
 
 Creates comprehensive plans with:
 - User stories and acceptance criteria (first step)
@@ -62,12 +60,10 @@ Creates comprehensive plans with:
 ### 2. detailed_implementer
 **Role**: Operations manager and implementation planner  
 **Purpose**: Convert architectural plans into detailed, executable tasks  
-**MCP Tools**: GitHub, 
-**Custom Agent Tools**: `taskmaster`
+**MCP Tools**: GitHub
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: `task_list.md` with function-level implementation tasks
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/task_list.md` only
-**Downstream Agents**: Can call `taskmaster` when `return_after` > `detailed_implementer`
 
 Creates:
 - Complete function signatures
@@ -80,11 +76,9 @@ Creates:
 **Role**: Senior developer and implementation executor  
 **Purpose**: Execute implementation plans by performing tasks in parallel and sequential order  
 **MCP Tools**: None
-**Custom Agent Tools**: `reviewer`, `docstring_guru`
 **Context**: `task_list.md` from detailed_implementer  
 **Output**: Execution summaries, completed implementation, ready-for-review code
 **File Permissions**: Can create/edit files listed in task groups, update `.github/active_plans/<feature>/task_list.md`
-**Downstream Agents**: Can call `reviewer` when `return_after` > `taskmaster`, `docstring_guru` when `return_after` = `docstring_guru`
 
 Executes:
 - Parallel and sequential task groups
@@ -97,11 +91,9 @@ Executes:
 **Role**: Senior developer and implementer  
 **Purpose**: Execute individual task groups when called directly (typically taskmaster handles full execution)  
 **MCP Tools**: None
-**Custom Agent Tools**: None (leaf node)
 **Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
 **Output**: Git patches and updated `task_list.md` with outcomes
 **File Permissions**: Can create/edit only files listed in assigned task group
-**Downstream Agents**: None (leaf node in agent tree)
 
 Executes:
 - Code changes per specifications exactly for a single task group
@@ -114,11 +106,9 @@ Executes:
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
 **MCP Tools**: None
-**Custom Agent Tools**: `taskmaster` (for second invocation to apply edits)
 **Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/review_report.md` only
-**Downstream Agents**: Can call `taskmaster` (second invocation for edits) when `return_after` > `reviewer`
 
 Reviews for:
 - User story validation (acceptance criteria met)
@@ -132,11 +122,9 @@ Reviews for:
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
 **MCP Tools**: None
-**Custom Agent Tools**: None (final step in pipeline)
 **Context**: `AGENTS.md`  
 **Output**: Updated docstrings, API reference files, internal structure updates
 **File Permissions**: Can edit any `.py` files, `docs/` files, `.github/context/cubie_internal_structure.md`
-**Downstream Agents**: None (typically last in pipeline; narrative_documenter is separate)
 
 Enforces:
 - Numpydoc format for all functions/classes
@@ -151,11 +139,9 @@ Enforces:
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
 **MCP Tools**: None
-**Custom Agent Tools**: None (independent of main pipeline)
 **Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
 **Output**: Documentation in **reStructuredText (.rst)** for Sphinx (Markdown only for readmes/summaries)
 **File Permissions**: Can create/edit files in `docs/` directory only (plus `readme.md`)
-**Downstream Agents**: None (exists outside main pipeline)
 **Pipeline Position**: **INDEPENDENT** - called separately, not part of the main implementation pipeline
 
 Creates:
@@ -169,9 +155,9 @@ Creates:
 
 ### Pipeline Architecture with return_after
 
-The agent pipeline supports automatic chaining via the `return_after` argument. Each agent can execute subsequent agents automatically based on this parameter.
+The agent pipeline is coordinated by the **default Copilot agent** (not by the custom agents themselves). The default agent invokes each custom agent in sequence based on the `return_after` parameter specified by the user.
 
-**Pipeline Flow**:
+**Pipeline Flow (coordinated by default Copilot agent)**:
 ```
 plan_new_feature → detailed_implementer → taskmaster → reviewer → taskmaster (2nd) → docstring_guru
                                                                                           ↓
@@ -218,27 +204,23 @@ User Request with return_after parameter
 │                       │ → Perplexity deep_research (if requested)
 │                       │ → Playwright (web browsing)
 │                       │ → Creates human_overview.md & agent_plan.md
-│                       │ → If return_after > plan_new_feature:
-│                       │   calls detailed_implementer via custom-agent
 └───────────────────────┘
     ↓ (if return_after > plan_new_feature)
+    ↓ (default Copilot agent invokes next agent)
 ┌───────────────────────┐
 │ detailed_implementer  │ → Reviews source code
 │                       │ → Creates task_list.md with:
 │                       │   - Input Validation Required
 │                       │   - Dependency-ordered tasks
 │                       │   - PARALLEL/SEQUENTIAL groups
-│                       │ → If return_after > detailed_implementer:
-│                       │   calls taskmaster via custom-agent
 └───────────────────────┘
     ↓ (if return_after > detailed_implementer)
+    ↓ (default Copilot agent invokes next agent)
 ┌───────────────────────┐
 │ taskmaster            │ → Executes entire implementation
 │                       │ → Performs tasks in parallel/sequential order
 │                       │ → Tracks progress and dependencies
 │                       │ → Updates task_list.md with outcomes
-│                       │ → If return_after > taskmaster:
-│                       │   calls reviewer via custom-agent
 │                       │
 │ Implements tasks:     │
 │ - Reads context files │
@@ -248,22 +230,21 @@ User Request with return_after parameter
 │ - Flags bugs/risks    │ → Flag bugs/risks in outcomes
 └───────────────────────┘
     ↓ (if return_after > taskmaster)
+    ↓ (default Copilot agent invokes next agent)
 ┌───────────────────────┐
 │ reviewer              │ → Validates against user_stories.md
 │                       │ → Checks agent_plan.md & human_overview.md
 │                       │ → Analyzes buffer reuse, math vs memory
 │                       │ → Creates review_report.md
-│                       │ → If return_after > reviewer AND has edits:
-│                       │   calls taskmaster (2nd time) via custom-agent
 └───────────────────────┘
     ↓ (if return_after > reviewer AND has edits)
+    ↓ (default Copilot agent invokes taskmaster 2nd time)
 ┌───────────────────────┐
 │ taskmaster (2nd run)  │ → Applies review edits directly
 │                       │ → Updates review_report.md
-│                       │ → If return_after = docstring_guru:
-│                       │   calls docstring_guru via custom-agent
 └───────────────────────┘
     ↓ (if return_after = docstring_guru)
+    ↓ (default Copilot agent invokes next agent)
 ┌───────────────────────┐
 │ docstring_guru        │ → Processes inline comments
 │                       │ → Summarizes general comments in Notes
@@ -271,10 +252,10 @@ User Request with return_after parameter
 │                       │ → Updates API reference (touched files)
 │                       │ → Searches narrative docs for usage
 │                       │ → Updates cubie_internal_structure.md
-│                       │ → FINAL STEP - no downstream calls
+│                       │ → FINAL STEP
 └───────────────────────┘
 
-Separate workflow (called independently):
+Separate workflow (called independently by default Copilot agent):
 ┌───────────────────────┐
 │ narrative_documenter  │ → Accepts function updates from docstring_guru
 │                       │ → Creates RST docs (how-to, user guide)
@@ -440,10 +421,11 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
-- **Custom Agent Tools**: Each agent lists specific custom agents it can invoke (e.g., plan_new_feature can invoke detailed_implementer, taskmaster can invoke reviewer/docstring_guru)
 - **pytest**: Test running (taskmaster and do_task, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
+
+**Note**: Custom agents do NOT have the ability to invoke other custom agents. Pipeline coordination is handled by the default Copilot agent as described in `.github/copilot-instructions.md`.
 
 See individual agent files for detailed tool usage instructions.
 
@@ -471,35 +453,28 @@ These are enforced in agent instructions:
   * Decode user prompts correctly - extract the problem/feature, ignore action language
   * Follow role defined in profile, not user prompt language
   * Respect file permissions strictly
+  * Do NOT attempt to invoke other custom agents - pipeline coordination is handled by the default Copilot agent
 - **plan_new_feature**: 
   * Create user_stories.md FIRST
-  * If return_after > plan_new_feature, call detailed_implementer via custom-agent
   * Describe behavior/architecture, not implementation details
 - **detailed_implementer**: 
-  * If return_after > detailed_implementer, call taskmaster via custom-agent
   * Specify exact "Input Validation Required"
   * Mark task groups as PARALLEL or SEQUENTIAL
 - **taskmaster**: 
-  * If return_after > taskmaster, call reviewer via custom-agent after completing tasks
-  * For taskmaster_2 (second invocation), apply review edits then call docstring_guru if needed
   * Implement code directly (no delegation to do_task agents)
   * Execute all task groups in the task_list.md
 - **do_task**: 
-  * No downstream agents (leaf node)
   * Execute exactly as specified for individual task groups
   * Perform ONLY validation from "Input Validation Required"
   * Typically not used when taskmaster handles full execution
 - **reviewer**: 
-  * If return_after > reviewer AND has suggested edits, call taskmaster again via custom-agent
   * Validate against user_stories.md
   * Be harsh but fair
 - **docstring_guru**: 
-  * Final step in main pipeline
-  * No downstream calls (narrative_documenter is separate)
   * Can edit any code or docs files
+  * Process and summarize inline comments appropriately
 - **narrative_documenter**: 
   * Exists outside main pipeline
-  * No downstream agents
   * Can only edit docs/ directory
 
 ## Repository Conventions

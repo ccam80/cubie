@@ -2,8 +2,6 @@
 name: taskmaster
 description: Senior developer executing implementation plans by performing tasks in parallel and sequential order
 tools:
-  - reviewer
-  - docstring_guru
   - read
   - view
   - edit
@@ -255,17 +253,7 @@ Follow these from AGENTS.md and .github/copilot-instructions.md:
 - **Use for**: Making the actual code modifications
 - **Not for**: Files not mentioned in the assigned task group
 
-### reviewer Tool (Custom Agent)
-
-- **When**: After all task groups complete successfully
-- **Use for**: Validating implementation against user stories
-- **Only if**: return_after > taskmaster in the original request
-
-### docstring_guru Tool (Custom Agent)
-
-- **When**: After reviewer completes (second taskmaster invocation)
-- **Use for**: Adding complete docstrings to all modified files
-- **Only if**: return_after = docstring_guru in the original request
+**Note**: You do NOT have the ability to invoke other custom agents. The default Copilot agent handles pipeline coordination.
 
 ## Workflow Example
 
@@ -297,5 +285,4 @@ Execution:
    - Update task_list.md with outcomes
 10. Verify Group 3 complete, all checkboxes marked
 11. Prepare comprehensive execution summary
-12. If return_after > taskmaster: call reviewer agent
-13. If return_after <= taskmaster: return to user with summary
+12. Return to user (default Copilot agent handles any further pipeline steps)
