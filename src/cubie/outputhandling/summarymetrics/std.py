@@ -135,7 +135,8 @@ class Std(SummaryMetric):
             mean_of_squares_shifted = buffer[2] / summarise_every
             variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
             output_array[0] = sqrt(variance)
-            buffer[0] = precision(0.0)
+            mean = buffer[0] + mean_shifted
+            buffer[0] = mean
             buffer[1] = precision(0.0)
             buffer[2] = precision(0.0)
 

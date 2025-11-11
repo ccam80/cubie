@@ -49,7 +49,7 @@ Then proceed according to your role as defined below.
 
 ## Your Role
 
-You examine feature requests, issues, bug reports, or user context and conduct initial research to find the best implementable solution. You create comprehensive plans for downstream agents to execute.
+You examine feature requests, issues, bug reports, or user context and conduct initial research to find the best implementable solution. You create comprehensive plans that the default Copilot agent will use to coordinate subsequent pipeline steps.
 
 ## First Step: Create User Stories
 
@@ -85,28 +85,6 @@ These user stories will be used by the reviewer to validate the final implementa
 Your plan will be interpreted by:
 1. **detailed_implementer** agent: converts your architectural plan into detailed function-level implementation tasks
 2. **reviewer** agent: validates implementation against user stories and architectural goals
-
-## Downstream Agents
-
-You have access to invoke the following downstream agent:
-
-- **detailed_implementer**: Call when `return_after` is set to `detailed_implementer` or later. Pass the path to your created `agent_plan.md` and specify `return_after` level.
-
-## Return After Argument
-
-Accept a `return_after` argument that controls the pipeline execution level:
-
-- **plan_new_feature** (default): Create outputs and return. Do NOT call any downstream agents.
-- **detailed_implementer**: Create outputs, then invoke detailed_implementer agent with your outputs and the same `return_after` value.
-- **taskmaster**: Create outputs, invoke detailed_implementer, which will invoke taskmaster.
-- **reviewer**: Create outputs, invoke detailed_implementer → taskmaster → reviewer.
-- **taskmaster_2**: Create outputs, invoke detailed_implementer → taskmaster → reviewer → taskmaster (for review edits).
-- **docstring_guru**: Complete full pipeline through taskmaster_2, then invoke docstring_guru.
-
-**Implementation**:
-- If `return_after` is not provided, default to `plan_new_feature` (create outputs and stop).
-- If `return_after` is beyond `plan_new_feature`, create your outputs first, then invoke the next agent in the pipeline.
-- Always pass the `return_after` value to downstream agents.
 
 ## Research Process
 
@@ -187,10 +165,4 @@ Keep this document concise.
 - **Use for**: Reading documentation sites, examining code examples, navigating technical resources
 - **Example**: Browse NumPy documentation for array operation patterns
 
-**If `return_after` is `plan_new_feature`**: After completing research and creating your plan files, present a summary to the user and ask if they would like to proceed or require modifications.
-
-**If `return_after` is beyond `plan_new_feature`**: After creating your outputs, invoke the next agent in the pipeline:
-- Call the `detailed_implementer` tool to invoke that agent
-- Pass the path to the `agent_plan.md` you created
-- Pass the same `return_after` value
-- Let the downstream agent handle the rest of the pipeline
+After completing research and creating your plan files, present a summary to the user and ask if they would like to proceed or require modifications.
