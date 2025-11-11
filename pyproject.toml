@@ -41,8 +41,8 @@ dev = [
     "cupy-cuda12x",
     "pandas",
     "matplotlib",
-    "scipy"
-
+    "scipy",
+    "cellmlmanip",
 ]
 cupy = [
     "cupy-cuda12x",

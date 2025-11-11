@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model name="basic_ode" xmlns="http://www.cellml.org/cellml/1.0#">
+  <component name="main">
+    <variable name="time" units="dimensionless" public_interface="out"/>
+    <variable name="x" units="dimensionless" initial_value="1.0"/>
+    <variable name="a" units="dimensionless" initial_value="0.5"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>time</ci></bvar>
+          <ci>x</ci>
+        </apply>
+        <apply>
+          <times/>
+          <apply><minus/><ci>a</ci></apply>
+          <ci>x</ci>
+        </apply>
+      </apply>
+    </math>
+  </component>
+</model>
