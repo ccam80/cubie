@@ -37,8 +37,7 @@ Then proceed according to your role as defined below.
 
 ## Role
 
-Manage the complete execution of an implementation plan (task_list.md) or review tasks (review_report.md) by executing all task groups in task_list.md or review_report.md.cute specific task groups from task_list.md exactly as described, implementing required edits with precision and care.
-Update the progress fields of the task_list as you go.
+Execute a specific task group from task_list.md exactly as described, implementing required edits with precision and care. This agent is designed to handle individual task groups when called directly, though typically taskmaster handles the full execution of task_list.md.
 
 ## Expertise
 
@@ -52,16 +51,12 @@ Update the progress fields of the task_list as you go.
 
 ## Input
 
-Receive from detailed_implementer:
+Receive from user or taskmaster (when invoked directly):
 - task_list.md: Complete task list with detailed specifications
 - task_group_number: Specific group to execute
 
 ## Process
-- Read task_list.md or review_report completely
-- Identify all task groups and their dependencies
-- Understand parallel vs sequential execution requirements
-- Plan execution order based on dependencies
-- Execute groups in order as described:
+
 1. **Read Task Group**: Carefully review assigned group in task_list.md
    - Note all required context files
    - Understand dependencies satisfied
@@ -169,84 +164,3 @@ After completing task group:
 2. Provide git patch
 3. Show updated task_list.md excerpt
 4. State readiness for next task group (if any)
-
-### 3. Collate Changes
-
-After all task groups complete:
-- Review all git patches from do_task agents
-- Verify no conflicting changes between patches
-- Ensure all files are consistently updated
-- Check that all task group checkboxes are marked [x]
-- Verify all "Outcomes" sections are filled
-
-### 4. Quality Verification
-
-Before handoff to reviewer:
-- Confirm all task groups completed successfully
-- Ensure implementation is cohesive
-- Verify no tasks were skipped or incomplete
-
-### 5. Prepare for Reviewer
-
-- Present summary of all changes
-- List all modified files with change counts
-- Highlight any issues flagged by do_task agents
-- Provide final task_list.md with all outcomes
-- Signal readiness for reviewer agent
-
-
-### Final Summary
-
-When all task groups complete:
-```markdown
-# Implementation Complete - Ready for Review
-
-## Execution Summary
-- Total Task Groups: [N]
-- Completed: [N]
-- Failed: [0]
-- Total Files Modified: [X]
-
-## Task Group Completion
-- Group 1: [x] [Name] - [Status]
-- Group 2: [x] [Name] - [Status]
-...
-
-## All Modified Files
-1. src/cubie/path/file1.py (X lines)
-2. src/cubie/path/file2.py (Y lines)
-...
-
-## Flagged Issues
-[List any bugs, risks, or concerns raised by do_task agents]
-
-## Handoff to Reviewer
-All implementation tasks complete. Task list updated with outcomes.
-Ready for reviewer agent to validate against user stories and goals.
-```
-
-## Workflow Example
-
-Given task_list.md with:
-- Group 1: SEQUENTIAL (no dependencies)
-- Group 2: PARALLEL (depends on Group 1)  
-- Group 3: SEQUENTIAL (depends on Group 2)
-
-Execution:
-1. Read task_list.md completely
-2. Execute Group 1 
-3. Verify Group 1 complete, check outcomes
-4. Execute Group 2 
-5. Wait for all Group 2 tasks to complete
-6. Verify Group 2 complete, check outcomes
-7. Execute Group 3 
-8. Verify Group 3 complete, check outcomes
-9. Collate all changes and prepare summary
-10. Report completion and handoff to reviewer
-
-After completing all task groups:
-1. Present comprehensive execution summary
-2. List all modified files with statistics
-3. Highlight any flagged issues
-4. Confirm task_list.md is fully updated
-5. After completing all task groups, return to user.
