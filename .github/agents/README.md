@@ -77,26 +77,25 @@ Creates:
 - Context requirements for each task
 
 ### 3. taskmaster
-**Role**: Project manager and task orchestrator  
-**Purpose**: Manage execution of implementation plans through do_task agents  
+**Role**: Senior developer and implementation executor  
+**Purpose**: Execute implementation plans by performing tasks in parallel and sequential order  
 **MCP Tools**: None
-**Custom Agent Tools**: `do_task`, `reviewer`, `docstring_guru`
+**Custom Agent Tools**: `reviewer`, `docstring_guru`
 **Context**: `task_list.md` from detailed_implementer  
-**Output**: Execution summaries, collated changes, ready-for-review implementation
-**File Permissions**: Can update `.github/active_plans/<feature>/task_list.md` only (no source code edits)
-**Downstream Agents**: Can call `do_task` (repeatedly), `reviewer` when `return_after` > `taskmaster`, `docstring_guru` when `return_after` = `docstring_guru`
+**Output**: Execution summaries, completed implementation, ready-for-review code
+**File Permissions**: Can create/edit files listed in task groups, update `.github/active_plans/<feature>/task_list.md`
+**Downstream Agents**: Can call `reviewer` when `return_after` > `taskmaster`, `docstring_guru` when `return_after` = `docstring_guru`
 
-Manages:
-- Parallel and sequential task execution
-- Dependency-ordered task group coordination
-- Multiple do_task agent invocations
-- Change collation and integration
+Executes:
+- Parallel and sequential task groups
+- Dependency-ordered task implementation
+- Direct code changes per specifications
 - Progress tracking and issue flagging
 - Handoff preparation for reviewer
 
 ### 4. do_task
 **Role**: Senior developer and implementer  
-**Purpose**: Execute tasks exactly as specified with educational comments  
+**Purpose**: Execute individual task groups when called directly (typically taskmaster handles full execution)  
 **MCP Tools**: None
 **Custom Agent Tools**: None (leaf node)
 **Context**: `AGENTS.md`, `.github/copilot-instructions.md`  
@@ -105,7 +104,7 @@ Manages:
 **Downstream Agents**: None (leaf node in agent tree)
 
 Executes:
-- Code changes per specifications exactly
+- Code changes per specifications exactly for a single task group
 - Adds educational comments (not docstrings)
 - Performs ONLY validation from "Input Validation Required"
 - Runs tests ONLY when explicitly added with CUDASIM enabled
@@ -234,20 +233,19 @@ User Request with return_after parameter
 └───────────────────────┘
     ↓ (if return_after > detailed_implementer)
 ┌───────────────────────┐
-│ taskmaster            │ → Manages entire implementation execution
-│                       │ → Launches do_task agents in parallel/sequential
+│ taskmaster            │ → Executes entire implementation
+│                       │ → Performs tasks in parallel/sequential order
 │                       │ → Tracks progress and dependencies
-│                       │ → Collates all changes
+│                       │ → Updates task_list.md with outcomes
 │                       │ → If return_after > taskmaster:
 │                       │   calls reviewer via custom-agent
 │                       │
-│   Orchestrates ↓      │
-│                       │
-│ ┌─────────────────┐   │
-│ │ do_task agents  │   │ → Execute tasks EXACTLY as specified
-│ │ (parallel &     │   │ → Add educational comments (not docstrings)
-│ │  sequential)    │   │ → Perform ONLY specified validation
-│ └─────────────────┘   │ → Flag bugs/risks in outcomes
+│ Implements tasks:     │
+│ - Reads context files │
+│ - Writes code changes │ → Execute tasks EXACTLY as specified
+│ - Adds educational    │ → Add educational comments (not docstrings)
+│   comments            │ → Perform ONLY specified validation
+│ - Flags bugs/risks    │ → Flag bugs/risks in outcomes
 └───────────────────────┘
     ↓ (if return_after > taskmaster)
 ┌───────────────────────┐
@@ -260,7 +258,7 @@ User Request with return_after parameter
 └───────────────────────┘
     ↓ (if return_after > reviewer AND has edits)
 ┌───────────────────────┐
-│ taskmaster (2nd run)  │ → Applies review edits via do_task agents
+│ taskmaster (2nd run)  │ → Applies review edits directly
 │                       │ → Updates review_report.md
 │                       │ → If return_after = docstring_guru:
 │                       │   calls docstring_guru via custom-agent
@@ -315,7 +313,7 @@ return_after: docstring_guru
 This will:
 1. plan_new_feature creates plans
 2. detailed_implementer creates task_list.md
-3. taskmaster executes all tasks via do_task agents
+3. taskmaster executes all tasks directly
 4. reviewer validates and suggests edits
 5. taskmaster applies review edits
 6. docstring_guru adds complete documentation
@@ -365,11 +363,11 @@ and create a detailed task list with function signatures and implementation step
 
 ```
 @taskmaster Execute the complete implementation plan in 
-.github/active_plans/rosenbrock_w/task_list.md, managing all do_task agents
+.github/active_plans/rosenbrock_w/task_list.md, implementing all task groups
 in parallel and sequential mode as specified.
 ```
 
-Or for individual task groups:
+Or for individual task groups (when not using the full pipeline):
 
 ```
 @do_task Execute task group 3 from task_list.md in .github/active_plans/rosenbrock_w/
@@ -442,8 +440,8 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
-- **Custom Agent Tools**: Each agent lists specific custom agents it can invoke (e.g., plan_new_feature can invoke detailed_implementer, taskmaster can invoke do_task/reviewer/docstring_guru)
-- **pytest**: Test running (do_task, only for added tests with CUDASIM)
+- **Custom Agent Tools**: Each agent lists specific custom agents it can invoke (e.g., plan_new_feature can invoke detailed_implementer, taskmaster can invoke reviewer/docstring_guru)
+- **pytest**: Test running (taskmaster and do_task, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
 
@@ -484,12 +482,13 @@ These are enforced in agent instructions:
 - **taskmaster**: 
   * If return_after > taskmaster, call reviewer via custom-agent after completing tasks
   * For taskmaster_2 (second invocation), apply review edits then call docstring_guru if needed
-  * Never implement code directly (only manage do_task agents)
-  * Use custom-agent tool to invoke do_task agents
+  * Implement code directly (no delegation to do_task agents)
+  * Execute all task groups in the task_list.md
 - **do_task**: 
   * No downstream agents (leaf node)
-  * Execute exactly as specified
+  * Execute exactly as specified for individual task groups
   * Perform ONLY validation from "Input Validation Required"
+  * Typically not used when taskmaster handles full execution
 - **reviewer**: 
   * If return_after > reviewer AND has suggested edits, call taskmaster again via custom-agent
   * Validate against user_stories.md
@@ -538,7 +537,7 @@ If an agent doesn't follow instructions:
 
 If the workflow stalls:
 1. Each agent should ask for approval before proceeding
-2. do_task is the only agent that doesn't ask questions
+2. taskmaster and do_task don't ask questions - they execute as specified
 3. Agents can be invoked out of order for special cases
 4. Documentation agents can work independently of implementation flow
 
