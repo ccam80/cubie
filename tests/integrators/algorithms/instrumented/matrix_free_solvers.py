@@ -352,7 +352,6 @@ def inst_newton_krylov_solver_factory(
     ):
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
-        eval_state = shared_scratch[2 * n: 3 * n]
 
 
         residual_function(
@@ -404,11 +403,8 @@ def inst_newton_krylov_solver_factory(
             iters_count += int32(1)
             if status < 0:
                 iter_slot = int(iters_count) - 1
-                n_base = base_state.shape[0]
-                for i in range(n):
-                    eval_state[i] = base_state[i % n_base] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
-                    eval_state,
+                    stage_increment,
                     parameters,
                     drivers,
                     base_state,

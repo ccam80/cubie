@@ -452,12 +452,28 @@ tests/
 ├── integrators/                   # Integrator tests
 │   ├── cpu_reference.py           # Reference implementations
 │   ├── algorithms/
+│   │   └── instrumented/          # Logging-enabled device function copies
 │   ├── loops/
 │   └── step_control/
 ├── memory/                        # Memory tests
 ├── odesystems/                    # ODE system tests
 └── outputhandling/                # Output tests
 ```
+
+### Instrumented Test Directory
+
+The `tests/integrators/algorithms/instrumented/` directory contains logging-enabled copies of CUDA device functions from `src/cubie/integrators/algorithms/` and `src/cubie/integrators/matrix_free_solvers/`.
+
+**IMPORTANT**: Any changes to algorithm or solver device functions in the source must be replicated in the instrumented versions.
+
+**Files that must be kept in sync:**
+- `src/cubie/integrators/algorithms/*.py` ↔ `tests/integrators/algorithms/instrumented/*.py`
+- `src/cubie/integrators/matrix_free_solvers/*.py` ↔ `tests/integrators/algorithms/instrumented/matrix_free_solvers.py`
+
+**Instrumentation changes only:**
+- Additional logging arrays passed as parameters
+- Snapshot recording within iteration loops
+- No functional logic changes except logging
 
 ---
 *This file is maintained by agents to provide architectural context for future development work.*
