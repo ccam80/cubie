@@ -11,3 +11,4 @@ scipy
 cupy-cuda12x
 pandas
 sympy
+cellmlmanip
