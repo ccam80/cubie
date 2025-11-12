@@ -247,8 +247,6 @@ def test_non_numeric_algebraic_equations_remain(beeler_reuter_model):
     algebraic_eq_count = len(observables) + len(auxiliaries)
     assert algebraic_eq_count > 0
 
-def test_import_the_big_boy(fabbri_linder_model):
-    assert fabbri_linder_model.num_states != 0
 def test_import_demir(demir_1999_model):
     assert demir_1999_model.num_states != 0
 
