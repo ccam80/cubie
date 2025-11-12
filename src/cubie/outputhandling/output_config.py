@@ -447,7 +447,7 @@ class OutputConfig:
 
     @saved_state_indices.setter
     def saved_state_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the state indices that will be saved.
 
@@ -474,7 +474,7 @@ class OutputConfig:
 
     @saved_observable_indices.setter
     def saved_observable_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the observable indices that will be saved.
 
@@ -499,7 +499,7 @@ class OutputConfig:
 
     @summarised_state_indices.setter
     def summarised_state_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the state indices used for summary calculations.
 
@@ -524,7 +524,7 @@ class OutputConfig:
 
     @summarised_observable_indices.setter
     def summarised_observable_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the observable indices used for summary calculations.
 
@@ -859,10 +859,10 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
-        saved_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        saved_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        summarised_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        summarised_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
+        saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        summarised_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,

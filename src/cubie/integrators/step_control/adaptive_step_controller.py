@@ -1,7 +1,7 @@
 """Shared infrastructure for adaptive step-size controllers."""
 
 from abc import abstractmethod
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 from warnings import warn
 
 import numpy as np
@@ -21,7 +21,7 @@ from cubie.integrators.step_control.base_step_controller import (
 
 
 def tol_converter(
-    value: float | ArrayLike,
+    value: Union[float, ArrayLike],
     self_: "AdaptiveStepControlConfig",
 ) -> np.ndarray:
     """Convert tolerance input into an array with controller precision.

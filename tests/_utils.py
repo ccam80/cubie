@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Union
 
 import numpy as np
 from numba import cuda, from_dtype
@@ -421,7 +421,7 @@ def local_minima(signal: np.ndarray) -> np.ndarray:
 #                                        RANDOM GENERATION
 ### ********************************************************************************************************* ###
 def single_scale_float_array(
-    shape: int | tuple[int], precision=np.float64, scale=1e6
+    shape: Union[int, tuple[int]], precision=np.float64, scale=1e6
 ):
     """Generate a random float array of given shape and dtype, drawn from a normal distribution with a std dev of the
     argument "scale". Normal was chosen here to slightly increase the magnitude-spead of values.
@@ -439,7 +439,7 @@ def single_scale_float_array(
 
 
 def mixed_scale_float_array(
-    shape: int | tuple[int],
+    shape: Union[int, tuple[int]],
     precision=np.float64,
     log10_scale=(-6, 6),
     axis=0,
@@ -479,7 +479,7 @@ def mixed_scale_float_array(
     return _random_array
 
 
-def random_array(precision, size: int | tuple[int], scale=1e6):
+def random_array(precision, size: Union[int, tuple[int]], scale=1e6):
     """Generate a random float array of given size and dtype, drawn from a normal distribution with a std dev of the
     argument "scale". Normal was chosen here to slightly increase the magnitude-spead of values.
 
