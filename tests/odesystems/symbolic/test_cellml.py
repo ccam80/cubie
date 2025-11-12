@@ -30,7 +30,7 @@ def cellml_import_settings(cellml_overrides):
 
 @pytest.fixture(scope="session")
 def basic_model(cellml_fixtures_dir, cellml_import_settings):
-    """Return path to basic ODE CellML model."""
+    """Return imported basic ODE CellML model."""
     ode_system = load_cellml_model(
             str(cellml_fixtures_dir/"basic_ode.cellml"),
             **cellml_import_settings
@@ -40,7 +40,7 @@ def basic_model(cellml_fixtures_dir, cellml_import_settings):
 
 @pytest.fixture(scope="session")
 def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
-    """Return path to Beeler-Reuter CellML model."""
+    """Return imported Beeler-Reuter CellML model."""
     br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
     ode_system = load_cellml_model(
             str(br_path),
@@ -48,6 +48,15 @@ def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
     )
     return ode_system
 
+@pytest.fixture(scope="session")
+def fabbri_linder_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return path to the whole point of this endea."""
+    fl_path = cellml_fixtures_dir / "Fabbri_Linder.cellml"
+    ode_system = load_cellml_model(
+            str(fl_path),
+            **cellml_import_settings
+    )
+    return ode_system
 
 def test_load_simple_cellml_model(basic_model):
     """Load a simple CellML model successfully."""
@@ -151,3 +160,5 @@ def test_initial_values_from_cellml(beeler_reuter_model):
     # Initial values should be non-zero (from the model)
     assert any(v != 0 for v in beeler_reuter_model.indices.states.defaults.values())
 
+def test_import_the_big_boy(fabbri_linder_model):
+    assert fabbri_linder_model.num_states != 0
