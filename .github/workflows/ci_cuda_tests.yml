@@ -15,12 +15,12 @@ on:
 jobs:
   cuda:
     if: >
-      !github.event.head_commit ||
-      !github.event.head_commit.message ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.base_ref ||
       contains(github.event.head_commit.message, 'test_cuda') ||
-      contains(github.event.head_commit.message, 'test_all') ||
-      github.base_ref 
-    # github.base_ref is only true if the current event is a pull request
+      contains(github.event.head_commit.message, 'test_all')
+    # Run on schedule/manual dispatch, PRs, or when commit message contains test_cuda/test_all
     permissions: 
       contents: read
       packages: read
