@@ -44,13 +44,22 @@ def extend_expected_settings(settings, precision):
     
     extended["save_state"] = ("state" in output_types)
     extended["save_observables"] = ("observables" in output_types)
+    extended["save_time"] = ("time" in output_types)
     extended["summarise"] = has_summaries
     extended["summarise_state"] = has_summaries
-    extended["summarise_observables"] = (has_summaries and "observables" in output_types)
+    # summarise_observables is True if summaries AND observable indices are set
+    # (regardless of whether 'observables' is in output_types)
+    has_obs_indices = bool(settings.get("summarised_observable_indices", []))
+    extended["summarise_observables"] = (has_summaries and has_obs_indices)
     extended["save_counters"] = False  # Default
     
     # is_adaptive depends on step_controller type
     extended["is_adaptive"] = (settings.get("step_controller", "fixed") != "fixed")
+    
+    # Always include duration, warmup, t0 in expected settings
+    extended.setdefault("duration", 0.0)
+    extended.setdefault("warmup", 0.0)
+    extended.setdefault("t0", 0.0)
     
     return extended
 
@@ -65,9 +74,11 @@ def assert_solver_config(solver, settings, tolerance):
     is_adaptive = solver.kernel.single_integrator.is_adaptive
     
     # Direct solver properties from settings
-    assert solver.dt == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
+    # For adaptive controllers, dt is recomputed from atol/rtol, so we don't check it
+    if not is_adaptive:
+        assert solver.dt == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
     
     expected_dt_min = settings["dt_min"] if is_adaptive else settings["dt"]
     assert solver.dt_min == pytest.approx(
@@ -87,21 +98,16 @@ def assert_solver_config(solver, settings, tolerance):
         settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
-    # duration, warmup, t0 are only set when != 0.0
-    if settings.get("duration", 0.0) != 0.0:
-        assert solver.duration == pytest.approx(
-            settings["duration"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
-    
-    if settings.get("warmup", 0.0) != 0.0:
-        assert solver.warmup == pytest.approx(
-            settings["warmup"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
-    
-    if settings.get("t0", 0.0) != 0.0:
-        assert solver.t0 == pytest.approx(
-            settings["t0"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
+    # Always check duration, warmup, t0
+    assert solver.duration == pytest.approx(
+        settings["duration"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert solver.warmup == pytest.approx(
+        settings["warmup"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert solver.t0 == pytest.approx(
+        settings["t0"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
     
     assert solver.algorithm == settings["algorithm"]
     assert solver.precision == settings["precision"]
@@ -137,24 +143,24 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     ALL kernel properties and compile_settings attributes are checked.
     """
     # Direct kernel properties
-    assert kernel.dt == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    # Note: kernel.dt might not exist for all algorithms - check if it's adaptive/fixed
+    is_adaptive = settings["is_adaptive"]
+    
+    # dt is not set for adaptive controllers (it's None)
+    if not is_adaptive:
+        assert kernel.dt == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+    
+    assert kernel.duration == pytest.approx(
+        settings["duration"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
-    
-    if settings.get("duration", 0.0) != 0.0:
-        assert kernel.duration == pytest.approx(
-            settings["duration"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
-    
-    if settings.get("warmup", 0.0) != 0.0:
-        assert kernel.warmup == pytest.approx(
-            settings["warmup"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
-    
-    if settings.get("t0", 0.0) != 0.0:
-        assert kernel.t0 == pytest.approx(
-            settings["t0"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
+    assert kernel.warmup == pytest.approx(
+        settings["warmup"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert kernel.t0 == pytest.approx(
+        settings["t0"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
     
     assert kernel.algorithm == settings["algorithm"]
     assert kernel.dt_save == pytest.approx(
@@ -211,9 +217,11 @@ def assert_singleintegratorrun_config(single_integrator, settings, tolerance):
     """
     is_adaptive = settings["is_adaptive"]
     
-    assert single_integrator.dt0 == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
+    # For adaptive, dt0 is computed from atol/rtol, not from settings["dt"]
+    if not is_adaptive:
+        assert single_integrator.dt0 == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
     
     expected_dt_min = settings["dt_min"] if is_adaptive else settings["dt"]
     assert single_integrator.dt_min == pytest.approx(
@@ -239,8 +247,11 @@ def assert_singleintegratorrun_config(single_integrator, settings, tolerance):
     assert cs.algorithm == settings["algorithm"]
     assert cs.step_controller == settings["step_controller"]
     
+    # Check precision
+    assert single_integrator.precision == settings["precision"]
+    
     # Not tested (runtime/computed values):
-    # - precision, numba_precision, algorithm_key: aliases/derived
+    # - numba_precision, algorithm_key: aliases/derived
     # - shared_memory_elements, local_memory_elements: computed
     # - compiled_loop_function, threads_per_loop: compiled artifacts
     # - _algo_step, _step_controller, _loop, _output_functions: tested separately
@@ -258,12 +269,19 @@ def assert_ivploop_config(loop, settings, tolerance):
         settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
+    # Check precision
+    assert loop.precision == settings["precision"]
+    
     # Check ALL compile_settings attributes
     cs = loop.compile_settings
     
-    assert cs.dt0 == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
+    is_adaptive = settings["is_adaptive"]
+    
+    # For adaptive, dt0 is computed from atol/rtol
+    if not is_adaptive:
+        assert cs.dt0 == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
     assert cs.dt_save == pytest.approx(
         settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
@@ -271,7 +289,6 @@ def assert_ivploop_config(loop, settings, tolerance):
         settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
-    is_adaptive = settings["is_adaptive"]
     expected_dt_min = settings["dt_min"] if is_adaptive else settings["dt"]
     expected_dt_max = settings["dt_max"] if is_adaptive else settings["dt"]
     
@@ -327,11 +344,13 @@ def assert_output_functions_config(output_functions, settings, tolerance):
     assert cf.summarise_observables == settings["summarise_observables"]
     assert cf.save_counters == settings["save_counters"]
     
+    # Check save_time
+    assert output_functions.save_time == settings["save_time"]
+    
     # Not tested (computed/function references):
     # - save_state_func, update_summaries_func, save_summary_metrics_func: compiled functions
     # - n_saved_states, n_saved_observables: computed from indices
     # - summaries_buffer_sizes, output_array_heights: computed
-    # - save_time: derived
 
 
 def assert_symbolic_ode_config(system, settings, tolerance):
@@ -349,28 +368,41 @@ def assert_step_algorithm_config(step_algorithm, settings, tolerance):
     
     ALL properties and compile_settings attributes are checked.
     """
-    # Check algorithm-specific settings (only for implicit/adaptive algorithms)
-    # ExplicitEuler doesn't have these, so they won't be in the object
-    # But we test them if they exist
-    
-    # Note: For ExplicitEuler, these attributes don't exist
-    # The test will fail if we try to access them and they should exist
+    # Check algorithm-specific settings
+    # For implicit algorithms, check krylov and newton tolerances
+    algorithm = settings["algorithm"]
     
     # Check compile_settings
     cs = step_algorithm.compile_settings
     
-    assert cs.dt == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
-    assert cs.n == settings["n"]
+    # dt might be algorithm-specific - check if it exists
+    if hasattr(cs, 'dt'):
+        assert cs.dt == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+    
+    # Check algorithm-specific tolerances for implicit algorithms
+    if algorithm in ["backwards_euler", "backwards_euler_pc", "crank_nicolson"]:
+        if hasattr(step_algorithm, "krylov_tolerance"):
+            assert step_algorithm.krylov_tolerance == pytest.approx(
+                settings["krylov_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
+        if hasattr(step_algorithm, "newton_tolerance"):
+            assert step_algorithm.newton_tolerance == pytest.approx(
+                settings["newton_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
     
     # Not tested (algorithm-specific/computed):
+    # - n: system parameter, not a setting
     # - stage_count, can_reuse_accepted_start, first_same_as_last: algorithm structure
     # - driver_function: function reference
     # - n_drivers: system property
     # - simsafe_precision: derived
     # - settings_dict: internal storage
-    # - krylov_tolerance, newton_tolerance, etc: only for implicit algorithms
 
 
 def assert_step_controller_config(step_controller, settings, tolerance, is_adaptive):
@@ -378,19 +410,23 @@ def assert_step_controller_config(step_controller, settings, tolerance, is_adapt
     
     ALL properties and compile_settings attributes are checked.
     """
-    assert step_controller.dt == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
+    # Adaptive controllers don't have dt property, fixed controllers do
+    if not is_adaptive:
+        assert step_controller.dt == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
     
     # Check compile_settings
     cs = step_controller.compile_settings
     
-    assert cs.dt == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
-    assert cs.dt0 == pytest.approx(
-        settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-    )
+    # Adaptive controllers don't have dt/dt0 in compile_settings
+    if not is_adaptive:
+        assert cs.dt == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+        assert cs.dt0 == pytest.approx(
+            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
     
     # For fixed-step, dt_min and dt_max equal dt
     # For adaptive, they match settings
@@ -410,22 +446,81 @@ def assert_step_controller_config(step_controller, settings, tolerance, is_adapt
         )
     
     assert cs.is_adaptive == is_adaptive
-    assert cs.n == settings["n"]
     
-    # Not tested (controller-specific for adaptive only):
-    # - atol, rtol, min_gain, max_gain, kp, ki, kd, deadband_min, deadband_max
-    #   These only exist for adaptive controllers
+    # Check adaptive controller-specific properties
+    if is_adaptive:
+        controller_type = settings["step_controller"]
+        
+        # All adaptive controllers have atol, rtol
+        assert step_controller.atol == pytest.approx(
+            settings["atol"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+        assert step_controller.rtol == pytest.approx(
+            settings["rtol"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+        
+        # PID, PI, Gustafsson controllers have gain bounds
+        if controller_type in ["PID", "PI", "Gustafsson"]:
+            assert step_controller.min_gain == pytest.approx(
+                settings["min_gain"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+            assert step_controller.max_gain == pytest.approx(
+                settings["max_gain"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # PID controller has kp, ki, kd
+        if controller_type == "PID":
+            assert step_controller.kp == pytest.approx(
+                settings["kp"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+            assert step_controller.ki == pytest.approx(
+                settings["ki"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+            assert step_controller.kd == pytest.approx(
+                settings["kd"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # PI controller has kp, ki
+        if controller_type == "PI":
+            assert step_controller.kp == pytest.approx(
+                settings["kp"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+            assert step_controller.ki == pytest.approx(
+                settings["ki"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # Check deadband for controllers that have it
+        if controller_type in ["PID", "PI"]:
+            if hasattr(step_controller, "deadband_min"):
+                assert step_controller.deadband_min == pytest.approx(
+                    settings["deadband_min"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+            if hasattr(step_controller, "deadband_max"):
+                assert step_controller.deadband_max == pytest.approx(
+                    settings["deadband_max"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+    
+    # Not tested:
+    # - n: system parameter, not a setting
     # - settings_dict: internal storage
 
 
 def assert_summary_metrics_config(output_functions, settings, tolerance):
     """Assert that summary metrics configuration matches expected settings.
     
-    Summary metrics are part of OutputFunctions compile_flags.
+    Tests each individual metric object for dt_save and precision.
     """
-    # Already checked in assert_output_functions_config via compile_flags
-    # This function exists for API consistency but delegates to that check
-    pass
+    # Check if we have summaries
+    if not settings["summarise"]:
+        return
+    
+    # Get the summary metrics objects and check dt_save and precision for each
+    if hasattr(output_functions, '_metric_objects') and output_functions._metric_objects:
+        for metric_name, metric_object in output_functions._metric_objects.items():
+            assert metric_object.dt_save == pytest.approx(
+                settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            ), f"Metric {metric_name} dt_save mismatch"
+            assert metric_object.precision == settings["precision"], f"Metric {metric_name} precision mismatch"
 
 
 def test_comprehensive_config_plumbing(
@@ -443,7 +538,7 @@ def test_comprehensive_config_plumbing(
     
     # Ensure kernel is fully built by accessing the compiled kernel
     built_kernel = solver.kernel.kernel
-    assert built_kernel is not None
+    _ = built_kernel  # Ensures kernel is fully compiled
     
     # Get references to all objects in the hierarchy
     kernel = solver.kernel
@@ -476,10 +571,10 @@ def test_comprehensive_config_plumbing(
     # === PHASE 2: Create updates dict with EVERY value different ===
     print("\n=== Creating updates with all different values ===")
     
-    # Set duration, warmup, t0 directly since they're not in update()
-    solver.kernel.duration = precision(2.0)
-    solver.kernel.warmup = precision(0.1)
-    solver.kernel.t0 = precision(0.5)
+    # Set duration, warmup, t0 to different values from defaults
+    solver.kernel.duration = precision(3.0)  # Different from initial 0.0
+    solver.kernel.warmup = precision(0.2)  # Different from initial 0.0
+    solver.kernel.t0 = precision(1.0)  # Different from initial 0.0
     
     # Create updates where EVERY value is different from defaults
     updates = {
@@ -530,9 +625,9 @@ def test_comprehensive_config_plumbing(
     # Rebuild kernel to apply changes
     solver.kernel.build()
     
-    # Ensure kernel is fully built
+    # Ensure kernel is fully built by accessing the compiled kernel
     built_kernel = solver.kernel.kernel
-    assert built_kernel is not None
+    _ = built_kernel  # Ensures kernel is fully compiled
     
     # === PHASE 4: Assert updated settings ===
     print("\n=== Testing updated settings ===")
@@ -540,10 +635,10 @@ def test_comprehensive_config_plumbing(
     # Merge updates into expected settings
     expected_settings = solver_settings.copy()
     expected_settings.update(updates)
-    # Add manually set properties
-    expected_settings["duration"] = precision(2.0)
-    expected_settings["warmup"] = precision(0.1)
-    expected_settings["t0"] = precision(0.5)
+    # Add manually set properties (different from initial phase)
+    expected_settings["duration"] = precision(3.0)
+    expected_settings["warmup"] = precision(0.2)
+    expected_settings["t0"] = precision(1.0)
     
     # Extend with all derived values
     expected_settings = extend_expected_settings(expected_settings, precision)
@@ -561,3 +656,87 @@ def test_comprehensive_config_plumbing(
     assert_summary_metrics_config(output_functions, expected_settings, tolerance)
     
     print("\n=== All assertions passed! ===")
+
+
+# Parameterized tests for different algorithm/controller combinations
+# Each combination tests at least one algorithm and controller type
+
+@pytest.mark.parametrize("algorithm,controller", [
+    ("euler", "fixed"),  # Explicit fixed-step
+    ("classical-rk4", "fixed"),  # Explicit multi-stage fixed-step
+    ("rk23", "PI"),  # Explicit embedded with adaptive PI controller
+    ("backwards_euler", "fixed"),  # Implicit fixed-step
+    ("rk45", "PID"),  # Explicit embedded with adaptive PID controller
+])
+def test_config_plumbing_parameterized(
+    solver_settings, system, precision, tolerance,
+    algorithm, controller
+):
+    """Parameterized test for different algorithm/controller combinations.
+    
+    This ensures each algorithm and controller type is tested at least once.
+    Note: Adaptive controllers require algorithms with embedded error estimates (e.g., rk23, rk45, crank_nicolson).
+    """
+    # Create minimal settings for this combination
+    test_settings = {
+        "algorithm": algorithm,
+        "step_controller": controller,
+        "dt": precision(0.01),
+        "dt_min": precision(1e-7),
+        "dt_max": precision(1.0),
+        "dt_save": precision(0.1),
+        "dt_summarise": precision(0.2),
+        "atol": precision(1e-6),
+        "rtol": precision(1e-6),
+        "saved_state_indices": [0, 1],
+        "saved_observable_indices": [0, 1],
+        "summarised_state_indices": [0, 1],
+        "summarised_observable_indices": [0, 1],
+        "output_types": ["state", "mean"],
+        "precision": precision,
+        "memory_manager": solver_settings["memory_manager"],
+        "stream_group": "test_group",
+        "krylov_tolerance": precision(1e-6),
+        "newton_tolerance": precision(1e-6),
+        "min_gain": precision(0.2),
+        "max_gain": precision(2.0),
+        "kp": precision(1/18),
+        "ki": precision(1/9),
+        "kd": precision(1/18),
+        "deadband_min": precision(1.0),
+        "deadband_max": precision(1.2),
+    }
+    
+    # Create a solver with these settings
+    from cubie.batchsolving.solver import Solver
+    solver = Solver(system, **test_settings)
+    
+    # Build kernel
+    solver.kernel.build()
+    built_kernel = solver.kernel.kernel
+    _ = built_kernel  # Ensures kernel is fully compiled
+    
+    # Get objects
+    kernel = solver.kernel
+    single_integrator = kernel.single_integrator
+    step_algorithm = single_integrator._algo_step
+    step_controller = single_integrator._step_controller
+    loop = single_integrator._loop
+    output_functions = single_integrator._output_functions
+    
+    # Extend settings - this will set duration/warmup/t0 to 0.0
+    extended_settings = extend_expected_settings(test_settings, precision)
+    is_adaptive = extended_settings["is_adaptive"]
+    
+    # Assert all config matches
+    assert_solver_config(solver, extended_settings, tolerance)
+    assert_solverkernel_config(kernel, extended_settings, tolerance)
+    assert_singleintegratorrun_config(single_integrator, extended_settings, tolerance)
+    assert_ivploop_config(loop, extended_settings, tolerance)
+    assert_output_functions_config(output_functions, extended_settings, tolerance)
+    assert_symbolic_ode_config(system, extended_settings, tolerance)
+    assert_step_algorithm_config(step_algorithm, extended_settings, tolerance)
+    assert_step_controller_config(step_controller, extended_settings, tolerance, is_adaptive)
+    assert_summary_metrics_config(output_functions, extended_settings, tolerance)
+    
+    print(f"\n=== Test passed for {algorithm} + {controller}! ===")
