@@ -160,5 +160,52 @@ def test_initial_values_from_cellml(beeler_reuter_model):
     # Initial values should be non-zero (from the model)
     assert any(v != 0 for v in beeler_reuter_model.indices.states.defaults.values())
 
+def test_units_extracted_from_cellml(basic_model):
+    """Verify units are extracted from CellML model."""
+    # Check that units are available
+    assert hasattr(basic_model, 'state_units')
+    assert hasattr(basic_model, 'parameter_units')
+    assert hasattr(basic_model, 'observable_units')
+    
+    # Basic model should have dimensionless units
+    assert 'main_x' in basic_model.state_units
+    assert basic_model.state_units['main_x'] == 'dimensionless'
+
+def test_default_units_for_symbolic_ode():
+    """Verify SymbolicODE defaults to dimensionless units."""
+    from cubie import SymbolicODE
+    import numpy as np
+    
+    ode = SymbolicODE.create(
+        dxdt="dx = -a * x",
+        states={'x': 1.0},
+        parameters={'a': 0.5},
+        precision=np.float32
+    )
+    
+    assert ode.state_units == {'x': 'dimensionless'}
+    assert ode.parameter_units == {'a': 'dimensionless'}
+    assert ode.observable_units == {}
+
+def test_custom_units_for_symbolic_ode():
+    """Verify custom units can be specified for SymbolicODE."""
+    from cubie import SymbolicODE
+    import numpy as np
+    
+    ode = SymbolicODE.create(
+        dxdt=["dx = -a * x", "y = 2 * x"],
+        states={'x': 1.0},
+        parameters={'a': 0.5},
+        observables=['y'],
+        state_units={'x': 'meters'},
+        parameter_units={'a': 'per_second'},
+        observable_units={'y': 'meters'},
+        precision=np.float32
+    )
+    
+    assert ode.state_units == {'x': 'meters'}
+    assert ode.parameter_units == {'a': 'per_second'}
+    assert ode.observable_units == {'y': 'meters'}
+
 def test_import_the_big_boy(fabbri_linder_model):
     assert fabbri_linder_model.num_states != 0
