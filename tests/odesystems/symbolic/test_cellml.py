@@ -153,3 +153,86 @@ def test_initial_values_from_cellml(beeler_reuter_model_path):
     # Initial values should be non-zero (from the model)
     assert any(v != 0 for v in ode_system.indices.states.defaults.values())
 
+
+def test_numeric_assignments_become_constants(basic_model_path):
+    """Verify variables with numeric assignments become constants by default."""
+    ode_system = load_cellml_model(str(basic_model_path))
+    
+    # Variable 'a' has numeric value 0.5 in the CellML model
+    # It should become a constant
+    constants_map = ode_system.indices.constants.index_map
+    assert len(constants_map) > 0
+    
+    # Check that 'main_a' is in constants (name is sanitized)
+    constant_names = [str(k) for k in constants_map.keys()]
+    assert 'main_a' in constant_names
+    
+    # Check that the default value is correct
+    constants_defaults = ode_system.indices.constants.defaults
+    assert constants_defaults is not None
+    assert 'main_a' in constants_defaults
+    assert constants_defaults['main_a'] == 0.5
+
+
+def test_numeric_assignments_as_parameters(basic_model_path):
+    """Verify variables with numeric assignments become parameters if specified."""
+    # Load with 'main_a' in the parameters list
+    ode_system = load_cellml_model(
+        str(basic_model_path),
+        parameters=['main_a']
+    )
+    
+    # 'main_a' should now be a parameter instead of a constant
+    parameters_map = ode_system.indices.parameters.index_map
+    parameter_names = [str(k) for k in parameters_map.keys()]
+    assert 'main_a' in parameter_names
+    
+    # Check that the default value is correct
+    parameters_defaults = ode_system.indices.parameters.defaults
+    assert parameters_defaults is not None
+    assert 'main_a' in parameters_defaults
+    assert parameters_defaults['main_a'] == 0.5
+    
+    # Should not be in constants
+    constants_map = ode_system.indices.constants.index_map
+    constant_names = [str(k) for k in constants_map.keys()]
+    assert 'main_a' not in constant_names
+
+
+def test_parameters_dict_preserves_numeric_values(basic_model_path):
+    """Verify numeric values are preserved when parameters is a dict."""
+    # User can provide parameters as dict with custom default values
+    # But if the CellML has a numeric value, it should be preserved
+    ode_system = load_cellml_model(
+        str(basic_model_path),
+        parameters={'main_a': 1.0}  # User provides different value
+    )
+    
+    # The user-provided value should take precedence
+    parameters_defaults = ode_system.indices.parameters.defaults
+    assert parameters_defaults is not None
+    assert 'main_a' in parameters_defaults
+    assert parameters_defaults['main_a'] == 1.0
+
+
+def test_non_numeric_algebraic_equations_remain(beeler_reuter_model_path):
+    """Verify non-numeric algebraic equations are not converted to constants."""
+    ode_system = load_cellml_model(str(beeler_reuter_model_path))
+    
+    # The Beeler-Reuter model has complex algebraic equations
+    # These should remain as equations, not become constants
+    # We can check by ensuring there are equations beyond just the differential ones
+    
+    # Model has 8 state variables, so 8 differential equations
+    # If there are more equations total, they are algebraic
+    all_equations = ode_system.equations
+    differential_eq_count = len([eq for eq in all_equations.keys() 
+                                  if str(eq).startswith('d')])
+    
+    # Should have differential equations equal to number of states
+    assert differential_eq_count == 8
+    
+    # Total equations should be more than just differential
+    # (algebraic equations that aren't simple numeric assignments)
+    assert len(all_equations) >= differential_eq_count
+

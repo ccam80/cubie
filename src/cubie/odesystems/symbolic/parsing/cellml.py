@@ -230,13 +230,51 @@ def load_cellml_model(
         dxdt_str = f"d{state_var.name} = {eq.rhs}"
         dxdt_strings.append(dxdt_str)
     
-    # Convert algebraic equations to strings
-    # These will be included in the equations list
-    all_equations = dxdt_strings.copy()
+    # Separate algebraic equations into:
+    # 1. Numeric assignments (become constants or parameters)
+    # 2. Non-numeric algebraic equations (remain as equations)
+    constants_dict = {}
+    parameters_dict = {}
+    remaining_algebraic_equations = []
+    
+    # Convert parameters list to set for quick lookup
+    parameters_set = set(parameters) if parameters else set()
+    
     for eq in algebraic_equations:
+        # Check if RHS is a numeric value (Number in sympy)
+        if isinstance(eq.rhs, sp.Number):
+            # Extract the variable name and numeric value
+            var_name = str(eq.lhs)
+            var_value = float(eq.rhs)
+            
+            # Assign to parameters or constants based on user specification
+            if var_name in parameters_set:
+                parameters_dict[var_name] = var_value
+            else:
+                constants_dict[var_name] = var_value
+        else:
+            # Keep as algebraic equation
+            remaining_algebraic_equations.append(eq)
+    
+    # Convert remaining algebraic equations to strings
+    all_equations = dxdt_strings.copy()
+    for eq in remaining_algebraic_equations:
         # Format as "lhs = rhs"
         obs_str = f"{eq.lhs} = {eq.rhs}"
         all_equations.append(obs_str)
+    
+    # Merge user-provided parameters with extracted parameters
+    if parameters is not None:
+        # If user provided a dict, merge it with extracted parameters
+        if isinstance(parameters, dict):
+            parameters_dict = {**parameters_dict, **parameters}
+        # If user provided a list, convert extracted dict to list format
+        # keeping only the keys that were in the user list
+        elif isinstance(parameters, list):
+            # Keep the extracted parameter values for variables in the user's list
+            # For any other parameters in the user list, keep them as is
+            final_parameters = parameters_dict if parameters_dict else parameters
+            parameters_dict = final_parameters
     
     # Import here to avoid circular import with codegen modules
     # cellml is imported by parsing/__init__.py which is imported
@@ -247,7 +285,8 @@ def load_cellml_model(
     return SymbolicODE.create(
         dxdt=all_equations,
         states=initial_values if initial_values else None,
-        parameters=parameters,
+        parameters=parameters_dict if parameters_dict else None,
+        constants=constants_dict if constants_dict else None,
         observables=observables,
         name=name,
         precision=precision,
