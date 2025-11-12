@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from ctypes import c_void_p
 import os
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, Union
 
 import numba
 from numba import cuda
@@ -22,7 +22,7 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
     """Minimal stub of a CUDA memory manager."""
 
-    def __init__(self, context: Any | None = None):
+    def __init__(self, context: Union[Any, None] = None):
         self.context = context
 
     def initialize(self) -> None:
@@ -80,7 +80,7 @@ class FakeMemoryPointer:  # pragma: no cover - placeholder
         context: Any,
         device_pointer: int,
         size: int,
-        finalizer: Any | None = None,
+        finalizer: Union[Any, None] = None,
     ) -> None:
         self.context = context
         self.device_pointer = device_pointer

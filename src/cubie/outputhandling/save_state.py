@@ -5,15 +5,15 @@ for writing selected state, observable, and time values into output buffers
 during integration.
 """
 
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Union
 
 from numba import cuda
 from numpy.typing import ArrayLike
 
 
 def save_state_factory(
-    saved_state_indices: Sequence[int] | ArrayLike,
-    saved_observable_indices: Sequence[int] | ArrayLike,
+    saved_state_indices: Union[Sequence[int], ArrayLike],
+    saved_observable_indices: Union[Sequence[int], ArrayLike],
     save_state: bool,
     save_observables: bool,
     save_time: bool,

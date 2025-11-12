@@ -133,7 +133,7 @@ class OutputFunctions(CUDAFactory):
 
     def update(
         self,
-        updates_dict: dict[str, object] | None = None,
+        updates_dict: Union[dict[str, object], None] = None,
         silent: bool = False,
         **kwargs: object,
     ) -> set[str]:
