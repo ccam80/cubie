@@ -96,8 +96,50 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
+        time_logger = None,
     ) -> None:
-        super().__init__()
+        """Initialize the IVP loop factory.
+        
+        Parameters
+        ----------
+        precision
+            Precision factory for floating-point calculations.
+        shared_indices
+            Buffer indices shared across parallel integrations.
+        local_indices
+            Thread-local buffer indices.
+        compile_flags
+            Output handling configuration flags.
+        dt_save
+            Time step interval for saving state snapshots.
+        dt_summarise
+            Time step interval for summary metric updates.
+        dt0
+            Initial time step size.
+        dt_min
+            Minimum allowed time step size.
+        dt_max
+            Maximum allowed time step size.
+        is_adaptive
+            Whether adaptive time stepping is enabled.
+        save_state_func
+            Device function for saving state snapshots.
+        update_summaries_func
+            Device function for updating summary metrics.
+        save_summaries_func
+            Device function for saving summary metrics.
+        step_controller_fn
+            Device function for step size control.
+        step_function
+            Device function implementing integration algorithm.
+        driver_function
+            Device function for driver evaluation.
+        observables_fn
+            Device function for observable computation.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
+        """
+        super().__init__(time_logger=time_logger)
 
         config = ODELoopConfig(
             shared_buffer_indices=shared_indices,

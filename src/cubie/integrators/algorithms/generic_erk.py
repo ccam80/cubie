@@ -128,6 +128,7 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
+        time_logger = None,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
         
@@ -165,6 +166,8 @@ class ERKStep(ODEExplicitStep):
             (Dormand-Prince 5(4)).
         n_drivers
             Number of driver variables in the system.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         
         Notes
         -----
@@ -230,7 +233,7 @@ class ERKStep(ODEExplicitStep):
         else:
             defaults = ERK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults)
+        super().__init__(config, defaults, time_logger=time_logger)
 
     def build_step(
         self,

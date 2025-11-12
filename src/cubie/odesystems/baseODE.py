@@ -78,6 +78,7 @@ class BaseODE(CUDAFactory):
         precision: PrecisionDType = np.float64,
         num_drivers: int = 1,
         name: Optional[str] = None,
+        time_logger = None,
     ) -> None:
         """Initialize the ODE system.
 
@@ -106,8 +107,11 @@ class BaseODE(CUDAFactory):
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
+            Defaults to None (no timing overhead).
         """
-        super().__init__()
+        super().__init__(time_logger=time_logger)
         system_data = ODEData.from_BaseODE_initargs(
             initial_values=initial_values,
             parameters=parameters,

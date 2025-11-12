@@ -61,6 +61,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         max_gain: float = 5.0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
+        time_logger = None,
     ) -> None:
         """Initialise a proportional–integral step controller.
 
@@ -92,6 +93,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
             Lower gain threshold for holding the previous step size.
         deadband_max
             Upper gain threshold for holding the previous step size.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         """
 
         config = PIStepControlConfig(
@@ -110,7 +113,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             deadband_max=deadband_max,
         )
 
-        super().__init__(config)
+        super().__init__(config, time_logger=time_logger)
 
 
     @property

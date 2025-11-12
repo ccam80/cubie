@@ -34,6 +34,7 @@ def get_controller(
     precision: PrecisionDType,
     settings: Optional[Mapping[str, Any]] = None,
     warn_on_unused: bool = True,
+    time_logger = None,
     **kwargs: Any,
 ) -> BaseStepController:
     """Return a controller instance from a settings mapping.
@@ -48,6 +49,8 @@ def get_controller(
         include ``"step_controller"`` to identify the controller factory.
     warn_on_unused
         Emit a warning when unused settings remain after filtering.
+    time_logger
+        Optional TimeLogger instance for tracking compilation timing.
     **kwargs
         Additional keyword arguments that override entries in
         ``settings``.
@@ -94,6 +97,9 @@ def get_controller(
             f"{controller_type.__name__} requires settings for: "
             f"{missing_keys}"
         )
+    
+    # Add time_logger to all controller instantiations
+    filtered["time_logger"] = time_logger
 
     controller = controller_type(**filtered)
     return controller

@@ -106,6 +106,7 @@ def get_algorithm_step(
     precision: type,
     settings: Optional[Mapping[str, Any]] = None,
     warn_on_unused: bool = True,
+    time_logger = None,
     **kwargs: Any,
 ) -> BaseAlgorithmStep:
     """Thin factory which filters arguments and instantiates an algorithm.
@@ -121,6 +122,8 @@ def get_algorithm_step(
     warn_on_unused
         If ``True``, issue a warning for settings that the selected algorithm
         does not accept.
+    time_logger
+        Optional TimeLogger instance for tracking compilation timing.
     **kwargs
         Additional keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``. These
         override entries provided in ``settings``.
@@ -176,5 +179,8 @@ def get_algorithm_step(
 
     if resolved_tableau is not None:
         filtered["tableau"] = resolved_tableau
+    
+    # Add time_logger to all algorithm instantiations
+    filtered["time_logger"] = time_logger
 
     return algorithm_type(**filtered)

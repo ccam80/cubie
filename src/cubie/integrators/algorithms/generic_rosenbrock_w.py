@@ -133,6 +133,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
+        time_logger = None,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
         
@@ -175,6 +176,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         
         Notes
         -----
@@ -224,7 +227,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         else:
             defaults = ROSENBROCK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults)
+        super().__init__(config, defaults, time_logger=time_logger)
 
     def build_implicit_helpers(
         self,

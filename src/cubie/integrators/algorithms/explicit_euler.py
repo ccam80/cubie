@@ -31,6 +31,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
+        time_logger = None,
     ) -> None:
         """Initialise the explicit Euler step configuration.
 
@@ -52,6 +53,8 @@ class ExplicitEulerStep(ODEExplicitStep):
             times.
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         """
         if dt is None:
             dt = EE_DEFAULTS.step_controller['dt']
@@ -65,7 +68,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             n=n,
         )
 
-        super().__init__(config, EE_DEFAULTS.copy())
+        super().__init__(config, EE_DEFAULTS.copy(), time_logger=time_logger)
 
     def build_step(
         self,

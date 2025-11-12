@@ -64,11 +64,30 @@ class CUDAFactory(ABC):
     is valid and False otherwise.
     """
 
-    def __init__(self):
+    def __init__(self, time_logger=None):
+        """Initialize the CUDA factory.
+        
+        Parameters
+        ----------
+        time_logger : TimeLogger, optional
+            Optional time logger for tracking compilation performance.
+            When None, no timing overhead is incurred.
+        """
         self._compile_settings = None
         self._cache_valid = True
         self._device_function = None
         self._cache = None
+        
+        # Extract callbacks or create no-ops
+        if time_logger is not None:
+            self._timing_start = time_logger.start_event
+            self._timing_stop = time_logger.stop_event
+            self._timing_progress = time_logger.progress
+        else:
+            # No-op callbacks with zero overhead
+            self._timing_start = lambda *args, **kwargs: None
+            self._timing_stop = lambda *args, **kwargs: None
+            self._timing_progress = lambda *args, **kwargs: None
 
     @abstractmethod
     def build(self):

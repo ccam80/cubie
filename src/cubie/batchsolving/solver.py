@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -30,6 +30,9 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 
+if TYPE_CHECKING:
+    from cubie.time_logger import TimeLogger
+
 
 def solve_ivp(
     system: BaseODE,
@@ -42,6 +45,7 @@ def solve_ivp(
     settling_time: float = 0.0,
     t0: float = 0.0,
     grid_type: str = "combinatorial",
+    time_logger: Optional["TimeLogger"] = None,
     **kwargs: Any,
 ) -> SolveResult:
     """Solve a batch initial value problem.
@@ -87,6 +91,7 @@ def solve_ivp(
         system,
         algorithm=method,
         loop_settings=loop_settings,
+        time_logger=time_logger,
         **kwargs,
     )
     results = solver.solve(
@@ -152,6 +157,7 @@ class Solver:
         memory_settings: Optional[Dict[str, object]] = None,
         loop_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
+        time_logger: Optional["TimeLogger"] = None,
         **kwargs: Any,
     ) -> None:
         if output_settings is None:
@@ -175,6 +181,7 @@ class Solver:
                 "placeholder": np.zeros(6, dtype=precision),
                 "dt": 0.1,
             },
+            time_logger=time_logger,
         )
 
         self.grid_builder = BatchGridBuilder(interface)
@@ -212,6 +219,7 @@ class Solver:
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
             memory_settings=memory_settings,
+            time_logger=time_logger,
         )
 
         if strict:

@@ -49,6 +49,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         max_gain: float = 5.0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
+        time_logger = None,
     ) -> None:
         """Initialise a proportional–integral–derivative controller.
 
@@ -82,6 +83,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             Lower gain threshold for holding the previous step size.
         deadband_max
             Upper gain threshold for holding the previous step size.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         """
 
         config = PIDStepControlConfig(
@@ -101,7 +104,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             n=n,
         )
 
-        super().__init__(config)
+        super().__init__(config, time_logger=time_logger)
 
     @property
     def kp(self) -> float:

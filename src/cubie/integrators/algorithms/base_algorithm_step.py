@@ -406,6 +406,7 @@ class BaseAlgorithmStep(CUDAFactory):
     def __init__(self,
                  config: BaseStepConfig,
                  _controller_defaults: StepControlDefaults,
+                 time_logger = None,
                  ) -> None:
         """Initialise the algorithm step with its configuration object and its
         default runtime settings for collaborators.
@@ -416,13 +417,15 @@ class BaseAlgorithmStep(CUDAFactory):
             Configuration describing the algorithm step.
         _controller_defaults
             Per-algorithm default step controller settings.
+        time_logger
+            Optional TimeLogger instance for tracking compilation timing.
         Returns
         -------
         None
             This constructor updates internal configuration state.
         """
 
-        super().__init__()
+        super().__init__(time_logger=time_logger)
         self._controller_defaults = _controller_defaults.copy()
         self.setup_compile_settings(config)
         self.is_controller_fixed = False  # Set by check_compatibility

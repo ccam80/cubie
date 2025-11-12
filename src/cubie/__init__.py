@@ -11,6 +11,7 @@ from cubie.memory import *              # noqa
 import cubie.odesystems as systems    # noqa
 from cubie.odesystems import *        # noqa
 from cubie._utils import *              # noqa
+from cubie.time_logger import TimeLogger  # noqa
 
 __all__ = [
     "summary_metrics",
@@ -20,7 +21,8 @@ __all__ = [
     "Solver",
     "solve_ivp",
     "SymbolicODE",
-    "create_ODE_system"
+    "create_ODE_system",
+    "TimeLogger",
 ]
 
 try:
