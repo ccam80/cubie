@@ -224,15 +224,16 @@ def test_non_numeric_algebraic_equations_remain(beeler_reuter_model_path):
     # We can check by ensuring there are equations beyond just the differential ones
     
     # Model has 8 state variables, so 8 differential equations
-    # If there are more equations total, they are algebraic
-    all_equations = ode_system.equations
-    differential_eq_count = len([eq for eq in all_equations.keys() 
-                                  if str(eq).startswith('d')])
+    # Check that we have state derivatives
+    state_derivatives = ode_system.equations.state_derivatives
+    assert len(state_derivatives) == 8
     
-    # Should have differential equations equal to number of states
-    assert differential_eq_count == 8
-    
-    # Total equations should be more than just differential
+    # Check that we have some observables or auxiliaries
     # (algebraic equations that aren't simple numeric assignments)
-    assert len(all_equations) >= differential_eq_count
+    observables = ode_system.equations.observables
+    auxiliaries = ode_system.equations.auxiliaries
+    
+    # Total algebraic equations should be > 0
+    algebraic_eq_count = len(observables) + len(auxiliaries)
+    assert algebraic_eq_count > 0
 

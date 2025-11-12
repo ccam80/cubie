@@ -204,7 +204,7 @@ def load_cellml_model(
             initial_values[clean_name] = float(raw_state.initial_value)
     
     # Also convert any other Dummy symbols in the model equations
-    # Special handling for numeric quantities (e.g., _0.5, _1.0)
+    # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
@@ -215,8 +215,11 @@ def load_cellml_model(
                     try:
                         # Try to parse as a float
                         value = float(atom.name[1:])
-                        # Convert to sympy Number instead of Symbol
-                        dummy_to_symbol[atom] = sp.Float(value)
+                        # Use Integer for whole numbers, Float for decimals
+                        if value == int(value):
+                            dummy_to_symbol[atom] = sp.Integer(int(value))
+                        else:
+                            dummy_to_symbol[atom] = sp.Float(value)
                         continue
                     except (ValueError, IndexError):
                         # Not a numeric value, treat as regular symbol
