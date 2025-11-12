@@ -270,6 +270,7 @@ class BaseODE(CUDAFactory):
 
         const = self.compile_settings.constants
         recognised = set(updates_dict.keys()) & const.values_dict.keys()
+        unrecognised = set()
         if recognised:
             recognised = const.update_from_dict(updates_dict, silent=True)
             unrecognised = set(updates_dict.keys()) - recognised

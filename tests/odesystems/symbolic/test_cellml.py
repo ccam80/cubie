@@ -58,6 +58,17 @@ def fabbri_linder_model(cellml_fixtures_dir, cellml_import_settings):
     )
     return ode_system
 
+
+@pytest.fixture(scope="session")
+def demir_1999_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return path to the whole point of this endea."""
+    fl_path = cellml_fixtures_dir / "demir_clark_giles_1999.cellml"
+    ode_system = load_cellml_model(
+            str(fl_path),
+            **cellml_import_settings
+    )
+    return ode_system
+
 def test_load_simple_cellml_model(basic_model):
     """Load a simple CellML model successfully."""
     assert basic_model.num_states == 1
@@ -208,4 +219,8 @@ def test_custom_units_for_symbolic_ode():
     assert ode.observable_units == {'y': 'meters'}
 
 def test_import_the_big_boy(fabbri_linder_model):
+def test_import_demir(demir_1999_model):
+    assert demir_1999_model.num_states != 0
+
+def test_import_fabbri(fabbri_linder_model):
     assert fabbri_linder_model.num_states != 0
