@@ -139,9 +139,8 @@ def assert_solver_config(solver, settings, tolerance):
     if has_summaries and "observables" in settings.get("output_types", []):
         assert list(solver.summarised_observable_indices) == settings["summarised_observable_indices"]
     else:
-        # When not enabled, check they're in default state (all observable indices)
-        # This is the actual behavior - summarised_observable_indices defaults to all
-        pass  # Don't check when not enabled as behavior varies
+        # When not enabled, should be empty
+        assert list(solver.summarised_observable_indices) == []
 
 
 def assert_solverkernel_config(kernel, settings, tolerance):
@@ -178,7 +177,24 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     )
     assert kernel.output_types == settings["output_types"]
     assert list(kernel.saved_state_indices) == settings["saved_state_indices"]
+    
+    # Observable indices only when observables in output_types
+    if "observables" in settings.get("output_types", []):
+        assert list(kernel.saved_observable_indices) == settings["saved_observable_indices"]
+    else:
+        # When observables not in output_types, should be empty
+        assert list(kernel.saved_observable_indices) == []
+    
     assert list(kernel.summarised_state_indices) == settings["summarised_state_indices"]
+    
+    # Summarised observable indices only when summaries AND observables
+    summary_types = {"mean", "max", "min", "rms", "std"}
+    has_summaries = any(t in settings.get("output_types", []) for t in summary_types)
+    if has_summaries and "observables" in settings.get("output_types", []):
+        assert list(kernel.summarised_observable_indices) == settings["summarised_observable_indices"]
+    else:
+        # When not enabled, should be empty
+        assert list(kernel.summarised_observable_indices) == []
     
     # Check compile_settings.ActiveOutputs
     cs_active = kernel.compile_settings.ActiveOutputs
@@ -335,12 +351,18 @@ def assert_output_functions_config(output_functions, settings, tolerance):
     # Observable indices only when observables in output_types
     if "observables" in settings.get("output_types", []):
         assert list(output_functions.saved_observable_indices) == settings["saved_observable_indices"]
+    else:
+        # When observables not in output_types, should be empty
+        assert list(output_functions.saved_observable_indices) == []
     
     assert list(output_functions.summarised_state_indices) == settings["summarised_state_indices"]
     
     # Summarised observable indices only when summaries AND observables
     if settings["summarise"] and "observables" in settings.get("output_types", []):
         assert list(output_functions.summarised_observable_indices) == settings["summarised_observable_indices"]
+    else:
+        # When not enabled, should be empty
+        assert list(output_functions.summarised_observable_indices) == []
     
     # Check compile_flags
     cf = output_functions.compile_flags
@@ -527,7 +549,7 @@ def assert_summary_metrics_config(output_functions, settings, tolerance):
 
 @pytest.mark.parametrize("algorithm,controller", [
     ("backwards_euler", "fixed"),
-    ("crank_nicolson", "fixed"),  # crank_nicolson with I controller might not work
+    ("crank_nicolson", "i"),
     ("rk23", "gustafsson"),  # Embedded RK with Gustafsson
     ("rk45", "pid"),  # Embedded RK with PID
     ("dopri54", "pi"),  # ERK with PI
