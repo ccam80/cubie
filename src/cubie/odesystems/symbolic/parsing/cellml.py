@@ -80,6 +80,52 @@ def _sanitize_symbol_name(name: str) -> str:
     return name
 
 
+def _replace_eq_in_piecewise(expr):
+    """Replace Eq() objects in Piecewise conditions with proper comparisons.
+    
+    cellmlmanip uses Eq() in Piecewise conditions, but when converted to
+    strings, Eq(a, b) becomes "Eq(a, b)" instead of "a == b". We manually
+    convert the expression to use proper comparison operators.
+    """
+    if not isinstance(expr, sp.Piecewise):
+        return expr
+    
+    new_args = []
+    for value, condition in expr.args:
+        # Recursively process the value
+        new_value = _replace_eq_in_piecewise(value)
+        
+        # Process the condition - keep it as is for now
+        # The stringification will be handled separately
+        new_args.append((new_value, condition))
+    
+    return sp.Piecewise(*new_args)
+
+
+def _eq_to_equality_str(expr) -> str:
+    """Convert expression to string, replacing Eq() with == notation.
+    
+    Recursively processes the expression tree and converts Eq objects
+    to == notation for proper parsing by cubie's symbolic parser.
+    """
+    if isinstance(expr, sp.Eq):
+        # Convert Eq(a, b) to "a == b"
+        lhs_str = _eq_to_equality_str(expr.lhs)
+        rhs_str = _eq_to_equality_str(expr.rhs)
+        return f"({lhs_str} == {rhs_str})"
+    elif isinstance(expr, sp.Piecewise):
+        # Recursively process Piecewise arguments
+        pieces = []
+        for value, condition in expr.args:
+            value_str = _eq_to_equality_str(value)
+            cond_str = _eq_to_equality_str(condition)
+            pieces.append(f"({value_str}, {cond_str})")
+        return f"Piecewise({', '.join(pieces)})"
+    else:
+        # For everything else, use default stringification
+        return str(expr)
+
+
 def load_cellml_model(
     path: str,
     precision: PrecisionDType = np.float32,
@@ -204,10 +250,28 @@ def load_cellml_model(
             initial_values[clean_name] = float(raw_state.initial_value)
     
     # Also convert any other Dummy symbols in the model equations
+    # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
                 clean_name = _sanitize_symbol_name(atom.name)
+                
+                # Check if this is a numeric quantity (name starts with _)
+                if atom.name.startswith('_'):
+                    try:
+                        # Try to parse as a float
+                        value = float(atom.name[1:])
+                        # Use Integer for whole numbers, Float for decimals
+                        if value == int(value):
+                            dummy_to_symbol[atom] = sp.Integer(int(value))
+                        else:
+                            dummy_to_symbol[atom] = sp.Float(value)
+                        continue
+                    except (ValueError, IndexError):
+                        # Not a numeric value, treat as regular symbol
+                        pass
+                
+                # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
     
     # Filter differential equations and algebraic equations separately
@@ -227,16 +291,59 @@ def load_cellml_model(
         # Get the state variable from the derivative
         state_var = eq.lhs.args[0]
         # Format as "dstate_name = rhs" (no slash)
-        dxdt_str = f"d{state_var.name} = {eq.rhs}"
+        # Use _eq_to_equality_str to properly handle Eq() in Piecewise
+        rhs_str = _eq_to_equality_str(eq.rhs)
+        dxdt_str = f"d{state_var.name} = {rhs_str}"
         dxdt_strings.append(dxdt_str)
     
-    # Convert algebraic equations to strings
-    # These will be included in the equations list
-    all_equations = dxdt_strings.copy()
+    # Separate algebraic equations into:
+    # 1. Numeric assignments (become constants or parameters)
+    # 2. Non-numeric algebraic equations (remain as equations)
+    constants_dict = {}
+    parameters_dict = {}
+    remaining_algebraic_equations = []
+    
+    # Convert parameters to set for quick lookup
+    # Handle both list and dict formats
+    if parameters is None:
+        parameters_set = set()
+    elif isinstance(parameters, dict):
+        parameters_set = set(parameters.keys())
+    else:  # list or other iterable
+        parameters_set = set(parameters)
+    
     for eq in algebraic_equations:
+        # Check if RHS is a numeric value (Number in sympy)
+        if isinstance(eq.rhs, sp.Number):
+            # Extract the variable name and numeric value
+            var_name = str(eq.lhs)
+            var_value = float(eq.rhs)
+            
+            # Assign to parameters or constants based on user specification
+            if var_name in parameters_set:
+                parameters_dict[var_name] = var_value
+            else:
+                constants_dict[var_name] = var_value
+        else:
+            # Keep as algebraic equation
+            remaining_algebraic_equations.append(eq)
+    
+    # Convert remaining algebraic equations to strings
+    all_equations = dxdt_strings.copy()
+    for eq in remaining_algebraic_equations:
         # Format as "lhs = rhs"
-        obs_str = f"{eq.lhs} = {eq.rhs}"
+        # Use _eq_to_equality_str to properly handle Eq() in Piecewise
+        lhs_str = _eq_to_equality_str(eq.lhs)
+        rhs_str = _eq_to_equality_str(eq.rhs)
+        obs_str = f"{lhs_str} = {rhs_str}"
         all_equations.append(obs_str)
+    
+    # Handle user-provided parameters
+    if parameters is not None and isinstance(parameters, dict):
+        # If user provided a dict, their values take precedence over extracted ones
+        parameters_dict = {**parameters_dict, **parameters}
+    # If parameters is a list, parameters_dict already contains the extracted values
+    # for variables in that list, so no additional merge is needed
     
     # Import here to avoid circular import with codegen modules
     # cellml is imported by parsing/__init__.py which is imported
@@ -247,7 +354,8 @@ def load_cellml_model(
     return SymbolicODE.create(
         dxdt=all_equations,
         states=initial_values if initial_values else None,
-        parameters=parameters,
+        parameters=parameters_dict if parameters_dict else None,
+        constants=constants_dict if constants_dict else None,
         observables=observables,
         name=name,
         precision=precision,

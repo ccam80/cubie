@@ -1,7 +1,7 @@
 """Containers for the numerical values used to parameterise ODE systems."""
 
 from collections.abc import Mapping, Sequence, Sized
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 from sympy import Symbol
@@ -33,20 +33,20 @@ class SystemValues:
     ``values_array`` and backing ``values_dict``.
     """
 
-    values_array: np.ndarray | None
-    indices_dict: dict[str, int] | None
-    keys_by_index: dict[int, str] | None
+    values_array: Union[np.ndarray, None]
+    indices_dict: Union[dict[str, int], None]
+    keys_by_index: Union[dict[int, str], None]
     values_dict: dict[str, float]
     precision: PrecisionDType
     n: int
-    name: str | None
+    name: Union[str, None]
 
     def __init__(
         self,
-        values_dict: Mapping[str, float] | Sequence[str] | None,
+        values_dict: Union[Mapping[str, float], Sequence[str], None],
         precision: PrecisionDType,
-        defaults: Mapping[str, float] | Sequence[str] | None = None,
-        name: str | None = None,
+        defaults: Union[Mapping[str, float], Sequence[str], None] = None,
+        name: Union[str, None] = None,
         **kwargs: float,
     ) -> None:
         """Initialise the packed values dictionary and array.
@@ -206,7 +206,7 @@ class SystemValues:
 
     def get_indices(
         self,
-        keys_or_indices: str | int | slice | list[str | int] | np.ndarray,
+        keys_or_indices: Union[str, int, slice, list[Union[str, int]], np.ndarray],
         silent: bool = False,
     ) -> np.ndarray:
         """Convert parameter identifiers into packed array indices.
@@ -307,7 +307,7 @@ class SystemValues:
         return indices
 
     def get_values(
-        self, keys_or_indices: str | int | list[str | int] | np.ndarray
+        self, keys_or_indices: Union[str, int, list[Union[str, int]], np.ndarray]
     ) -> np.ndarray:
         """Return parameter values selected by name or index.
 
@@ -342,8 +342,8 @@ class SystemValues:
 
     def set_values(
         self,
-        keys: str | int | slice | list[str | int] | np.ndarray,
-        values: float | Sequence[float] | np.ndarray,
+        keys: Union[str, int, slice, list[Union[str, int]], np.ndarray],
+        values: Union[float, Sequence[float], np.ndarray],
     ) -> None:
         """Assign new values to the selected parameters.
 
@@ -396,7 +396,7 @@ class SystemValues:
 
     def update_from_dict(
         self,
-        values_dict: Mapping[str, float] | None,
+        values_dict: Union[Mapping[str, float], None],
         silent: bool = False,
         **kwargs: float,
     ) -> set[str]:
@@ -470,7 +470,7 @@ class SystemValues:
         """List of parameter names."""
         return list(self.values_dict.keys())
 
-    def get_labels(self, indices: list[int] | np.ndarray) -> list[str]:
+    def get_labels(self, indices: Union[list[int], np.ndarray]) -> list[str]:
         """Return parameter labels for supplied indices.
 
         Parameters
@@ -496,7 +496,7 @@ class SystemValues:
                 f"{type(indices)}."
             )
 
-    def __getitem__(self, key: str | int | slice) -> np.ndarray:
+    def __getitem__(self, key: Union[str, int, slice]) -> np.ndarray:
         """Return parameter values using dictionary- or array-style access.
 
         Parameters
@@ -522,8 +522,8 @@ class SystemValues:
 
     def __setitem__(
         self,
-        key: str | int | slice,
-        value: float | Sequence[float] | np.ndarray,
+        key: Union[str, int, slice],
+        value: Union[float, Sequence[float], np.ndarray],
     ) -> None:
         """Update parameter values using dictionary- or array-style access.
 
