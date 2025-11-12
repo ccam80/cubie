@@ -68,7 +68,7 @@ class GustafssonController(BaseAdaptiveStepController):
         max_newton_iters: int = 0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
-        time_logger = None,
+        
     ) -> None:
         """Initialise a Gustafsson predictive controller.
 
@@ -120,7 +120,7 @@ class GustafssonController(BaseAdaptiveStepController):
             deadband_max=deadband_max,
         )
 
-        super().__init__(config, time_logger=time_logger)
+        super().__init__(config)
 
     @property
     def gamma(self) -> float:

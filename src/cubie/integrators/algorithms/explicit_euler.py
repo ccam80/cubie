@@ -31,7 +31,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the explicit Euler step configuration.
 
@@ -68,7 +68,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             n=n,
         )
 
-        super().__init__(config, EE_DEFAULTS.copy(), time_logger=time_logger)
+        super().__init__(config, EE_DEFAULTS.copy())
 
     def build_step(
         self,

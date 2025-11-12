@@ -35,15 +35,16 @@ class TimeLogger:
     
     Parameters
     ----------
-    verbosity : str, default='default'
+    verbosity : str or None, default='default'
         Output verbosity level. Options:
         - 'default': Aggregate times only
         - 'verbose': Component-level breakdown
         - 'debug': All events with start/stop/progress
+        - None or 'None': No-op callbacks with zero overhead
     
     Attributes
     ----------
-    verbosity : str
+    verbosity : str or None
         Current verbosity level
     events : list[TimingEvent]
         Chronological list of all recorded events
@@ -52,15 +53,19 @@ class TimeLogger:
     
     Notes
     -----
-    Create one instance per Solver. Pass to factories via __init__.
+    A default instance is available as cubie.time_logger._default_logger.
+    Use set_verbosity() to configure the global logger level.
     """
     
-    def __init__(self, verbosity: str = 'default') -> None:
-        if verbosity not in {'default', 'verbose', 'debug'}:
+    def __init__(self, verbosity: Optional[str] = 'default') -> None:
+        if verbosity not in {'default', 'verbose', 'debug', None, 'None'}:
             raise ValueError(
-                f"verbosity must be 'default', 'verbose', or 'debug', "
-                f"got '{verbosity}'"
+                f"verbosity must be 'default', 'verbose', 'debug', "
+                f"None, or 'None', got '{verbosity}'"
             )
+        # Normalize string 'None' to None
+        if verbosity == 'None':
+            verbosity = None
         self.verbosity = verbosity
         self.events: list[TimingEvent] = []
         self._active_starts: dict[str, float] = {}
@@ -79,7 +84,11 @@ class TimeLogger:
         -----
         If event_name already has an active start, logs warning in debug
         mode and treats as nested event (matches most recent).
+        No-op when verbosity is None.
         """
+        if self.verbosity is None:
+            return
+        
         if not event_name:
             raise ValueError("event_name cannot be empty")
         
@@ -110,7 +119,11 @@ class TimeLogger:
         -----
         If no matching start event exists, logs warning in debug mode
         and stores orphaned stop event for diagnostics.
+        No-op when verbosity is None.
         """
+        if self.verbosity is None:
+            return
+        
         if not event_name:
             raise ValueError("event_name cannot be empty")
         
@@ -155,7 +168,11 @@ class TimeLogger:
         -----
         Progress events don't require matching start/stop.
         Only printed in debug mode.
+        No-op when verbosity is None.
         """
+        if self.verbosity is None:
+            return
+        
         if not event_name:
             raise ValueError("event_name cannot be empty")
         
@@ -257,6 +274,7 @@ class TimeLogger:
         - default: Prints aggregate durations for major categories
         - verbose: Already printed during stop_event calls
         - debug: Already printed all events as they occurred
+        - None: No-op
         
         Only performs new printing in 'default' mode.
         """
@@ -267,3 +285,31 @@ class TimeLogger:
                 for name, duration in sorted(durations.items()):
                     print(f"  {name}: {duration:.3f}s")
         # verbose and debug already printed inline
+    
+    def set_verbosity(self, verbosity: Optional[str]) -> None:
+        """Set the verbosity level for this logger.
+        
+        Parameters
+        ----------
+        verbosity : str or None
+            New verbosity level. Options are 'default', 'verbose',
+            'debug', None, or 'None'.
+        
+        Notes
+        -----
+        Changing verbosity does not clear existing events.
+        """
+        if verbosity not in {'default', 'verbose', 'debug', None, 'None'}:
+            raise ValueError(
+                f"verbosity must be 'default', 'verbose', 'debug', "
+                f"None, or 'None', got '{verbosity}'"
+            )
+        # Normalize string 'None' to None
+        if verbosity == 'None':
+            verbosity = None
+        self.verbosity = verbosity
+
+
+# Default global logger instance
+# Use set_verbosity() to configure, or access via cubie.time_logger
+_default_logger = TimeLogger(verbosity=None)

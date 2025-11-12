@@ -133,7 +133,7 @@ class DIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the DIRK step configuration.
         
@@ -232,7 +232,7 @@ class DIRKStep(ODEImplicitStep):
         else:
             defaults = DIRK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults, time_logger=time_logger)
+        super().__init__(config, defaults)
 
     def build_implicit_helpers(
         self,

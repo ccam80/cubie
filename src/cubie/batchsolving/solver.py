@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
@@ -29,9 +29,7 @@ from cubie._utils import merge_kwargs_into_settings
 from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
-
-if TYPE_CHECKING:
-    from cubie.time_logger import TimeLogger
+from cubie.time_logger import _default_logger
 
 
 def solve_ivp(
@@ -45,7 +43,7 @@ def solve_ivp(
     settling_time: float = 0.0,
     t0: float = 0.0,
     grid_type: str = "combinatorial",
-    time_logger: Optional["TimeLogger"] = None,
+    time_logging_level: Optional[str] = 'default',
     **kwargs: Any,
 ) -> SolveResult:
     """Solve a batch initial value problem.
@@ -75,6 +73,9 @@ def solve_ivp(
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
+    time_logging_level : str or None, default='default'
+        Time logging verbosity level. Options are 'default', 'verbose',
+        'debug', None, or 'None' to disable timing.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
@@ -91,7 +92,7 @@ def solve_ivp(
         system,
         algorithm=method,
         loop_settings=loop_settings,
-        time_logger=time_logger,
+        time_logging_level=time_logging_level,
         **kwargs,
     )
     results = solver.solve(
@@ -136,6 +137,9 @@ class Solver:
         arguments.
     strict
         If ``True`` unknown keyword arguments raise ``KeyError``.
+    time_logging_level : str or None, default='default'
+        Time logging verbosity level. Options are 'default', 'verbose',
+        'debug', None, or 'None' to disable timing.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
@@ -157,7 +161,7 @@ class Solver:
         memory_settings: Optional[Dict[str, object]] = None,
         loop_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
-        time_logger: Optional["TimeLogger"] = None,
+        time_logging_level: Optional[str] = 'default',
         **kwargs: Any,
     ) -> None:
         if output_settings is None:
@@ -171,6 +175,9 @@ class Solver:
         if loop_settings is None:
             loop_settings = {}
 
+        # Set global time logging level
+        _default_logger.set_verbosity(time_logging_level)
+
         super().__init__()
         precision = system.precision
         interface = SystemInterface.from_system(system)
@@ -181,7 +188,6 @@ class Solver:
                 "placeholder": np.zeros(6, dtype=precision),
                 "dt": 0.1,
             },
-            time_logger=time_logger,
         )
 
         self.grid_builder = BatchGridBuilder(interface)
@@ -219,7 +225,6 @@ class Solver:
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
             memory_settings=memory_settings,
-            time_logger=time_logger,
         )
 
         if strict:

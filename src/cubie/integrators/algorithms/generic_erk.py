@@ -128,7 +128,7 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
         
@@ -233,7 +233,7 @@ class ERKStep(ODEExplicitStep):
         else:
             defaults = ERK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults, time_logger=time_logger)
+        super().__init__(config, defaults)
 
     def build_step(
         self,

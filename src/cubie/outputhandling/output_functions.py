@@ -108,7 +108,7 @@ class OutputFunctions(CUDAFactory):
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
         dt_save: Optional[float] = None,
         precision: Optional[np.dtype] = None,
-        time_logger = None,
+        
     ):
         """Initialize the output functions factory.
         
@@ -135,7 +135,7 @@ class OutputFunctions(CUDAFactory):
         time_logger
             Optional TimeLogger instance for tracking compilation timing.
         """
-        super().__init__(time_logger=time_logger)
+        super().__init__()
 
         if output_types is None:
             output_types = ["state"]

@@ -48,7 +48,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         max_newton_iters: int = 1000,
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 10,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -117,7 +117,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config, CN_DEFAULTS, time_logger=time_logger)
+        super().__init__(config, CN_DEFAULTS)
 
     def build_step(
         self,

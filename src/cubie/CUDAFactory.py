@@ -8,6 +8,7 @@ import numpy as np
 from numpy import array_equal, asarray
 
 from cubie._utils import in_attr, is_attrs_class
+from cubie.time_logger import _default_logger
 
 
 class CUDAFactory(ABC):
@@ -64,30 +65,24 @@ class CUDAFactory(ABC):
     is valid and False otherwise.
     """
 
-    def __init__(self, time_logger=None):
+    def __init__(self):
         """Initialize the CUDA factory.
         
-        Parameters
-        ----------
-        time_logger : TimeLogger, optional
-            Optional time logger for tracking compilation performance.
-            When None, no timing overhead is incurred.
+        Notes
+        -----
+        Uses the global default time logger from cubie.time_logger.
+        Configure timing via solve_ivp(time_logging_level=...) or
+        Solver(time_logging_level=...).
         """
         self._compile_settings = None
         self._cache_valid = True
         self._device_function = None
         self._cache = None
         
-        # Extract callbacks or create no-ops
-        if time_logger is not None:
-            self._timing_start = time_logger.start_event
-            self._timing_stop = time_logger.stop_event
-            self._timing_progress = time_logger.progress
-        else:
-            # No-op callbacks with zero overhead
-            self._timing_start = lambda *args, **kwargs: None
-            self._timing_stop = lambda *args, **kwargs: None
-            self._timing_progress = lambda *args, **kwargs: None
+        # Use global default logger callbacks
+        self._timing_start = _default_logger.start_event
+        self._timing_stop = _default_logger.stop_event
+        self._timing_progress = _default_logger.progress
 
     @abstractmethod
     def build(self):

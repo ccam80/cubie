@@ -114,7 +114,7 @@ class ArrayInterpolator(CUDAFactory):
         input_dict: Dict[str, FloatArray],
         time_logger: Optional["TimeLogger"] = None,
     ) -> None:
-        super().__init__(time_logger=time_logger)
+        super().__init__()
         config = ArrayInterpolatorConfig(
             precision=precision,
         )

@@ -96,7 +96,7 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
-        time_logger = None,
+        
     ) -> None:
         """Initialize the IVP loop factory.
         
@@ -139,7 +139,7 @@ class IVPLoop(CUDAFactory):
         time_logger
             Optional TimeLogger instance for tracking compilation timing.
         """
-        super().__init__(time_logger=time_logger)
+        super().__init__()
 
         config = ODELoopConfig(
             shared_buffer_indices=shared_indices,

@@ -51,10 +51,36 @@ class TestTimeLogger:
         logger = TimeLogger(verbosity="debug")
         assert logger.verbosity == "debug"
 
+    def test_initialization_none(self):
+        """Test TimeLogger initialization with None verbosity."""
+        logger = TimeLogger(verbosity=None)
+        assert logger.verbosity is None
+
+    def test_initialization_string_none(self):
+        """Test TimeLogger initialization with string 'None'."""
+        logger = TimeLogger(verbosity='None')
+        assert logger.verbosity is None
+
     def test_initialization_invalid_verbosity(self):
         """Test that invalid verbosity raises ValueError."""
         with pytest.raises(ValueError, match="verbosity must be"):
             TimeLogger(verbosity="invalid")
+
+    def test_none_verbosity_no_op(self):
+        """Test that None verbosity creates no-op logger."""
+        logger = TimeLogger(verbosity=None)
+        logger.start_event("test")
+        logger.stop_event("test")
+        logger.progress("test", "message")
+        assert len(logger.events) == 0
+
+    def test_set_verbosity(self):
+        """Test changing verbosity level."""
+        logger = TimeLogger(verbosity='default')
+        logger.set_verbosity('verbose')
+        assert logger.verbosity == 'verbose'
+        logger.set_verbosity(None)
+        assert logger.verbosity is None
 
     def test_start_event(self):
         """Test recording a start event."""

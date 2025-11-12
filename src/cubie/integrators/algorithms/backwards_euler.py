@@ -42,7 +42,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         max_newton_iters: int = 100,
         newton_damping: float = 0.85,
         newton_max_backtracks: int = 25,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -108,7 +108,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config, BE_DEFAULTS.copy(), time_logger=time_logger)
+        super().__init__(config, BE_DEFAULTS.copy())
 
     def build_step(
         self,

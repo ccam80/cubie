@@ -57,7 +57,7 @@ def create_ODE_system(
     name: Optional[str] = None,
     precision: PrecisionDType = np.float32,
     strict: bool = False,
-    time_logger = None,
+    
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
 
@@ -111,7 +111,7 @@ def create_ODE_system(
         name=name,
         precision=precision,
         strict=strict,
-        time_logger=time_logger,
+        
     )
     return symbolic_ode
 
@@ -152,7 +152,7 @@ class SymbolicODE(BaseODE):
         fn_hash: Optional[int] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
-        time_logger = None,
+        
     ):
         """Initialise the symbolic system instance.
 
@@ -212,7 +212,7 @@ class SymbolicODE(BaseODE):
             precision=precision,
             num_drivers=ndriv,
             name=name,
-            time_logger=time_logger,
+            
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
@@ -230,7 +230,7 @@ class SymbolicODE(BaseODE):
         name: Optional[str] = None,
         precision: PrecisionDType = np.float32,
         strict: bool = False,
-        time_logger = None,
+        
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
 

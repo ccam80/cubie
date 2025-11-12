@@ -197,7 +197,7 @@ class BaseAdaptiveStepController(BaseStepController):
     def __init__(
         self,
         config: AdaptiveStepControlConfig,
-        time_logger = None,
+        
     ) -> None:
         """Initialise the adaptive controller.
 
@@ -208,7 +208,7 @@ class BaseAdaptiveStepController(BaseStepController):
         time_logger
             Optional TimeLogger instance for tracking compilation timing.
         """
-        super().__init__(time_logger=time_logger)
+        super().__init__()
         self.setup_compile_settings(config)
 
     def build(self) -> Callable:
