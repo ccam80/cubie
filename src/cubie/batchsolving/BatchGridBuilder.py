@@ -461,12 +461,15 @@ class BatchGridBuilder:
         Parameter metadata sourced from ``interface``.
     states
         State metadata sourced from ``interface``.
+    precision
+        Floating-point precision for returned arrays.
     """
 
     def __init__(self, interface: SystemInterface):
         """Initialise the builder with a system interface."""
         self.parameters = interface.parameters
         self.states = interface.states
+        self.precision = interface.parameters.precision
 
     @classmethod
     def from_system(cls, system: BaseODE) -> "BatchGridBuilder":
@@ -527,7 +530,7 @@ class BatchGridBuilder:
             initial_values_array, params_array, kind=kind
         )
 
-        return initial_values_array, params_array
+        return self._cast_to_precision(initial_values_array, params_array)
 
     def __call__(
         self,
@@ -608,31 +611,34 @@ class BatchGridBuilder:
                 )
 
             if parray is not None and sarray is not None:
-                return combine_grids(sarray, parray, kind=kind)
+                sarray, parray = combine_grids(sarray, parray, kind=kind)
+                return self._cast_to_precision(sarray, parray)
             elif request:
                 if parray is not None:
                     sarray = generate_array(request, self.states, kind=kind)
-                    return combine_grids(sarray, parray, kind=kind)
+                    sarray, parray = combine_grids(sarray, parray, kind=kind)
+                    return self._cast_to_precision(sarray, parray)
                 elif sarray is not None:
                     parray = generate_array(
                         request, self.parameters, kind=kind
                     )
-                    return combine_grids(sarray, parray, kind=kind)
+                    sarray, parray = combine_grids(sarray, parray, kind=kind)
+                    return self._cast_to_precision(sarray, parray)
                 else:
                     return self.grid_arrays(request, kind=kind)
             elif parray is not None:
                 sarray = np.full(
                     (parray.shape[0], self.states.n), self.states.values_array
                 )
-                return sarray, parray
+                return self._cast_to_precision(sarray, parray)
             elif sarray is not None:
                 parray = np.full(
                     (sarray.shape[0], self.parameters.n),
                     self.parameters.values_array,
                 )
-                return sarray, parray
+                return self._cast_to_precision(sarray, parray)
             else:
-                return (
+                return self._cast_to_precision(
                     self.states.values_array[np.newaxis, :],
                     self.parameters.values_array[np.newaxis, :],
                 )
@@ -718,6 +724,29 @@ class BatchGridBuilder:
             return None
 
         return arr  # correctly sized array just falls through untouched
+
+    def _cast_to_precision(
+        self, states: np.ndarray, params: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Cast state and parameter arrays to the system precision.
+
+        Parameters
+        ----------
+        states
+            Initial state array to cast.
+        params
+            Parameter array to cast.
+
+        Returns
+        -------
+        tuple of np.ndarray and np.ndarray
+            State and parameter arrays with ``dtype`` matching
+            ``self.precision``.
+        """
+        return (
+            states.astype(self.precision, copy=False),
+            params.astype(self.precision, copy=False),
+        )
 
     # ------------------------------------------------------------------
     # Static convenience wrappers

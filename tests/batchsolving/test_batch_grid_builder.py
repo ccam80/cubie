@@ -724,3 +724,46 @@ def test_docstring_examples(grid_builder, system, tolerance):
         rtol=tolerance.rel_tight,
         atol=tolerance.abs_tight,
     )
+
+
+@pytest.mark.parametrize(
+    "precision_override", [np.float32, np.float64], indirect=True
+)
+def test_grid_builder_precision_enforcement(system, precision):
+    """Test that BatchGridBuilder enforces system precision on output arrays.
+    
+    When users provide values in Python's default float64 precision,
+    the returned arrays should match the system's configured precision.
+    """
+    grid_builder = BatchGridBuilder.from_system(system)
+    
+    # Test with array inputs (Python defaults to float64)
+    inits, params = grid_builder(states=[1.0], params=[1.0])
+    assert inits.dtype == precision
+    assert params.dtype == precision
+    
+    # Test with dict inputs
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    request = {state_names[0]: [1.0, 2.0], param_names[0]: [3.0, 4.0]}
+    inits, params = grid_builder(request=request, kind="combinatorial")
+    assert inits.dtype == precision
+    assert params.dtype == precision
+    
+    # Test with separate dict inputs
+    inits, params = grid_builder(
+        states={state_names[0]: [1.0]},
+        params={param_names[0]: [2.0]},
+        kind="verbatim"
+    )
+    assert inits.dtype == precision
+    assert params.dtype == precision
+    
+    # Test with mixed array and dict inputs (verbatim with matching lengths)
+    inits, params = grid_builder(
+        states=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+        params={param_names[0]: [7.0, 8.0]},
+        kind="verbatim"
+    )
+    assert inits.dtype == precision
+    assert params.dtype == precision
