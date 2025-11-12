@@ -17,7 +17,7 @@ The process consists of:
    variable.
 """
 
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Union
 
 from numba import cuda
 from numpy.typing import ArrayLike
@@ -174,8 +174,8 @@ def chain_metrics(
 
 def save_summary_factory(
     buffer_sizes: SummariesBufferSizes,
-    summarised_state_indices: Sequence[int] | ArrayLike,
-    summarised_observable_indices: Sequence[int] | ArrayLike,
+    summarised_state_indices: Union[Sequence[int], ArrayLike],
+    summarised_observable_indices: Union[Sequence[int], ArrayLike],
     summaries_list: Sequence[str],
 ) -> Callable:
     """

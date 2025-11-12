@@ -9,7 +9,7 @@ system.  These helpers provide fast reference evaluations that mirror the
 behaviour of the compiled device functions.
 """
 
-from typing import Sequence
+from typing import Sequence, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,7 +20,7 @@ from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 Array = NDArray[np.floating]
 
 
-def _as_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
+def _as_array(vector: Union[Sequence[float], Array], dtype: np.dtype) -> Array:
     """Return ``vector`` as a one-dimensional array of ``dtype``."""
 
     array = np.asarray(vector, dtype=dtype)

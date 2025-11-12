@@ -2,7 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 from numba import njit
@@ -15,7 +15,7 @@ Array = NDArray[np.floating]
 STATUS_MASK = 0xFFFF
 
 
-def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
+def _ensure_array(vector: Union[Sequence[float], Array], dtype: np.dtype) -> Array:
     """Return ``vector`` as a one-dimensional array with the desired dtype."""
 
     array = np.atleast_1d(vector).astype(dtype)
@@ -79,7 +79,7 @@ def _euclidean_norm_impl(vector: Array) -> np.floating:
 
 
 def euclidean_norm(
-    vector: Sequence[float] | Array,precision: np.dtype
+    vector: Union[Sequence[float], Array], precision: np.dtype
 ) -> np.floating:
     """Return the Euclidean norm of ``vector`` in ``precision``."""
 
@@ -206,23 +206,23 @@ class InstrumentedStepResult:
     status: int = 0
     niters: int = 0
     stage_count: int = 0
-    stage_states: Array | None = None
-    stage_derivatives: Array | None = None
-    stage_observables: Array | None = None
-    newton_initial_guesses: Array | None = None
-    newton_iteration_guesses: Array | None = None
-    newton_residuals: Array | None = None
-    newton_squared_norms: Array | None = None
-    newton_iteration_scale: Array | None = None
-    linear_initial_guesses: Array | None = None
-    linear_iteration_guesses: Array | None = None
-    linear_residuals: Array | None = None
-    linear_squared_norms: Array | None = None
-    linear_preconditioned_vectors: Array | None = None
+    stage_states: Union[Array, None] = None
+    stage_derivatives: Union[Array, None] = None
+    stage_observables: Union[Array, None] = None
+    newton_initial_guesses: Union[Array, None] = None
+    newton_iteration_guesses: Union[Array, None] = None
+    newton_residuals: Union[Array, None] = None
+    newton_squared_norms: Union[Array, None] = None
+    newton_iteration_scale: Union[Array, None] = None
+    linear_initial_guesses: Union[Array, None] = None
+    linear_iteration_guesses: Union[Array, None] = None
+    linear_residuals: Union[Array, None] = None
+    linear_squared_norms: Union[Array, None] = None
+    linear_preconditioned_vectors: Union[Array, None] = None
     extra_vectors: dict[str, Array] = field(default_factory=dict)
 
 
-StepResultLike = StepResult | InstrumentedStepResult
+StepResultLike = Union[StepResult, InstrumentedStepResult]
 
 
 @njit(cache=True)
