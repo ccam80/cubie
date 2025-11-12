@@ -60,9 +60,6 @@ http://www.cellml.org/
         <unit prefix="nano" units="mole"/>
         <unit exponent="-1" units="litre"/>
     </units>
-    <units name="per_nanomolar">
-        <unit exponent="-1" units="nanomolar"/>
-    </units>
     <units name="per_millimolar">
         <unit exponent="-1" units="millimolar"/>
     </units>
@@ -128,17 +125,17 @@ http://www.cellml.org/
         <variable initial_value="5.7e-5" name="C" units="microF"/>
         <variable name="RTONF" public_interface="out" units="millivolt"/>
         <variable name="time" private_interface="out" public_interface="in" units="second"/>
-        <variable name="i_f" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_NaK" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_NaCa" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_Na" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_Kr" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_Ks" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_to" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_CaL" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_CaT" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_KACh" private_interface="out" public_interface="in" units="nanoA"/>
-        <variable name="i_Kur" private_interface="out" public_interface="in" units="nanoA"/>
+        <variable name="i_f" public_interface="in" units="nanoA"/>
+        <variable name="i_NaK" public_interface="in" units="nanoA"/>
+        <variable name="i_NaCa" public_interface="in" units="nanoA"/>
+        <variable name="i_Na" public_interface="in" units="nanoA"/>
+        <variable name="i_Kr" public_interface="in" units="nanoA"/>
+        <variable name="i_Ks" public_interface="in" units="nanoA"/>
+        <variable name="i_to" public_interface="in" units="nanoA"/>
+        <variable name="i_CaL" public_interface="in" units="nanoA"/>
+        <variable name="i_CaT" public_interface="in" units="nanoA"/>
+        <variable name="i_KACh" public_interface="in" units="nanoA"/>
+        <variable name="i_Kur" public_interface="in" units="nanoA"/>
         <variable name="V" public_interface="out" units="millivolt"/>
         <variable initial_value="0" name="clamp_mode" units="dimensionless"/>
         <variable name="V_clamp" private_interface="in" units="millivolt"/>
@@ -398,7 +395,7 @@ http://www.cellml.org/
         <variable name="ACh" private_interface="out" public_interface="in" units="nanomolar"/>
         <variable name="Iso_1_uM" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable name="ANS" private_interface="out" public_interface="in" units="dimensionless"/>
-        <variable name="cAMP" private_interface="out" public_interface="in" units="millimolar"/>
+        <variable name="cAMP" public_interface="in" units="millimolar"/>
         <variable name="i_f" public_interface="out" units="nanoA"/>
         <variable name="i_fNa" public_interface="out" units="nanoA"/>
         <variable name="E_Na" public_interface="in" units="millivolt"/>
@@ -2017,7 +2014,7 @@ http://www.cellml.org/
         <variable name="Iso_1_uM" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable name="ANS" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable name="ANS_cond_i_CaL" units="dimensionless"/>
-        <variable name="PKA" private_interface="out" public_interface="in" units="dimensionless"/>
+        <variable name="PKA" public_interface="in" units="dimensionless"/>
         <variable initial_value="0.470657" name="K_i_CaL1" units="dimensionless"/>
         <variable initial_value="0.730287" name="K_05i_CaL1" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
@@ -5263,7 +5260,7 @@ http://www.cellml.org/
         <variable name="Iso_1_uM" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable name="ANS" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable initial_value="0" name="VW_IKs" private_interface="out" units="dimensionless"/>
-        <variable name="PKA" private_interface="out" public_interface="in" units="dimensionless"/>
+        <variable name="PKA" public_interface="in" units="dimensionless"/>
         <variable name="ANS_cond_i_Ks" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
@@ -5730,7 +5727,7 @@ http://www.cellml.org/
     <component name="i_KACh">
         <variable name="ANS" private_interface="out" public_interface="in" units="dimensionless"/>
         <variable name="ACh" private_interface="out" public_interface="in" units="nanomolar"/>
-        <variable name="ACh_cas" private_interface="out" public_interface="in" units="nanomolar"/>
+        <variable name="ACh_cas" public_interface="in" units="nanomolar"/>
         <variable name="i_KACh" public_interface="out" units="nanoA"/>
         <variable initial_value="0.00345" name="g_KACh" units="microS"/>
         <variable initial_value="1.29637" name="K_g_ACh_max" units="dimensionless"/>
@@ -5766,7 +5763,7 @@ http://www.cellml.org/
                             <apply>
                                 <gt/>
                                 <ci>ACh_cas</ci>
-                                <cn cellml:units="nanomolar">0</cn>
+                                <cn cellml:units="nonomolar">0</cn>
                             </apply>
                         </apply>
                     </piece>
