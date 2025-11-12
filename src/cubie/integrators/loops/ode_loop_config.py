@@ -196,35 +196,35 @@ class LoopSharedIndices:
             default=None,
             validator=valid_opt_slice
     )
-    state_summaries: Optional[slice] = field(
+    state_summary_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    observable_summaries: Optional[slice] = field(
+    observable_summary_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    error: Optional[slice] = field(
+    error_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    counters: Optional[slice] = field(
+    counter_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    proposed_counters: Optional[slice] = field(
+    proposed_counter_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    local_end: Optional[int] = field(
+    loop_buffer_end_offset: Optional[int] = field(
             default=None,
             validator=opt_getype_validator(int, 0)
     )
-    scratch: Optional[slice] = field(
+    scratch_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    all: Optional[slice] = field(
+    full_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -331,46 +331,46 @@ class LoopSharedIndices:
             proposed_driver_buffer_slice=slice(
                 drivers_proposal_start_idx, state_summ_start_index
             ),
-            state_summaries=slice(state_summ_start_index, obs_summ_start_index),
-            observable_summaries=slice(obs_summ_start_index, error_start_index),
-            error=slice(error_start_index, error_stop_index),
-            counters=slice(counters_start_index, counters_stop_index),
-            proposed_counters=slice(proposed_counters_start_index, proposed_counters_stop_index),
-            local_end=final_stop_index,
-            scratch=slice(final_stop_index, None),
-            all=slice(None),
+            state_summary_buffer_slice=slice(state_summ_start_index, obs_summ_start_index),
+            observable_summary_buffer_slice=slice(obs_summ_start_index, error_start_index),
+            error_buffer_slice=slice(error_start_index, error_stop_index),
+            counter_buffer_slice=slice(counters_start_index, counters_stop_index),
+            proposed_counter_buffer_slice=slice(proposed_counters_start_index, proposed_counters_stop_index),
+            loop_buffer_end_offset=final_stop_index,
+            scratch_buffer_slice=slice(final_stop_index, None),
+            full_buffer_slice=slice(None),
         )
 
 
     @property
     def loop_shared_element_count(self) -> int:
         """Return the number of shared memory elements."""
-        return int(self.local_end or 0)
+        return int(self.loop_buffer_end_offset or 0)
 
     @property
-    def n_states(self) -> int:
+    def state_count(self) -> int:
         """Return the number of states."""
         return int(self.state_buffer_slice.stop - self.state_buffer_slice.start)
 
     @property
-    def n_parameters(self) -> int:
+    def parameter_count(self) -> int:
         """Return the number of parameters."""
         return int(self.parameters_buffer_slice.stop - self.parameters_buffer_slice.start)
 
     @property
-    def n_drivers(self) -> int:
+    def driver_count(self) -> int:
         """Return the number of drivers."""
         return int(self.driver_buffer_slice.stop - self.driver_buffer_slice.start)
 
     @property
-    def n_observables(self) -> int:
+    def observable_count(self) -> int:
         """Return the number of observables."""
         return int(self.observables_buffer_slice.stop - self.observables_buffer_slice.start)
 
     @property
-    def n_counters(self) -> int:
+    def counter_count(self) -> int:
         """Return the number of counter elements (4 if enabled, 0 if not)."""
-        return int(self.counters.stop - self.counters.start)
+        return int(self.counter_buffer_slice.stop - self.counter_buffer_slice.start)
 
 
 @define
@@ -391,11 +391,11 @@ class ODELoopConfig:
         Interval between accepted saves.
     _dt_summarise
         Interval between summary accumulations.
-    save_state_fn
+    state_saving_function
         Device function that records state and observable snapshots.
-    update_summaries_fn
+    summary_update_function
         Device function that accumulates summary statistics.
-    save_summaries_fn
+    summary_saving_function
         Device function that writes summary statistics to output buffers.
     step_controller_fn
         Device function that updates the timestep and acceptance flag.
@@ -403,7 +403,7 @@ class ODELoopConfig:
         Device function that advances the solution by one tentative step.
     driver_function
         Device function that evaluates driver signals for a given time.
-    observables_fn
+    observables_function
         Device function that evaluates observables for the current state.
     _dt0
         Initial timestep prior to controller feedback.
@@ -439,15 +439,15 @@ class ODELoopConfig:
         default=1.0,
         validator=gttype_validator(float, 0)
     )
-    save_state_fn: Optional[Callable] = field(
+    state_saving_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    update_summaries_fn: Optional[Callable] = field(
+    summary_update_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    save_summaries_fn: Optional[Callable] = field(
+    summary_saving_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
@@ -463,7 +463,7 @@ class ODELoopConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    observables_fn: Optional[Callable] = field(
+    observables_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
@@ -531,7 +531,7 @@ class ODELoopConfig:
         return int(local_end or 0)
 
     @property
-    def loop_local_elements(self) -> int:
+    def loop_local_element_count(self) -> int:
         """Return the loop's persistent local-memory contribution."""
 
         return self.local_indices.loop_element_count

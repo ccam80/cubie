@@ -229,19 +229,19 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def save_state_fn(self) -> Callable:
         """Return the loop state-save function."""
 
-        return self._loop.save_state_fn
+        return self._loop.state_saving_function
 
     @property
     def update_summaries_fn(self) -> Callable:
         """Return the loop summary-update function."""
 
-        return self._loop.update_summaries_fn
+        return self._loop.summary_update_function
 
     @property
     def save_summaries_fn(self) -> Callable:
         """Return the loop summary-save function."""
 
-        return self._loop.save_summaries_fn
+        return self._loop.summary_saving_function
 
     @property
     def control_device_function(self) -> Callable:

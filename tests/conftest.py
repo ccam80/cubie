@@ -170,7 +170,7 @@ def _build_loop_instance(
         step_controller_fn=step_controller.device_function,
         step_function=step_object.step_function,
         driver_function=driver_function,
-        observables_fn=system.observables_function,
+        observables_function=system.observables_function,
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         dt0=step_controller.dt0,

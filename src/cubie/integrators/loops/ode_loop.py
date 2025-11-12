@@ -73,7 +73,7 @@ class IVPLoop(CUDAFactory):
         Device function that advances the solution by one tentative step.
     driver_function
         Device function that evaluates drivers for a given time.
-    observables_fn
+    observables_function
         Device function that computes observables for proposed states.
     """
 
@@ -95,20 +95,20 @@ class IVPLoop(CUDAFactory):
         step_controller_fn: Optional[Callable] = None,
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
-        observables_fn: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
     ) -> None:
         super().__init__()
 
         config = ODELoopConfig(
             shared_buffer_indices=shared_indices,
             local_indices=local_indices,
-            save_state_fn=save_state_func,
-            update_summaries_fn=update_summaries_func,
-            save_summaries_fn=save_summaries_func,
+            state_saving_function=save_state_func,
+            summary_update_function=update_summaries_func,
+            summary_saving_function=save_summaries_func,
             step_controller_fn=step_controller_fn,
             step_function=step_function,
             driver_function=driver_function,
-            observables_fn=observables_fn,
+            observables_function=observables_function,
             precision=precision,
             compile_flags=compile_flags,
             dt_save=dt_save,
@@ -150,13 +150,13 @@ class IVPLoop(CUDAFactory):
         precision = config.numba_precision
         simsafe_int32 = simsafe_dtype(np.int32)
 
-        save_state = config.save_state_fn
-        update_summaries = config.update_summaries_fn
-        save_summaries = config.save_summaries_fn
+        save_state = config.state_saving_function
+        update_summaries = config.summary_update_function
+        save_summaries = config.summary_saving_function
         step_controller = config.step_controller_fn
         step_function = config.step_function
         driver_function = config.driver_function
-        observables_fn = config.observables_fn
+        observables_fn = config.observables_function
 
         flags = config.compile_flags
         save_obs_bool = flags.save_observables
@@ -174,15 +174,15 @@ class IVPLoop(CUDAFactory):
         obs_shared_ind = shared_indices.observables_buffer_slice
         obs_prop_shared_ind = shared_indices.proposed_observables_buffer_slice
         state_prop_shared_ind = shared_indices.proposed_state_buffer_slice
-        state_summ_shared_ind = shared_indices.state_summaries
+        state_summ_shared_ind = shared_indices.state_summary_buffer_slice
         params_shared_ind = shared_indices.parameters_buffer_slice
-        obs_summ_shared_ind = shared_indices.observable_summaries
+        obs_summ_shared_ind = shared_indices.observable_summary_buffer_slice
         drivers_shared_ind = shared_indices.driver_buffer_slice
         drivers_prop_shared_ind = shared_indices.proposed_driver_buffer_slice
-        error_shared_ind = shared_indices.error
-        counters_shared_ind = shared_indices.counters
-        proposed_counters_shared_ind = shared_indices.proposed_counters
-        remaining_scratch_ind = shared_indices.scratch
+        error_shared_ind = shared_indices.error_buffer_slice
+        counters_shared_ind = shared_indices.counter_buffer_slice
+        proposed_counters_shared_ind = shared_indices.proposed_counter_buffer_slice
+        remaining_scratch_ind = shared_indices.scratch_buffer_slice
 
         dt_slice = local_indices.timestep_slice
         accept_slice = local_indices.acceptance_flag_slice
@@ -197,11 +197,11 @@ class IVPLoop(CUDAFactory):
         steps_per_save = int32(ceil(precision(dt_save) / precision(dt0)))
 
         # Loop sizes
-        n_states = shared_indices.n_states
-        n_parameters = shared_indices.n_parameters
-        n_observables = shared_indices.n_observables
-        n_drivers = shared_indices.n_drivers
-        n_counters = shared_indices.n_counters
+        n_states = shared_indices.state_count
+        n_parameters = shared_indices.parameter_count
+        n_observables = shared_indices.observable_count
+        n_drivers = shared_indices.driver_count
+        n_counters = shared_indices.counter_count
         
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
@@ -568,7 +568,7 @@ class IVPLoop(CUDAFactory):
     @property
     def local_memory_elements(self) -> int:
         """Return the loop's persistent local-memory requirement."""
-        return self.compile_settings.loop_local_elements
+        return self.compile_settings.loop_local_element_count
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -577,22 +577,22 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.compile_flags
 
     @property
-    def save_state_fn(self) -> Optional[Callable]:
+    def state_saving_function(self) -> Optional[Callable]:
         """Return the cached state saving device function."""
 
-        return self.compile_settings.save_state_fn
+        return self.compile_settings.state_saving_function
 
     @property
-    def update_summaries_fn(self) -> Optional[Callable]:
+    def summary_update_function(self) -> Optional[Callable]:
         """Return the cached summary update device function."""
 
-        return self.compile_settings.update_summaries_fn
+        return self.compile_settings.summary_update_function
 
     @property
-    def save_summaries_fn(self) -> Optional[Callable]:
+    def summary_saving_function(self) -> Optional[Callable]:
         """Return the cached summary saving device function."""
 
-        return self.compile_settings.save_summaries_fn
+        return self.compile_settings.summary_saving_function
 
     @property
     def step_controller_fn(self) -> Optional[Callable]:
@@ -613,10 +613,10 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.driver_function
 
     @property
-    def observables_fn(self) -> Optional[Callable]:
+    def observables_function(self) -> Optional[Callable]:
         """Return the observables device function used by the loop."""
 
-        return self.compile_settings.observables_fn
+        return self.compile_settings.observables_function
 
     @property
     def dt0(self) -> Optional[float]:

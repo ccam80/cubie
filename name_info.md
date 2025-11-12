@@ -74,7 +74,7 @@ No methods, properties, functions, or attributes to track (only imports).
 **Type**: property
 **Current Name**: save_state_fn, update_summaries_fn, save_summaries_fn, step_controller_fn, step_function, driver_function, observables_fn
 **Recommended Rename**: [state_saving_function, summary_update_function, summary_saving_function, step_controller_function, step_function, driver_evaluation_function, observables_function]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed (partial - save_state_fn, update_summaries_fn, save_summaries_fn, observables_fn renamed; step_controller_fn, step_function, driver_function remain)]
 
 ## File: src/cubie/integrators/loops/ode_loop_config.py
 
@@ -160,28 +160,28 @@ No methods, properties, functions, or attributes to track (only imports).
 **Type**: attribute
 **Current Name**: state_summaries, observable_summaries
 **Recommended Rename**: [state_summary_buffer_slice, observable_summary_buffer_slice]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]
 
 ### LoopSharedIndices.error
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:207
 **Type**: attribute
 **Current Name**: error
 **Recommended Rename**: [error_buffer_slice]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]
 
 ### LoopSharedIndices counter buffer attributes group
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:211, 215
 **Type**: attribute
 **Current Name**: counters, proposed_counters
 **Recommended Rename**: [counter_buffer_slice, proposed_counter_buffer_slice]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]
 
 ### LoopSharedIndices buffer management attributes group
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:219, 223, 227
 **Type**: attribute
 **Current Name**: local_end, scratch, all
 **Recommended Rename**: [loop_buffer_end_offset, scratch_buffer_slice, full_buffer_slice]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]
 
 ### LoopSharedIndices.loop_shared_elements
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:346
@@ -195,7 +195,7 @@ No methods, properties, functions, or attributes to track (only imports).
 **Type**: property
 **Current Name**: n_states, n_parameters, n_drivers, n_observables, n_counters
 **Recommended Rename**: [state_count, parameter_count, driver_count, observable_count, counter_count]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]
 
 ### ODELoopConfig buffer indices attributes group
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:418, 421
@@ -263,6 +263,6 @@ No methods, properties, functions, or attributes to track (only imports).
 ### ODELoopConfig memory requirement properties group
 **Location**: src/cubie/integrators/loops/ode_loop_config.py:527, 534
 **Type**: property
-**Current Name**: loop_shared_elements, loop_local_elements
+**Current Name**: loop_shared_element_count, loop_local_elements
 **Recommended Rename**: [loop_shared_element_count, loop_local_element_count]
-**Rename Executed**: []
+**Rename Executed**: [2025-11-12: completed]

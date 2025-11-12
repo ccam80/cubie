@@ -526,7 +526,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
             'step_function': self._algo_step.step_function,
-            'observables_fn': observables_fn}
+            'observables_function': observables_fn}
 
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function
