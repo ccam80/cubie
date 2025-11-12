@@ -16,6 +16,16 @@ def cellml_fixtures_dir():
     return Path(__file__).parent.parent.parent / "fixtures" / "cellml"
 
 @pytest.fixture(scope="session")
+def basic_model_path(cellml_fixtures_dir):
+    """Return path to basic ODE CellML model file."""
+    return cellml_fixtures_dir / "basic_ode.cellml"
+
+@pytest.fixture(scope="session")
+def beeler_reuter_model_path(cellml_fixtures_dir):
+    """Return path to Beeler-Reuter CellML model file."""
+    return cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+
+@pytest.fixture(scope="session")
 def cellml_overrides(request):
     if hasattr(request, "param"):
         return request.param if request.param else {}
