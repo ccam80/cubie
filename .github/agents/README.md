@@ -27,6 +27,7 @@ Each agent has restricted file creation/edit permissions:
 - **reviewer**: `.github/active_plans/<feature>/review_report.md`
 - **docstring_guru**: Any `.py` files, `docs/` files, `.github/context/cubie_internal_structure.md`
 - **narrative_documenter**: `docs/` directory only (plus `readme.md`)
+- **renamer**: `name_info.md` (tracking file), any `.py` files when executing renames
 
 All agents can **read** all files in the repository.
 
@@ -134,6 +135,22 @@ Creates:
 - README updates (markdown)
 - Accepts function updates from docstring_guru
 - Updates narrative docs when API changes affect them
+
+### 7. renamer
+**Role**: Name rationalization specialist  
+**Purpose**: Manage and rationalize method, function, property, and attribute names  
+**MCP Tools**: bash, search
+**Context**: `name_info.md` (tracking file)  
+**Output**: Updated `name_info.md`, renamed source files
+**File Permissions**: Can create/edit `name_info.md`, edit any `.py` files when executing renames
+**Pipeline Position**: **INDEPENDENT** - called separately for name rationalization work
+
+Performs:
+- **update_list**: Scan files and document all names in name_info.md
+- **recommend**: Analyze names and suggest improvements based on conventions
+- **rename**: Execute recommended renames across the codebase
+- Tracks recommendations and execution status
+- Verifies completeness of renames across repository
 
 ## Workflow
 
@@ -245,6 +262,13 @@ Separate workflow (called independently by default Copilot agent):
 │                       │ → Creates RST docs (how-to, user guide)
 │                       │ → Updates narrative docs if API changed
 └───────────────────────┘
+
+┌───────────────────────┐
+│ renamer               │ → Manages name_info.md tracking file
+│                       │ → Scans files and documents all names (update_list)
+│                       │ → Recommends better names (recommend)
+│                       │ → Executes renames across codebase (rename)
+└───────────────────────┘
 ```
 
 ### Documentation-Only Flow
@@ -258,6 +282,29 @@ User Request
 │ docstring_guru        │ → For API doc enforcement
 │          OR           │
 │ narrative_documenter  │ → For user-facing docs (independent)
+└───────────────────────┘
+```
+
+### Name Rationalization Flow
+
+For improving method, function, property, and attribute names:
+
+```
+User Request (e.g., "run renamer on src/cubie/integrators")
+    ↓
+┌───────────────────────┐
+│ renamer               │ → update_list: Scan and document all names
+│ (update_list)         │ → Creates/updates name_info.md
+└───────────────────────┘
+    ↓
+┌───────────────────────┐
+│ renamer               │ → recommend: Analyze and suggest better names
+│ (recommend)           │ → Updates name_info.md with recommendations
+└───────────────────────┘
+    ↓
+┌───────────────────────┐
+│ renamer               │ → rename: Execute renames in source files
+│ (rename)              │ → Updates source code and name_info.md
 └───────────────────────┘
 ```
 
@@ -349,6 +396,32 @@ src/cubie/integrators/algorithms/
 in CuBIE based on the new implementation.
 ```
 
+**Rationalizing Names**:
+
+```
+@renamer Run the complete name rationalization workflow on src/cubie/integrators.
+Operation: update_list
+Target: /home/runner/work/cubie/cubie/src/cubie/integrators
+```
+
+Then after it completes:
+
+```
+@renamer Continue with recommendations.
+Operation: recommend
+Chunk size: 10
+```
+
+Then after it completes:
+
+```
+@renamer Execute the renames.
+Operation: rename
+Chunk size: 5
+```
+
+Or run all three operations in sequence by using the default Copilot agent's automation (see `.github/copilot-instructions.md`).
+
 ## Active Plans Directory Structure
 
 Each feature gets a directory in `.github/active_plans/`:
@@ -402,6 +475,7 @@ Tools are described within the Markdown instructions rather than in separate con
 - **pytest**: Test running (taskmaster only, only for added tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
+- **bash/search**: Repository scanning and verification (renamer)
 
 **Note**: Custom agents do NOT have the ability to invoke other custom agents. Pipeline coordination is handled by the default Copilot agent as described in `.github/copilot-instructions.md`.
 
@@ -421,7 +495,8 @@ See individual agent files for detailed tool usage instructions.
    - `taskmaster_2`: Planning + implementation + review + edits, want to review before docstrings
    - `docstring_guru`: Complete pipeline including docstrings
 4. **Call narrative_documenter separately**: It's outside the main pipeline
-5. **Manual invocation still supported**: Call agents individually if you need fine-grained control
+5. **Call renamer separately**: Use for name rationalization work
+6. **Manual invocation still supported**: Call agents individually if you need fine-grained control
 
 ### For Agents
 
@@ -451,6 +526,11 @@ These are enforced in agent instructions:
 - **narrative_documenter**: 
   * Exists outside main pipeline
   * Can only edit docs/ directory
+- **renamer**:
+  * Exists outside main pipeline
+  * Three operations: update_list, recommend, rename
+  * Tracks all changes in name_info.md
+  * Verifies completeness of renames
 
 ## Repository Conventions
 
