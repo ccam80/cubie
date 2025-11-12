@@ -533,24 +533,34 @@ class SolveResult:
         Returns
         -------
         dict[int, str]
-            Dictionary mapping summary array indices to labels.
+            Dictionary mapping summary array indices to labels with units.
         """
         singlevar_legend = solver.summary_legend_per_variable
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
         summaries_legend = {}
 
+        state_units = {}
+        obs_units = {}
+        
+        if hasattr(solver.system, 'state_units'):
+            state_units = solver.system.state_units
+        if hasattr(solver.system, 'observable_units'):
+            obs_units = solver.system.observable_units
+
         # state summaries_array
         for i, label in enumerate(state_labels):
+            unit = state_units.get(label, "dimensionless")
             for j, (key, val) in enumerate(singlevar_legend.items()):
                 index = i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} {val}"
+                summaries_legend[index] = f"{label} [{unit}] {val}"
         # observable summaries_array
         len_state_legend = len(state_labels) * len(singlevar_legend)
         for i, label in enumerate(obs_labels):
+            unit = obs_units.get(label, "dimensionless")
             for j, (key, val) in enumerate(singlevar_legend.items()):
                 index = len_state_legend + i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} {val}"
+                summaries_legend[index] = f"{label} [{unit}] {val}"
         return summaries_legend
 
     @staticmethod
@@ -565,18 +575,29 @@ class SolveResult:
         Returns
         -------
         dict[int, str]
-            Dictionary mapping time-domain indices to labels.
+            Dictionary mapping time-domain indices to labels with units.
         """
         time_domain_legend = {}
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
+        
+        state_units = {}
+        obs_units = {}
+        
+        if hasattr(solver.system, 'state_units'):
+            state_units = solver.system.state_units
+        if hasattr(solver.system, 'observable_units'):
+            obs_units = solver.system.observable_units
+        
         offset = 0
 
         for i, label in enumerate(state_labels):
-            time_domain_legend[i] = f"{label}"
+            unit = state_units.get(label, "dimensionless")
+            time_domain_legend[i] = f"{label} [{unit}]"
             offset = i
 
         offset += 1
         for i, label in enumerate(obs_labels):
-            time_domain_legend[offset + i] = label
+            unit = obs_units.get(label, "dimensionless")
+            time_domain_legend[offset + i] = f"{label} [{unit}]"
         return time_domain_legend
