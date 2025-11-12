@@ -204,11 +204,19 @@ def load_cellml_model(
             initial_values[clean_name] = float(raw_state.initial_value)
     
     # Also convert any other Dummy symbols in the model equations
+    # Quantity objects (numeric constants) should be converted to numbers
+    # Regular Dummy symbols should be converted to Symbols
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
-                clean_name = _sanitize_symbol_name(atom.name)
-                dummy_to_symbol[atom] = sp.Symbol(clean_name)
+                # Check if it's a Quantity (numeric constant from cellmlmanip)
+                # Quantity is a Dummy subclass used for numeric constants
+                if type(atom).__name__ == 'Quantity':
+                    # Convert to numeric value instead of symbol
+                    dummy_to_symbol[atom] = sp.Float(float(atom))
+                else:
+                    clean_name = _sanitize_symbol_name(atom.name)
+                    dummy_to_symbol[atom] = sp.Symbol(clean_name)
     
     # Filter differential equations and algebraic equations separately
     differential_equations = []
