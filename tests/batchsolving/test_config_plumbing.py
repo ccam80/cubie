@@ -130,6 +130,34 @@ def assert_solverkernel_config(kernel, settings, tolerance):
         )
     if "algorithm" in settings:
         assert kernel.algorithm == settings["algorithm"]
+    
+    # Check compile_settings.ActiveOutputs
+    # This is derived from output_types but needs to be checked
+    if "output_types" in settings:
+        # Note: ActiveOutputs in compile_settings is used during kernel build
+        # The actual array allocation happens during solve, so these may be False
+        # until solve is called. We check the consistency with output_types.
+        cs_active = kernel.compile_settings.ActiveOutputs
+        kernel_active = kernel.ActiveOutputs
+        
+        # Both should be the same
+        assert cs_active == kernel_active
+        
+    # Check other kernel properties match settings
+    if "dt_save" in settings:
+        assert kernel.dt_save == pytest.approx(
+            settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+    if "dt_summarise" in settings:
+        assert kernel.dt_summarise == pytest.approx(
+            settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+    if "output_types" in settings:
+        assert kernel.output_types == settings["output_types"]
+    if "saved_state_indices" in settings:
+        assert list(kernel.saved_state_indices) == settings["saved_state_indices"]
+    if "summarised_state_indices" in settings:
+        assert list(kernel.summarised_state_indices) == settings["summarised_state_indices"]
 
 
 def assert_singleintegratorrun_config(
@@ -177,6 +205,18 @@ def assert_singleintegratorrun_config(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
+    
+    # Check compile_settings if available
+    if hasattr(single_integrator, 'compile_settings'):
+        cs = single_integrator.compile_settings
+        
+        # Check algorithm in compile_settings
+        if "algorithm" in settings:
+            assert cs.algorithm == settings["algorithm"]
+        
+        # Check step_controller in compile_settings
+        if "step_controller" in settings:
+            assert cs.step_controller == settings["step_controller"]
 
 
 def assert_ivploop_config(loop, settings, tolerance):
@@ -201,6 +241,45 @@ def assert_ivploop_config(loop, settings, tolerance):
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
+    
+    # Check compile_settings attributes
+    if hasattr(loop, 'compile_settings'):
+        cs = loop.compile_settings
+        
+        # Check dt values in compile_settings
+        if "dt" in settings:
+            assert cs.dt0 == pytest.approx(
+                settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # Check dt_save and dt_summarise in compile_settings
+        if "dt_save" in settings:
+            assert cs.dt_save == pytest.approx(
+                settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        if "dt_summarise" in settings:
+            assert cs.dt_summarise == pytest.approx(
+                settings["dt_summarise"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
+        
+        # Check compile_flags match output_types
+        if "output_types" in settings:
+            output_types = settings["output_types"]
+            compile_flags = cs.compile_flags
+            
+            # Verify compile_flags are consistent with output_types
+            assert compile_flags.save_state == ("state" in output_types)
+            assert compile_flags.save_observables == ("observables" in output_types)
+            
+            summary_types = {"mean", "max", "min", "rms", "std"}
+            has_summaries = any(t in output_types for t in summary_types)
+            assert compile_flags.summarise == has_summaries
+            assert compile_flags.summarise_state == has_summaries
+            assert compile_flags.summarise_observables == (
+                has_summaries and "observables" in output_types
+            )
 
 
 def assert_output_functions_config(output_functions, settings, tolerance):
@@ -239,6 +318,32 @@ def assert_output_functions_config(output_functions, settings, tolerance):
             assert list(output_functions.summarised_observable_indices) == settings[
                 "summarised_observable_indices"
             ]
+    
+    # Check compile_flags based on output_types
+    if "output_types" in settings:
+        output_types = settings["output_types"]
+        compile_flags = output_functions.compile_flags
+        
+        # save_state should be True if "state" in output_types
+        assert compile_flags.save_state == ("state" in output_types)
+        
+        # save_observables should be True if "observables" in output_types
+        assert compile_flags.save_observables == ("observables" in output_types)
+        
+        # Check summary flags
+        summary_types = {"mean", "max", "min", "rms", "std"}
+        has_summaries = any(t in output_types for t in summary_types)
+        
+        # summarise should be True if any summary type is in output_types
+        assert compile_flags.summarise == has_summaries
+        
+        # summarise_state should be True if summaries requested
+        assert compile_flags.summarise_state == has_summaries
+        
+        # summarise_observables should be True if summaries AND observables
+        assert compile_flags.summarise_observables == (
+            has_summaries and "observables" in output_types
+        )
 
 
 def assert_symbolic_ode_config(system, settings, tolerance):
@@ -307,6 +412,20 @@ def assert_step_algorithm_config(step_algorithm, settings, tolerance):
                 step_algorithm.preconditioner_order
                 == settings["preconditioner_order"]
             )
+    
+    # Check compile_settings if available
+    if hasattr(step_algorithm, 'compile_settings'):
+        cs = step_algorithm.compile_settings
+        
+        # Check dt in compile_settings
+        if "dt" in settings:
+            assert cs.dt == pytest.approx(
+                settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # Check n matches system size
+        if "n" in settings:
+            assert cs.n == settings["n"]
 
 
 def assert_step_controller_config(step_controller, settings, tolerance, is_adaptive):
@@ -400,6 +519,47 @@ def assert_step_controller_config(step_controller, settings, tolerance, is_adapt
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
+    
+    # Check compile_settings if available
+    if hasattr(step_controller, 'compile_settings'):
+        cs = step_controller.compile_settings
+        
+        # Check dt values in compile_settings
+        if "dt" in settings:
+            assert cs.dt == pytest.approx(
+                settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+            assert cs.dt0 == pytest.approx(
+                settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+            )
+        
+        # For fixed-step, dt_min and dt_max equal dt
+        # For adaptive, they should match settings
+        if is_adaptive:
+            if "dt_min" in settings:
+                assert cs.dt_min == pytest.approx(
+                    settings["dt_min"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+            if "dt_max" in settings:
+                assert cs.dt_max == pytest.approx(
+                    settings["dt_max"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+        else:
+            # Fixed-step: dt_min and dt_max should equal dt
+            if "dt" in settings:
+                assert cs.dt_min == pytest.approx(
+                    settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+                assert cs.dt_max == pytest.approx(
+                    settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+                )
+        
+        # Check is_adaptive flag
+        assert cs.is_adaptive == is_adaptive
+        
+        # Check n matches system size
+        if "n" in settings:
+            assert cs.n == settings["n"]
 
 
 def assert_summary_metrics_config(output_functions, settings, tolerance):
