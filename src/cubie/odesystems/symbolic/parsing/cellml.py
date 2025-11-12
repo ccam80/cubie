@@ -252,8 +252,14 @@ def load_cellml_model(
     parameters_dict = {}
     remaining_algebraic_equations = []
     
-    # Convert parameters list to set for quick lookup
-    parameters_set = set(parameters) if parameters else set()
+    # Convert parameters to set for quick lookup
+    # Handle both list and dict formats
+    if parameters is None:
+        parameters_set = set()
+    elif isinstance(parameters, dict):
+        parameters_set = set(parameters.keys())
+    else:  # list or other iterable
+        parameters_set = set(parameters)
     
     for eq in algebraic_equations:
         # Check if RHS is a numeric value (Number in sympy)
