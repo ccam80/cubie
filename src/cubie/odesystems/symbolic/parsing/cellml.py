@@ -157,6 +157,25 @@ def load_cellml_model(
     - Supports CellML 1.0 and 1.1 formats
     - CellML models from Physiome repository are compatible
     - The cellmlmanip library handles the complex CellML XML parsing
+    
+    **Units Handling:**
+    CellML files specify units for all variables (e.g., mV, nA, mM).
+    The numeric values in the equations are already in the correct units
+    as specified in the CellML file. CuBIE preserves these numeric values
+    and relationships without performing unit conversions. This is correct
+    because the equations are already dimensionally consistent.
+    
+    **Numeric Constants:**
+    Numeric constants in CellML (e.g., 0.5, 1.2) are converted from
+    cellmlmanip's Quantity objects to sympy numeric values, preventing
+    them from being treated as symbolic variables.
+    
+    **Known Limitations:**
+    Some CellML models with complex hierarchical component structures
+    may fail to parse with cellmlmanip. This is a limitation of the
+    cellmlmanip library, not CuBIE. If you encounter a parsing error,
+    try simplifying the model structure or flattening the component
+    hierarchy in the CellML file.
     """
     if cellmlmanip is None:  # pragma: no cover
         raise ImportError("cellmlmanip is required for CellML parsing")
@@ -213,7 +232,12 @@ def load_cellml_model(
                 # Quantity is a Dummy subclass used for numeric constants
                 if type(atom).__name__ == 'Quantity':
                     # Convert to numeric value instead of symbol
-                    dummy_to_symbol[atom] = sp.Float(float(atom))
+                    # Preserve integers as integers for cleaner code generation
+                    numeric_val = float(atom)
+                    if numeric_val == int(numeric_val):
+                        dummy_to_symbol[atom] = sp.Integer(int(numeric_val))
+                    else:
+                        dummy_to_symbol[atom] = sp.Float(numeric_val)
                 else:
                     clean_name = _sanitize_symbol_name(atom.name)
                     dummy_to_symbol[atom] = sp.Symbol(clean_name)
