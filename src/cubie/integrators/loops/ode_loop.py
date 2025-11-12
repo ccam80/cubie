@@ -170,27 +170,27 @@ class IVPLoop(CUDAFactory):
         shared_indices = config.shared_buffer_indices
         local_indices = config.local_indices
         
-        state_shared_ind = shared_indices.state
-        obs_shared_ind = shared_indices.observables
-        obs_prop_shared_ind = shared_indices.proposed_observables
-        state_prop_shared_ind = shared_indices.proposed_state
+        state_shared_ind = shared_indices.state_buffer_slice
+        obs_shared_ind = shared_indices.observables_buffer_slice
+        obs_prop_shared_ind = shared_indices.proposed_observables_buffer_slice
+        state_prop_shared_ind = shared_indices.proposed_state_buffer_slice
         state_summ_shared_ind = shared_indices.state_summaries
-        params_shared_ind = shared_indices.parameters
+        params_shared_ind = shared_indices.parameters_buffer_slice
         obs_summ_shared_ind = shared_indices.observable_summaries
-        drivers_shared_ind = shared_indices.drivers
-        drivers_prop_shared_ind = shared_indices.proposed_drivers
+        drivers_shared_ind = shared_indices.driver_buffer_slice
+        drivers_prop_shared_ind = shared_indices.proposed_driver_buffer_slice
         error_shared_ind = shared_indices.error
         counters_shared_ind = shared_indices.counters
         proposed_counters_shared_ind = shared_indices.proposed_counters
         remaining_scratch_ind = shared_indices.scratch
 
-        dt_slice = local_indices.dt
-        accept_slice = local_indices.accept
-        controller_slice = local_indices.controller
-        algorithm_slice = local_indices.algorithm
+        dt_slice = local_indices.timestep_slice
+        accept_slice = local_indices.acceptance_flag_slice
+        controller_slice = local_indices.controller_state_slice
+        algorithm_slice = local_indices.algorithm_state_slice
 
         # Timing values
-        saves_per_summary = config.saves_per_summary
+        saves_per_summary = config.save_count_per_summary
         dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
@@ -563,7 +563,7 @@ class IVPLoop(CUDAFactory):
     @property
     def shared_memory_elements(self) -> int:
         """Return the loop's shared-memory requirement."""
-        return self.compile_settings.loop_shared_elements
+        return self.compile_settings.loop_shared_element_count
 
     @property
     def local_memory_elements(self) -> int:

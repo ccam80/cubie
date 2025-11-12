@@ -32,32 +32,32 @@ class LoopLocalIndices:
 
     Attributes
     ----------
-    dt
+    timestep_slice
         Slice pointing to the timestep storage element.
-    accept
+    acceptance_flag_slice
         Slice pointing to the acceptance flag storage element.
-    controller
+    controller_state_slice
         Slice covering scratch space reserved for the controller state.
-    algorithm
+    algorithm_state_slice
         Slice covering scratch space reserved for the algorithm state.
-    loop_end
+    loop_buffer_end_offset
         Offset of the end of loop-managed storage.
-    total_end
+    total_buffer_end_offset
         Offset of the end of the persistent local buffer.
     all
         Slice that spans the entire persistent local buffer.
     """
 
-    dt: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    accept: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    controller: Optional[slice] = field(
+    timestep_slice: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    acceptance_flag_slice: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    controller_state_slice: Optional[slice] = field(
         default=None, validator=valid_opt_slice
     )
-    algorithm: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    loop_end: Optional[int] = field(
+    algorithm_state_slice: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    loop_buffer_end_offset: Optional[int] = field(
         default=None, validator=opt_getype_validator(int, 0)
     )
-    total_end: Optional[int] = field(
+    total_buffer_end_offset: Optional[int] = field(
         default=None, validator=opt_getype_validator(int, 0)
     )
     all: Optional[slice] = field(default=None, validator=valid_opt_slice)
@@ -74,12 +74,12 @@ class LoopLocalIndices:
 
         zero = slice(0, 0)
         return cls(
-            dt=zero,
-            accept=zero,
-            controller=zero,
-            algorithm=zero,
-            loop_end=0,
-            total_end=0,
+            timestep_slice=zero,
+            acceptance_flag_slice=zero,
+            controller_state_slice=zero,
+            algorithm_state_slice=zero,
+            loop_buffer_end_offset=0,
+            total_buffer_end_offset=0,
             all=slice(None),
         )
 
@@ -105,30 +105,30 @@ class LoopLocalIndices:
         controller_len = max(int(controller_len), 0)
         algorithm_len = max(int(algorithm_len), 0)
 
-        dt_slice = slice(0, 1)
-        accept_slice = slice(1, 2)
-        controller_start = accept_slice.stop
+        timestep_slice_value = slice(0, 1)
+        acceptance_flag_slice_value = slice(1, 2)
+        controller_start = acceptance_flag_slice_value.stop
         controller_stop = controller_start + controller_len
-        controller_slice = slice(controller_start, controller_stop)
+        controller_state_slice_value = slice(controller_start, controller_stop)
 
         algorithm_start = controller_stop
         algorithm_stop = algorithm_start + algorithm_len
-        algorithm_slice = slice(algorithm_start, algorithm_stop)
+        algorithm_state_slice_value = slice(algorithm_start, algorithm_stop)
 
         return cls(
-            dt=dt_slice,
-            accept=accept_slice,
-            controller=controller_slice,
-            algorithm=algorithm_slice,
-            loop_end=accept_slice.stop,
-            total_end=algorithm_slice.stop,
+            timestep_slice=timestep_slice_value,
+            acceptance_flag_slice=acceptance_flag_slice_value,
+            controller_state_slice=controller_state_slice_value,
+            algorithm_state_slice=algorithm_state_slice_value,
+            loop_buffer_end_offset=acceptance_flag_slice_value.stop,
+            total_buffer_end_offset=algorithm_state_slice_value.stop,
             all=slice(None),
         )
 
     @property
-    def loop_elements(self) -> int:
+    def loop_element_count(self) -> int:
         """Return the loop's intrinsic persistent local requirement."""
-        return int(self.loop_end or 0)
+        return int(self.loop_buffer_end_offset or 0)
 
 @define
 class LoopSharedIndices:
@@ -168,31 +168,31 @@ class LoopSharedIndices:
         Slice that spans the full shared-memory buffer.
     """
 
-    state:  Optional[slice] = field(
+    state_buffer_slice:  Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    proposed_state: Optional[slice] = field(
+    proposed_state_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    observables: Optional[slice] = field(
+    observables_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    proposed_observables: Optional[slice] = field(
+    proposed_observables_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    parameters: Optional[slice] = field(
+    parameters_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    drivers: Optional[slice] = field(
+    driver_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
-    proposed_drivers: Optional[slice] = field(
+    proposed_driver_buffer_slice: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -229,7 +229,7 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
 
-    def from_dict(
+    def load_indices_from_mapping(
         self,
         indices_dict: MutableMapping[str, Union[slice, tuple[int, ...]]],
     ) -> None:
@@ -318,17 +318,17 @@ class LoopSharedIndices:
         final_stop_index = proposed_counters_stop_index
 
         return cls(
-            state=slice(state_start_idx, state_proposal_start_idx),
-            proposed_state=slice(state_proposal_start_idx, observables_start_index),
-            observables=slice(
+            state_buffer_slice=slice(state_start_idx, state_proposal_start_idx),
+            proposed_state_buffer_slice=slice(state_proposal_start_idx, observables_start_index),
+            observables_buffer_slice=slice(
                 observables_start_index, observables_proposal_start_idx
             ),
-            proposed_observables=slice(
+            proposed_observables_buffer_slice=slice(
                 observables_proposal_start_idx, parameters_start_index
             ),
-            parameters=slice(parameters_start_index, drivers_start_index),
-            drivers=slice(drivers_start_index, drivers_proposal_start_idx),
-            proposed_drivers=slice(
+            parameters_buffer_slice=slice(parameters_start_index, drivers_start_index),
+            driver_buffer_slice=slice(drivers_start_index, drivers_proposal_start_idx),
+            proposed_driver_buffer_slice=slice(
                 drivers_proposal_start_idx, state_summ_start_index
             ),
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
@@ -343,29 +343,29 @@ class LoopSharedIndices:
 
 
     @property
-    def loop_shared_elements(self) -> int:
+    def loop_shared_element_count(self) -> int:
         """Return the number of shared memory elements."""
         return int(self.local_end or 0)
 
     @property
     def n_states(self) -> int:
         """Return the number of states."""
-        return int(self.state.stop - self.state.start)
+        return int(self.state_buffer_slice.stop - self.state_buffer_slice.start)
 
     @property
     def n_parameters(self) -> int:
         """Return the number of parameters."""
-        return int(self.parameters.stop - self.parameters.start)
+        return int(self.parameters_buffer_slice.stop - self.parameters_buffer_slice.start)
 
     @property
     def n_drivers(self) -> int:
         """Return the number of drivers."""
-        return int(self.drivers.stop - self.drivers.start)
+        return int(self.driver_buffer_slice.stop - self.driver_buffer_slice.start)
 
     @property
     def n_observables(self) -> int:
         """Return the number of observables."""
-        return int(self.observables.stop - self.observables.start)
+        return int(self.observables_buffer_slice.stop - self.observables_buffer_slice.start)
 
     @property
     def n_counters(self) -> int:
@@ -484,7 +484,7 @@ class ODELoopConfig:
             validator=validators.optional(validators.instance_of(bool)))
 
     @property
-    def saves_per_summary(self) -> int:
+    def save_count_per_summary(self) -> int:
         """Return the number of saves between summary outputs."""
         return int(self.dt_summarise // self.dt_save)
 
@@ -524,7 +524,7 @@ class ODELoopConfig:
         return self.precision(self._dt_max)
 
     @property
-    def loop_shared_elements(self) -> int:
+    def loop_shared_element_count(self) -> int:
         """Return the loop's shared-memory contribution."""
 
         local_end = getattr(self.shared_buffer_indices, "local_end", None)
@@ -534,5 +534,5 @@ class ODELoopConfig:
     def loop_local_elements(self) -> int:
         """Return the loop's persistent local-memory contribution."""
 
-        return self.local_indices.loop_elements
+        return self.local_indices.loop_element_count
 
