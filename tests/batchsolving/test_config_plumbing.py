@@ -4,7 +4,6 @@ This module tests that every compile-sensitive setting is correctly propagated
 through the solver hierarchy when update() is called.
 """
 
-import numpy as np
 import pytest
 
 
