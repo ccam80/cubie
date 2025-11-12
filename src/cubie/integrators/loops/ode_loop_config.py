@@ -136,35 +136,35 @@ class LoopSharedIndices:
 
     Attributes
     ----------
-    state
+    state_buffer_slice
         Slice covering the primary state buffer.
-    proposed_state
+    proposed_state_buffer_slice
         Slice covering the proposed state buffer.
-    observables
+    observables_buffer_slice
         Slice covering observable work buffers.
-    proposed_observables
+    proposed_observables_buffer_slice
         Slice covering the proposed observable buffer.
-    parameters
+    parameters_buffer_slice
         Slice covering parameter storage.
-    drivers
+    driver_buffer_slice
         Slice covering driver storage.
-    proposed_drivers
+    proposed_driver_buffer_slice
         Slice covering the proposed driver storage.
-    state_summaries
+    state_summary_buffer_slice
         Slice covering aggregated state summaries.
-    observable_summaries
+    observable_summary_buffer_slice
         Slice covering aggregated observable summaries.
-    error
+    error_buffer_slice
         Slice covering the shared error buffer reused by adaptive algorithms.
-    counters
+    counter_buffer_slice
         Slice covering the iteration counters buffer.
-    proposed_counters
+    proposed_counter_buffer_slice
         Slice covering the proposed iteration counters buffer.
-    local_end
+    loop_buffer_end_offset
         Offset of the end of loop-managed shared memory.
-    scratch
+    scratch_buffer_slice
         Slice covering any remaining shared-memory scratch space.
-    all
+    full_buffer_slice
         Slice that spans the full shared-memory buffer.
     """
 
