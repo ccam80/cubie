@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 import numpy as np
 
+from cubie import solve_ivp, SolveResult
 from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 from cubie._utils import is_devfunc
 
@@ -9,62 +10,70 @@ from cubie._utils import is_devfunc
 # This ensures critical information about missing dependencies is visible
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def cellml_fixtures_dir():
     """Return path to cellml test fixtures directory."""
     return Path(__file__).parent.parent.parent / "fixtures" / "cellml"
 
+@pytest.fixture(scope="session")
+def cellml_overrides(request):
+    if hasattr(request, "param"):
+        return request.param if request.param else {}
+    return {}
 
-@pytest.fixture
-def basic_model_path(cellml_fixtures_dir):
+@pytest.fixture(scope="session")
+def cellml_import_settings(cellml_overrides):
     """Return path to basic ODE CellML model."""
-    return cellml_fixtures_dir / "basic_ode.cellml"
+    defaults = {}
+    defaults.update(cellml_overrides)
+    return defaults
+
+@pytest.fixture(scope="session")
+def basic_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return path to basic ODE CellML model."""
+    ode_system = load_cellml_model(
+            str(cellml_fixtures_dir/"basic_ode.cellml"),
+            **cellml_import_settings
+    )
+    return ode_system
 
 
-@pytest.fixture
-def beeler_reuter_model_path(cellml_fixtures_dir):
+@pytest.fixture(scope="session")
+def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
     """Return path to Beeler-Reuter CellML model."""
-    return cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    ode_system = load_cellml_model(
+            str(br_path),
+            **cellml_import_settings
+    )
+    return ode_system
 
 
-def test_load_simple_cellml_model(basic_model_path):
+def test_load_simple_cellml_model(basic_model):
     """Load a simple CellML model successfully."""
-    ode_system = load_cellml_model(str(basic_model_path))
-    
-    assert ode_system.num_states == 1
-    assert is_devfunc(ode_system.dxdt_function)
+    assert basic_model.num_states == 1
+    assert is_devfunc(basic_model.dxdt_function)
 
 
-def test_load_complex_cellml_model(beeler_reuter_model_path):
+def test_load_complex_cellml_model(beeler_reuter_model):
     """Load Beeler-Reuter cardiac model successfully."""
-    ode_system = load_cellml_model(str(beeler_reuter_model_path))
-    
-    # Beeler-Reuter has 8 state variables
-    assert ode_system.num_states == 8
-    assert is_devfunc(ode_system.dxdt_function)
+    assert beeler_reuter_model.num_states == 8
+    assert is_devfunc(beeler_reuter_model.dxdt_function)
 
-
-def test_ode_system_has_correct_attributes(basic_model_path):
-    """Verify ODE system has expected attributes."""
-    ode_system = load_cellml_model(str(basic_model_path))
-    
-    # Should have SymbolicODE attributes
-    assert hasattr(ode_system, 'num_states')
-    assert hasattr(ode_system, 'equations')
-    assert hasattr(ode_system, 'indices')
-
-
-def test_algebraic_equations_as_observables(beeler_reuter_model_path):
+@pytest.mark.parametrize("cellml_overrides", [
+    {'observables': ['sodium_current_i_Na',
+                     'sodium_current_m_gate_alpha_m']}
+    ],
+    indirect=True,
+    ids=[""]
+)
+def test_algebraic_equations_as_observables(beeler_reuter_model, cellml_overrides):
     """Verify algebraic equations can be assigned as observables."""
     # Load with specific observables (sanitized names from the model)
-    observable_names = ["sodium_current_i_Na", "sodium_current_m_gate_alpha_m"]
-    ode_system = load_cellml_model(
-        str(beeler_reuter_model_path),
-        observables=observable_names
-    )
+    observable_names = cellml_overrides['observables']
     
     # Verify the observables were assigned
-    obs_map = ode_system.indices.observables.index_map
+    obs_map = beeler_reuter_model.indices.observables.index_map
     assert len(obs_map) > 0
     
     # Check that the requested observables are present
@@ -103,53 +112,42 @@ def test_invalid_extension():
     finally:
         os.unlink(temp_path)
 
-
-def test_custom_precision(basic_model_path):
+@pytest.mark.parametrize("cellml_overrides", [{'precision': np.float64}],
+    indirect=True,
+    ids=[""]
+)
+def test_custom_precision(basic_model):
     """Verify custom precision can be specified."""
-    ode_system = load_cellml_model(
-        str(basic_model_path),
-        precision=np.float64
-    )
-    
-    assert ode_system.precision == np.float64
+    assert basic_model.precision == np.float64
 
-
-def test_custom_name(basic_model_path):
+@pytest.mark.parametrize("cellml_overrides", [{'name': "custom_model"}],
+    indirect=True,
+    ids=[""]
+)
+def test_custom_name(basic_model):
     """Verify custom name can be specified."""
-    ode_system = load_cellml_model(
-        str(basic_model_path),
-        name="custom_model"
-    )
-    
-    assert ode_system.name == "custom_model"
+    assert basic_model.name == "custom_model"
 
 
-def test_integration_with_solve_ivp(basic_model_path):
+def test_integration_with_solve_ivp(basic_model):
     """Test that loaded model builds and is ready for solve_ivp."""
-    # Use float64 to avoid dtype mismatch in cuda simulator
-    ode_system = load_cellml_model(str(basic_model_path), precision=np.float64)
-    
-    # Build the system - this is the critical step that verifies
-    # the model is properly structured for integration
-    ode_system.build()
+
     
     # Verify the model has the necessary components
-    assert is_devfunc(ode_system.dxdt_function)
-    assert ode_system.num_states == 1
-    
+    assert is_devfunc(basic_model.dxdt_function)
+    assert basic_model.num_states == 1
     # Verify initial values are accessible
-    assert ode_system.indices.states.defaults is not None
-    assert len(ode_system.indices.states.defaults) == 1
+    assert basic_model.indices.states.defaults is not None
+    results = solve_ivp(basic_model, [1.0], [1.0])
+    assert isinstance(results, SolveResult)
 
 
-def test_initial_values_from_cellml(beeler_reuter_model_path):
+def test_initial_values_from_cellml(beeler_reuter_model):
     """Verify initial values from CellML model are preserved."""
-    ode_system = load_cellml_model(str(beeler_reuter_model_path))
-    
     # Check that initial values were set using defaults dict
-    assert ode_system.indices.states.defaults is not None
-    assert len(ode_system.indices.states.defaults) == 8
-    
+    assert beeler_reuter_model.indices.states.defaults is not None
+    assert len(beeler_reuter_model.indices.states.defaults) == 8
+
     # Initial values should be non-zero (from the model)
-    assert any(v != 0 for v in ode_system.indices.states.defaults.values())
+    assert any(v != 0 for v in beeler_reuter_model.indices.states.defaults.values())
 
