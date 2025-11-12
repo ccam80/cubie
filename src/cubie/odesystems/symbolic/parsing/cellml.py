@@ -204,10 +204,25 @@ def load_cellml_model(
             initial_values[clean_name] = float(raw_state.initial_value)
     
     # Also convert any other Dummy symbols in the model equations
+    # Special handling for numeric quantities (e.g., _0.5, _1.0)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
                 clean_name = _sanitize_symbol_name(atom.name)
+                
+                # Check if this is a numeric quantity (name starts with _)
+                if atom.name.startswith('_'):
+                    try:
+                        # Try to parse as a float
+                        value = float(atom.name[1:])
+                        # Convert to sympy Number instead of Symbol
+                        dummy_to_symbol[atom] = sp.Float(value)
+                        continue
+                    except (ValueError, IndexError):
+                        # Not a numeric value, treat as regular symbol
+                        pass
+                
+                # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
     
     # Filter differential equations and algebraic equations separately
@@ -263,18 +278,12 @@ def load_cellml_model(
         obs_str = f"{eq.lhs} = {eq.rhs}"
         all_equations.append(obs_str)
     
-    # Merge user-provided parameters with extracted parameters
-    if parameters is not None:
-        # If user provided a dict, merge it with extracted parameters
-        if isinstance(parameters, dict):
-            parameters_dict = {**parameters_dict, **parameters}
-        # If user provided a list, convert extracted dict to list format
-        # keeping only the keys that were in the user list
-        elif isinstance(parameters, list):
-            # Keep the extracted parameter values for variables in the user's list
-            # For any other parameters in the user list, keep them as is
-            final_parameters = parameters_dict if parameters_dict else parameters
-            parameters_dict = final_parameters
+    # Handle user-provided parameters
+    if parameters is not None and isinstance(parameters, dict):
+        # If user provided a dict, their values take precedence over extracted ones
+        parameters_dict = {**parameters_dict, **parameters}
+    # If parameters is a list, parameters_dict already contains the extracted values
+    # for variables in that list, so no additional merge is needed
     
     # Import here to avoid circular import with codegen modules
     # cellml is imported by parsing/__init__.py which is imported
