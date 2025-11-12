@@ -218,7 +218,6 @@ def test_custom_units_for_symbolic_ode():
     assert ode.parameter_units == {'a': 'per_second'}
     assert ode.observable_units == {'y': 'meters'}
 
-def test_import_the_big_boy(fabbri_linder_model):
 def test_import_demir(demir_1999_model):
     assert demir_1999_model.num_states != 0
 
