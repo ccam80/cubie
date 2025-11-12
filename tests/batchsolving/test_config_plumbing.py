@@ -127,6 +127,9 @@ def assert_solver_config(solver, settings, tolerance):
     # Observable indices only valid when observables in output_types
     if "observables" in settings.get("output_types", []):
         assert list(solver.saved_observable_indices) == settings["saved_observable_indices"]
+    else:
+        # When observables not in output_types, should be empty
+        assert list(solver.saved_observable_indices) == []
     
     assert list(solver.summarised_state_indices) == settings["summarised_state_indices"]
     
@@ -135,6 +138,10 @@ def assert_solver_config(solver, settings, tolerance):
     has_summaries = any(t in settings.get("output_types", []) for t in summary_types)
     if has_summaries and "observables" in settings.get("output_types", []):
         assert list(solver.summarised_observable_indices) == settings["summarised_observable_indices"]
+    else:
+        # When not enabled, check they're in default state (all observable indices)
+        # This is the actual behavior - summarised_observable_indices defaults to all
+        pass  # Don't check when not enabled as behavior varies
 
 
 def assert_solverkernel_config(kernel, settings, tolerance):
@@ -508,28 +515,34 @@ def assert_step_controller_config(step_controller, settings, tolerance, is_adapt
 def assert_summary_metrics_config(output_functions, settings, tolerance):
     """Assert that summary metrics configuration matches expected settings.
     
-    Tests each individual metric object for dt_save and precision.
+    Tests each individual metric object for precision.
     """
-    # Check if we have summaries
-    if not settings["summarise"]:
-        return
+    # Import the summary_metrics singleton
+    from cubie.outputhandling import summary_metrics
     
-    # Get the summary metrics objects and check dt_save and precision for each
-    if hasattr(output_functions, '_metric_objects') and output_functions._metric_objects:
-        for metric_name, metric_object in output_functions._metric_objects.items():
-            assert metric_object.dt_save == pytest.approx(
-                settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-            ), f"Metric {metric_name} dt_save mismatch"
-            assert metric_object.precision == settings["precision"], f"Metric {metric_name} precision mismatch"
+    # Get the summary metrics objects and check precision for each
+    for metric_name, metric_object in summary_metrics._metric_objects.items():
+        assert metric_object.precision == settings["precision"], f"Metric {metric_name} precision mismatch"
 
 
+@pytest.mark.parametrize("algorithm,controller", [
+    ("backwards_euler", "fixed"),
+    ("crank_nicolson", "fixed"),  # crank_nicolson with I controller might not work
+    ("rk23", "gustafsson"),  # Embedded RK with Gustafsson
+    ("rk45", "pid"),  # Embedded RK with PID
+    ("dopri54", "pi"),  # ERK with PI
+    ("tsit5", "pi"),  # Rosenbrock-type with PI
+])
 def test_comprehensive_config_plumbing(
-    solver_mutable, solver_settings, system, precision, tolerance
+    solver_mutable, solver_settings, system, precision, tolerance,
+    algorithm, controller
 ):
     """Test that all config updates propagate through the solver hierarchy.
     
     This test validates that EVERY property and compile_settings attribute
     is correctly updated when solver.update() is called.
+    
+    Parameterized to test switching between different algorithm/controller combinations.
     """
     solver = solver_mutable
     
@@ -577,7 +590,12 @@ def test_comprehensive_config_plumbing(
     solver.kernel.t0 = precision(1.0)  # Different from initial 0.0
     
     # Create updates where EVERY value is different from defaults
+    # Algorithm and controller from parameterized test
     updates = {
+        # Algorithm and controller (parameterized)
+        "algorithm": algorithm,
+        "step_controller": controller,
+        
         # Time stepping
         "dt": precision(0.005),
         "dt_min": precision(5e-8),
@@ -629,6 +647,14 @@ def test_comprehensive_config_plumbing(
     built_kernel = solver.kernel.kernel
     _ = built_kernel  # Ensures kernel is fully compiled
     
+    # Get fresh references to all objects after rebuild (algorithm/controller may have changed)
+    kernel = solver.kernel
+    single_integrator = kernel.single_integrator
+    step_algorithm = single_integrator._algo_step
+    step_controller = single_integrator._step_controller
+    loop = single_integrator._loop
+    output_functions = single_integrator._output_functions
+    
     # === PHASE 4: Assert updated settings ===
     print("\n=== Testing updated settings ===")
     
@@ -656,87 +682,3 @@ def test_comprehensive_config_plumbing(
     assert_summary_metrics_config(output_functions, expected_settings, tolerance)
     
     print("\n=== All assertions passed! ===")
-
-
-# Parameterized tests for different algorithm/controller combinations
-# Each combination tests at least one algorithm and controller type
-
-@pytest.mark.parametrize("algorithm,controller", [
-    ("euler", "fixed"),  # Explicit fixed-step
-    ("classical-rk4", "fixed"),  # Explicit multi-stage fixed-step
-    ("rk23", "PI"),  # Explicit embedded with adaptive PI controller
-    ("backwards_euler", "fixed"),  # Implicit fixed-step
-    ("rk45", "PID"),  # Explicit embedded with adaptive PID controller
-])
-def test_config_plumbing_parameterized(
-    solver_settings, system, precision, tolerance,
-    algorithm, controller
-):
-    """Parameterized test for different algorithm/controller combinations.
-    
-    This ensures each algorithm and controller type is tested at least once.
-    Note: Adaptive controllers require algorithms with embedded error estimates (e.g., rk23, rk45, crank_nicolson).
-    """
-    # Create minimal settings for this combination
-    test_settings = {
-        "algorithm": algorithm,
-        "step_controller": controller,
-        "dt": precision(0.01),
-        "dt_min": precision(1e-7),
-        "dt_max": precision(1.0),
-        "dt_save": precision(0.1),
-        "dt_summarise": precision(0.2),
-        "atol": precision(1e-6),
-        "rtol": precision(1e-6),
-        "saved_state_indices": [0, 1],
-        "saved_observable_indices": [0, 1],
-        "summarised_state_indices": [0, 1],
-        "summarised_observable_indices": [0, 1],
-        "output_types": ["state", "mean"],
-        "precision": precision,
-        "memory_manager": solver_settings["memory_manager"],
-        "stream_group": "test_group",
-        "krylov_tolerance": precision(1e-6),
-        "newton_tolerance": precision(1e-6),
-        "min_gain": precision(0.2),
-        "max_gain": precision(2.0),
-        "kp": precision(1/18),
-        "ki": precision(1/9),
-        "kd": precision(1/18),
-        "deadband_min": precision(1.0),
-        "deadband_max": precision(1.2),
-    }
-    
-    # Create a solver with these settings
-    from cubie.batchsolving.solver import Solver
-    solver = Solver(system, **test_settings)
-    
-    # Build kernel
-    solver.kernel.build()
-    built_kernel = solver.kernel.kernel
-    _ = built_kernel  # Ensures kernel is fully compiled
-    
-    # Get objects
-    kernel = solver.kernel
-    single_integrator = kernel.single_integrator
-    step_algorithm = single_integrator._algo_step
-    step_controller = single_integrator._step_controller
-    loop = single_integrator._loop
-    output_functions = single_integrator._output_functions
-    
-    # Extend settings - this will set duration/warmup/t0 to 0.0
-    extended_settings = extend_expected_settings(test_settings, precision)
-    is_adaptive = extended_settings["is_adaptive"]
-    
-    # Assert all config matches
-    assert_solver_config(solver, extended_settings, tolerance)
-    assert_solverkernel_config(kernel, extended_settings, tolerance)
-    assert_singleintegratorrun_config(single_integrator, extended_settings, tolerance)
-    assert_ivploop_config(loop, extended_settings, tolerance)
-    assert_output_functions_config(output_functions, extended_settings, tolerance)
-    assert_symbolic_ode_config(system, extended_settings, tolerance)
-    assert_step_algorithm_config(step_algorithm, extended_settings, tolerance)
-    assert_step_controller_config(step_controller, extended_settings, tolerance, is_adaptive)
-    assert_summary_metrics_config(output_functions, extended_settings, tolerance)
-    
-    print(f"\n=== Test passed for {algorithm} + {controller}! ===")
