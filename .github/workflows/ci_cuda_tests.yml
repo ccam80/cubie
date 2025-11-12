@@ -1,0 +1,136 @@
+name: CUDA tests
+on:
+  create:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16 * * *"
+  # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.12 credits at 31/07/2025, including machine spinup, giving us about 120 runs per month.
+  # Running CUDA tests daily at 3am and occasionally on dispatch gives us room to add two more images to test different CUDA toolkit versions.
+  push:
+    branches: ["main"]
+  # The git clone used in the workflow doesn't work on PR branches, so we can't run the tests on PRs.
+  #  pull_request:
+  #    branches: ["main"]
+    
+jobs:
+  cuda:
+    if: >
+      !github.event.head_commit ||
+      !github.event.head_commit.message ||
+      contains(github.event.head_commit.message, 'test_cuda') ||
+      contains(github.event.head_commit.message, 'test_all') ||
+      github.base_ref 
+    # github.base_ref is only true if the current event is a pull request
+    permissions: 
+      contents: read
+      packages: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - run: python -m pip install lightning-sdk
+
+      - name: Run tests in Lightning (T4, GHCR :latest)
+        shell: bash
+        env:
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GH_PAT: ${{ secrets.CUDA_PAT }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from lightning_sdk import Studio, Machine, Job, Status
+
+          owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
+          repo   = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ.get("GITHUB_REF_NAME", "main")
+          run_id = os.environ.get("GITHUB_RUN_ID", "manual")
+          gh_pat = os.getenv("GH_PAT")
+          image  = f"ghcr.io/{owner}/ci-test-env:latest"
+          git_url_clone = f"https://{gh_pat}@github.com/{repo}.git"
+          git_url_push  = f"https://{owner}:{gh_pat}@github.com/{repo}.git"  # username:token
+          
+          cmd = (
+              f"bash -lc '"
+              f"set -o pipefail; "
+              f"export GIT_TERMINAL_PROMPT=0; "                # never prompt
+              f"git clone --depth 1 --branch {branch} {git_url_clone} repo && "
+              f"cd repo && "
+              f"python -m pip install -e . && "
+              f"mkdir -p /artifacts && "
+              f"pytest -m \"not specific_algos\" --cov --cov-branch -vv -ra "
+              f"--junitxml=/artifacts/pytest-results.xml "
+              f"--cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log; "
+              f"ec=$?; "
+              f"cp -f coverage.xml /artifacts/coverage.xml || true; "
+              f'PUSH=/tmp/push_artifacts; '
+              f'rm -rf \"$PUSH\" && mkdir -p \"$PUSH/runs/{run_id}\"; '
+              f'cp -r /artifacts/. \"$PUSH/runs/{run_id}/\" || true; '
+              f'git -C \"$PUSH\" init -q; '
+              f'git -C \"$PUSH\" config user.email ci@bot; '
+              f'git -C \"$PUSH\" config user.name ci-bot; '
+              f'git -C \"$PUSH\" checkout -b ci-artifacts || true; '
+              f'git -C \"$PUSH\" remote add origin \"{git_url_push}\" || '
+              f'git -C \"$PUSH\" remote set-url origin \"{git_url_push}\"; '   # idempotent
+              f'git -C \"$PUSH\" add -A \"runs/{run_id}\"; '
+              f'git -C \"$PUSH\" commit -m \"artifacts {run_id}\" || true; '
+              f'git -C \"$PUSH\" push -u --force origin ci-artifacts; '
+              f"exit $ec'"
+          )
+          
+          job = Job.run(command=cmd, 
+                        user=os.environ["LIGHTNING_USERNAME"],
+                        name=f"ci-job-{run_id}", 
+                        machine=Machine.T4,
+                        teamspace="Vision-model",
+                        image=image)
+          job.wait()
+
+          path = "lightning-job.log"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(job.logs)
+            
+          if job.status == Status.Completed:
+              sys.exit(0) 
+          else:
+              # for any other phase (failed, cancelled, etc.), exit with a non-zero code
+              sys.exit(1)
+          PY
+          
+      - name: Upload pytest artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-artifacts
+          path: |
+            lightning-job.log
+
+      - name: Checkout artifacts branch
+        if: always()
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: ci-artifacts
+          path: artifacts_branch
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: artifacts_branch/runs/${{ github.run_id }}/coverage.xml
+          disable_search: true
+          fail_ci_if_error: false
+      
+      - name: Upload test results to Codecov
+        if: always()
+        uses: codecov/test-results-action@v1
+        with:
+          files: artifacts_branch/runs/${{ github.run_id }}/pytest-results.xml
+          disable_search: true
+          fail_ci_if_error: false

@@ -1,0 +1,48 @@
+name: Docs
+
+on: 
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    env:
+          NUMBA_ENABLE_CUDASIM: "1"        # run Numba’s GPU simulator on GPU-less runner
+          NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+
+      - name: Set up virtual environment
+        run: python -m venv .venv
+
+      - name: Activate venv and install dependencies
+        run: |
+          source .venv/bin/activate
+          pip install uv
+          uv pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
+
+      - name: Sphinx build
+        run: |
+          source .venv/bin/activate
+          sphinx-build ./docs/source ./docs/build
+
+      - name: Inject Google Site Verification Meta Tag
+        run: |
+          META_TAG='<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />'
+          find ./docs/build -name "*.html" -exec sed -i "s|</head>|$META_TAG\n</head>|g" {} +
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          publish_branch: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/build/
+          force_orphan: true

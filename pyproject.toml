@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where    = ["src"]
+exclude  = ["./tests/*"]
+
+[project]
+name = "cubie"
+version = "0.0.5"
+description = "CUDA Batch Integration Engine - for doing a lot at once."
+authors = [
+    { name="Chris Cameron" }
+]
+readme = "readme.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["src/LICEN[CS]E*"]
+dependencies = [
+    "numpy==1.26.4",
+    "numba",
+    "numba-cuda[cu12]",
+    "attrs",
+    "sympy",
+
+]
+
+[project.urls]
+Homepage = "https://github.com/ccam80/cubie.git"
+Issues = "https://github.com/ccam80/cubie/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-durations",
+    "pytest-json-report",
+    "flake8",
+    "ruff",
+    "cupy-cuda12x",
+    "pandas",
+    "matplotlib",
+    "scipy",
+    "cellmlmanip",
+]
+cupy = [
+    "cupy-cuda12x",
+]
+optional = [
+    "pandas",
+    "matplotlib"
+]
+
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = [
+    "tests"
+]
+markers = [
+    "nocudasim: Will fail if run on the GPU simulator, only test on real GPU",
+    "cupy: Requires optional dependency CuPy, will fail if not installed",
+    "slow: Marks tests that are slow to run, can be skipped with -m 'not slow'",
+    "specific_algos: Marks tests covering non-default algorithm tableau aliases",
+    "sim_only: Marks tests that can only run on the CUDA simulator (debug tests only, otherwise what's the point?)"
+]
+addopts = [
+    "--import-mode=importlib",
+    "-ra",
+    "-s",
+    "--cov=cubie",
+    "--cov-report=xml:coverage.xml",
+    "--cov-report=term-missing",
+    "--json-report",
+    "--json-report-file=tests/pytest_report.json",
+]
+filterwarnings = [
+    "ignore::numba.core.errors.NumbaPerformanceWarning",
+]
+
+[tool.coverage.run]
+#source = ["cubie"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*"
+]
+relative_files = true
+
+[tool.coverage.report]
+exclude_also = [
+    "pragma: no cover",
+    "no cover: start(?s:.)*?no cover: stop",
+    "no cover: start(?s:.)*?no cover: end",
+    "if environ\\.get\\(:(?s:.)*?else", # omit cudasim checks - possibly too broad
+    "if \\(environ\\.get\\(:(?s:.)*?else",
+    "def __repr__",
+    "if self\\.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == \\.__main__\\.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+    'if environ\\.get\\("NUMBA_ENABLE_CUDASIM", "0"\\) == "1":'
+]
+
+ignore_errors = true
+show_missing = true
+
+[tool.coverage.html]
+directory = "./tests/htmlReport"
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 72
+
+[tool.ruff.format]
+docstring-code-format = true
+
