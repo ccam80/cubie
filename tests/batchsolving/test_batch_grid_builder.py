@@ -767,3 +767,14 @@ def test_grid_builder_precision_enforcement(system, precision):
     )
     assert inits.dtype == precision
     assert params.dtype == precision
+
+    system.update({'precision': np.float32})
+
+    # Test with mixed array and dict inputs (verbatim with matching lengths)
+    inits, params = grid_builder(
+        states=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+        params={param_names[0]: [7.0, 8.0]},
+        kind="verbatim"
+    )
+    assert inits.dtype == np.float32
+    assert params.dtype == np.float32

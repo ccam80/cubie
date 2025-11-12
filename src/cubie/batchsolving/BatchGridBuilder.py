@@ -323,10 +323,13 @@ def generate_grid(
     ``kind`` selects between :func:`combinatorial_grid` and
     :func:`verbatim_grid`.
     """
+    # When kind == 'combinatorial' use combinatorial expansion of values
     if kind == "combinatorial":
         return combinatorial_grid(request, values_instance, silent=silent)
+    # When kind == 'verbatim' preserve row-wise groupings without expansion
     elif kind == "verbatim":
         return verbatim_grid(request, values_instance, silent=silent)
+    # Any other kind is invalid
     else:
         raise ValueError(
             f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'."
@@ -360,17 +363,20 @@ def combine_grids(
         Raised when ``kind`` is ``"verbatim"`` and the inputs have different
         row counts or when ``kind`` is unknown.
     """
+    # For 'combinatorial' return the Cartesian product of rows
     if kind == "combinatorial":
         # Cartesian product: all combinations of rows from each grid
         g1_repeat = np.repeat(grid1, grid2.shape[0], axis=0)
         g2_tile = np.tile(grid2, (grid1.shape[0], 1))
         return g1_repeat, g2_tile
+    # For 'verbatim' pair rows directly and error if row counts differ
     elif kind == "verbatim":
         if grid1.shape[0] != grid2.shape[0]:
             raise ValueError(
                 "For 'verbatim', both grids must have the same number of rows."
             )
         return grid1, grid2
+    # Any other kind is invalid
     else:
         raise ValueError(
             f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'."
@@ -404,9 +410,11 @@ def extend_grid_to_array(
     ValueError
         Raised when ``grid`` column count does not match ``indices`` length.
     """
+    # If grid is 1D it represents a single row of default values
     if grid.ndim == 1:
         array = default_values[np.newaxis, :]
     else:
+        # When multidimensional ensure the grid column count matches indices
         if grid.shape[1] != indices.shape[0]:
             raise ValueError("Grid shape does not match indices shape.")
         array = np.vstack([default_values] * grid.shape[0])
@@ -571,10 +579,16 @@ class BatchGridBuilder:
         arrays already describe paired rows, set ``kind`` to ``"verbatim"`` to
         keep them aligned.
         """
+        #Fetch updated state from system
+        self.precision = self.states.precision
+
         parray = None
         sarray = None
         if request is not None:
+            # User provided a combined request object in `request`
             if states is not None or params is not None:
+                # User provided a combined request AND also passed params or
+                # states separately which is invalid
                 raise TypeError(
                     "If a mixed request dictionary is provided, "
                     "states and params requests must be None."
@@ -583,60 +597,80 @@ class BatchGridBuilder:
                     "inits, if you were not trying to provide a "
                     "mixed request dictionary."
                 )
+            # User provided a request but not a dict
             if not isinstance(request, dict):
                 raise TypeError(
                     "If provided, a combined request must be provided "
                     f"as a dictionary, got {type(request)}."
                 )
+            # User provided a valid combined request dict
             return self.grid_arrays(request, kind=kind)
         else:
+            # No combined request; build one from params/states arguments
             request = {}
+            # User provided params as a dictionary of sweep values
             if isinstance(params, dict):
                 request.update(params)
+            # User provided params as a 1D or 2D array-like
             elif isinstance(params, (list, tuple, np.ndarray)):
                 parray = self._sanitise_arraylike(params, self.parameters)
+            # User provided params in an unsupported type
             elif params is not None:
                 raise TypeError(
                     "Parameters must be provided as a dictionary, "
                     "or a 1D or 2D array-like object."
                 )
+            # User provided states as a dictionary of sweep values
             if isinstance(states, dict):
                 request.update(states)
+            # User provided states as a 1D or 2D array-like
             elif isinstance(states, (list, tuple, np.ndarray)):
                 sarray = self._sanitise_arraylike(states, self.states)
+            # User provided states in an unsupported type
             elif states is not None:
                 raise TypeError(
                     "Initial states must be provided as a dictionary, "
                     "or a 1D or 2D array-like object."
                 )
 
+            # Both params and states were provided as array-likes
             if parray is not None and sarray is not None:
+                # User supplied both arrays; combine according to kind
                 sarray, parray = combine_grids(sarray, parray, kind=kind)
                 return self._cast_to_precision(sarray, parray)
+            # Some dictionary entries (request) exist
             elif request:
+                # Params provided as array, and additional request dict exists
+                # -> generate missing states from request then combine
                 if parray is not None:
                     sarray = generate_array(request, self.states, kind=kind)
                     sarray, parray = combine_grids(sarray, parray, kind=kind)
                     return self._cast_to_precision(sarray, parray)
+                # States provided as array, and additional request dict exists
+                # -> generate missing params from request then combine
                 elif sarray is not None:
                     parray = generate_array(
                         request, self.parameters, kind=kind
                     )
                     sarray, parray = combine_grids(sarray, parray, kind=kind)
                     return self._cast_to_precision(sarray, parray)
+                # Only a request dict was provided (no array-like params)
                 else:
                     return self.grid_arrays(request, kind=kind)
+            # Only params provided as an array-like (no states or request)
             elif parray is not None:
                 sarray = np.full(
                     (parray.shape[0], self.states.n), self.states.values_array
                 )
                 return self._cast_to_precision(sarray, parray)
+            # Only states provided as an array-like (no params or request)
             elif sarray is not None:
                 parray = np.full(
                     (sarray.shape[0], self.parameters.n),
                     self.parameters.values_array,
                 )
                 return self._cast_to_precision(sarray, parray)
+            # No inputs provided; return single-row defaults
             else:
                 return self._cast_to_precision(
                     self.states.values_array[np.newaxis, :],
@@ -660,15 +694,16 @@ class BatchGridBuilder:
         np.ndarray
             Array whose column count matches ``values_object.n``.
         """
+        # If the array is shorter than the number of values, extend it
+        # with default values
         if arr.shape[1] < values_object.n:
-            # If the array is shorter than the number of values, extend it
-            # with default values
             arr = np.pad(
                 arr,
                 ((0, 0), (0, values_object.n - arr.shape[1])),
                 mode="constant",
                 constant_values=values_object.values_array[arr.shape[1] :],
             )
+        # If the array has more columns than expected, trim the extras
         elif arr.shape[1] > values_object.n:
             arr = arr[: values_object.n]
         return arr
@@ -702,17 +737,22 @@ class BatchGridBuilder:
             Warned when the number of provided columns differs from the
             expected dimension.
         """
+        # If no array provided, pass through None
         if arr is None:
             return arr
+        # If the input is not already an ndarray, coerce it to one
         elif not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
+        # Reject inputs with more than two dimensions explicitly
         if arr.ndim > 2:
             raise ValueError(
                 f"Input must be a 1D or 2D array, but got a {arr.ndim}D array."
             )
+        # Convert 1D vectors to single-row 2D arrays
         elif arr.ndim == 1:
             arr = arr[np.newaxis, :]
 
+        # Warn and adjust arrays whose column count differs from expected
         if arr.shape[1] != values_object.n:
             warn(
                 f"Provided input data has {arr.shape[1]} columns, but there "
@@ -720,6 +760,7 @@ class BatchGridBuilder:
                 f"will be filled with default values, and extras ignored."
             )
             arr = self._trim_or_extend(arr, values_object)
+        # Empty arrays collapse to None
         if arr.size == 0:
             return None
 
