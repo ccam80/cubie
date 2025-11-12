@@ -32,6 +32,7 @@ class MaxMagnitude(SummaryMetric):
             name="max_magnitude",
             buffer_size=1,
             output_size=1,
+            unit_modification="[unit]",
         )
 
     def build(self) -> MetricFuncCache:

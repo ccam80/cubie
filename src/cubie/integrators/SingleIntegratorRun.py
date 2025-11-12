@@ -691,5 +691,11 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         return self._output_functions.summary_legend_per_variable
 
+    @property
+    def summary_unit_modifications(self) -> Any:
+        """Return the summary unit modifications."""
+
+        return self._output_functions.summary_unit_modifications
+
 
 __all__ = ["SingleIntegratorRun"]

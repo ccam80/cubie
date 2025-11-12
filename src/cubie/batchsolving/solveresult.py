@@ -536,6 +536,7 @@ class SolveResult:
             Dictionary mapping summary array indices to labels with units.
         """
         singlevar_legend = solver.summary_legend_per_variable
+        unit_modifications = solver.summary_unit_modifications
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
         summaries_legend = {}
@@ -553,14 +554,32 @@ class SolveResult:
             unit = state_units.get(label, "dimensionless")
             for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} [{unit}] {summary_type}"
+                unit_mod = unit_modifications.get(j, "[unit]")
+                
+                # Apply unit modification and format legend
+                if unit != "dimensionless":
+                    # Replace 'unit' placeholder (not '[unit]') to preserve brackets
+                    modified_unit = unit_mod.replace("unit", unit)
+                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                else:
+                    summaries_legend[index] = f"{label} {summary_type}"
+                    
         # observable summaries_array
         len_state_legend = len(state_labels) * len(singlevar_legend)
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
             for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = len_state_legend + i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} [{unit}] {summary_type}"
+                unit_mod = unit_modifications.get(j, "[unit]")
+                
+                # Apply unit modification and format legend
+                if unit != "dimensionless":
+                    # Replace 'unit' placeholder (not '[unit]') to preserve brackets
+                    modified_unit = unit_mod.replace("unit", unit)
+                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                else:
+                    summaries_legend[index] = f"{label} {summary_type}"
+                    
         return summaries_legend
 
     @staticmethod
@@ -593,11 +612,17 @@ class SolveResult:
 
         for i, label in enumerate(state_labels):
             unit = state_units.get(label, "dimensionless")
-            time_domain_legend[i] = f"{label} [{unit}]"
+            if unit != "dimensionless":
+                time_domain_legend[i] = f"{label} [{unit}]"
+            else:
+                time_domain_legend[i] = label
             offset = i
 
         offset += 1
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
-            time_domain_legend[offset + i] = f"{label} [{unit}]"
+            if unit != "dimensionless":
+                time_domain_legend[offset + i] = f"{label} [{unit}]"
+            else:
+                time_domain_legend[offset + i] = label
         return time_domain_legend
