@@ -551,16 +551,16 @@ class SolveResult:
         # state summaries_array
         for i, label in enumerate(state_labels):
             unit = state_units.get(label, "dimensionless")
-            for j, (key, val) in enumerate(singlevar_legend.items()):
+            for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} [{unit}] {val}"
+                summaries_legend[index] = f"{label} [{unit}] {summary_type}"
         # observable summaries_array
         len_state_legend = len(state_labels) * len(singlevar_legend)
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
-            for j, (key, val) in enumerate(singlevar_legend.items()):
+            for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = len_state_legend + i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} [{unit}] {val}"
+                summaries_legend[index] = f"{label} [{unit}] {summary_type}"
         return summaries_legend
 
     @staticmethod
