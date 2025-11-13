@@ -28,6 +28,27 @@ from cubie._utils import (
 )
 
 
+def _format_time_domain_label(label: str, unit: str) -> str:
+    """Format a time-domain legend label with unit if not dimensionless.
+
+    Parameters
+    ----------
+    label
+        Variable label.
+    unit
+        Unit string for the variable.
+
+    Returns
+    -------
+    str
+        Formatted label. If unit is "dimensionless", returns just the label.
+        Otherwise returns "label [unit]".
+    """
+    if unit != "dimensionless":
+        return f"{label} [{unit}]"
+    return label
+
+
 @attrs.define
 class SolveSpec:
     """Describe the configuration of a solver run.
@@ -612,17 +633,11 @@ class SolveResult:
 
         for i, label in enumerate(state_labels):
             unit = state_units.get(label, "dimensionless")
-            if unit != "dimensionless":
-                time_domain_legend[i] = f"{label} [{unit}]"
-            else:
-                time_domain_legend[i] = label
+            time_domain_legend[i] = _format_time_domain_label(label, unit)
             offset = i
 
         offset += 1
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
-            if unit != "dimensionless":
-                time_domain_legend[offset + i] = f"{label} [{unit}]"
-            else:
-                time_domain_legend[offset + i] = label
+            time_domain_legend[offset + i] = _format_time_domain_label(label, unit)
         return time_domain_legend
