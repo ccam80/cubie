@@ -232,8 +232,9 @@ def load_cellml_model(
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
     
-    # Extract initial values from CellML model
+    # Extract initial values and units from CellML model
     initial_values = {}
+    state_units = {}
     
     # Convert Dummy symbols to regular Symbols with sanitized names
     # cellmlmanip returns Dummy symbols but we need regular Symbols
@@ -248,6 +249,15 @@ def load_cellml_model(
         # Get initial value if available
         if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
             initial_values[clean_name] = float(raw_state.initial_value)
+        
+        # Get units if available
+        if hasattr(raw_state, 'units'):
+            state_units[clean_name] = str(raw_state.units)
+        else:
+            state_units[clean_name] = "dimensionless"
+    
+    # Collect units for all other symbols
+    all_symbol_units = {}
     
     # Also convert any other Dummy symbols in the model equations
     # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
@@ -273,6 +283,12 @@ def load_cellml_model(
                 
                 # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
+                
+                # Extract units for this symbol
+                if hasattr(atom, 'units'):
+                    all_symbol_units[clean_name] = str(atom.units)
+                else:
+                    all_symbol_units[clean_name] = "dimensionless"
     
     # Filter differential equations and algebraic equations separately
     differential_equations = []
@@ -296,6 +312,10 @@ def load_cellml_model(
         dxdt_str = f"d{state_var.name} = {rhs_str}"
         dxdt_strings.append(dxdt_str)
     
+    # Convert algebraic equations to strings and collect their units
+    # These will be included in the equations list
+    all_equations = dxdt_strings.copy()
+    observable_units = {}
     # Separate algebraic equations into:
     # 1. Numeric assignments (become constants or parameters)
     # 2. Non-numeric algebraic equations (remain as equations)
@@ -337,6 +357,24 @@ def load_cellml_model(
         rhs_str = _eq_to_equality_str(eq.rhs)
         obs_str = f"{lhs_str} = {rhs_str}"
         all_equations.append(obs_str)
+        
+        # Extract units for the observable (lhs of algebraic equation)
+        lhs_name = str(eq.lhs)
+        if lhs_name in all_symbol_units:
+            observable_units[lhs_name] = all_symbol_units[lhs_name]
+    
+    # Separate parameter units from observable units
+    parameter_units = {}
+    if parameters:
+        for param in parameters:
+            if param in all_symbol_units:
+                parameter_units[param] = all_symbol_units[param]
+    
+    # Update observable units if observables are specified
+    if observables:
+        for obs in observables:
+            if obs not in observable_units and obs in all_symbol_units:
+                observable_units[obs] = all_symbol_units[obs]
     
     # Handle user-provided parameters
     if parameters is not None and isinstance(parameters, dict):
@@ -360,4 +398,7 @@ def load_cellml_model(
         name=name,
         precision=precision,
         strict=False,
+        state_units=state_units if state_units else None,
+        parameter_units=parameter_units if parameter_units else None,
+        observable_units=observable_units if observable_units else None,
     )

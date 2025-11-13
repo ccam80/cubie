@@ -32,6 +32,7 @@ class Peaks(SummaryMetric):
             name="peaks",
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
+            unit_modification="s",
         )
 
     def build(self) -> MetricFuncCache:

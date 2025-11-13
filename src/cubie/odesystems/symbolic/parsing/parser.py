@@ -497,6 +497,11 @@ def _process_parameters(
     constants: Union[Dict[str, float], Iterable[str]],
     observables: Iterable[str],
     drivers: Iterable[str],
+    state_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    parameter_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    constant_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    observable_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    driver_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
 ) -> IndexedBases:
     """Convert user-specified symbols into ``IndexedBases`` structures.
 
@@ -512,6 +517,16 @@ def _process_parameters(
         Observable symbol names supplied by the user.
     drivers
         External driver symbol names.
+    state_units
+        Optional units for states. Defaults to "dimensionless".
+    parameter_units
+        Optional units for parameters. Defaults to "dimensionless".
+    constant_units
+        Optional units for constants. Defaults to "dimensionless".
+    observable_units
+        Optional units for observables. Defaults to "dimensionless".
+    driver_units
+        Optional units for drivers. Defaults to "dimensionless".
 
     Returns
     -------
@@ -522,7 +537,12 @@ def _process_parameters(
                                                   parameters,
                                                   constants,
                                                   observables,
-                                                  drivers)
+                                                  drivers,
+                                                  state_units=state_units,
+                                                  parameter_units=parameter_units,
+                                                  constant_units=constant_units,
+                                                  observable_units=observable_units,
+                                                  driver_units=driver_units)
     return indexed_bases
 
 
@@ -772,6 +792,11 @@ def parse_input(
     user_functions: Optional[Dict[str, Callable]] = None,
     user_function_derivatives: Optional[Dict[str, Callable]] = None,
     strict: bool = False,
+    state_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    parameter_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    constant_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    observable_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+    driver_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
 ) -> Tuple[
     IndexedBases,
     Dict[str, object],
@@ -806,6 +831,16 @@ def parse_input(
         Mapping of callable names to derivative helper functions.
     strict
         When ``False``, infer missing symbol declarations from equation usage.
+    state_units
+        Optional units for states. Defaults to "dimensionless".
+    parameter_units
+        Optional units for parameters. Defaults to "dimensionless".
+    constant_units
+        Optional units for constants. Defaults to "dimensionless".
+    observable_units
+        Optional units for observables. Defaults to "dimensionless".
+    driver_units
+        Optional units for drivers. Defaults to "dimensionless".
 
     Returns
     -------
@@ -851,6 +886,11 @@ def parse_input(
         constants=constants,
         observables=observables,
         drivers=drivers,
+        state_units=state_units,
+        parameter_units=parameter_units,
+        constant_units=constant_units,
+        observable_units=observable_units,
+        driver_units=driver_units,
     )
 
     if isinstance(dxdt, str):

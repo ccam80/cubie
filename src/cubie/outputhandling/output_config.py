@@ -632,6 +632,22 @@ class OutputConfig:
         return legend_dict
 
     @property
+    def summary_unit_modifications(self) -> dict[int, str]:
+        """Map per-variable summary indices to unit modifications.
+
+        Returns
+        -------
+        dict[int, str]
+            Dictionary that assigns each per-variable summary slot to its
+            unit modification string.
+        """
+        if not self._summary_types:
+            return {}
+        unit_mod_tuple = summary_metrics.unit_modifications(self._summary_types)
+        unit_mod_dict = dict(zip(range(len(unit_mod_tuple)), unit_mod_tuple))
+        return unit_mod_dict
+
+    @property
     def summary_parameters(self) -> dict[str, object]:
         """Collect parameters required by the registered summary metrics.
 

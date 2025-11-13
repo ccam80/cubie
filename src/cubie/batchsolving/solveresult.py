@@ -28,6 +28,27 @@ from cubie._utils import (
 )
 
 
+def _format_time_domain_label(label: str, unit: str) -> str:
+    """Format a time-domain legend label with unit if not dimensionless.
+
+    Parameters
+    ----------
+    label
+        Variable label.
+    unit
+        Unit string for the variable.
+
+    Returns
+    -------
+    str
+        Formatted label. If unit is "dimensionless", returns just the label.
+        Otherwise returns "label [unit]".
+    """
+    if unit != "dimensionless":
+        return f"{label} [{unit}]"
+    return label
+
+
 @attrs.define
 class SolveSpec:
     """Describe the configuration of a solver run.
@@ -533,24 +554,53 @@ class SolveResult:
         Returns
         -------
         dict[int, str]
-            Dictionary mapping summary array indices to labels.
+            Dictionary mapping summary array indices to labels with units.
         """
         singlevar_legend = solver.summary_legend_per_variable
+        unit_modifications = solver.summary_unit_modifications
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
         summaries_legend = {}
 
+        state_units = {}
+        obs_units = {}
+        
+        if hasattr(solver.system, 'state_units'):
+            state_units = solver.system.state_units
+        if hasattr(solver.system, 'observable_units'):
+            obs_units = solver.system.observable_units
+
         # state summaries_array
         for i, label in enumerate(state_labels):
-            for j, (key, val) in enumerate(singlevar_legend.items()):
+            unit = state_units.get(label, "dimensionless")
+            for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} {val}"
+                unit_mod = unit_modifications.get(j, "[unit]")
+                
+                # Apply unit modification and format legend
+                if unit != "dimensionless":
+                    # Replace 'unit' placeholder (not '[unit]') to preserve brackets
+                    modified_unit = unit_mod.replace("unit", unit)
+                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                else:
+                    summaries_legend[index] = f"{label} {summary_type}"
+                    
         # observable summaries_array
         len_state_legend = len(state_labels) * len(singlevar_legend)
         for i, label in enumerate(obs_labels):
-            for j, (key, val) in enumerate(singlevar_legend.items()):
+            unit = obs_units.get(label, "dimensionless")
+            for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = len_state_legend + i * len(singlevar_legend) + j
-                summaries_legend[index] = f"{label} {val}"
+                unit_mod = unit_modifications.get(j, "[unit]")
+                
+                # Apply unit modification and format legend
+                if unit != "dimensionless":
+                    # Replace 'unit' placeholder (not '[unit]') to preserve brackets
+                    modified_unit = unit_mod.replace("unit", unit)
+                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                else:
+                    summaries_legend[index] = f"{label} {summary_type}"
+                    
         return summaries_legend
 
     @staticmethod
@@ -565,18 +615,29 @@ class SolveResult:
         Returns
         -------
         dict[int, str]
-            Dictionary mapping time-domain indices to labels.
+            Dictionary mapping time-domain indices to labels with units.
         """
         time_domain_legend = {}
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
+        
+        state_units = {}
+        obs_units = {}
+        
+        if hasattr(solver.system, 'state_units'):
+            state_units = solver.system.state_units
+        if hasattr(solver.system, 'observable_units'):
+            obs_units = solver.system.observable_units
+        
         offset = 0
 
         for i, label in enumerate(state_labels):
-            time_domain_legend[i] = f"{label}"
+            unit = state_units.get(label, "dimensionless")
+            time_domain_legend[i] = _format_time_domain_label(label, unit)
             offset = i
 
         offset += 1
         for i, label in enumerate(obs_labels):
-            time_domain_legend[offset + i] = label
+            unit = obs_units.get(label, "dimensionless")
+            time_domain_legend[offset + i] = _format_time_domain_label(label, unit)
         return time_domain_legend
