@@ -69,6 +69,8 @@ class TestTimeLogger:
     def test_none_verbosity_no_op(self):
         """Test that None verbosity creates no-op logger."""
         logger = TimeLogger(verbosity=None)
+        # Registration still works even with None verbosity
+        logger._register_event("test", "build", "Test event")
         logger.start_event("test")
         logger.stop_event("test")
         logger.progress("test", "message")
@@ -85,6 +87,7 @@ class TestTimeLogger:
     def test_start_event(self):
         """Test recording a start event."""
         logger = TimeLogger()
+        logger._register_event("test_operation", "build", "Test operation")
         logger.start_event("test_operation")
         
         assert len(logger.events) == 1
@@ -95,6 +98,7 @@ class TestTimeLogger:
     def test_stop_event(self):
         """Test recording a stop event."""
         logger = TimeLogger()
+        logger._register_event("test_operation", "build", "Test operation")
         logger.start_event("test_operation")
         time.sleep(0.01)
         logger.stop_event("test_operation")
@@ -107,6 +111,7 @@ class TestTimeLogger:
     def test_progress_event(self):
         """Test recording a progress event."""
         logger = TimeLogger()
+        logger._register_event("test_operation", "build", "Test operation")
         logger.progress("test_operation", "50% complete")
         
         assert len(logger.events) == 1
@@ -117,6 +122,7 @@ class TestTimeLogger:
     def test_get_event_duration(self):
         """Test calculating duration between start and stop events."""
         logger = TimeLogger()
+        logger._register_event("test_operation", "build", "Test operation")
         logger.start_event("test_operation")
         time.sleep(0.02)
         logger.stop_event("test_operation")
@@ -129,6 +135,7 @@ class TestTimeLogger:
     def test_get_event_duration_no_stop(self):
         """Test get_event_duration returns None when stop event missing."""
         logger = TimeLogger()
+        logger._register_event("test_operation", "build", "Test operation")
         logger.start_event("test_operation")
         
         duration = logger.get_event_duration("test_operation")
@@ -137,14 +144,16 @@ class TestTimeLogger:
     def test_get_event_duration_no_start(self):
         """Test get_event_duration returns None when start missing."""
         logger = TimeLogger()
-        logger.stop_event("test_operation")
-        
+        # This should now raise an error since we require registration and start
+        # So this test is no longer valid - removing assertion
         duration = logger.get_event_duration("test_operation")
         assert duration is None
 
     def test_multiple_operations(self):
         """Test tracking multiple operations."""
         logger = TimeLogger()
+        logger._register_event("operation1", "build", "Operation 1")
+        logger._register_event("operation2", "build", "Operation 2")
         logger.start_event("operation1")
         logger.start_event("operation2")
         logger.stop_event("operation1")
@@ -157,6 +166,7 @@ class TestTimeLogger:
     def test_callbacks_return_none(self):
         """Test that callbacks work but don't affect functionality."""
         logger = TimeLogger()
+        logger._register_event("test", "build", "Test event")
         
         # All callbacks should work without errors
         result1 = logger.start_event("test")
@@ -171,6 +181,7 @@ class TestTimeLogger:
     def test_print_summary_default_verbosity(self, capsys):
         """Test summary output at default verbosity."""
         logger = TimeLogger(verbosity="default")
+        logger._register_event("codegen", "codegen", "Code generation")
         logger.start_event("codegen")
         time.sleep(0.01)
         logger.stop_event("codegen")
@@ -182,6 +193,8 @@ class TestTimeLogger:
     def test_print_summary_verbose(self, capsys):
         """Test summary output at verbose level."""
         logger = TimeLogger(verbosity="verbose")
+        logger._register_event("codegen", "codegen", "Code generation")
+        logger._register_event("codegen.component1", "codegen", "Component 1")
         logger.start_event("codegen")
         logger.start_event("codegen.component1")
         time.sleep(0.01)
@@ -196,6 +209,7 @@ class TestTimeLogger:
     def test_print_summary_debug(self, capsys):
         """Test summary output at debug level."""
         logger = TimeLogger(verbosity="debug")
+        logger._register_event("test", "build", "Test event")
         logger.start_event("test")
         logger.progress("test", "halfway")
         logger.stop_event("test")
@@ -209,6 +223,7 @@ class TestTimeLogger:
     def test_get_aggregate_durations(self):
         """Test aggregating event durations."""
         logger = TimeLogger()
+        logger._register_event("operation1", "build", "Operation 1")
         logger.start_event("operation1")
         time.sleep(0.01)
         logger.stop_event("operation1")
@@ -223,6 +238,7 @@ class TestTimeLogger:
     def test_empty_event_name_raises(self):
         """Test that empty event names raise ValueError."""
         logger = TimeLogger()
+        logger._register_event("valid", "build", "Valid event")
         with pytest.raises(ValueError, match="event_name cannot be empty"):
             logger.start_event("")
         with pytest.raises(ValueError, match="event_name cannot be empty"):
@@ -257,4 +273,58 @@ class TestTimeLogger:
         assert logger._event_registry["event2"]["category"] == "build"
         assert logger._event_registry["event3"]["category"] == "runtime"
 
+    def test_unregistered_event_raises(self):
+        """Test that unregistered events raise ValueError."""
+        logger = TimeLogger()
+        with pytest.raises(ValueError, match="not registered"):
+            logger.start_event("unregistered")
+        with pytest.raises(ValueError, match="not registered"):
+            logger.stop_event("unregistered")
+        with pytest.raises(ValueError, match="not registered"):
+            logger.progress("unregistered", "message")
+
+    def test_double_start_raises(self):
+        """Test that starting an event twice raises ValueError."""
+        logger = TimeLogger()
+        logger._register_event("test", "build", "Test event")
+        logger.start_event("test")
+        with pytest.raises(ValueError, match="already has an active start"):
+            logger.start_event("test")
+
+    def test_stop_before_start_raises(self):
+        """Test that stopping without start raises ValueError."""
+        logger = TimeLogger()
+        logger._register_event("test", "build", "Test event")
+        with pytest.raises(ValueError, match="has no active start"):
+            logger.stop_event("test")
+
+    def test_aggregate_durations_by_category(self):
+        """Test filtering aggregate durations by category."""
+        logger = TimeLogger()
+        logger._register_event("codegen1", "codegen", "Codegen 1")
+        logger._register_event("build1", "build", "Build 1")
+        logger._register_event("runtime1", "runtime", "Runtime 1")
+        
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        
+        logger.start_event("build1")
+        time.sleep(0.01)
+        logger.stop_event("build1")
+        
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
+        # Test filtering by category
+        codegen_durations = logger.get_aggregate_durations(category="codegen")
+        assert "codegen1" in codegen_durations
+        assert "build1" not in codegen_durations
+        assert "runtime1" not in codegen_durations
+        
+        build_durations = logger.get_aggregate_durations(category="build")
+        assert "build1" in build_durations
+        assert "codegen1" not in build_durations
+        assert "runtime1" not in build_durations
 

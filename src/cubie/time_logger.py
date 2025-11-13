@@ -83,10 +83,15 @@ class TimeLogger:
         **metadata : Any
             Optional metadata to store with event
         
+        Raises
+        ------
+        ValueError
+            If event_name is empty, not registered, or already has an
+            active start.
+        
         Notes
         -----
-        If event_name already has an active start, logs warning in debug
-        mode and treats as nested event (matches most recent).
+        Events must be registered with _register_event before use.
         No-op when verbosity is None.
         """
         if self.verbosity is None:
@@ -94,6 +99,18 @@ class TimeLogger:
         
         if not event_name:
             raise ValueError("event_name cannot be empty")
+        
+        if event_name not in self._event_registry:
+            raise ValueError(
+                f"Event '{event_name}' not registered. "
+                "Call _register_event() before using this event."
+            )
+        
+        if event_name in self._active_starts:
+            raise ValueError(
+                f"Event '{event_name}' already has an active start. "
+                "Call stop_event() before starting again."
+            )
         
         timestamp = time.perf_counter()
         event = TimingEvent(
@@ -118,10 +135,15 @@ class TimeLogger:
         **metadata : Any
             Optional metadata to store with event
         
+        Raises
+        ------
+        ValueError
+            If event_name is empty, not registered, or has no active start.
+        
         Notes
         -----
-        If no matching start event exists, logs warning in debug mode
-        and stores orphaned stop event for diagnostics.
+        Events must be registered with _register_event before use.
+        A matching start_event must be called before stop_event.
         No-op when verbosity is None.
         """
         if self.verbosity is None:
@@ -130,7 +152,22 @@ class TimeLogger:
         if not event_name:
             raise ValueError("event_name cannot be empty")
         
+        if event_name not in self._event_registry:
+            raise ValueError(
+                f"Event '{event_name}' not registered. "
+                "Call _register_event() before using this event."
+            )
+        
+        if event_name not in self._active_starts:
+            raise ValueError(
+                f"Event '{event_name}' has no active start. "
+                "Call start_event() before stop_event()."
+            )
+        
         timestamp = time.perf_counter()
+        duration = timestamp - self._active_starts[event_name]
+        del self._active_starts[event_name]
+        
         event = TimingEvent(
             name=event_name,
             event_type='stop',
@@ -139,19 +176,10 @@ class TimeLogger:
         )
         self.events.append(event)
         
-        # Calculate and maybe print duration
-        if event_name in self._active_starts:
-            duration = timestamp - self._active_starts[event_name]
-            del self._active_starts[event_name]
-            
-            if self.verbosity == 'debug':
-                print(f"[DEBUG] Stopped: {event_name} ({duration:.3f}s)")
-            elif self.verbosity == 'verbose':
-                print(f"{event_name}: {duration:.3f}s")
-        else:
-            if self.verbosity == 'debug':
-                print(f"[DEBUG] Warning: stop_event('{event_name}') "
-                      "without matching start")
+        if self.verbosity == 'debug':
+            print(f"[DEBUG] Stopped: {event_name} ({duration:.3f}s)")
+        elif self.verbosity == 'verbose':
+            print(f"{event_name}: {duration:.3f}s")
     
     def progress(
         self, event_name: str, message: str, **metadata: Any
@@ -167,8 +195,14 @@ class TimeLogger:
         **metadata : Any
             Optional metadata to store with event
         
+        Raises
+        ------
+        ValueError
+            If event_name is empty or not registered.
+        
         Notes
         -----
+        Events must be registered with _register_event before use.
         Progress events don't require matching start/stop.
         Only printed in debug mode.
         No-op when verbosity is None.
@@ -178,6 +212,12 @@ class TimeLogger:
         
         if not event_name:
             raise ValueError("event_name cannot be empty")
+        
+        if event_name not in self._event_registry:
+            raise ValueError(
+                f"Event '{event_name}' not registered. "
+                "Call _register_event() before using this event."
+            )
         
         timestamp = time.perf_counter()
         metadata_with_msg = dict(metadata)
@@ -234,7 +274,8 @@ class TimeLogger:
         Parameters
         ----------
         category : str, optional
-            If provided, filter events by metadata['category']
+            If provided, filter events by their registered category
+            ('codegen', 'build', or 'runtime')
         
         Returns
         -------
@@ -244,15 +285,16 @@ class TimeLogger:
         Notes
         -----
         Sums all durations for events with the same name.
-        Future phases will use metadata['category'] for grouping.
+        Uses the event registry to filter by category.
         """
         durations: dict[str, float] = {}
         event_starts: dict[str, float] = {}
         
         for event in self.events:
-            # Filter by category if requested
+            # Filter by category using registry if requested
             if category is not None:
-                if event.metadata.get('category') != category:
+                event_info = self._event_registry.get(event.name)
+                if event_info is None or event_info['category'] != category:
                     continue
             
             if event.event_type == 'start':
