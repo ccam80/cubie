@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/codegen_timing_instrumentation/agent_plan.md
 
 ## Task Group 1: Core Timing Infrastructure in symbolicODE.py - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -114,12 +114,25 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Wraps entire helper generation including codegen function calls
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/symbolicODE.py (approximately 30 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level tracking variables (_registered_helper_events, _parsing_event_registered)
+  * Instrumented SymbolicODE.create() classmethod for parsing timing
+  * Instrumented get_solver_helper() method for solver helper generation timing
+- Implementation Summary:
+  * Added timing registration and instrumentation for symbolic ODE parsing in create() method
+  * Added lazy registration for solver helper events in get_solver_helper() method
+  * Timing starts after driver processing and wraps parse_input() through SymbolicODE construction
+  * Helper timing wraps entire generation including all codegen function calls
+  * Handles early return for cached helpers and cached_aux_count special case
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: dxdt.py Codegen Timing - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -212,12 +225,23 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Called from SymbolicODE.build()
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/codegen/dxdt.py (approximately 20 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level event registration for two codegen functions
+  * Instrumented generate_dxdt_fac_code() function
+  * Instrumented generate_observables_fac_code() function
+- Implementation Summary:
+  * Registered two timing events at module level (codegen_generate_dxdt_fac_code, codegen_generate_observables_fac_code)
+  * Added start_event/stop_event calls at function entry and before return in both functions
+  * Timing wraps entire code generation process including template formatting
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: linear_operators.py Codegen Timing - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -332,12 +356,26 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Called from SymbolicODE.get_solver_helper()
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/codegen/linear_operators.py (approximately 50 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level event registration for five codegen functions
+  * Instrumented generate_operator_apply_code() function
+  * Instrumented generate_cached_operator_apply_code() function
+  * Instrumented generate_prepare_jac_code() function
+  * Instrumented generate_cached_jvp_code() function
+  * Instrumented generate_n_stage_linear_operator_code() function
+- Implementation Summary:
+  * Registered five timing events at module level for all linear operator codegen functions
+  * Added start_event/stop_event calls wrapping the entire generation process in each function
+  * All functions store result in local variable before stopping timing and returning
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: preconditioners.py Codegen Timing - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -423,12 +461,24 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Called from SymbolicODE.get_solver_helper()
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/codegen/preconditioners.py (approximately 40 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level event registration for three codegen functions
+  * Instrumented generate_neumann_preconditioner_code() function
+  * Instrumented generate_neumann_preconditioner_cached_code() function
+  * Instrumented generate_n_stage_neumann_preconditioner_code() function
+- Implementation Summary:
+  * Registered three timing events at module level for all preconditioner codegen functions
+  * Added start_event/stop_event calls wrapping the entire generation process
+  * All functions store result in local variable before stopping timing and returning
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: nonlinear_residuals.py Codegen Timing - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -500,12 +550,23 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Called from SymbolicODE.get_solver_helper()
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/codegen/nonlinear_residuals.py (approximately 25 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level event registration for two codegen functions
+  * Instrumented generate_stage_residual_code() function
+  * Instrumented generate_n_stage_residual_code() function
+- Implementation Summary:
+  * Registered two timing events at module level for residual codegen functions
+  * Added start_event/stop_event calls wrapping the entire generation process
+  * Functions store result in local variable before stopping timing and returning
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: time_derivative.py Codegen Timing - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -569,7 +630,17 @@ None - this task adds instrumentation only, no validation changes required
    - Integration: Called from SymbolicODE.get_solver_helper()
 
 **Outcomes**: 
-[To be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/codegen/time_derivative.py (approximately 15 lines changed)
+- Functions/Methods Added/Modified:
+  * Added TimeLogger import from cubie.time_logger
+  * Added module-level event registration for one codegen function
+  * Instrumented generate_time_derivative_fac_code() function
+- Implementation Summary:
+  * Registered one timing event at module level (codegen_generate_time_derivative_fac_code)
+  * Added start_event/stop_event calls wrapping the entire generation process
+  * Function stores result in local variable before stopping timing and returning
+- Issues Flagged: None
 
 ---
 

@@ -19,8 +19,36 @@ from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     topological_sort,
 )
+from cubie.time_logger import _default_logger
 
 from ._stage_utils import build_stage_metadata, prepare_stage_data
+
+# Register timing events for codegen functions
+_default_logger._register_event(
+    "codegen_generate_operator_apply_code",
+    "codegen",
+    "Codegen time for generate_operator_apply_code: "
+)
+_default_logger._register_event(
+    "codegen_generate_cached_operator_apply_code",
+    "codegen",
+    "Codegen time for generate_cached_operator_apply_code: "
+)
+_default_logger._register_event(
+    "codegen_generate_prepare_jac_code",
+    "codegen",
+    "Codegen time for generate_prepare_jac_code: "
+)
+_default_logger._register_event(
+    "codegen_generate_cached_jvp_code",
+    "codegen",
+    "Codegen time for generate_cached_jvp_code: "
+)
+_default_logger._register_event(
+    "codegen_generate_n_stage_linear_operator_code",
+    "codegen",
+    "Codegen time for generate_n_stage_linear_operator_code: "
+)
 
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
@@ -380,6 +408,7 @@ def generate_operator_apply_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the linear operator factory from system equations."""
+    _default_logger.start_event("codegen_generate_operator_apply_code")
 
     if M is None:
         n = len(index_map.states.index_map)
@@ -394,13 +423,15 @@ def generate_operator_apply_code(
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    return generate_operator_apply_code_from_jvp(
+    result = generate_operator_apply_code_from_jvp(
         equations=jvp_equations,
         index_map=index_map,
         M=M_mat,
         func_name=func_name,
         cse=cse,
     )
+    _default_logger.stop_event("codegen_generate_operator_apply_code")
+    return result
 
 
 def generate_cached_operator_apply_code(
@@ -412,6 +443,7 @@ def generate_cached_operator_apply_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached linear operator factory."""
+    _default_logger.start_event("codegen_generate_cached_operator_apply_code")
 
     if M is None:
         n = len(index_map.states.index_map)
@@ -426,12 +458,14 @@ def generate_cached_operator_apply_code(
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    return generate_cached_operator_apply_code_from_jvp(
+    result = generate_cached_operator_apply_code_from_jvp(
         equations=jvp_equations,
         index_map=index_map,
         M=M_mat,
         func_name=func_name,
     )
+    _default_logger.stop_event("codegen_generate_cached_operator_apply_code")
+    return result
 
 
 def generate_prepare_jac_code(
@@ -442,6 +476,7 @@ def generate_prepare_jac_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> Tuple[str, int]:
     """Generate the cached auxiliary preparation factory."""
+    _default_logger.start_event("codegen_generate_prepare_jac_code")
 
     if jvp_equations is None:
         jvp_equations = generate_analytical_jvp(
@@ -451,11 +486,13 @@ def generate_prepare_jac_code(
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    return generate_prepare_jac_code_from_jvp(
+    result = generate_prepare_jac_code_from_jvp(
         equations=jvp_equations,
         index_map=index_map,
         func_name=func_name,
     )
+    _default_logger.stop_event("codegen_generate_prepare_jac_code")
+    return result
 
 
 def generate_cached_jvp_code(
@@ -466,6 +503,7 @@ def generate_cached_jvp_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached Jacobian-vector product factory."""
+    _default_logger.start_event("codegen_generate_cached_jvp_code")
 
     if jvp_equations is None:
         jvp_equations = generate_analytical_jvp(
@@ -475,11 +513,13 @@ def generate_cached_jvp_code(
             observables=index_map.observable_symbols,
             cse=cse,
         )
-    return generate_cached_jvp_code_from_jvp(
+    result = generate_cached_jvp_code_from_jvp(
         equations=jvp_equations,
         index_map=index_map,
         func_name=func_name,
     )
+    _default_logger.stop_event("codegen_generate_cached_jvp_code")
+    return result
 
 
 def _build_n_stage_operator_lines(
@@ -665,6 +705,7 @@ def generate_n_stage_linear_operator_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK linear operator factory."""
+    _default_logger.start_event("codegen_generate_n_stage_linear_operator_code")
 
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
@@ -692,13 +733,15 @@ def generate_n_stage_linear_operator_code(
         cse=cse,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
-    return N_STAGE_OPERATOR_TEMPLATE.format(
+    result = N_STAGE_OPERATOR_TEMPLATE.format(
         func_name=func_name,
         const_lines=const_block,
         metadata_lines="",
         body=body,
         stage_count=stage_count,
     )
+    _default_logger.stop_event("codegen_generate_n_stage_linear_operator_code")
+    return result
 
 
 N_STAGE_OPERATOR_TEMPLATE = (

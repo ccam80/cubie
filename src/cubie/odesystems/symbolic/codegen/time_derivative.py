@@ -16,6 +16,15 @@ from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     topological_sort,
 )
+from cubie.time_logger import _default_logger
+
+
+# Register timing event for codegen function
+_default_logger._register_event(
+    "codegen_generate_time_derivative_fac_code",
+    "codegen",
+    "Codegen time for generate_time_derivative_fac_code: "
+)
 
 
 TIME_DERIVATIVE_TEMPLATE = (
@@ -144,6 +153,7 @@ def generate_time_derivative_fac_code(
     cse: bool = True,
 ) -> str:
     """Return source for the time-derivative CUDA factory."""
+    _default_logger.start_event("codegen_generate_time_derivative_fac_code")
 
     body_lines = generate_time_derivative_lines(
         equations, index_map=index_map, cse=cse
@@ -152,8 +162,10 @@ def generate_time_derivative_fac_code(
     const_block = render_constant_assignments(
         index_map.constants.symbol_map
     )
-    return TIME_DERIVATIVE_TEMPLATE.format(
+    result = TIME_DERIVATIVE_TEMPLATE.format(
         func_name=func_name,
         const_lines=const_block,
         body=body,
     )
+    _default_logger.stop_event("codegen_generate_time_derivative_fac_code")
+    return result
