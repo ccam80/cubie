@@ -8,6 +8,7 @@ import numpy as np
 from numpy import array_equal, asarray
 
 from cubie._utils import in_attr, is_attrs_class
+from cubie.time_logger import _default_logger
 
 
 class CUDAFactory(ABC):
@@ -65,10 +66,24 @@ class CUDAFactory(ABC):
     """
 
     def __init__(self):
+        """Initialize the CUDA factory.
+        
+        Notes
+        -----
+        Uses the global default time logger from cubie.time_logger.
+        Configure timing via solve_ivp(time_logging_level=...) or
+        Solver(time_logging_level=...).
+        """
         self._compile_settings = None
         self._cache_valid = True
         self._device_function = None
         self._cache = None
+        
+        # Use global default logger callbacks
+        self._timing_start = _default_logger.start_event
+        self._timing_stop = _default_logger.stop_event
+        self._timing_progress = _default_logger.progress
+        self._register_event = _default_logger._register_event
 
     @abstractmethod
     def build(self):
