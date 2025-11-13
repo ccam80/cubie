@@ -61,6 +61,31 @@ def extend_expected_settings(settings, precision):
     extended.setdefault("warmup", 0.0)
     extended.setdefault("t0", 0.0)
     
+    # Compute expected indices based on output_types and summaries
+    # If 'state' in output_types, saved_state_indices = settings value, else []
+    if "state" in output_types:
+        extended["saved_state_indices"] = settings.get("saved_state_indices", [])
+    else:
+        extended["saved_state_indices"] = []
+    
+    # If 'observables' in output_types, saved_observable_indices = settings value, else []
+    if "observables" in output_types:
+        extended["saved_observable_indices"] = settings.get("saved_observable_indices", [])
+    else:
+        extended["saved_observable_indices"] = []
+    
+    # If has_summaries, summarised_state_indices = settings value, else []
+    if has_summaries:
+        extended["summarised_state_indices"] = settings.get("summarised_state_indices", [])
+    else:
+        extended["summarised_state_indices"] = []
+    
+    # If has_summaries, summarised_observable_indices = settings value, else []
+    if has_summaries:
+        extended["summarised_observable_indices"] = settings.get("summarised_observable_indices", [])
+    else:
+        extended["summarised_observable_indices"] = []
+    
     return extended
 
 
@@ -121,26 +146,11 @@ def assert_solver_config(solver, settings, tolerance):
     # memory_manager - checked but may be None
     # stream_group - cannot be updated after construction, so we don't assert changes
     
-    # Saved and summarised indices
+    # Saved and summarised indices - compare directly to expected indices from extended settings
     assert list(solver.saved_state_indices) == settings["saved_state_indices"]
-    
-    # Observable indices only valid when observables in output_types
-    if "observables" in settings.get("output_types", []):
-        assert list(solver.saved_observable_indices) == settings["saved_observable_indices"]
-    else:
-        # When observables not in output_types, should be empty
-        assert list(solver.saved_observable_indices) == []
-    
+    assert list(solver.saved_observable_indices) == settings["saved_observable_indices"]
     assert list(solver.summarised_state_indices) == settings["summarised_state_indices"]
-    
-    # Summarised observable indices only when summaries AND observables
-    summary_types = {"mean", "max", "min", "rms", "std"}
-    has_summaries = any(t in settings.get("output_types", []) for t in summary_types)
-    if has_summaries and "observables" in settings.get("output_types", []):
-        assert list(solver.summarised_observable_indices) == settings["summarised_observable_indices"]
-    else:
-        # When not enabled, should be empty
-        assert list(solver.summarised_observable_indices) == []
+    assert list(solver.summarised_observable_indices) == settings["summarised_observable_indices"]
 
 
 def assert_solverkernel_config(kernel, settings, tolerance):
@@ -176,25 +186,12 @@ def assert_solverkernel_config(kernel, settings, tolerance):
         settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     assert kernel.output_types == settings["output_types"]
+    
+    # Saved and summarised indices - compare directly to expected indices from extended settings
     assert list(kernel.saved_state_indices) == settings["saved_state_indices"]
-    
-    # Observable indices only when observables in output_types
-    if "observables" in settings.get("output_types", []):
-        assert list(kernel.saved_observable_indices) == settings["saved_observable_indices"]
-    else:
-        # When observables not in output_types, should be empty
-        assert list(kernel.saved_observable_indices) == []
-    
+    assert list(kernel.saved_observable_indices) == settings["saved_observable_indices"]
     assert list(kernel.summarised_state_indices) == settings["summarised_state_indices"]
-    
-    # Summarised observable indices only when summaries AND observables
-    summary_types = {"mean", "max", "min", "rms", "std"}
-    has_summaries = any(t in settings.get("output_types", []) for t in summary_types)
-    if has_summaries and "observables" in settings.get("output_types", []):
-        assert list(kernel.summarised_observable_indices) == settings["summarised_observable_indices"]
-    else:
-        # When not enabled, should be empty
-        assert list(kernel.summarised_observable_indices) == []
+    assert list(kernel.summarised_observable_indices) == settings["summarised_observable_indices"]
     
     # Check compile_settings.ActiveOutputs
     cs_active = kernel.compile_settings.ActiveOutputs
@@ -346,23 +343,12 @@ def assert_output_functions_config(output_functions, settings, tolerance):
     ALL properties and compile_flags are checked.
     """
     assert output_functions.output_types == settings["output_types"]
+    
+    # Saved and summarised indices - compare directly to expected indices from extended settings
     assert list(output_functions.saved_state_indices) == settings["saved_state_indices"]
-    
-    # Observable indices only when observables in output_types
-    if "observables" in settings.get("output_types", []):
-        assert list(output_functions.saved_observable_indices) == settings["saved_observable_indices"]
-    else:
-        # When observables not in output_types, should be empty
-        assert list(output_functions.saved_observable_indices) == []
-    
+    assert list(output_functions.saved_observable_indices) == settings["saved_observable_indices"]
     assert list(output_functions.summarised_state_indices) == settings["summarised_state_indices"]
-    
-    # Summarised observable indices only when summaries AND observables
-    if settings["summarise"] and "observables" in settings.get("output_types", []):
-        assert list(output_functions.summarised_observable_indices) == settings["summarised_observable_indices"]
-    else:
-        # When not enabled, should be empty
-        assert list(output_functions.summarised_observable_indices) == []
+    assert list(output_functions.summarised_observable_indices) == settings["summarised_observable_indices"]
     
     # Check compile_flags
     cf = output_functions.compile_flags
