@@ -14,8 +14,9 @@ be rebuilt when any component is reconfigured.
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 import warnings
 
+import attrs
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
@@ -29,6 +30,18 @@ from cubie.integrators.step_control import get_controller
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
+
+
+@attrs.define
+class SingleIntegratorRunCoreCache(CUDAFunctionCache):
+    """Cache for SingleIntegratorRunCore device function.
+    
+    Attributes
+    ----------
+    device_function
+        Compiled CUDA loop callable ready for execution on device.
+    """
+    device_function: Callable = attrs.field()
 
 
 class SingleIntegratorRunCore(CUDAFactory):
@@ -531,4 +544,4 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function
 
-        return loop_fn
+        return SingleIntegratorRunCoreCache(device_function=loop_fn)

@@ -12,6 +12,7 @@
 - Compilation time appears under category "compile" in timing reports
 - User can see compilation duration at default verbosity level
 - Compilation events are properly categorized and aggregated with other timing data
+- TimeLogger supports exactly three categories: 'codegen', 'runtime', 'compile'
 
 ### Story 2: Per-Device-Function Timing Resolution
 **As a** CuBIE developer optimizing compilation performance  
@@ -34,16 +35,20 @@
 - Timing happens on first specialized compilation (when types are known)
 - Subsequent calls use cached compiled versions (no re-timing)
 - Minimal performance overhead when timing is disabled
+- All CUDAFactory subclasses use CUDAFunctionCache for their cache attrs classes
+- Event registration happens automatically via cache introspection
 
 ## Executive Summary
 
 This feature adds CUDA compilation timing to CuBIE's existing time logging infrastructure. CUDA device functions in CuBIE are compiled just-in-time (JIT) by Numba when first called with specific types. Currently, this compilation time is invisible to users, contributing to the "click, wait, hope" problem.
 
 The solution introduces:
-1. A new "compile" category in the TimeLogger
-2. A `specialize_and_compile()` method in CUDAFactory to trigger and time compilation
-3. Automatic event registration for each device function in CUDAFactory subclasses
-4. A dummy kernel pattern that calls device functions with minimal overhead to trigger compilation
+1. A "compile" category in the TimeLogger (removing 'build' category which was an alias)
+2. A `CUDAFunctionCache` base attrs class that auto-registers timing events for device functions
+3. A `specialize_and_compile()` method in CUDAFactory to trigger and time compilation
+4. Automatic event registration via cache attribute introspection
+5. A dummy kernel pattern that calls device functions with minimal overhead to trigger compilation
+6. Mandatory cache creation for all CUDAFactory subclasses (removing `_device_function` direct storage)
 
 ## Architecture Diagram
 
@@ -107,7 +112,7 @@ graph LR
     subgraph "TimeLogger Infrastructure"
         TL[TimeLogger]
         Registry[Event Registry]
-        Categories[Categories:<br/>codegen, build,<br/>runtime, compile]
+        Categories[Categories:<br/>codegen, runtime,<br/>compile]
     end
     
     subgraph "CUDAFactory Base"
@@ -115,6 +120,7 @@ graph LR
         Reg[_register_event]
         SpecComp[specialize_and_compile]
         Build[build abstract method]
+        CacheBase[CUDAFunctionCache<br/>auto-registers events]
     end
     
     subgraph "CUDAFactory Subclasses"
@@ -145,13 +151,14 @@ graph LR
 
 ## Key Technical Decisions
 
-### 1. Add "compile" Category to TimeLogger
-**Decision:** Extend the category validation to include 'compile' alongside 'codegen', 'build', 'runtime'  
+### 1. Replace "build" Category with "compile" in TimeLogger
+**Decision:** Remove 'build' category and use only 'codegen', 'runtime', 'compile'  
 **Rationale:**
-- CUDA compilation is distinct from build (which is code generation)
-- Separating compile time allows users to understand JIT overhead
-- Maintains consistency with existing three-category system
-- Enables filtering and aggregation by compilation events
+- The 'build' category was functionally an alias for 'compile' 
+- CUDA compilation is distinct from code generation (codegen)
+- Three clear categories improve conceptual clarity
+- 'compile' specifically refers to JIT compilation of device functions
+- Enables filtering and aggregation by compilation events without confusion
 
 ### 2. Dummy Kernel Pattern for Compilation Triggering
 **Decision:** Create a minimal CUDA kernel that calls the device function with properly typed arguments  
@@ -198,7 +205,25 @@ graph LR
 - Timing overhead only occurs once (results are cached)
 - Aligns with CUDAFactory caching philosophy
 
-### 7. Investigation of Parameter Customization
+### 7. CUDAFunctionCache Base Class for Auto-Registration
+**Decision:** Create a `CUDAFunctionCache` base attrs class that introspects its attributes and auto-registers timing events  
+**Rationale:**
+- Eliminates manual event registration in each CUDAFactory subclass
+- Ensures consistency between cache field names and event names
+- Leverages attrs introspection to automatically discover device functions
+- Reduces boilerplate and potential for registration errors
+- Centralizes event registration logic in one place
+
+### 8. Mandatory Cache for All CUDAFactory Subclasses
+**Decision:** Remove `_device_function` attribute; all subclasses must return attrs cache from `build()`  
+**Rationale:**
+- Simplifies CUDAFactory internals (single code path)
+- Enables uniform auto-registration via CUDAFunctionCache
+- Even single-function factories create a cache with one field
+- `device_function` property becomes a convenience accessor via `get_cached_output()`
+- Consistent pattern across all CUDAFactory subclasses
+
+### 9. Investigation of Parameter Customization
 **Decision:** Research whether we can pass variable-length arguments to kernel without unpacking in signature  
 **Rationale:**
 - Numba CUDA prohibits `*args` unpacking in kernel signatures
@@ -210,30 +235,34 @@ graph LR
 ## Expected Impact on Existing Architecture
 
 ### Changes to TimeLogger
-- Extend category validation from `{'codegen', 'build', 'runtime'}` to include `'compile'`
-- Update error messages to reflect new category
+- Replace category validation from `{'codegen', 'build', 'runtime', 'compile'}` to `{'codegen', 'runtime', 'compile'}`
+- Remove 'build' category (was an alias for compile)
+- Update error messages to reflect three categories
 - No changes to event registration, storage, or reporting logic
-- Backward compatible: existing events unaffected
+- Breaking change: existing 'build' events must be changed to 'compile'
 
 ### Changes to CUDAFactory Base Class
+- Add `CUDAFunctionCache` base attrs class with auto-registration
 - Add `specialize_and_compile(device_function, event_name)` method
-- Call `specialize_and_compile()` in `_build()` after creating device functions
-- No changes to caching logic or invalidation
-- Compilation timing happens once per cache invalidation (same as build)
+- Remove `_device_function` attribute storage (use cache only)
+- Modify `device_function` property to call `get_cached_output('device_function')`
+- Modify `_build()` to always expect attrs cache, introspect and time device functions
+- Compilation timing happens once per cache invalidation
 
 ### Changes to CUDAFactory Subclasses
-- Each subclass registers compilation events for its device functions
-- Registration happens in `__init__` using `self._register_event()`
-- Event names follow pattern: `compile_{function_name}`
-- Descriptions follow pattern: `"Compilation time for {function_name}"`
-- No changes to `build()` implementations
+- All cache attrs classes must inherit from `CUDAFunctionCache`
+- Event registration happens automatically via `CUDAFunctionCache.__attrs_post_init__`
+- Event names follow pattern: `compile_{field_name}`
+- Descriptions follow pattern: `"Compilation time for {field_name}"`
+- Single-function factories create cache with `device_function` field
+- No manual event registration needed
 
 ### Integration Points
-- `BaseODE`: Register events for dxdt, linear_operator, preconditioner, etc.
-- `IVPLoop`: Register event for loop function
-- `OutputFunctions`: Register events for save_state, update_summaries, save_summaries
-- `SingleIntegratorRunCore`: Register event for compiled loop
-- Algorithm steps, controllers, metrics: Optional (may not need compilation timing)
+- **BaseODE**: `ODECache` inherits from `CUDAFunctionCache`, auto-registers events for all fields
+- **IVPLoop**: Create simple cache class inheriting `CUDAFunctionCache` with `device_function` field
+- **OutputFunctions**: `OutputFunctionCache` inherits from `CUDAFunctionCache`
+- **SingleIntegratorRunCore**: Create cache class with `device_function` field
+- Algorithm steps, controllers, metrics: Create caches as needed for compilation timing
 
 ## Trade-offs and Alternatives Considered
 

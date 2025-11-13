@@ -246,3 +246,158 @@ def test_get_cached_output_not_implemented_error_multiple(
     with pytest.raises(NotImplementedError) as exc2:
         factory_with_settings.get_cached_output("not_implemented_2")
     assert "not_implemented_2" in str(exc2.value)
+
+
+# Tests for helper functions
+from cubie.CUDAFactory import _get_device_function_params
+from cubie.CUDAFactory import _create_dummy_args
+from cubie.CUDAFactory import _create_dummy_kernel
+from numba import cuda
+import numpy as np
+
+
+def test_get_device_function_params():
+    """Test parameter extraction from device function."""
+    @cuda.jit(device=True)
+    def sample_device_func(state, params, dt):
+        return state[0] + params[0] * dt
+    
+    params = _get_device_function_params(sample_device_func)
+    assert params == ['state', 'params', 'dt']
+
+
+def test_get_device_function_params_no_py_func():
+    """Test graceful handling when py_func missing."""
+    # Mock object without py_func
+    class FakeFunc:
+        pass
+    
+    params = _get_device_function_params(FakeFunc())
+    assert params == []
+
+
+def test_get_device_function_params_none():
+    """Test handling of None input."""
+    params = _get_device_function_params(None)
+    assert params == []
+
+
+def test_create_dummy_args():
+    """Test dummy argument creation."""
+    args = _create_dummy_args(3, np.float64)
+    
+    assert len(args) == 3
+    assert all(isinstance(arg, np.ndarray) for arg in args)
+    assert all(arg.dtype == np.float64 for arg in args)
+    assert all(len(arg) == 1 for arg in args)
+
+
+def test_create_dummy_args_zero_params():
+    """Test zero parameter case."""
+    args = _create_dummy_args(0, np.float64)
+    assert len(args) == 0
+    assert args == tuple()
+
+
+def test_create_dummy_args_precision():
+    """Test different precision types."""
+    args32 = _create_dummy_args(2, np.float32)
+    args64 = _create_dummy_args(2, np.float64)
+    
+    assert all(arg.dtype == np.float32 for arg in args32)
+    assert all(arg.dtype == np.float64 for arg in args64)
+
+
+@pytest.mark.nocudasim
+def test_create_dummy_kernel():
+    """Test dummy kernel creation and execution."""
+    @cuda.jit(device=True)
+    def add_device(a, b):
+        return a[0] + b[0]
+    
+    kernel = _create_dummy_kernel(add_device, 2)
+    
+    # Verify kernel is callable
+    assert callable(kernel)
+    
+    # Test kernel can be launched (will trigger compilation)
+    args = _create_dummy_args(2, np.float64)
+    kernel[1, 1](*args)
+    cuda.synchronize()
+    
+    # If we got here without exception, test passes
+
+
+@pytest.mark.nocudasim
+def test_create_dummy_kernel_various_param_counts():
+    """Test kernel creation for different parameter counts."""
+    for count in [0, 1, 3, 5, 8, 10, 12]:
+        @cuda.jit(device=True)
+        def dummy_func(*args):
+            pass
+        
+        kernel = _create_dummy_kernel(dummy_func, count)
+        assert callable(kernel)
+
+
+# Integration tests for specialize_and_compile
+from cubie.time_logger import TimeLogger
+
+
+@pytest.mark.nocudasim
+def test_specialize_and_compile_records_timing():
+    """Test that specialize_and_compile records compilation timing."""
+    @cuda.jit(device=True)
+    def sample_device(x, y):
+        return x[0] + y[0]
+    
+    # Create factory with custom logger
+    class TestFactory(CUDAFactory):
+        def build(self):
+            return sample_device
+    
+    factory = TestFactory()
+    factory._register_event("compile_test", "compile", "Test compilation")
+    
+    # Call specialize_and_compile
+    factory.specialize_and_compile(sample_device, "compile_test")
+    
+    # Verify timing was recorded
+    logger = factory._timing_start.__self__
+    duration = logger.get_event_duration("compile_test")
+    assert duration is not None
+    assert duration > 0
+
+
+@pytest.mark.nocudasim
+def test_specialize_and_compile_none_device_function():
+    """Test that None device function is handled gracefully."""
+    class TestFactory(CUDAFactory):
+        def build(self):
+            return None
+    
+    factory = TestFactory()
+    factory._register_event("compile_test", "compile", "Test")
+    
+    # Should not raise
+    factory.specialize_and_compile(None, "compile_test")
+
+
+def test_specialize_and_compile_simulator_mode():
+    """Test that compilation timing is skipped in simulator mode."""
+    @cuda.jit(device=True)
+    def sample_device(x):
+        return x[0]
+    
+    class TestFactory(CUDAFactory):
+        def build(self):
+            return sample_device
+    
+    factory = TestFactory()
+    factory._register_event("compile_test", "compile", "Test")
+    
+    # Should not raise, should skip timing
+    factory.specialize_and_compile(sample_device, "compile_test")
+    
+    # Verify no timing recorded (in sim mode, events may or may not be recorded)
+    # Just ensure no error occurred

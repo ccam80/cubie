@@ -374,9 +374,9 @@ class TimeLogger:
         timing events they will track. The category helps organize
         timing reports by operation type.
         """
-        if category not in {'codegen', 'build', 'runtime'}:
+        if category not in {'codegen', 'runtime', 'compile'}:
             raise ValueError(
-                f"category must be 'codegen', 'build', or 'runtime', "
+                f"category must be 'codegen', 'runtime', or 'compile', "
                 f"got '{category}'"
             )
         self._event_registry[label] = {

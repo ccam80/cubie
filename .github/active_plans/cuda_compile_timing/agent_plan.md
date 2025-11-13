@@ -4,6 +4,14 @@
 
 This plan adds CUDA compilation timing to CuBIE's existing time logging infrastructure. The implementation enables tracking of just-in-time (JIT) compilation time for Numba CUDA device functions, providing visibility into compilation overhead that currently contributes to the "click, wait, hope" user experience.
 
+### Key Architectural Changes
+
+1. **Remove 'build' category from TimeLogger** - Simplify to 3 categories: 'codegen', 'runtime', 'compile'
+2. **Create CUDAFunctionCache base class** - Auto-registers timing events via attrs introspection
+3. **Remove _device_function attribute** - All factories must return attrs cache from build()
+4. **Update device_function property** - Calls get_cached_output('device_function') for consistency
+5. **Automatic event registration** - CUDAFunctionCache.__attrs_post_init__ handles registration
+
 ## Behavioral Requirements
 
 ### TimeLogger Category Extension
@@ -13,10 +21,11 @@ This plan adds CUDA compilation timing to CuBIE's existing time logging infrastr
 - Registration of events outside these categories raises ValueError
 
 **Required behavior:**
-- TimeLogger validates categories against `{'codegen', 'build', 'runtime', 'compile'}`
+- TimeLogger validates categories against `{'codegen', 'runtime', 'compile'}`
+- Remove 'build' category (was effectively an alias for compile)
 - 'compile' category events aggregate separately from other categories
-- Error messages reflect the new category option
-- All existing event handling logic remains unchanged
+- Error messages reflect the three-category system
+- All existing 'build' event registrations must be migrated to 'compile'
 
 ### CUDAFactory Compilation Specialization
 
@@ -46,28 +55,41 @@ This plan adds CUDA compilation timing to CuBIE's existing time logging infrastr
 - Timing only occurs once per cache invalidation (same as build())
 - If timing fails (no GPU, etc.), log warning but don't raise exception
 
-### Event Registration in Subclasses
+### CUDAFunctionCache Base Class
 
 **Current behavior:**
-- CUDAFactory subclasses don't register compilation events
-- No standard pattern for compilation event naming
+- No base class for cache attrs classes
+- Manual event registration in each CUDAFactory subclass `__init__`
 
 **Required behavior:**
-- Each CUDAFactory subclass registers compilation events in __init__
-- Event naming follows pattern: `compile_{function_name}`
-- Descriptions follow pattern: `"Compilation time for {function_name}"`
-- Category is always 'compile'
-- Examples:
-  - BaseODE: `compile_dxdt`, `compile_linear_operator`, `compile_neumann_preconditioner`
-  - IVPLoop: `compile_loop_function`
-  - OutputFunctions: `compile_save_state`, `compile_update_summaries`, `compile_save_summaries`
-  - SingleIntegratorRunCore: `compile_integrator_loop`
+- Create `CUDAFunctionCache` base attrs class in CUDAFactory.py
+- Implement `__attrs_post_init__` method that:
+  - Accepts `factory` parameter (reference to parent CUDAFactory)
+  - Iterates through all attrs fields in the cache instance
+  - For each field containing a CUDA device function:
+    - Registers timing event with name `compile_{field_name}`
+    - Uses description `"Compilation time for {field_name}"`
+    - Uses category 'compile'
+- All CUDAFactory subclass caches must inherit from CUDAFunctionCache
+- Auto-registration eliminates need for manual `_register_event()` calls
+
+### CUDAFactory device_function Property
+
+**Current behavior:**
+- `device_function` property returns `self._device_function` directly
+- `_device_function` is populated in `_build()` for both single and multi-output cases
+
+**Required behavior:**
+- Remove `_device_function` attribute entirely
+- Change `device_function` property to call `self.get_cached_output('device_function')`
+- All caches must include a `device_function` field
+- Backward compatible: existing code using `factory.device_function` continues to work
 
 ## Architectural Changes
 
 ### TimeLogger Module (`src/cubie/time_logger.py`)
 
-**Change:** Extend category validation set
+**Change:** Remove 'build' category and keep only 'codegen', 'runtime', 'compile'
 
 **Location:** `_register_event()` method, line ~377
 
@@ -81,17 +103,55 @@ if category not in {'codegen', 'build', 'runtime'}:
     )
 
 # Change to:
-if category not in {'codegen', 'build', 'runtime', 'compile'}:
+if category not in {'codegen', 'runtime', 'compile'}:
     raise ValueError(
-        f"category must be 'codegen', 'build', 'runtime', or 'compile', "
+        f"category must be 'codegen', 'runtime', or 'compile', "
         f"got '{category}'"
     )
 ```
 
 **Impact:**
 - Enables registration of 'compile' category events
-- No changes to data structures or logic
-- Backward compatible: existing events unaffected
+- Removes 'build' category (breaking change)
+- Existing code using 'build' must be updated to 'compile'
+- No changes to data structures or aggregation logic
+
+### CUDAFunctionCache Base Class (`src/cubie/CUDAFactory.py`)
+
+**Change:** Create base attrs class for auto-registering device function compilation events
+
+**Location:** New class before CUDAFactory class definition
+
+**Implementation:**
+```python
+@attrs.define
+class CUDAFunctionCache:
+    """Base class for CUDAFactory cache containers.
+    
+    Automatically registers compilation timing events for device functions
+    by introspecting attrs fields during initialization.
+    """
+    
+    def __attrs_post_init__(self, factory=None):
+        """Register compilation events for all device function fields."""
+        if factory is None:
+            return
+        
+        for field in attrs.fields(self.__class__):
+            device_func = getattr(self, field.name)
+            if device_func is None or device_func == -1:
+                continue
+            if not hasattr(device_func, 'py_func'):
+                continue
+            
+            event_name = f"compile_{field.name}"
+            description = f"Compilation time for {field.name}"
+            factory._register_event(event_name, "compile", description)
+```
+
+**Impact:**
+- Eliminates manual event registration in subclass `__init__` methods
+- Ensures consistency between cache field names and event names
 
 ### CUDAFactory Base Class (`src/cubie/CUDAFactory.py`)
 
@@ -146,9 +206,9 @@ def specialize_and_compile(
 - `cuda` from `numba` for kernel creation and synchronization
 - `cuda_simsafe.is_devfunc()` to verify device function
 
-#### Change 2: Invoke compilation timing in `_build()`
+#### Change 2: Remove _device_function and update _build()
 
-**Location:** `_build()` method, after caching device function
+**Location:** `_build()` method and `device_function` property
 
 **Current code (~line 256-269):**
 ```python
@@ -168,163 +228,204 @@ def _build(self):
     self._cache_valid = True
 ```
 
-**Required modification:**
-After `self._cache_valid = True`, add compilation timing logic:
+**Required modifications:**
 
-**Pseudocode:**
+1. **Remove _device_function from __init__:**
 ```python
-# After setting cache_valid = True
-if self._cache is not None:
-    # Multi-output case: iterate attrs class fields
-    for field_name in attrs.fields_dict(self._cache):
-        device_func = getattr(self._cache, field_name)
-        if is_devfunc(device_func):
-            event_name = f"compile_{field_name}"
-            if event_name in self._timing_registry:
-                self.specialize_and_compile(device_func, event_name)
-elif self._device_function is not None:
-    # Single-output case
-    if is_devfunc(self._device_function):
-        event_name = "compile_device_function"
-        if event_name in self._timing_registry:
-            self.specialize_and_compile(self._device_function, event_name)
+def __init__(self):
+    self._compile_settings = None
+    self._cache_valid = True
+    # Remove: self._device_function = None
+    self._cache = None
+    # ... timing callbacks
 ```
 
-**Note:** The registry check ensures we only time functions that subclasses explicitly registered. This allows gradual rollout across subclasses.
+2. **Update _build() to always expect attrs cache:**
+```python
+def _build(self):
+    """Rebuild cached outputs if they are invalid."""
+    build_result = self.build()
+
+    # build() must always return attrs class cache
+    if not is_attrs_class(build_result):
+        raise TypeError(
+            "build() must return an attrs class (CUDAFunctionCache subclass)"
+        )
+    
+    # Pass factory reference for auto-registration
+    self._cache = build_result
+    # Call __attrs_post_init__ if not already called
+    if hasattr(build_result, '__attrs_post_init__'):
+        build_result.__attrs_post_init__(factory=self)
+    
+    self._cache_valid = True
+    
+    # Trigger compilation timing for all device functions
+    for field in attrs.fields(type(self._cache)):
+        device_func = getattr(self._cache, field.name)
+        if device_func is None or device_func == -1:
+            continue
+        if hasattr(device_func, 'py_func'):
+            event_name = f"compile_{field.name}"
+            self.specialize_and_compile(device_func, event_name)
+```
+
+3. **Update device_function property:**
+```python
+@property
+def device_function(self):
+    """Return the compiled CUDA device function."""
+    return self.get_cached_output('device_function')
+```
+
+**Impact:**
+- Simplifies caching logic (single code path)
+- All factories must create cache, even for single function
+- Backward compatible: `factory.device_function` still works
 
 ### CUDAFactory Subclasses
 
-Each subclass needs event registration in `__init__()`. The registration should happen after calling `super().__init__()` to ensure timing callbacks are available.
+Each subclass's cache attrs class must inherit from `CUDAFunctionCache`. Event registration happens automatically via `__attrs_post_init__`.
 
 #### BaseODE (`src/cubie/odesystems/baseODE.py`)
 
-**Location:** `__init__()` method, after `super().__init__()`
+**Location:** `ODECache` class definition (lines 15-50)
 
-**Events to register:**
+**Change:** Make ODECache inherit from CUDAFunctionCache
+
+**Current:**
 ```python
-self._register_event(
-    "compile_dxdt", "compile", "Compilation time for dxdt"
-)
-self._register_event(
-    "compile_linear_operator", "compile", 
-    "Compilation time for linear_operator"
-)
-self._register_event(
-    "compile_linear_operator_cached", "compile",
-    "Compilation time for linear_operator_cached"
-)
-self._register_event(
-    "compile_neumann_preconditioner", "compile",
-    "Compilation time for neumann_preconditioner"
-)
-self._register_event(
-    "compile_neumann_preconditioner_cached", "compile",
-    "Compilation time for neumann_preconditioner_cached"
-)
-self._register_event(
-    "compile_stage_residual", "compile",
-    "Compilation time for stage_residual"
-)
-self._register_event(
-    "compile_n_stage_residual", "compile",
-    "Compilation time for n_stage_residual"
-)
-self._register_event(
-    "compile_n_stage_linear_operator", "compile",
-    "Compilation time for n_stage_linear_operator"
-)
-self._register_event(
-    "compile_n_stage_neumann_preconditioner", "compile",
-    "Compilation time for n_stage_neumann_preconditioner"
-)
-self._register_event(
-    "compile_observables", "compile",
-    "Compilation time for observables"
-)
-self._register_event(
-    "compile_prepare_jac", "compile",
-    "Compilation time for prepare_jac"
-)
-self._register_event(
-    "compile_calculate_cached_jvp", "compile",
-    "Compilation time for calculate_cached_jvp"
-)
-self._register_event(
-    "compile_time_derivative_rhs", "compile",
-    "Compilation time for time_derivative_rhs"
-)
+@attrs.define
+class ODECache:
+    """Cache compiled CUDA device and support functions for an ODE system."""
+    dxdt: Optional[Callable] = attrs.field()
+    linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    # ... other fields
 ```
 
-**Notes:**
-- ODECache (from build()) contains all these fields
-- Many may be -1 (not implemented), timing will be skipped automatically
-- Only functions that are actual device functions will be timed
+**Updated:**
+```python
+from cubie.CUDAFactory import CUDAFunctionCache
+
+@attrs.define
+class ODECache(CUDAFunctionCache):
+    """Cache compiled CUDA device and support functions for an ODE system."""
+    dxdt: Optional[Callable] = attrs.field()
+    linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    # ... other fields (unchanged)
+```
+
+**Impact:**
+- Automatic registration of compile events for all ODECache fields
+- Event names: compile_dxdt, compile_linear_operator, compile_neumann_preconditioner, etc.
+- Remove any manual `_register_event()` calls from BaseODE.__init__
 
 #### IVPLoop (`src/cubie/integrators/loops/ode_loop.py`)
 
-**Location:** `__init__()` method
+**Location:** `build()` method return value
 
-**Events to register:**
+**Change:** Create cache attrs class inheriting from CUDAFunctionCache
+
+**Current:**
 ```python
-self._register_event(
-    "compile_device_function", "compile",
-    "Compilation time for loop function"
-)
+def build(self):
+    # ... build loop function
+    return loop_function  # returns device function directly
 ```
 
-**Notes:**
-- IVPLoop returns single device function from build()
-- Uses generic name since there's only one function
+**Updated:**
+```python
+from cubie.CUDAFactory import CUDAFunctionCache
+
+@attrs.define
+class IVPLoopCache(CUDAFunctionCache):
+    """Cache for IVP loop device function."""
+    device_function: Callable = attrs.field()
+
+# In IVPLoop class:
+def build(self):
+    # ... build loop function
+    return IVPLoopCache(device_function=loop_function)
+```
+
+**Impact:**
+- Creates cache with single `device_function` field
+- Automatic registration of compile_device_function event
+- Maintains backward compatibility via `factory.device_function` property
 
 #### OutputFunctions (`src/cubie/outputhandling/output_functions.py`)
 
-**Location:** `__init__()` method
+**Location:** `OutputFunctionCache` class definition
 
-**Events to register:**
+**Change:** Make OutputFunctionCache inherit from CUDAFunctionCache
+
+**Current:**
 ```python
-self._register_event(
-    "compile_save_state_function", "compile",
-    "Compilation time for save_state_function"
-)
-self._register_event(
-    "compile_update_summaries_function", "compile",
-    "Compilation time for update_summaries_function"
-)
-self._register_event(
-    "compile_save_summaries_function", "compile",
-    "Compilation time for save_summaries_function"
-)
+@attrs.define
+class OutputFunctionCache:
+    """Cache for output device functions."""
+    save_state_function: Callable = attrs.field()
+    update_summaries_function: Callable = attrs.field()
+    save_summaries_function: Callable = attrs.field()
 ```
 
-**Notes:**
-- OutputFunctionCache contains these three functions
-- Field names in cache match event names (minus "compile_" prefix)
+**Updated:**
+```python
+from cubie.CUDAFactory import CUDAFunctionCache
+
+@attrs.define
+class OutputFunctionCache(CUDAFunctionCache):
+    """Cache for output device functions."""
+    save_state_function: Callable = attrs.field()
+    update_summaries_function: Callable = attrs.field()
+    save_summaries_function: Callable = attrs.field()
+```
+
+**Impact:**
+- Automatic registration of compile_save_state_function, compile_update_summaries_function, compile_save_summaries_function
+- Remove any manual `_register_event()` calls from OutputFunctions.__init__
 
 #### SingleIntegratorRunCore (`src/cubie/integrators/SingleIntegratorRunCore.py`)
 
-**Location:** `__init__()` method
+**Location:** `build()` method return value
 
-**Events to register:**
+**Change:** Create cache attrs class inheriting from CUDAFunctionCache
+
+**Current:**
 ```python
-self._register_event(
-    "compile_device_function", "compile",
-    "Compilation time for compiled_loop_function"
-)
+def build(self):
+    # ... build integrator loop
+    return compiled_loop_function
 ```
 
-#### BatchSolverKernel (`src/cubie/batchsolving/BatchSolverKernel.py`)
-
-**Location:** `__init__()` method
-
-**Events to register:**
+**Updated:**
 ```python
-self._register_event(
-    "compile_device_function", "compile",
-    "Compilation time for batch kernel"
-)
+from cubie.CUDAFactory import CUDAFunctionCache
+
+@attrs.define
+class SingleIntegratorCache(CUDAFunctionCache):
+    """Cache for single integrator loop function."""
+    device_function: Callable = attrs.field()
+
+# In SingleIntegratorRunCore class:
+def build(self):
+    # ... build integrator loop
+    return SingleIntegratorCache(device_function=compiled_loop_function)
 ```
 
-**Note:** BatchSolverKernel.build() calls build_kernel() which doesn't return device function directly—it's stored on self. May need special handling or skip for now.
+**Impact:**
+- Creates cache with single `device_function` field
+- Automatic registration of compile_device_function event
+
+#### Algorithm Steps, Controllers, Metrics
+
+**Recommendation:** Defer to implementation phase
+
+**Rationale:**
+- Focus on high-level components (BaseODE, IVPLoop, OutputFunctions, SingleIntegratorRunCore)
+- These may already return attrs caches or single functions
+- Can be updated incrementally to inherit from CUDAFunctionCache
+- Implementation will determine best approach per component
 
 #### Algorithm Steps, Controllers, Metrics
 
