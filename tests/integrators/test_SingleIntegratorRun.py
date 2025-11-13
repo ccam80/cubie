@@ -335,6 +335,7 @@ def test_update_routes_to_children(
 
     updates = {
         "dt": new_dt,
+        "output_types": ['state', 'observables', 'mean'],
         "saved_state_indices": new_saved_states,
         "saved_observable_indices": new_saved_observables,
         "summarised_state_indices": new_saved_states,

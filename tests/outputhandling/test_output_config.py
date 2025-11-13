@@ -237,6 +237,22 @@ class TestFlagBehavior:
             config.saved_observable_indices, np.array([])
         )
 
+    def test_summarised_indices_emptied_if_no_summaries(self):
+        """Test that summarised indices are empty when summaries disabled."""
+        config = OutputConfig(
+            max_states=3,
+            max_observables=2,
+            summarised_state_indices=[0, 1, 2],
+            summarised_observable_indices=[0, 1],
+            output_types=["state", "observables"],
+        )
+        np.testing.assert_array_equal(
+            config.summarised_state_indices, np.array([])
+        )
+        np.testing.assert_array_equal(
+            config.summarised_observable_indices, np.array([])
+        )
+
 
 class TestSummaryMetrics:
     """Test summary metrics functionality."""

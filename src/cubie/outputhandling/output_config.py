@@ -494,7 +494,9 @@ class OutputConfig:
 
     @property
     def summarised_state_indices(self) -> NDArray[np.int_]:
-        """State indices included in summary calculations."""
+        """State indices for summaries, or an empty array when disabled."""
+        if not self.save_summaries:
+            return np.asarray([], dtype=np.int_)
         return self._summarised_state_indices
 
     @summarised_state_indices.setter
@@ -519,7 +521,9 @@ class OutputConfig:
 
     @property
     def summarised_observable_indices(self) -> NDArray[np.int_]:
-        """Observable indices included in summary calculations."""
+        """Observable indices for summaries, or an empty array when disabled."""
+        if not self.save_summaries:
+            return np.asarray([], dtype=np.int_)
         return self._summarised_observable_indices
 
     @summarised_observable_indices.setter
@@ -920,7 +924,7 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-        
+
         if precision is None:
             precision = np.float32
 
