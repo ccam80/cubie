@@ -50,6 +50,8 @@ class TimeLogger:
         Chronological list of all recorded events
     _active_starts : dict[str, float]
         Map of event names to their start timestamps (for matching)
+    _event_registry : dict[str, dict]
+        Registry of event metadata (category, description) by label
     
     Notes
     -----
@@ -69,6 +71,7 @@ class TimeLogger:
         self.verbosity = verbosity
         self.events: list[TimingEvent] = []
         self._active_starts: dict[str, float] = {}
+        self._event_registry: dict[str, dict] = {}
     
     def start_event(self, event_name: str, **metadata: Any) -> None:
         """Record the start of a timed operation.
@@ -308,6 +311,36 @@ class TimeLogger:
         if verbosity == 'None':
             verbosity = None
         self.verbosity = verbosity
+    
+    def _register_event(
+        self, label: str, category: str, description: str
+    ) -> None:
+        """Register an event with metadata for tracking and reporting.
+        
+        Parameters
+        ----------
+        label : str
+            Event label used in start_event/stop_event calls
+        category : str
+            Event category: 'codegen', 'build', or 'runtime'
+        description : str
+            Human-readable description included in printouts
+        
+        Notes
+        -----
+        This method is called by CUDAFactory subclasses to register
+        timing events they will track. The category helps organize
+        timing reports by operation type.
+        """
+        if category not in {'codegen', 'build', 'runtime'}:
+            raise ValueError(
+                f"category must be 'codegen', 'build', or 'runtime', "
+                f"got '{category}'"
+            )
+        self._event_registry[label] = {
+            'category': category,
+            'description': description
+        }
 
 
 # Default global logger instance

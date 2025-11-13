@@ -48,7 +48,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         max_newton_iters: int = 1000,
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 10,
-        
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -85,8 +84,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             Damping factor applied within Newton updates.
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
 
         Returns
         -------

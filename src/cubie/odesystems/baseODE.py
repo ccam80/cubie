@@ -106,11 +106,6 @@ class BaseODE(CUDAFactory):
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
-        
-        Notes
-        -----
-        Time logging is configured globally via solve_ivp or Solver
-        using the time_logging_level parameter.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(

@@ -83,6 +83,7 @@ class CUDAFactory(ABC):
         self._timing_start = _default_logger.start_event
         self._timing_stop = _default_logger.stop_event
         self._timing_progress = _default_logger.progress
+        self._register_event = _default_logger._register_event
 
     @abstractmethod
     def build(self):

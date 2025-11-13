@@ -13,7 +13,6 @@ from cubie.cuda_simsafe import selp
 
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
-    from cubie.time_logger import TimeLogger
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import (
@@ -112,7 +111,6 @@ class ArrayInterpolator(CUDAFactory):
         self,
         precision: PrecisionDType,
         input_dict: Dict[str, FloatArray],
-        time_logger: Optional["TimeLogger"] = None,
     ) -> None:
         super().__init__()
         config = ArrayInterpolatorConfig(

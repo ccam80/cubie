@@ -197,7 +197,6 @@ class BaseAdaptiveStepController(BaseStepController):
     def __init__(
         self,
         config: AdaptiveStepControlConfig,
-        
     ) -> None:
         """Initialise the adaptive controller.
 
@@ -205,8 +204,6 @@ class BaseAdaptiveStepController(BaseStepController):
         ----------
         config
             Configuration for the controller.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
         """
         super().__init__()
         self.setup_compile_settings(config)

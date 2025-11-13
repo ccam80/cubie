@@ -42,7 +42,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         max_newton_iters: int = 100,
         newton_damping: float = 0.85,
         newton_max_backtracks: int = 25,
-        
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -79,8 +78,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             Damping factor applied within Newton updates.
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
         """
         if dt is None:
             dt = BE_DEFAULTS.step_controller['dt']

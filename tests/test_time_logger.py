@@ -230,3 +230,31 @@ class TestTimeLogger:
         with pytest.raises(ValueError, match="event_name cannot be empty"):
             logger.progress("", "message")
 
+    def test_register_event(self):
+        """Test registering events with metadata."""
+        logger = TimeLogger()
+        logger._register_event("dxdt_build", "build", "Build dxdt function")
+        
+        assert "dxdt_build" in logger._event_registry
+        assert logger._event_registry["dxdt_build"]["category"] == "build"
+        assert logger._event_registry["dxdt_build"]["description"] == "Build dxdt function"
+
+    def test_register_event_invalid_category(self):
+        """Test that invalid category raises ValueError."""
+        logger = TimeLogger()
+        with pytest.raises(ValueError, match="category must be"):
+            logger._register_event("test", "invalid", "description")
+
+    def test_register_event_valid_categories(self):
+        """Test all valid categories."""
+        logger = TimeLogger()
+        logger._register_event("event1", "codegen", "Codegen event")
+        logger._register_event("event2", "build", "Build event")
+        logger._register_event("event3", "runtime", "Runtime event")
+        
+        assert len(logger._event_registry) == 3
+        assert logger._event_registry["event1"]["category"] == "codegen"
+        assert logger._event_registry["event2"]["category"] == "build"
+        assert logger._event_registry["event3"]["category"] == "runtime"
+
+

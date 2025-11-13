@@ -72,7 +72,6 @@ class FixedStepController(BaseStepController):
         precision: PrecisionDType,
         dt: float,
         n: int = 1,
-        
     ) -> None:
         """Initialise the fixed step controller.
 
@@ -84,8 +83,6 @@ class FixedStepController(BaseStepController):
             Fixed step size to apply on every iteration.
         n
             Number of state variables advanced by the integrator.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
         """
 
         super().__init__()

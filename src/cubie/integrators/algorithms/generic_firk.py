@@ -145,7 +145,6 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
-        
     ) -> None:
         """Initialise the FIRK step configuration.
         
@@ -195,8 +194,6 @@ class FIRKStep(ODEImplicitStep):
             :data:`DEFAULT_FIRK_TABLEAU`.
         n_drivers
             Number of driver variables in the system.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
         
         Notes
         -----

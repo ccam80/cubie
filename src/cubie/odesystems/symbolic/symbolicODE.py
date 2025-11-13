@@ -57,7 +57,6 @@ def create_ODE_system(
     name: Optional[str] = None,
     precision: PrecisionDType = np.float32,
     strict: bool = False,
-    
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
 
@@ -91,9 +90,6 @@ def create_ODE_system(
         Target floating-point precision used when compiling the system.
     strict
         When ``True`` require every symbol to be explicitly categorised.
-    time_logger
-        Optional TimeLogger instance for tracking compilation timing.
-        Defaults to None.
 
     Returns
     -------
@@ -111,7 +107,6 @@ def create_ODE_system(
         name=name,
         precision=precision,
         strict=strict,
-        
     )
     return symbolic_ode
 
@@ -152,7 +147,6 @@ class SymbolicODE(BaseODE):
         fn_hash: Optional[int] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
-        
     ):
         """Initialise the symbolic system instance.
 
@@ -174,8 +168,6 @@ class SymbolicODE(BaseODE):
             Runtime callables referenced within the symbolic expressions.
         name
             Identifier used for generated modules.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
 
         Returns
         -------
@@ -211,8 +203,7 @@ class SymbolicODE(BaseODE):
             observables=all_indexed_bases.observable_names,
             precision=precision,
             num_drivers=ndriv,
-            name=name,
-            
+            name=name
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
@@ -230,7 +221,6 @@ class SymbolicODE(BaseODE):
         name: Optional[str] = None,
         precision: PrecisionDType = np.float32,
         strict: bool = False,
-        
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
 
@@ -263,8 +253,6 @@ class SymbolicODE(BaseODE):
             Target floating-point precision used when compiling the system.
         strict
             When ``True`` require every symbol to be explicitly categorised.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
 
         Returns
         -------
@@ -294,8 +282,7 @@ class SymbolicODE(BaseODE):
                    name=name,
                    fn_hash=int(fn_hash),
                    user_functions = functions,
-                   precision=precision,
-                   time_logger=time_logger)
+                   precision=precision)
 
 
     @property

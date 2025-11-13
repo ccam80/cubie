@@ -108,33 +108,7 @@ class OutputFunctions(CUDAFactory):
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
         dt_save: Optional[float] = None,
         precision: Optional[np.dtype] = None,
-        
     ):
-        """Initialize the output functions factory.
-        
-        Parameters
-        ----------
-        max_states
-            Maximum number of state variables to handle.
-        max_observables
-            Maximum number of observable variables to handle.
-        output_types
-            List of output types to enable (e.g., 'state', 'observables').
-        saved_state_indices
-            Indices of state variables to save.
-        saved_observable_indices
-            Indices of observable variables to save.
-        summarised_state_indices
-            Indices of state variables to summarize.
-        summarised_observable_indices
-            Indices of observable variables to summarize.
-        dt_save
-            Time step interval for saving outputs.
-        precision
-            Floating-point precision for output arrays.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
-        """
         super().__init__()
 
         if output_types is None:

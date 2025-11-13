@@ -821,6 +821,22 @@ class Solver:
     def algorithm(self):
         """Return the configured algorithm name."""
         return self.kernel.algorithm
+    
+    def set_verbosity(self, verbosity: Optional[str]) -> None:
+        """Set the time logging verbosity level.
+        
+        Parameters
+        ----------
+        verbosity : str or None
+            New verbosity level. Options are 'default', 'verbose',
+            'debug', None, or 'None'.
+        
+        Notes
+        -----
+        Updates the global time logger verbosity. This affects all
+        timing events across the entire CuBIE package.
+        """
+        _default_logger.set_verbosity(verbosity)
 
     @property
     def solve_info(self) -> SolveSpec:

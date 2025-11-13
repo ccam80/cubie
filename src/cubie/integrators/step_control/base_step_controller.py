@@ -94,13 +94,7 @@ class BaseStepController(CUDAFactory):
     """Factory interface for compiling CUDA step-size controllers."""
 
     def __init__(self) -> None:
-        """Initialise the base controller factory.
-        
-        Parameters
-        ----------
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
-        """
+        """Initialise the base controller factory."""
 
         super().__init__()
 

@@ -82,11 +82,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         driver_del_t: Optional[Callable] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
-        
     ) -> None:
         super().__init__()
-        
-        self._time_logger = time_logger
 
         if step_control_settings is None:
             step_control_settings = {}
@@ -106,7 +103,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
-            
             **output_settings,
         )
 
@@ -120,7 +116,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._algo_step = get_algorithm_step(
                 precision=precision,
                 settings=algorithm_settings,
-                
         )
         # Fetch and override controller defaults from algorithm settings
         controller_settings = (
@@ -132,7 +127,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._step_controller = get_controller(
             precision=precision,
             settings=controller_settings,
-            
         )
 
         self.check_compatibility(
@@ -170,7 +164,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .observable_summaries_buffer_height,
                 loop_settings=loop_settings,
                 driver_function=driver_function,
-                
         )
 
     @property
@@ -255,7 +248,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                     "n": self._system.sizes.states,
                 },
                 warn_on_unused=False,
-                time_logger=self._time_logger,
             )
             
         # Set the is_controller_fixed attribute on the algorithm
@@ -277,7 +269,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         compile_flags: OutputCompileFlags,
         loop_settings: Dict[str, Any],
         driver_function: Optional[Callable] = None,
-        
     ) -> IVPLoop:
         """Instantiate the integrator loop.
 
@@ -309,8 +300,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             :class:`~cubie.integrators.loops.ode_loop.IVPLoop` constructor.
         driver_function
             Optional device function that evaluates drivers for proposed times.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
 
         Returns
         -------
@@ -338,7 +327,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             shared_indices=shared_indices,
             local_indices=local_indices,
             compile_flags=compile_flags,
-            
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function

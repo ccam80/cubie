@@ -29,7 +29,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
         max_gain: float = 2.0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
-        
     ) -> None:
         """Initialise an integral step controller.
 
@@ -57,8 +56,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
             Lower gain threshold for holding the previous step size.
         deadband_max
             Upper gain threshold for holding the previous step size.
-        time_logger
-            Optional TimeLogger instance for tracking compilation timing.
         """
 
         config = AdaptiveStepControlConfig(

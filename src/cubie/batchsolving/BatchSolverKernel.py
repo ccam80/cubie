@@ -31,7 +31,6 @@ from cubie._utils import PrecisionDType
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
-    from cubie.time_logger import TimeLogger
 
 DEFAULT_MEMORY_SETTINGS = {
     "memory_manager": default_memmgr,
@@ -114,7 +113,6 @@ class BatchSolverKernel(CUDAFactory):
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         memory_settings: Optional[Dict[str, Any]] = None,
-        time_logger: Optional["TimeLogger"] = None,
     ) -> None:
         super().__init__()
         if memory_settings is None:
@@ -146,7 +144,6 @@ class BatchSolverKernel(CUDAFactory):
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
-            
         )
 
         initial_config = BatchSolverConfig(
