@@ -1,9 +1,11 @@
 import pytest
 from pathlib import Path
 import numpy as np
+import sympy as sp
 
 from cubie import solve_ivp, SolveResult
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model, \
+    _eq_to_equality_str
 from cubie._utils import is_devfunc
 
 # Note: cellmlmanip import removed - tests should fail if dependency missing
@@ -298,3 +300,36 @@ def test_import_demir(demir_1999_model):
 
 def test_import_fabbri(fabbri_linder_model):
     assert fabbri_linder_model.num_states != 0
+
+
+def test_eq_to_equality_str_piecewise_recursive():
+    # Build symbols
+    i_Ks_ANS_cond_i_Ks = sp.Symbol('i_Ks_ANS_cond_i_Ks')
+    PKA_PKA = sp.Symbol('PKA_PKA')
+    i_Ks_VW_IKs = sp.Symbol('i_Ks_VW_IKs')
+    Rate_modulation_experiments_ANS = sp.Symbol(
+        'Rate_modulation_experiments_ANS'
+    )
+    # Piecewise expression mirroring user example
+    piece = sp.Piecewise(
+        (
+            0.435692 * PKA_PKA**10.0808 /
+            (PKA_PKA**10.0808 + 0.0363060458208831) - 0.2152,
+            sp.Eq(i_Ks_VW_IKs, 0) & (Rate_modulation_experiments_ANS > 0)
+        ),
+        (
+            0.494259 * PKA_PKA**10.0808 /
+            (PKA_PKA**10.0808 + 0.0459499253882566) - 0.2152,
+            (Rate_modulation_experiments_ANS > 0) & (i_Ks_VW_IKs > 0)
+        ),
+        (0, True)
+    )
+    expr = sp.Eq(i_Ks_ANS_cond_i_Ks, piece)
+    out_str = _eq_to_equality_str(expr)
+    # Expect conversion of Eq() in condition to ==
+    assert 'i_Ks_VW_IKs == 0' in out_str, out_str
+    # Expect Piecewise maintained
+    assert out_str.count('Piecewise') == 1
+    # Expect no raw 'Eq(' tokens remain
+    assert 'Eq(' not in out_str
+

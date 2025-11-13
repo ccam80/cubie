@@ -106,24 +106,41 @@ def _eq_to_equality_str(expr) -> str:
     """Convert expression to string, replacing Eq() with == notation.
     
     Recursively processes the expression tree and converts Eq objects
-    to == notation for proper parsing by cubie's symbolic parser.
+    to == notation. Also walks boolean logic (And/Or/Not) so nested Eq
+    inside composite conditions are handled. Piecewise branches and
+    their conditions are explored fully.
     """
+    # Eq -> (lhs == rhs)
     if isinstance(expr, sp.Eq):
-        # Convert Eq(a, b) to "a == b"
         lhs_str = _eq_to_equality_str(expr.lhs)
         rhs_str = _eq_to_equality_str(expr.rhs)
         return f"({lhs_str} == {rhs_str})"
-    elif isinstance(expr, sp.Piecewise):
-        # Recursively process Piecewise arguments
+    # Piecewise: recurse into each (value, condition)
+    if isinstance(expr, sp.Piecewise):
         pieces = []
         for value, condition in expr.args:
             value_str = _eq_to_equality_str(value)
             cond_str = _eq_to_equality_str(condition)
             pieces.append(f"({value_str}, {cond_str})")
         return f"Piecewise({', '.join(pieces)})"
-    else:
-        # For everything else, use default stringification
-        return str(expr)
+    # Boolean And
+    if isinstance(expr, sp.And):
+        inner = ' & '.join(_eq_to_equality_str(arg) for arg in expr.args)
+        return f"({inner})"
+    # Boolean Or
+    if isinstance(expr, sp.Or):
+        inner = ' | '.join(_eq_to_equality_str(arg) for arg in expr.args)
+        return f"({inner})"
+    # Boolean Not (Unary)
+    if isinstance(expr, sp.Not):
+        return f"(~{_eq_to_equality_str(expr.args[0])})"
+    # Generic boolean function (Implies, Equivalent, Xor, etc.)
+    if isinstance(expr, sp.logic.boolalg.BooleanFunction) and not isinstance(expr, (sp.And, sp.Or, sp.Not)):
+        fname = expr.func.__name__
+        inner = ', '.join(_eq_to_equality_str(arg) for arg in expr.args)
+        return f"{fname}({inner})"
+    # Fallback: atomic or non-boolean expression -> default str
+    return str(expr)
 
 
 def load_cellml_model(
