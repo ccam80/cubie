@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.5...v0.1.0) (2025-11-13)
+
+
+### Features
+
+* Additional summary output metrics added ([#212](https://github.com/ccam80/cubie/issues/212)) ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* CellML to Cubie adapter layer added ([#221](https://github.com/ccam80/cubie/issues/221)) ([b8f448e](https://github.com/ccam80/cubie/commit/b8f448e532c6c5410fd06aa13a87531301468de3))
+* summary metrics combined (eg. extrema, [mean, std, rms]) to reduce buffer space ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* summary metrics now respect numerical precision ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* Warp-friendly FSAL caching implented, redundant accumulation removed ([#211](https://github.com/ccam80/cubie/issues/211)) ([96a9dd0](https://github.com/ccam80/cubie/commit/96a9dd00fc35e9d65fede8ade7f6579ec3e896e3))
+
+
+### Bug Fixes
+
+* `shift` value in standard deviation calcs now updates after each save. ([073d406](https://github.com/ccam80/cubie/commit/073d406f4578cff67db5d223da607e5ecd437138))
+* Controller-algorithm compatibility enforced ([4ab0230](https://github.com/ccam80/cubie/commit/4ab0230c9261e3857f099167db2735db6a6c2955))
+* correct fsal warp-vote implementation ([60448f1](https://github.com/ccam80/cubie/commit/60448f10b3976533152450fa3d2b56ebae0af337))
+* Counters array added to ERK signature ([99db833](https://github.com/ccam80/cubie/commit/99db8337e75be96ed69fe582b230264e1e2ea425))
+* FSAL warp test now doesn't break everything ([2e68692](https://github.com/ccam80/cubie/commit/2e68692da71f643aa725ed0a1ad8c10a8c2b980a))
+* Missing iteration_counters type added to device signature in BatchSolverKernel ([6eefd67](https://github.com/ccam80/cubie/commit/6eefd67140767d8b452b99fbdcf8d19bf7e91edb))
+* reduced nonlinear solver memory footprint (3n → 2n buffers) ([#224](https://github.com/ccam80/cubie/issues/224)) ([c4d95d4](https://github.com/ccam80/cubie/commit/c4d95d419f72ce12e1242767fd9bd7056e81ce5d))
+* Replace PEP 604 union syntax with Union[] for Python 3.8 compatibility ([#236](https://github.com/ccam80/cubie/issues/236)) ([ea1e1fb](https://github.com/ccam80/cubie/commit/ea1e1fb89db14e798d0d12a1ed2e68f6b114c81a))
+* Use a warp-vote for FSAL caching, otherwise there is no benefit and potential divergence ([d0334a2](https://github.com/ccam80/cubie/commit/d0334a2841518467f2b794fa7a325861b7e9471a))
+* Vern7 tableau corrected to match source ([e6b900a](https://github.com/ccam80/cubie/commit/e6b900a0452926a953709e1cf65f89fc147a1c97))
+
+
+### Documentation
+
+* cubie_internal_structure.md filled with agent reference ([#177](https://github.com/ccam80/cubie/issues/177)) ([02738e0](https://github.com/ccam80/cubie/commit/02738e06f7343910e292721d43cdc0ec127adf4e))
+
 ## [Unreleased]
 
 ### Features
