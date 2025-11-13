@@ -924,7 +924,7 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-        
+
         if precision is None:
             precision = np.float32
 
