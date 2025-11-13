@@ -238,7 +238,7 @@ class TestTimeLogger:
     def test_empty_event_name_raises(self):
         """Test that empty event names raise ValueError."""
         logger = TimeLogger()
-        logger._register_event("valid", "build", "Valid event")
+        logger._register_event("valid", "runtime", "Valid event")
         with pytest.raises(ValueError, match="event_name cannot be empty"):
             logger.start_event("")
         with pytest.raises(ValueError, match="event_name cannot be empty"):

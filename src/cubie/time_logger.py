@@ -275,7 +275,7 @@ class TimeLogger:
         ----------
         category : str, optional
             If provided, filter events by their registered category
-            ('codegen', 'build', or 'runtime')
+            ('codegen', 'runtime', or 'compile')
         
         Returns
         -------
@@ -364,7 +364,7 @@ class TimeLogger:
         label : str
             Event label used in start_event/stop_event calls
         category : str
-            Event category: 'codegen', 'build', or 'runtime'
+            Event category: 'codegen', 'runtime', or 'compile'
         description : str
             Human-readable description included in printouts
         

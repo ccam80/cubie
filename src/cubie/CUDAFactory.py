@@ -221,10 +221,8 @@ class CUDAFactory(ABC):
         Current compile settings.
     _cache_valid : bool
         Indicates whether cached outputs are valid.
-    _device_function : callable or None
-        Cached CUDA device function.
     _cache : attrs class or None
-        Container for additional cached outputs.
+        Container for cached outputs (typically a CUDAFunctionCache subclass).
 
     Notes
     -----
