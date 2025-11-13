@@ -108,13 +108,19 @@ def _eq_to_equality_str(expr) -> str:
     Recursively processes the expression tree and converts Eq objects
     to == notation. Also walks boolean logic (And/Or/Not) so nested Eq
     inside composite conditions are handled. Piecewise branches and
-    their conditions are explored fully.
+    their conditions are explored fully. All relational operators are
+    wrapped in parentheses to preserve precedence when used with
+    boolean operators.
     """
     # Eq -> (lhs == rhs)
     if isinstance(expr, sp.Eq):
         lhs_str = _eq_to_equality_str(expr.lhs)
         rhs_str = _eq_to_equality_str(expr.rhs)
         return f"({lhs_str} == {rhs_str})"
+    # Other relational operators (>, <, >=, <=, !=)
+    # Wrap in parentheses to preserve precedence with boolean operators
+    if isinstance(expr, sp.core.relational.Relational):
+        return f"({str(expr)})"
     # Piecewise: recurse into each (value, condition)
     if isinstance(expr, sp.Piecewise):
         pieces = []
