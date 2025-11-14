@@ -193,7 +193,7 @@ class CUDAPrinter(PythonCodePrinter):
         return expr_str
 
     def _replace_square_powers(self, expr_str: str) -> str:
-        """Replace ``x**2`` with ``x*x`` while preserving spacing.
+        """Replace ``x**2`` or ``x**2.0`` with ``x*x`` while preserving spacing.
 
         Parameters
         ----------
@@ -203,12 +203,12 @@ class CUDAPrinter(PythonCodePrinter):
         Returns
         -------
         str
-            Source string with ``x**2`` rewritten.
+            Source string with ``x**2`` or ``x**2.0`` rewritten.
         """
-        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2\b", r"\1*\1", expr_str)
+        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.0)?\b", r"\1*\1", expr_str)
 
     def _replace_cube_powers(self, expr_str: str) -> str:
-        """Replace ``x**3`` with ``x*x*x`` while preserving spacing.
+        """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
 
         Parameters
         ----------
@@ -218,9 +218,9 @@ class CUDAPrinter(PythonCodePrinter):
         Returns
         -------
         str
-            Source string with ``x**3`` rewritten.
+            Source string with ``x**3`` or ``x**3.0`` rewritten.
         """
-        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3\b', r'\1*\1*\1',
+        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.0)?\b', r'\1*\1*\1',
                       expr_str)
 
     def _ifelse_to_selp(self, expr_str: str) -> str:
