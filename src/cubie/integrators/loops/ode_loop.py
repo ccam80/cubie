@@ -8,10 +8,11 @@ compiled kernels only need to focus on algorithmic updates.
 from math import ceil
 from typing import Callable, Optional, Set
 
+import attrs
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp
 from cubie._utils import PrecisionDType
@@ -19,6 +20,18 @@ from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
+
+
+@attrs.define
+class IVPLoopCache(CUDAFunctionCache):
+    """Cache for IVP loop device function.
+    
+    Attributes
+    ----------
+    device_function
+        Compiled CUDA device function that executes the integration loop.
+    """
+    device_function: Callable = attrs.field()
 
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
@@ -528,7 +541,7 @@ class IVPLoop(CUDAFactory):
                 status = int32(32)
             return status
 
-        return loop_fn
+        return IVPLoopCache(device_function=loop_fn)
 
     @property
     def dt_save(self) -> float:

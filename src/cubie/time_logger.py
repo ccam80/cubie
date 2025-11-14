@@ -275,7 +275,7 @@ class TimeLogger:
         ----------
         category : str, optional
             If provided, filter events by their registered category
-            ('codegen', 'build', or 'runtime')
+            ('codegen', 'runtime', or 'compile')
         
         Returns
         -------
@@ -364,7 +364,7 @@ class TimeLogger:
         label : str
             Event label used in start_event/stop_event calls
         category : str
-            Event category: 'codegen', 'build', or 'runtime'
+            Event category: 'codegen', 'runtime', or 'compile'
         description : str
             Human-readable description included in printouts
         
@@ -374,9 +374,9 @@ class TimeLogger:
         timing events they will track. The category helps organize
         timing reports by operation type.
         """
-        if category not in {'codegen', 'build', 'runtime'}:
+        if category not in {'codegen', 'runtime', 'compile'}:
             raise ValueError(
-                f"category must be 'codegen', 'build', or 'runtime', "
+                f"category must be 'codegen', 'runtime', or 'compile', "
                 f"got '{category}'"
             )
         self._event_registry[label] = {

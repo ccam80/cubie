@@ -12,6 +12,21 @@ from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     topological_sort,
 )
+from cubie.time_logger import _default_logger
+
+# Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
+_default_logger._register_event(
+    "codegen_generate_dxdt_fac_code",
+    "codegen",
+    "Codegen time for generate_dxdt_fac_code"
+)
+_default_logger._register_event(
+    "codegen_generate_observables_fac_code",
+    "codegen",
+    "Codegen time for generate_observables_fac_code"
+)
 
 DXDT_TEMPLATE = (
     "\n"
@@ -192,6 +207,7 @@ def generate_dxdt_fac_code(
     The generated factory expects ``func(constants, precision)`` and returns a
     CUDA device function compiled with :func:`numba.cuda.jit`.
     """
+    _default_logger.start_event("codegen_generate_dxdt_fac_code")
     dxdt_lines = generate_dxdt_lines(
         equations, index_map=index_map, cse=cse
     )
@@ -204,6 +220,7 @@ def generate_dxdt_fac_code(
         const_lines=const_block,
         body="    " + "\n        ".join(dxdt_lines),
     )
+    _default_logger.stop_event("codegen_generate_dxdt_fac_code")
     return code
 
 
@@ -231,6 +248,7 @@ def generate_observables_fac_code(
     str
         Python source code implementing the requested factory.
     """
+    _default_logger.start_event("codegen_generate_observables_fac_code")
 
     obs_lines = generate_observables_lines(
         equations, index_map=index_map, cse=cse
@@ -244,6 +262,7 @@ def generate_observables_fac_code(
         const_lines=const_block,
         body="    " + "\n        ".join(obs_lines),
     )
+    _default_logger.stop_event("codegen_generate_observables_fac_code")
     return code
 
 
