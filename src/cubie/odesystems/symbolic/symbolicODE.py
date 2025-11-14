@@ -278,7 +278,7 @@ class SymbolicODE(BaseODE):
             _default_logger._register_event(
                 "symbolic_ode_parsing",
                 "codegen",
-                "Codegen time for symbolic ODE parsing: "
+                "Codegen time for symbolic ODE parsing"
             )
             _parsing_event_registered = True
 
@@ -463,7 +463,7 @@ class SymbolicODE(BaseODE):
             _default_logger._register_event(
                 event_name,
                 "codegen",
-                f"Codegen time for solver helper {func_type}: "
+                f"Codegen time for solver helper {func_type}"
             )
             _registered_helper_events.add(event_name)
 

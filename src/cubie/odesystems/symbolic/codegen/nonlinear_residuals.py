@@ -22,15 +22,17 @@ from cubie.time_logger import _default_logger
 from ._stage_utils import build_stage_metadata, prepare_stage_data
 
 # Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
 _default_logger._register_event(
     "codegen_generate_stage_residual_code",
     "codegen",
-    "Codegen time for generate_stage_residual_code: "
+    "Codegen time for generate_stage_residual_code"
 )
 _default_logger._register_event(
     "codegen_generate_n_stage_residual_code",
     "codegen",
-    "Codegen time for generate_n_stage_residual_code: "
+    "Codegen time for generate_n_stage_residual_code"
 )
 
 RESIDUAL_TEMPLATE = (

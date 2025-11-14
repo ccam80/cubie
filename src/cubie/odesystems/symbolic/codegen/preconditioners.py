@@ -24,20 +24,22 @@ from cubie.odesystems.symbolic.sym_utils import (
 from cubie.time_logger import _default_logger
 
 # Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
 _default_logger._register_event(
     "codegen_generate_neumann_preconditioner_code",
     "codegen",
-    "Codegen time for generate_neumann_preconditioner_code: "
+    "Codegen time for generate_neumann_preconditioner_code"
 )
 _default_logger._register_event(
     "codegen_generate_neumann_preconditioner_cached_code",
     "codegen",
-    "Codegen time for generate_neumann_preconditioner_cached_code: "
+    "Codegen time for generate_neumann_preconditioner_cached_code"
 )
 _default_logger._register_event(
     "codegen_generate_n_stage_neumann_preconditioner_code",
     "codegen",
-    "Codegen time for generate_n_stage_neumann_preconditioner_code: "
+    "Codegen time for generate_n_stage_neumann_preconditioner_code"
 )
 
 NEUMANN_TEMPLATE = (

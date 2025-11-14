@@ -20,10 +20,12 @@ from cubie.time_logger import _default_logger
 
 
 # Register timing event for codegen function
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
 _default_logger._register_event(
     "codegen_generate_time_derivative_fac_code",
     "codegen",
-    "Codegen time for generate_time_derivative_fac_code: "
+    "Codegen time for generate_time_derivative_fac_code"
 )
 
 

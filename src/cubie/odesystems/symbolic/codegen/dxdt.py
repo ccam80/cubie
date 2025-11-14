@@ -15,15 +15,17 @@ from cubie.odesystems.symbolic.sym_utils import (
 from cubie.time_logger import _default_logger
 
 # Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
 _default_logger._register_event(
     "codegen_generate_dxdt_fac_code",
     "codegen",
-    "Codegen time for generate_dxdt_fac_code: "
+    "Codegen time for generate_dxdt_fac_code"
 )
 _default_logger._register_event(
     "codegen_generate_observables_fac_code",
     "codegen",
-    "Codegen time for generate_observables_fac_code: "
+    "Codegen time for generate_observables_fac_code"
 )
 
 DXDT_TEMPLATE = (
