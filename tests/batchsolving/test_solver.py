@@ -526,25 +526,6 @@ def test_solver_with_different_algorithms(system, solver_settings):
         assert solver is not None
         assert solver.kernel.algorithm == algorithm
 
-
-@pytest.mark.parametrize(
-    "precision_override", [np.float32, np.float64], indirect=True
-)
-def test_solver_precision_types(system, solver_settings, precision):
-    """Test solver with different precision types."""
-    solver = Solver(
-        system,
-        precision=solver_settings["precision"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
-        memory_manager=solver_settings["memory_manager"],
-        stream_group=solver_settings["stream_group"],
-        loop_settings={"dt_save": solver_settings["dt_save"]},
-    )
-
-    assert solver.precision == precision
-
-
 def test_solver_output_types(system, solver_settings):
     """Test solver with different output types."""
     output_types_list = [

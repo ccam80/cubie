@@ -37,6 +37,7 @@ class MeanStd(SummaryMetric):
             name="mean_std",
             buffer_size=3,
             output_size=2,
+            unit_modification="[unit]",
         )
 
     def build(self) -> MetricFuncCache:

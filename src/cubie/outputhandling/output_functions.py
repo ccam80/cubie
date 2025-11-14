@@ -357,3 +357,8 @@ class OutputFunctions(CUDAFactory):
     def summary_legend_per_variable(self) -> dict[str, int]:
         """Mapping of summary metric names to their per-variable heights."""
         return self.compile_settings.summary_legend_per_variable
+
+    @property
+    def summary_unit_modifications(self) -> dict[int, str]:
+        """Mapping of summary indices to unit modification strings."""
+        return self.compile_settings.summary_unit_modifications

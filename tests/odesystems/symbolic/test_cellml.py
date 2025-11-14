@@ -1,70 +1,101 @@
 import pytest
 from pathlib import Path
 import numpy as np
+import sympy as sp
 
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
+from cubie import solve_ivp, SolveResult
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model, \
+    _eq_to_equality_str
 from cubie._utils import is_devfunc
 
 # Note: cellmlmanip import removed - tests should fail if dependency missing
 # This ensures critical information about missing dependencies is visible
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def cellml_fixtures_dir():
     """Return path to cellml test fixtures directory."""
     return Path(__file__).parent.parent.parent / "fixtures" / "cellml"
 
+@pytest.fixture(scope="session")
+def cellml_overrides(request):
+    if hasattr(request, "param"):
+        return request.param if request.param else {}
+    return {}
 
-@pytest.fixture
-def basic_model_path(cellml_fixtures_dir):
+@pytest.fixture(scope="session")
+def cellml_import_settings(cellml_overrides):
     """Return path to basic ODE CellML model."""
-    return cellml_fixtures_dir / "basic_ode.cellml"
+    defaults = {}
+    defaults.update(cellml_overrides)
+    return defaults
+
+@pytest.fixture(scope="session")
+def basic_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return imported basic ODE CellML model."""
+    ode_system = load_cellml_model(
+            str(cellml_fixtures_dir/"basic_ode.cellml"),
+            **cellml_import_settings
+    )
+    return ode_system
 
 
-@pytest.fixture
-def beeler_reuter_model_path(cellml_fixtures_dir):
-    """Return path to Beeler-Reuter CellML model."""
-    return cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+@pytest.fixture(scope="session")
+def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return imported Beeler-Reuter CellML model."""
+    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    ode_system = load_cellml_model(
+            str(br_path),
+            **cellml_import_settings
+    )
+    return ode_system
+
+@pytest.fixture(scope="session")
+def fabbri_linder_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return path to the whole point of this endea."""
+    fl_path = cellml_fixtures_dir / "Fabbri_Linder.cellml"
+    ode_system = load_cellml_model(
+            str(fl_path),
+            **cellml_import_settings
+    )
+    return ode_system
 
 
-def test_load_simple_cellml_model(basic_model_path):
+@pytest.fixture(scope="session")
+def demir_1999_model(cellml_fixtures_dir, cellml_import_settings):
+    """Return path to the whole point of this endea."""
+    fl_path = cellml_fixtures_dir / "demir_clark_giles_1999.cellml"
+    ode_system = load_cellml_model(
+            str(fl_path),
+            **cellml_import_settings
+    )
+    return ode_system
+
+def test_load_simple_cellml_model(basic_model):
     """Load a simple CellML model successfully."""
-    ode_system = load_cellml_model(str(basic_model_path))
-    
-    assert ode_system.num_states == 1
-    assert is_devfunc(ode_system.dxdt_function)
+    assert basic_model.num_states == 1
+    assert is_devfunc(basic_model.dxdt_function)
 
 
-def test_load_complex_cellml_model(beeler_reuter_model_path):
+def test_load_complex_cellml_model(beeler_reuter_model):
     """Load Beeler-Reuter cardiac model successfully."""
-    ode_system = load_cellml_model(str(beeler_reuter_model_path))
-    
-    # Beeler-Reuter has 8 state variables
-    assert ode_system.num_states == 8
-    assert is_devfunc(ode_system.dxdt_function)
+    assert beeler_reuter_model.num_states == 8
+    assert is_devfunc(beeler_reuter_model.dxdt_function)
 
-
-def test_ode_system_has_correct_attributes(basic_model_path):
-    """Verify ODE system has expected attributes."""
-    ode_system = load_cellml_model(str(basic_model_path))
-    
-    # Should have SymbolicODE attributes
-    assert hasattr(ode_system, 'num_states')
-    assert hasattr(ode_system, 'equations')
-    assert hasattr(ode_system, 'indices')
-
-
-def test_algebraic_equations_as_observables(beeler_reuter_model_path):
+@pytest.mark.parametrize("cellml_overrides", [
+    {'observables': ['sodium_current_i_Na',
+                     'sodium_current_m_gate_alpha_m']}
+    ],
+    indirect=True,
+    ids=[""]
+)
+def test_algebraic_equations_as_observables(beeler_reuter_model, cellml_overrides):
     """Verify algebraic equations can be assigned as observables."""
     # Load with specific observables (sanitized names from the model)
-    observable_names = ["sodium_current_i_Na", "sodium_current_m_gate_alpha_m"]
-    ode_system = load_cellml_model(
-        str(beeler_reuter_model_path),
-        observables=observable_names
-    )
+    observable_names = cellml_overrides['observables']
     
     # Verify the observables were assigned
-    obs_map = ode_system.indices.observables.index_map
+    obs_map = beeler_reuter_model.indices.observables.index_map
     assert len(obs_map) > 0
     
     # Check that the requested observables are present
@@ -103,53 +134,204 @@ def test_invalid_extension():
     finally:
         os.unlink(temp_path)
 
-
-def test_custom_precision(basic_model_path):
+@pytest.mark.parametrize("cellml_overrides", [{'precision': np.float64}],
+    indirect=True,
+    ids=[""]
+)
+def test_custom_precision(basic_model):
     """Verify custom precision can be specified."""
-    ode_system = load_cellml_model(
-        str(basic_model_path),
-        precision=np.float64
-    )
-    
-    assert ode_system.precision == np.float64
+    assert basic_model.precision == np.float64
 
-
-def test_custom_name(basic_model_path):
+@pytest.mark.parametrize("cellml_overrides", [{'name': "custom_model"}],
+    indirect=True,
+    ids=[""]
+)
+def test_custom_name(basic_model):
     """Verify custom name can be specified."""
-    ode_system = load_cellml_model(
-        str(basic_model_path),
-        name="custom_model"
-    )
-    
-    assert ode_system.name == "custom_model"
+    assert basic_model.name == "custom_model"
 
 
-def test_integration_with_solve_ivp(basic_model_path):
+def test_integration_with_solve_ivp(basic_model):
     """Test that loaded model builds and is ready for solve_ivp."""
-    # Use float64 to avoid dtype mismatch in cuda simulator
-    ode_system = load_cellml_model(str(basic_model_path), precision=np.float64)
-    
-    # Build the system - this is the critical step that verifies
-    # the model is properly structured for integration
-    ode_system.build()
+
     
     # Verify the model has the necessary components
-    assert is_devfunc(ode_system.dxdt_function)
-    assert ode_system.num_states == 1
-    
+    assert is_devfunc(basic_model.dxdt_function)
+    assert basic_model.num_states == 1
     # Verify initial values are accessible
-    assert ode_system.indices.states.defaults is not None
-    assert len(ode_system.indices.states.defaults) == 1
+    assert basic_model.indices.states.defaults is not None
+    results = solve_ivp(basic_model, [1.0], [1.0])
+    assert isinstance(results, SolveResult)
 
 
-def test_initial_values_from_cellml(beeler_reuter_model_path):
+def test_initial_values_from_cellml(beeler_reuter_model):
     """Verify initial values from CellML model are preserved."""
-    ode_system = load_cellml_model(str(beeler_reuter_model_path))
-    
     # Check that initial values were set using defaults dict
-    assert ode_system.indices.states.defaults is not None
-    assert len(ode_system.indices.states.defaults) == 8
-    
+    assert beeler_reuter_model.indices.states.defaults is not None
+    assert len(beeler_reuter_model.indices.states.defaults) == 8
+
     # Initial values should be non-zero (from the model)
-    assert any(v != 0 for v in ode_system.indices.states.defaults.values())
+    assert any(v != 0 for v in beeler_reuter_model.indices.states.defaults.values())
+
+def test_units_extracted_from_cellml(basic_model):
+    """Verify units are extracted from CellML model."""
+    # Check that units are available
+    assert hasattr(basic_model, 'state_units')
+    assert hasattr(basic_model, 'parameter_units')
+    assert hasattr(basic_model, 'observable_units')
+    
+    # Basic model should have dimensionless units
+    assert 'main_x' in basic_model.state_units
+    assert basic_model.state_units['main_x'] == 'dimensionless'
+
+def test_default_units_for_symbolic_ode():
+    """Verify SymbolicODE defaults to dimensionless units."""
+    from cubie import SymbolicODE
+    import numpy as np
+    
+    ode = SymbolicODE.create(
+        dxdt="dx = -a * x",
+        states={'x': 1.0},
+        parameters={'a': 0.5},
+        precision=np.float32
+    )
+    
+    assert ode.state_units == {'x': 'dimensionless'}
+    assert ode.parameter_units == {'a': 'dimensionless'}
+    assert ode.observable_units == {}
+
+def test_custom_units_for_symbolic_ode():
+    """Verify custom units can be specified for SymbolicODE."""
+    from cubie import SymbolicODE
+    import numpy as np
+    
+    ode = SymbolicODE.create(
+        dxdt=["dx = -a * x", "y = 2 * x"],
+        states={'x': 1.0},
+        parameters={'a': 0.5},
+        observables=['y'],
+        state_units={'x': 'meters'},
+        parameter_units={'a': 'per_second'},
+        observable_units={'y': 'meters'},
+        precision=np.float32
+    )
+    
+    assert ode.state_units == {'x': 'meters'}
+    assert ode.parameter_units == {'a': 'per_second'}
+    assert ode.observable_units == {'y': 'meters'}
+
+def test_numeric_assignments_become_constants(basic_model):
+    """Verify variables with numeric assignments become constants by default."""
+    # Variable 'a' has numeric value 0.5 in the CellML model
+    # It should become a constant
+    constants_map = basic_model.indices.constants.index_map
+    assert len(constants_map) > 0
+    
+    # Check that 'main_a' is in constants (name is sanitized)
+    constant_names = [str(k) for k in constants_map.keys()]
+    assert 'main_a' in constant_names
+    
+    # Check that the default value is correct
+    constants_defaults = basic_model.indices.constants.defaults
+    assert constants_defaults is not None
+    assert 'main_a' in constants_defaults
+    assert constants_defaults['main_a'] == 0.5
+
+@pytest.mark.parametrize("cellml_overrides", [{'parameters': ['main_a']}],
+    indirect=True,
+    ids=[""]
+)
+def test_numeric_assignments_as_parameters(basic_model):
+    """Verify variables with numeric assignments become parameters if specified."""
+
+    # 'main_a' should now be a parameter instead of a constant
+    parameters_map = basic_model.indices.parameters.index_map
+    parameter_names = [str(k) for k in parameters_map.keys()]
+    assert 'main_a' in parameter_names
+    
+    # Check that the default value is correct
+    parameters_defaults = basic_model.indices.parameters.defaults
+    assert parameters_defaults is not None
+    assert 'main_a' in parameters_defaults
+    assert parameters_defaults['main_a'] == 0.5
+    
+    # Should not be in constants
+    constants_map = basic_model.indices.constants.index_map
+    constant_names = [str(k) for k in constants_map.keys()]
+    assert 'main_a' not in constant_names
+
+@pytest.mark.parametrize("cellml_overrides", [{'parameters': {'main_a': 1.0}}],
+    indirect=True,
+    ids=[""]
+)
+def test_parameters_dict_preserves_numeric_values(basic_model):
+    """Verify numeric values are preserved when parameters is a dict."""
+    # User can provide parameters as dict with custom default values
+    # But if the CellML has a numeric value, it should be preserved
+
+    # The user-provided value should take precedence
+    parameters_defaults = basic_model.indices.parameters.defaults
+    assert parameters_defaults is not None
+    assert 'main_a' in parameters_defaults
+    assert parameters_defaults['main_a'] == 1.0
+
+
+def test_non_numeric_algebraic_equations_remain(beeler_reuter_model):
+    # The Beeler-Reuter model has complex algebraic equations
+    # These should remain as equations, not become constants
+    # We can check by ensuring there are equations beyond just the differential ones
+    
+    # Model has 8 state variables, so 8 differential equations
+    # Check that we have state derivatives
+    state_derivatives = beeler_reuter_model.equations.state_derivatives
+    assert len(state_derivatives) == 8
+    
+    # Check that we have some observables or auxiliaries
+    # (algebraic equations that aren't simple numeric assignments)
+    observables = beeler_reuter_model.equations.observables
+    auxiliaries = beeler_reuter_model.equations.auxiliaries
+    
+    # Total algebraic equations should be > 0
+    algebraic_eq_count = len(observables) + len(auxiliaries)
+    assert algebraic_eq_count > 0
+
+@pytest.mark.slow
+def test_import_demir(demir_1999_model):
+    assert demir_1999_model.num_states != 0
+
+@pytest.mark.slow
+def test_import_fabbri(fabbri_linder_model):
+    assert fabbri_linder_model.num_states != 0
+
+
+def test_eq_to_equality_str_piecewise_recursive():
+    # Build symbols
+    i_Ks_ANS_cond_i_Ks = sp.Symbol('i_Ks_ANS_cond_i_Ks')
+    PKA_PKA = sp.Symbol('PKA_PKA')
+    i_Ks_VW_IKs = sp.Symbol('i_Ks_VW_IKs')
+    Rate_modulation_experiments_ANS = sp.Symbol(
+        'Rate_modulation_experiments_ANS'
+    )
+    # Piecewise expression mirroring user example
+    piece = sp.Piecewise(
+        (
+            0.435692 * PKA_PKA**10.0808 /
+            (PKA_PKA**10.0808 + 0.0363060458208831) - 0.2152,
+            sp.Eq(i_Ks_VW_IKs, 0) & (Rate_modulation_experiments_ANS > 0)
+        ),
+        (
+            0.494259 * PKA_PKA**10.0808 /
+            (PKA_PKA**10.0808 + 0.0459499253882566) - 0.2152,
+            (Rate_modulation_experiments_ANS > 0) & (i_Ks_VW_IKs > 0)
+        ),
+        (0, True)
+    )
+    expr = sp.Eq(i_Ks_ANS_cond_i_Ks, piece)
+    out_str = _eq_to_equality_str(expr)
+    # Expect conversion of Eq() in condition to ==
+    assert 'i_Ks_VW_IKs == 0' in out_str, out_str
+    # Expect Piecewise maintained
+    assert out_str.count('Piecewise') == 1
+    # Expect no raw 'Eq(' tokens remain
+    assert 'Eq(' not in out_str
 

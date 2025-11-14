@@ -4,7 +4,6 @@ from typing import (
     Any,
     Callable,
     Iterable,
-    List,
     Optional,
     Sequence,
     Set,
@@ -221,6 +220,11 @@ class SymbolicODE(BaseODE):
         name: Optional[str] = None,
         precision: PrecisionDType = np.float32,
         strict: bool = False,
+        state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        parameter_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        constant_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        observable_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        driver_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
 
@@ -253,6 +257,16 @@ class SymbolicODE(BaseODE):
             Target floating-point precision used when compiling the system.
         strict
             When ``True`` require every symbol to be explicitly categorised.
+        state_units
+            Optional units for states. Defaults to "dimensionless".
+        parameter_units
+            Optional units for parameters. Defaults to "dimensionless".
+        constant_units
+            Optional units for constants. Defaults to "dimensionless".
+        observable_units
+            Optional units for observables. Defaults to "dimensionless".
+        driver_units
+            Optional units for drivers. Defaults to "dimensionless".
 
         Returns
         -------
@@ -274,6 +288,11 @@ class SymbolicODE(BaseODE):
             user_functions=user_functions,
             dxdt=dxdt,
             strict=strict,
+            state_units=state_units,
+            parameter_units=parameter_units,
+            constant_units=constant_units,
+            observable_units=observable_units,
+            driver_units=driver_units,
         )
         index_map, all_symbols, functions, equations, fn_hash = sys_components
         return cls(equations=equations,
@@ -290,6 +309,31 @@ class SymbolicODE(BaseODE):
         """Return the number of cached Jacobian auxiliary values."""
 
         return self._jacobian_aux_count
+
+    @property
+    def state_units(self) -> dict[str, str]:
+        """Return units for state variables."""
+        return self.indices.states.units
+
+    @property
+    def parameter_units(self) -> dict[str, str]:
+        """Return units for parameters."""
+        return self.indices.parameters.units
+
+    @property
+    def constant_units(self) -> dict[str, str]:
+        """Return units for constants."""
+        return self.indices.constants.units
+
+    @property
+    def observable_units(self) -> dict[str, str]:
+        """Return units for observables."""
+        return self.indices.observables.units
+
+    @property
+    def driver_units(self) -> dict[str, str]:
+        """Return units for drivers."""
+        return self.indices.drivers.units
 
     def _get_jvp_exprs(self) -> JVPEquations:
         """Return cached Jacobian-vector assignments."""

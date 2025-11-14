@@ -34,6 +34,7 @@ class Std(SummaryMetric):
             name="std",
             buffer_size=3,
             output_size=1,
+            unit_modification="[unit]",
         )
 
     def build(self) -> MetricFuncCache:

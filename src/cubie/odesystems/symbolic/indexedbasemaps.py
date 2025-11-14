@@ -15,6 +15,7 @@ class IndexedBaseMap:
         input_defaults: Optional[Iterable[Any]] = None,
         length: int = 0,
         real: bool = True,
+        units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
     ) -> None:
         """Initialise an indexed base with optional default values.
 
@@ -31,6 +32,11 @@ class IndexedBaseMap:
             provided as an iterator.
         real
             Whether to create real-only symbols in the indexed base.
+        units
+            Optional units specification aligned with ``symbol_labels``.
+            Can be a dictionary mapping symbol names to unit strings,
+            or an iterable of unit strings. If None, defaults to
+            "dimensionless" for all symbols.
 
         Returns
         -------
@@ -79,20 +85,36 @@ class IndexedBaseMap:
                 for symbol, value in self.default_values.items()
             }
 
+        if units is None:
+            self.units = {name: "dimensionless" for name in labels}
+        elif isinstance(units, dict):
+            self.units = {
+                name: units.get(name, "dimensionless") for name in labels
+            }
+        else:
+            units_list = list(units)
+            if len(units_list) != length:
+                raise ValueError(
+                    "Units must be the same length as the list of symbols"
+                )
+            self.units = dict(zip(labels, units_list))
+
     def pop(self, sym: sp.Symbol) -> None:
         """Remove a symbol from the indexed base."""
         self.ref_map.pop(sym)
         self.index_map.pop(sym)
-        self.symbol_map.pop(str(sym))
+        sym_str = str(sym)
+        self.symbol_map.pop(sym_str)
         if not self._passthrough_defaults:
             self.default_values.pop(sym)
-            self.defaults.pop(str(sym))
+            self.defaults.pop(sym_str)
+        self.units.pop(sym_str, None)
         self.base = sp.IndexedBase(
             self.base_name, shape=(len(self.ref_map),), real=self.real
         )
         self.length = len(self.ref_map)
 
-    def push(self, sym: sp.Symbol, default_value: float = 0.0) -> None:
+    def push(self, sym: sp.Symbol, default_value: float = 0.0, unit: str = "dimensionless") -> None:
         """Append a new symbol to the indexed base."""
         index = self.length
         self.base = sp.IndexedBase(
@@ -101,10 +123,12 @@ class IndexedBaseMap:
         self.length += 1
         self.ref_map[sym] = self.base[index]
         self.index_map[sym] = index
-        self.symbol_map[str(sym)] = sym
+        sym_str = str(sym)
+        self.symbol_map[sym_str] = sym
         if not self._passthrough_defaults:
             self.default_values[sym] = default_value
-            self.defaults[str(sym)] = default_value
+            self.defaults[sym_str] = default_value
+        self.units[sym_str] = unit
 
     def update_values(
         self,
@@ -222,6 +246,11 @@ class IndexedBases:
         observables: Iterable[str],
         drivers: Iterable[str],
         real: bool = True,
+        state_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+        parameter_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+        constant_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+        observable_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
+        driver_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
     ) -> "IndexedBases":
         """Construct indexed bases from user-provided metadata.
 
@@ -242,6 +271,16 @@ class IndexedBases:
             Iterable of driver names.
         real
             Whether to constrain the generated symbols to real values.
+        state_units
+            Optional units for states. Defaults to "dimensionless".
+        parameter_units
+            Optional units for parameters. Defaults to "dimensionless".
+        constant_units
+            Optional units for constants. Defaults to "dimensionless".
+        observable_units
+            Optional units for observables. Defaults to "dimensionless".
+        driver_units
+            Optional units for drivers. Defaults to "dimensionless".
 
         Returns
         -------
@@ -270,16 +309,21 @@ class IndexedBases:
             const_defaults = None
 
         states_ = IndexedBaseMap(
-            "state", state_names, input_defaults=state_defaults, real=real
+            "state", state_names, input_defaults=state_defaults, real=real,
+            units=state_units
         )
         parameters_ = IndexedBaseMap(
-            "parameters", param_names, input_defaults=param_defaults, real=real
+            "parameters", param_names, input_defaults=param_defaults, real=real,
+            units=parameter_units
         )
         constants_ = IndexedBaseMap(
-            "constants", const_names, input_defaults=const_defaults, real=real
+            "constants", const_names, input_defaults=const_defaults, real=real,
+            units=constant_units
         )
-        observables_ = IndexedBaseMap("observables", observables, real=real)
-        drivers_ = IndexedBaseMap("drivers", drivers, real=real)
+        observables_ = IndexedBaseMap("observables", observables, real=real,
+                                      units=observable_units)
+        drivers_ = IndexedBaseMap("drivers", drivers, real=real,
+                                 units=driver_units)
         dxdt_ = IndexedBaseMap(
             "out", [f"d{s}" for s in state_names], real=real
         )

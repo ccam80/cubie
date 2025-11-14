@@ -37,6 +37,7 @@ class MeanStdRms(SummaryMetric):
             name="mean_std_rms",
             buffer_size=3,
             output_size=3,
+            unit_modification="[unit]",
         )
 
     def build(self) -> MetricFuncCache:

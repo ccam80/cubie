@@ -35,6 +35,7 @@ class DxdtMin(SummaryMetric):
             name="dxdt_min",
             buffer_size=2,
             output_size=1,
+            unit_modification="[unit]*s^-1",
         )
 
     def build(self) -> MetricFuncCache:
