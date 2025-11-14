@@ -21,6 +21,26 @@ from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     topological_sort,
 )
+from cubie.time_logger import _default_logger
+
+# Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
+_default_logger._register_event(
+    "codegen_generate_neumann_preconditioner_code",
+    "codegen",
+    "Codegen time for generate_neumann_preconditioner_code"
+)
+_default_logger._register_event(
+    "codegen_generate_neumann_preconditioner_cached_code",
+    "codegen",
+    "Codegen time for generate_neumann_preconditioner_cached_code"
+)
+_default_logger._register_event(
+    "codegen_generate_n_stage_neumann_preconditioner_code",
+    "codegen",
+    "Codegen time for generate_n_stage_neumann_preconditioner_code"
+)
 
 NEUMANN_TEMPLATE = (
     "\n"
@@ -395,6 +415,7 @@ def generate_n_stage_neumann_preconditioner_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK Neumann preconditioner factory."""
+    _default_logger.start_event("codegen_generate_n_stage_neumann_preconditioner_code")
 
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
@@ -418,7 +439,7 @@ def generate_n_stage_neumann_preconditioner_code(
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     total_states = stage_count * len(index_map.states.index_map)
     state_count = len(index_map.states.index_map)
-    return N_STAGE_NEUMANN_TEMPLATE.format(
+    result = N_STAGE_NEUMANN_TEMPLATE.format(
         func_name=func_name,
         const_lines=const_block,
         metadata_lines="",
@@ -427,6 +448,8 @@ def generate_n_stage_neumann_preconditioner_code(
         total_states=total_states,
         state_count=state_count,
     )
+    _default_logger.stop_event("codegen_generate_n_stage_neumann_preconditioner_code")
+    return result
 
 def generate_neumann_preconditioner_code(
     equations: ParsedEquations,
@@ -439,6 +462,7 @@ def generate_neumann_preconditioner_code(
     
     For Newton-Krylov usage: applies inline state evaluation.
     """
+    _default_logger.start_event("codegen_generate_neumann_preconditioner_code")
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -451,12 +475,14 @@ def generate_neumann_preconditioner_code(
             cse=cse,
         )
     jv_body = _build_neumann_body_with_state_subs(jvp_equations, index_map)
-    return NEUMANN_TEMPLATE.format(
+    result = NEUMANN_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
         jv_body=jv_body,
         const_lines=const_block,
     )
+    _default_logger.stop_event("codegen_generate_neumann_preconditioner_code")
+    return result
 
 def generate_neumann_preconditioner_cached_code(
     equations: ParsedEquations,
@@ -470,6 +496,7 @@ def generate_neumann_preconditioner_cached_code(
     For Rosenbrock usage: state param is actual state,
     no inline substitution needed.
     """
+    _default_logger.start_event("codegen_generate_neumann_preconditioner_cached_code")
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -482,12 +509,14 @@ def generate_neumann_preconditioner_cached_code(
             cse=cse,
         )
     jv_body = _build_cached_neumann_body(jvp_equations, index_map)
-    return NEUMANN_CACHED_TEMPLATE.format(
+    result = NEUMANN_CACHED_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
         jv_body=jv_body,
         const_lines=const_block,
     )
+    _default_logger.stop_event("codegen_generate_neumann_preconditioner_cached_code")
+    return result
 
 
 __all__ = [
