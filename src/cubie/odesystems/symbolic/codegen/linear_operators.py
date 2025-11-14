@@ -24,30 +24,32 @@ from cubie.time_logger import _default_logger
 from ._stage_utils import build_stage_metadata, prepare_stage_data
 
 # Register timing events for codegen functions
+# Module-level registration required since codegen functions return code
+# strings rather than cacheable objects that could auto-register
 _default_logger._register_event(
     "codegen_generate_operator_apply_code",
     "codegen",
-    "Codegen time for generate_operator_apply_code: "
+    "Codegen time for generate_operator_apply_code"
 )
 _default_logger._register_event(
     "codegen_generate_cached_operator_apply_code",
     "codegen",
-    "Codegen time for generate_cached_operator_apply_code: "
+    "Codegen time for generate_cached_operator_apply_code"
 )
 _default_logger._register_event(
     "codegen_generate_prepare_jac_code",
     "codegen",
-    "Codegen time for generate_prepare_jac_code: "
+    "Codegen time for generate_prepare_jac_code"
 )
 _default_logger._register_event(
     "codegen_generate_cached_jvp_code",
     "codegen",
-    "Codegen time for generate_cached_jvp_code: "
+    "Codegen time for generate_cached_jvp_code"
 )
 _default_logger._register_event(
     "codegen_generate_n_stage_linear_operator_code",
     "codegen",
-    "Codegen time for generate_n_stage_linear_operator_code: "
+    "Codegen time for generate_n_stage_linear_operator_code"
 )
 
 CACHED_OPERATOR_APPLY_TEMPLATE = (
