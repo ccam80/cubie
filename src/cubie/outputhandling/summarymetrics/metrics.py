@@ -110,6 +110,8 @@ class SummaryMetric(CUDAFactory):
         int or Callable. Memory required for persisted metric results.
     name
         str. Identifier used in registries and configuration strings.
+    unit_modification
+        str. Format string for unit modification in legends.
     update_device_func
         Callable. Compiled CUDA device update function for the metric.
     save_device_func
@@ -133,6 +135,7 @@ class SummaryMetric(CUDAFactory):
         buffer_size: Union[int, Callable],
         output_size: Union[int, Callable],
         name: str,
+        unit_modification: str = "[unit]",
         dt_save: float = 0.01,
         precision: PrecisionDType = np.float32,
     ) -> None:
@@ -148,6 +151,9 @@ class SummaryMetric(CUDAFactory):
             metric parameter.
         name
             str. Identifier used for registration.
+        unit_modification
+            str. Format string for unit modification in legends.
+            Use "[unit]" as placeholder. Defaults to "[unit]".
         dt_save
             float. Time interval for save operations. Defaults to 0.01.
         precision
@@ -159,6 +165,7 @@ class SummaryMetric(CUDAFactory):
         self.buffer_size = buffer_size
         self.output_size = output_size
         self.name = name
+        self.unit_modification = unit_modification
 
         # Instantiate empty settings object for CUDAFactory compatibility
         self.setup_compile_settings(
@@ -658,6 +665,36 @@ class SummaryMetrics:
                     headings.append(f"{metric}_{i + 1}")
 
         return headings
+
+    def unit_modifications(self, output_types_requested: list[str]) -> list[str]:
+        """Generate unit modification strings for requested summary metrics.
+
+        Parameters
+        ----------
+        output_types_requested
+            Metric names to generate unit modifications for.
+
+        Returns
+        -------
+        list[str]
+            Unit modification strings for the metrics in order.
+
+        Notes
+        -----
+        Returns one unit modification per output element. For multi-element
+        outputs, the same unit modification is repeated for each element.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        modifications = []
+
+        for metric in parsed_request:
+            output_size = self._get_size(metric, self._output_sizes)
+            unit_mod = self._metric_objects[metric].unit_modification
+
+            for _ in range(output_size):
+                modifications.append(unit_mod)
+
+        return modifications
 
     def output_sizes(
         self,

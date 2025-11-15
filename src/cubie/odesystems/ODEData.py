@@ -16,6 +16,13 @@ from cubie._utils import (
 )
 from cubie.odesystems.SystemValues import SystemValues
 
+def update_precisions(instance, attribute, value):
+    """Update precision of all values in an ODEData instance."""
+    instance.parameters.precision = value
+    instance.constants.precision = value
+    instance.initial_states.precision = value
+    instance.observables.precision = value
+    return value
 
 @attrs.define
 class SystemSizes:
@@ -105,6 +112,7 @@ class ODEData:
     precision: PrecisionDType = attrs.field(
         converter=precision_converter,
         validator=precision_validator,
+        on_setattr=update_precisions,
         default=float32
     )
     num_drivers: int = attrs.field(
