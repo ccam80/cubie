@@ -106,7 +106,7 @@ def _create_dummy_args(param_count: int, precision) -> tuple:
     if param_count <= 0:
         return tuple()
     # Create 1-element arrays for all parameters
-    return tuple([np.array([0.0], dtype=precision)] for _ in range(param_count))
+    return tuple(np.array([0.0], dtype=precision) for _ in range(param_count))
 
 
 def _create_dummy_kernel(device_func: Any, param_count: int) -> Callable:
