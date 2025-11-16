@@ -16,8 +16,7 @@ from cubie._utils import (
     inrangetype_validator,
 )
 from cubie.integrators.step_control.base_step_controller import (
-    BaseStepController, BaseStepControllerConfig
-)
+    BaseStepController, BaseStepControllerConfig, ControllerCache)
 
 
 def tol_converter(
@@ -208,7 +207,7 @@ class BaseAdaptiveStepController(BaseStepController):
         super().__init__()
         self.setup_compile_settings(config)
 
-    def build(self) -> Callable:
+    def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.
 
         Returns
@@ -244,7 +243,7 @@ class BaseAdaptiveStepController(BaseStepController):
         rtol: np.ndarray,
         algorithm_order: int,
         safety: float,
-    ) -> Callable:
+    ) -> ControllerCache:
         """Create the device function for the specific controller.
 
         Parameters

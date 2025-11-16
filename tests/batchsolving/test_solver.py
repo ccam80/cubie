@@ -243,7 +243,6 @@ def test_solve_basic(
     driver_settings,
 ):
     """Test basic solve functionality."""
-    solver.kernel.build()
     result = solver.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,

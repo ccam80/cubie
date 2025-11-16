@@ -13,6 +13,9 @@ from cubie.cuda_simsafe import selp
 
 import numpy as np
 
+from cubie.integrators.step_control.base_step_controller import ControllerCache
+
+
 class AdaptiveIController(BaseAdaptiveStepController):
     """Integral step-size controller using only previous error."""
 
@@ -93,7 +96,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         rtol: np.ndarray,
         algorithm_order: int,
         safety: float,
-    ) -> Callable:
+    ) -> ControllerCache:
         """Create the device function for the integral controller.
 
         Parameters
@@ -198,4 +201,4 @@ class AdaptiveIController(BaseAdaptiveStepController):
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
-        return controller_I
+        return ControllerCache(device_function=controller_I)

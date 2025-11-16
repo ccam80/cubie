@@ -14,8 +14,9 @@ be rebuilt when any component is reconfigured.
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 import warnings
 
+import attrs
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
@@ -30,6 +31,17 @@ from cubie.integrators.step_control import get_controller
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
 
+
+@attrs.define
+class SingleIntegratorRunCache(CUDAFunctionCache):
+    """Cache for SingleIntegratorRunCore device function.
+    
+    Attributes
+    ----------
+    single_integrator_function
+        Compiled CUDA loop callable ready for execution on device.
+    """
+    single_integrator_function: Callable = attrs.field()
 
 class SingleIntegratorRunCore(CUDAFactory):
     """Coordinate a single ODE integration loop and its dependencies.
@@ -173,6 +185,17 @@ class SingleIntegratorRunCore(CUDAFactory):
         if self._algo_step.is_adaptive:
             return int(self._system.sizes.states)
         return 0
+
+    @property
+    def device_function(self):
+        """Return the compiled CUDA solver kernel.
+        
+        Returns
+        -------
+        callable
+            Compiled CUDA device function.
+        """
+        return self.get_cached_output('single_integrator_function')
 
     def check_compatibility(
         self,
@@ -531,4 +554,4 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function
 
-        return loop_fn
+        return SingleIntegratorRunCache(single_integrator_function=loop_fn)

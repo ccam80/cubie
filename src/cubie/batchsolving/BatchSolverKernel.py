@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities."""
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import numpy as np
@@ -14,7 +14,7 @@ from cubie.cuda_simsafe import is_cudasim_enabled
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
     OutputArrays,
@@ -63,6 +63,9 @@ class ChunkParams:
     size: int
     runs: int
 
+@attrs.define()
+class BatchSolverCache(CUDAFunctionCache):
+    solver_kernel: Union[int, Callable] = attrs.field(default=-1)
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -334,8 +337,8 @@ class BatchSolverKernel(CUDAFactory):
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = precision(0.0)
                 chunk_t0 = t0 + precision(i) * chunk_params.duration
-            
-            self.device_function[
+
+            self.kernel[
                 BLOCKSPERGRID,
                 (threads_per_loop, runsperblock),
                 stream,
@@ -608,6 +611,31 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
         # no cover: end
+        
+        # Attach critical shapes for dummy execution
+        # Parameters in order: inits, params, d_coefficients, state_output,
+        # observables_output, state_summaries_output, observables_summaries_output,
+        # iteration_counters_output, status_codes_output, duration, warmup, t0, n_runs
+        system_sizes = self.system_sizes
+        n_states = int(system_sizes.states)
+        n_parameters = int(system_sizes.parameters)
+        n_observables = int(system_sizes.observables)
+        integration_kernel.critical_shapes = (
+            (1, n_states),  # inits - [n_runs, n_states]
+            (1, n_parameters),  # params - [n_runs, n_parameters]
+            (100,n_states,6),  # d_coefficients - complex driver array
+            (100, 1, n_states), # state_output
+            (100, 1, n_observables),  # observables_output
+            (100, 1, n_observables), # state_summaries_output
+            (100, 1, n_observables), # observables_summaries_output
+            (100, 1, 4), # iteration_counters_output
+            (1,),  # status_codes_output
+            None,  # duration - scalar
+            None,  # warmup - scalar
+            None,  # t0 - scalar
+            None,  # n_runs - scalar
+        )
+        
         return integration_kernel
 
     def update(
@@ -739,13 +767,15 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def kernel(self) -> Callable:
         """Compiled integration kernel callable."""
-
         return self.device_function
 
-    def build(self) -> Callable:
-        """Compile the integration kernel and return it."""
+    @property
+    def device_function(self):
+        return self.get_cached_output("solver_kernel")
 
-        return self.build_kernel()
+    def build(self) -> BatchSolverCache:
+        """Compile the integration kernel and return it."""
+        return BatchSolverCache(solver_kernel=self.build_kernel())
 
     @property
     def profileCUDA(self) -> bool:

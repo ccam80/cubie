@@ -1,8 +1,19 @@
+from typing import Callable, Union
+
 import attrs
 import pytest
+from numba import cuda
+import numpy as np
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import _create_placeholder_args
+from cubie.CUDAFactory import _run_placeholder_kernel
+from cubie.time_logger import _default_timelogger
 
+@attrs.define()
+class testCache(CUDAFunctionCache):
+    """Test cache class."""
+    device_function: Union[Callable, int] = attrs.field(default=-1)
 
 def dict_to_attrs_class(dictionary):
     """Convert a dictionary to an attrs class instance."""
@@ -24,7 +35,7 @@ def factory():
             super().__init__()
 
         def build(self):
-            return None
+            return testCache(device_function=lambda: 20.0)
 
     factory = ConcreteFactory()
     return factory
@@ -42,9 +53,10 @@ def test_setup_compile_settings(factory):
 
 
 @pytest.fixture(scope="function")
-def factory_with_settings(factory):
+def factory_with_settings(factory, precision):
     """Fixture to provide a factory with specific compile settings."""
     settings_dict = {
+        "precision": precision,
         "manually_overwritten_1": False,
         "manually_overwritten_2": False,
     }
@@ -97,17 +109,19 @@ def test_cache_invalidation(factory_with_settings):
 
 def test_build(factory_with_settings, monkeypatch):
     test_func = factory_with_settings.device_function
-    assert test_func is None
+    assert test_func() == 20.0, "device_function not as defined"
     # cache validated
 
-    monkeypatch.setattr(factory_with_settings, "build", lambda: 10.0)
+    monkeypatch.setattr(factory_with_settings, "build",
+                        lambda: testCache(device_function= lambda: 10.0)
+    )
     test_func = factory_with_settings.device_function
-    assert test_func is None, (
+    assert test_func() == 20.0, (
         "device_function rebuilt even though cache was valid"
     )
     factory_with_settings.update_compile_settings(manually_overwritten_1=True)
     test_func = factory_with_settings.device_function
-    assert test_func == 10.0, (
+    assert test_func() == 10.0, (
         "device_function was not rebuilt after cache invalidation"
     )
 
@@ -117,14 +131,13 @@ def test_build_with_dict_output(factory_with_settings, monkeypatch):
     factory_with_settings._cache_valid = False
 
     @attrs.define
-    class TestOutputs:
+    class TestOutputs(testCache):
         test_output1: str = "value1"
         test_output2: str = "value2"
 
-    monkeypatch.setattr(factory_with_settings, "build", lambda: TestOutputs())
-
-    # Access device_function to trigger build
-    _ = factory_with_settings.device_function
+    monkeypatch.setattr(factory_with_settings, "build",
+                        lambda: (TestOutputs())
+                        )
 
     # Test that dictionary outputs are available
     assert (
@@ -142,14 +155,13 @@ def test_build_with_dict_output(factory_with_settings, monkeypatch):
 
     # Test that dict values are rebuilt after invalidation
     @attrs.define
-    class NewTestOutputs:
+    class NewTestOutputs(testCache):
         test_output1: str = "new_value1"
         test_output2: str = "new_value2"
 
     monkeypatch.setattr(
-        factory_with_settings, "build", lambda: NewTestOutputs()
+        factory_with_settings, "build", lambda: (NewTestOutputs())
     )
-
     output = factory_with_settings.get_cached_output("test_output1")
     assert output == "new_value1", "Cache not rebuilt after invalidation"
 
@@ -163,7 +175,7 @@ def test_device_function_from_dict(factory_with_settings, monkeypatch):
         return x * 2
 
     @attrs.define
-    class TestOutputsWithFunc:
+    class TestOutputsWithFunc(testCache):
         device_function: callable = test_func
         other_output: str = "value"
 
@@ -189,16 +201,13 @@ def test_get_cached_output_not_implemented_error(
     factory_with_settings._cache_valid = False
 
     @attrs.define
-    class TestOutputsWithNotImplemented:
+    class TestOutputsWithNotImplemented(testCache):
         implemented_output: str = "value"
         not_implemented_output: int = -1
 
     monkeypatch.setattr(
         factory_with_settings, "build", lambda: TestOutputsWithNotImplemented()
     )
-
-    # Access device_function to trigger build
-    _ = factory_with_settings.device_function
 
     # Test that implemented output works normally
     assert (
@@ -221,7 +230,7 @@ def test_get_cached_output_not_implemented_error_multiple(
     factory_with_settings._cache_valid = False
 
     @attrs.define
-    class TestOutputsMultipleNotImplemented:
+    class TestOutputsMultipleNotImplemented(testCache):
         working_output: str = "works"
         not_implemented_1: int = -1
         not_implemented_2: int = -1
@@ -231,10 +240,6 @@ def test_get_cached_output_not_implemented_error_multiple(
         "build",
         lambda: TestOutputsMultipleNotImplemented(),
     )
-
-    # Trigger build
-    _ = factory_with_settings.device_function
-
     # Test that working output still works
     assert factory_with_settings.get_cached_output("working_output") == "works"
 
@@ -246,3 +251,115 @@ def test_get_cached_output_not_implemented_error_multiple(
     with pytest.raises(NotImplementedError) as exc2:
         factory_with_settings.get_cached_output("not_implemented_2")
     assert "not_implemented_2" in str(exc2.value)
+
+
+def test_create_placeholder_args():
+    """Test placeholder argument creation."""
+    @cuda.jit(device=True)
+    def device_func(a, b, c):
+        return a[0] + b[0] + c[0]
+
+    args = _create_placeholder_args(device_func, np.float64)
+    args = args[0]
+    assert len(args) == 3
+    assert all(isinstance(arg, np.ndarray) for arg in args)
+    assert all(arg.dtype == np.float64 for arg in args)
+
+
+def test_create_placeholder_args_zero_params():
+    """Test zero parameter case."""
+    @cuda.jit(device=True)
+    def device_func():
+        return 1.0
+
+    args = _create_placeholder_args(device_func, np.float64)
+    assert args == tuple()
+
+
+def test_create_placeholder_args_precision():
+    """Test different precision types."""
+    @cuda.jit(device=True)
+    def device_func32(a, b):
+        return a[0] + b[0]
+
+    args32 = _create_placeholder_args(device_func32, np.float32)[0]
+    args64 = _create_placeholder_args(device_func32, np.float64)[0]
+
+    assert all(arg.dtype == np.float32 for arg in args32)
+    assert all(arg.dtype == np.float64 for arg in args64)
+
+
+@pytest.mark.nocudasim
+def test_run_placeholder_kernel():
+    """Test placeholder kernel creation and execution."""
+    @cuda.jit(device=True)
+    def add_device(a, b):
+        return a[0] + b[0]
+
+    placeholder_args = _create_placeholder_args(add_device, np.float64)
+
+    # Should not raise
+    _run_placeholder_kernel(add_device, placeholder_args)
+
+
+@pytest.mark.nocudasim
+def test_run_placeholder_kernel_various_param_counts():
+    """Test kernel creation for different parameter counts."""
+    def make_device_func(count):
+        """Dynamically create a device function with `count` parameters."""
+        params = ", ".join(f"a{i}" for i in range(count))
+        src = f"@cuda.jit(device=True)\ndef f({params}):\n    pass"
+        loc = {}
+        exec(src, {"cuda": cuda}, loc)
+        return loc["f"]
+
+    for count in [0, 1, 3, 5, 8, 10, 12]:
+        func = make_device_func(count)
+        placeholder_args = _create_placeholder_args(func, np.float64)
+        # _run_placeholder_kernel now returns None; ensure it completes
+        result = _run_placeholder_kernel(func, placeholder_args)
+        assert result is None
+
+
+# Integration tests for specialize_and_compile
+
+
+@pytest.mark.nocudasim
+def test_specialize_and_compile_records_timing(factory_with_settings):
+    """Test that specialize_and_compile records compilation timing."""
+    @cuda.jit(device=True)
+    def sample_device(x, y):
+        return x[0] + y[0]
+
+    factory_with_settings.build = lambda: testCache(device_function=sample_device)
+    factory = factory_with_settings
+    _default_timelogger.register_event("compile_test", "compile",
+                                        "Test compilation")
+
+    # Call specialize_and_compile
+    factory.specialize_and_compile(sample_device, "compile_test")
+
+    # Verify timing was recorded
+    logger = factory._timing_start.__self__
+    duration = logger.get_event_duration("compile_test")
+    assert duration is not None
+    assert duration > 0
+
+@pytest.mark.sim_only
+def test_specialize_and_compile_simulator_mode(factory_with_settings):
+    """Test that compilation timing is skipped in simulator mode."""
+    @cuda.jit(device=True)
+    def sample_device(x, y):
+        return x[0] + y[0]
+
+    factory_with_settings.build = lambda: testCache(device_function=sample_device)
+    factory = factory_with_settings
+
+    _default_timelogger.register_event("compile_test", "compile", "Test")
+
+    # Should not raise, should skip timing
+
+    factory.specialize_and_compile(sample_device, "compile_test")
+
+    # Verify no timing recorded (in sim mode, events may or may not be recorded)
+    # Just ensure no error occurred

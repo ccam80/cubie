@@ -14,6 +14,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
 from cubie.integrators.step_control.adaptive_PI_controller import (
     PIStepControlConfig)
 from cubie.cuda_simsafe import selp
+from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
 @define
@@ -164,7 +165,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: np.ndarray,
         algorithm_order: int,
         safety: float,
-    ) -> Callable:
+    ) -> ControllerCache:
         """Create the device function for the PID controller.
 
         Parameters
@@ -288,4 +289,4 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
-        return controller_PID
+        return ControllerCache(device_function=controller_PID)

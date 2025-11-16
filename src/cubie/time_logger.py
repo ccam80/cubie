@@ -1,7 +1,7 @@
 """Time logging infrastructure for tracking CuBIE compilation performance."""
 
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 import attrs
 
 
@@ -55,7 +55,7 @@ class TimeLogger:
     
     Notes
     -----
-    A default instance is available as cubie.time_logger._default_logger.
+    A default instance is available as cubie.time_logger._default_timelogger.
     Use set_verbosity() to configure the global logger level.
     """
     
@@ -105,12 +105,12 @@ class TimeLogger:
                 f"Event '{event_name}' not registered. "
                 "Call _register_event() before using this event."
             )
-        
+
+        # If a job is logged twice for some reason, skip subsequent starts
+        # to capture from first start to first return
         if event_name in self._active_starts:
-            raise ValueError(
-                f"Event '{event_name}' already has an active start. "
-                "Call stop_event() before starting again."
-            )
+            return
+
         
         timestamp = time.perf_counter()
         event = TimingEvent(
@@ -159,10 +159,8 @@ class TimeLogger:
             )
         
         if event_name not in self._active_starts:
-            raise ValueError(
-                f"Event '{event_name}' has no active start. "
-                "Call start_event() before stop_event()."
-            )
+            return # skip extra stops if called twice
+
         
         timestamp = time.perf_counter()
         duration = timestamp - self._active_starts[event_name]
@@ -275,7 +273,7 @@ class TimeLogger:
         ----------
         category : str, optional
             If provided, filter events by their registered category
-            ('codegen', 'build', or 'runtime')
+            ('codegen', 'runtime', or 'compile')
         
         Returns
         -------
@@ -311,22 +309,30 @@ class TimeLogger:
         
         return durations
     
-    def print_summary(self) -> None:
-        """Print timing summary based on verbosity level.
+    def print_summary(self, category: Optional[str] = None) -> None:
+        """Print timing summary for all events or specific category.
+        
+        Parameters
+        ----------
+        category : str, optional
+            If provided, print summary only for events in this category
+            ('codegen', 'runtime', or 'compile'). If None, print all events.
         
         Notes
         -----
-        - default: Prints aggregate durations for major categories
-        - verbose: Already printed during stop_event calls
-        - debug: Already printed all events as they occurred
-        - None: No-op
-        
-        Only performs new printing in 'default' mode.
+        In 'default' verbosity mode, this method can be called with specific
+        categories to print summaries at different stages:
+        - Call with category='codegen' after parsing is complete
+        - Call with category='compile' after compilation is complete
+        - Call with category='runtime' after kernels return
         """
         if self.verbosity == 'default':
-            durations = self.get_aggregate_durations()
+            durations = self.get_aggregate_durations(category=category)
             if durations:
-                print("\nTiming Summary:")
+                if category:
+                    print(f"\n{category.capitalize()} Timing Summary:")
+                else:
+                    print("\nTiming Summary:")
                 for name, duration in sorted(durations.items()):
                     print(f"  {name}: {duration:.3f}s")
         # verbose and debug already printed inline
@@ -354,7 +360,7 @@ class TimeLogger:
             verbosity = None
         self.verbosity = verbosity
     
-    def _register_event(
+    def register_event(
         self, label: str, category: str, description: str
     ) -> None:
         """Register an event with metadata for tracking and reporting.
@@ -364,7 +370,7 @@ class TimeLogger:
         label : str
             Event label used in start_event/stop_event calls
         category : str
-            Event category: 'codegen', 'build', or 'runtime'
+            Event category: 'codegen', 'runtime', or 'compile'
         description : str
             Human-readable description included in printouts
         
@@ -374,17 +380,18 @@ class TimeLogger:
         timing events they will track. The category helps organize
         timing reports by operation type.
         """
-        if category not in {'codegen', 'build', 'runtime'}:
+        if category not in {'codegen', 'runtime', 'compile'}:
             raise ValueError(
-                f"category must be 'codegen', 'build', or 'runtime', "
+                f"category must be 'codegen', 'runtime', or 'compile', "
                 f"got '{category}'"
             )
-        self._event_registry[label] = {
-            'category': category,
-            'description': description
-        }
+        if label not in self._event_registry:
+            self._event_registry[label] = {
+                'category': category,
+                'description': description
+            }
 
 
 # Default global logger instance
 # Use set_verbosity() to configure, or access via cubie.time_logger
-_default_logger = TimeLogger(verbosity=None)
+_default_timelogger = TimeLogger(verbosity='default')
