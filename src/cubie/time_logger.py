@@ -1,7 +1,7 @@
 """Time logging infrastructure for tracking CuBIE compilation performance."""
 
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 import attrs
 
 
@@ -55,7 +55,7 @@ class TimeLogger:
     
     Notes
     -----
-    A default instance is available as cubie.time_logger._default_logger.
+    A default instance is available as cubie.time_logger._default_timelogger.
     Use set_verbosity() to configure the global logger level.
     """
     
@@ -312,23 +312,13 @@ class TimeLogger:
         return durations
     
     def print_summary(self) -> None:
-        """Print timing summary based on verbosity level.
-        
-        Notes
-        -----
-        - default: Prints aggregate durations for major categories
-        - verbose: Already printed during stop_event calls
-        - debug: Already printed all events as they occurred
-        - None: No-op
-        
-        Only performs new printing in 'default' mode.
+        """Print timing summary per category.
         """
-        if self.verbosity == 'default':
-            durations = self.get_aggregate_durations()
-            if durations:
-                print("\nTiming Summary:")
-                for name, duration in sorted(durations.items()):
-                    print(f"  {name}: {duration:.3f}s")
+        durations = self.get_aggregate_durations()
+        if durations:
+            print("\nTiming Summary:")
+            for name, duration in sorted(durations.items()):
+                print(f"  {name}: {duration:.3f}s")
         # verbose and debug already printed inline
     
     def set_verbosity(self, verbosity: Optional[str]) -> None:
@@ -354,7 +344,7 @@ class TimeLogger:
             verbosity = None
         self.verbosity = verbosity
     
-    def _register_event(
+    def register_event(
         self, label: str, category: str, description: str
     ) -> None:
         """Register an event with metadata for tracking and reporting.
@@ -379,12 +369,13 @@ class TimeLogger:
                 f"category must be 'codegen', 'runtime', or 'compile', "
                 f"got '{category}'"
             )
-        self._event_registry[label] = {
-            'category': category,
-            'description': description
-        }
+        if label not in self._event_registry:
+            self._event_registry[label] = {
+                'category': category,
+                'description': description
+            }
 
 
 # Default global logger instance
 # Use set_verbosity() to configure, or access via cubie.time_logger
-_default_logger = TimeLogger(verbosity=None)
+_default_timelogger = TimeLogger(verbosity='default')

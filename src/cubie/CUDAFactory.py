@@ -1,7 +1,7 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
 from abc import ABC, abstractmethod
-from typing import Set, Any, Callable
+from typing import Set, Any, Tuple
 import inspect
 
 import attrs
@@ -9,8 +9,8 @@ import numpy as np
 from numpy import array_equal, asarray
 from numba import cuda
 
-from cubie._utils import in_attr, is_attrs_class
-from cubie.time_logger import _default_logger
+from cubie._utils import in_attr
+from cubie.time_logger import _default_timelogger
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
@@ -22,16 +22,9 @@ class CUDAFunctionCache:
     by introspecting attrs fields during initialization.
     """
     
-    def __attrs_post_init__(self, factory=None):
+    def __attrs_post_init__(self):
         """Register compilation events for all device function fields.
-        
-        Parameters
-        ----------
-        factory : CUDAFactory, optional
-            Factory instance that owns this cache. Used to register timing
-            events via factory._register_event(). When None, registration
-            is skipped (used during cache construction).
-        
+
         Notes
         -----
         Iterates through all attrs fields and registers compilation timing
@@ -40,50 +33,21 @@ class CUDAFunctionCache:
         'compile_{field_name}' and are automatically associated with the
         'compile' category.
         """
-        if factory is None:
-            return
-        
         for field in attrs.fields(self.__class__):
             device_func = getattr(self, field.name)
             if device_func is None or device_func == -1:
                 continue
+            # Presuming dispatchers exists after "build", before this fn called
             if not hasattr(device_func, 'py_func'):
                 continue
             
             event_name = f"compile_{field.name}"
             description = f"Compilation time for {field.name}"
-            factory._register_event(event_name, "compile", description)
+            _default_timelogger.register_event(event_name, "compile",
+                                             description)
 
-
-def _get_device_function_params(device_function: Any) -> list:
-    """Extract parameter names from CUDA device function.
-    
-    Parameters
-    ----------
-    device_function
-        Numba CUDA device function (CUDADispatcher)
-    
-    Returns
-    -------
-    list[str]
-        List of parameter names in order
-    
-    Notes
-    -----
-    Accesses py_func attribute for introspection. Falls back to
-    empty list if introspection unavailable.
-    """
-    try:
-        if hasattr(device_function, 'py_func'):
-            sig = inspect.signature(device_function.py_func)
-            return list(sig.parameters.keys())
-    except Exception:
-        pass
-    return []
-
-
-def _create_dummy_args(param_count: int, precision) -> tuple:
-    """Create minimal dummy arguments for device function.
+def _create_placeholder_args(device_function, precision) -> tuple:
+    """Create minimal placeholder arguments for device function.
     
     Parameters
     ----------
@@ -103,34 +67,35 @@ def _create_dummy_args(param_count: int, precision) -> tuple:
     for most CUDA device functions which expect array parameters.
     Scalars are automatically converted when needed.
     """
-    if param_count <= 0:
-        return tuple()
-    # Create 1-element arrays for all parameters
-    return tuple(np.array([0.0], dtype=precision) for _ in range(param_count))
+    sig = inspect.signature(device_function.py_func)
+    params = list(sig.parameters.keys()) # TODO: see if we need to get shapes
+    # out
+    param_count = len(params)
+    return tuple(np.array([1.0], dtype=precision) for _ in
+                 range(param_count))
 
 
-def _create_dummy_kernel(device_func: Any, param_count: int) -> Callable:
+def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
     """Create minimal CUDA kernel to trigger device function compilation.
-    
+
     Parameters
     ----------
     device_func
         CUDA device function to wrap in kernel
-    param_count
-        Number of parameters device_func expects
-    
+    placeholder_args
+        Tuple of placeholder arrays to pass to 
+
     Returns
     -------
-    Callable
-        Compiled CUDA kernel that calls device_func
-    
+    None
+        Compiled CUDA kernel is called in routine, nothing returned
+
     Notes
     -----
-    Uses closure pattern to capture device_func. Supports up to 12
-    parameters with explicit signatures. Falls back to 8-parameter
-    signature for larger counts.
+    Calls numba.cuda.synchronize() with no stream; will hang until compilation
+    and run are complete.
     """
-    # Use closure-based approach for different parameter counts
+    param_count = len(placeholder_args)
     if param_count == 0:
         @cuda.jit
         def kernel():
@@ -197,14 +162,13 @@ def _create_dummy_kernel(device_func: Any, param_count: int) -> Callable:
             if cuda.grid(1) == 0:
                 device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)
     else:
-        # Fallback for very large parameter counts (unlikely)
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8):
-            if cuda.grid(1) == 0:
-                # This will likely fail but provides debugging info
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8)
-    
-    return kernel
+        # Fallback for very large parameter counts
+        raise ValueError(
+            "CUDA device function has more than 12 parameters. "
+            "Extend _create_placeholder_kernel to support this function."
+        )
+    kernel[1, 1](*placeholder_args)
+    cuda.synchronize()
 
 
 class CUDAFactory(ABC):
@@ -222,7 +186,7 @@ class CUDAFactory(ABC):
     _cache_valid : bool
         Indicates whether cached outputs are valid.
     _cache : attrs class or None
-        Container for cached outputs (typically a CUDAFunctionCache subclass).
+        Container for cached outputs (CUDAFunctionCache subclass).
 
     Notes
     -----
@@ -273,10 +237,9 @@ class CUDAFactory(ABC):
         self._cache = None
         
         # Use global default logger callbacks
-        self._timing_start = _default_logger.start_event
-        self._timing_stop = _default_logger.stop_event
-        self._timing_progress = _default_logger.progress
-        self._register_event = _default_logger._register_event
+        self._timing_start = _default_timelogger.start_event
+        self._timing_stop = _default_timelogger.stop_event
+        self._timing_progress = _default_timelogger.progress
 
     @abstractmethod
     def build(self):
@@ -449,7 +412,7 @@ class CUDAFactory(ABC):
         build_result = self.build()
 
         # build() must always return attrs class cache
-        if not is_attrs_class(build_result):
+        if not isinstance(build_result, CUDAFunctionCache):
             raise TypeError(
                 "build() must return an attrs class (CUDAFunctionCache "
                 "subclass)"
@@ -457,12 +420,9 @@ class CUDAFactory(ABC):
         
         # Store cache and trigger auto-registration of compilation events
         self._cache = build_result
-        if hasattr(build_result, '__attrs_post_init__'):
-            build_result.__attrs_post_init__(factory=self)
-        
         self._cache_valid = True
         
-        # Trigger compilation timing for all device functions
+        # Trigger compilation by running a placeholder kernel
         for field in attrs.fields(type(self._cache)):
             device_func = getattr(self._cache, field.name)
             if device_func is None or device_func == -1:
@@ -531,55 +491,21 @@ class CUDAFactory(ABC):
         In CUDA simulator mode, timing is skipped silently as
         compilation does not occur.
         """
-        # Skip if None or in simulator mode
-        if device_function is None:
-            return
-        
         if CUDA_SIMULATION:
             return
+        precision = self._compile_settings.precision
         
-        # Verify it's actually a device function
-        if not hasattr(device_function, 'py_func'):
-            # Not a CUDA dispatcher, skip silently
-            return
-        
-        # Get precision from compile settings if available
-        precision = np.float64  # default
-        if (self._compile_settings is not None and 
-            hasattr(self._compile_settings, 'precision')):
-            precision = self._compile_settings.precision
-        
-        try:
-            # Start timing
-            self._timing_start(event_name)
-            
-            # Introspect signature
-            params = _get_device_function_params(device_function)
-            param_count = len(params)
-            
-            # Create dummy arguments
-            dummy_args = _create_dummy_args(param_count, precision)
-            
-            # Create and launch dummy kernel
-            kernel = _create_dummy_kernel(device_function, param_count)
-            kernel[1, 1](*dummy_args)
-            
-            # Synchronize to ensure compilation completes
-            cuda.synchronize()
-            
-            # Stop timing
-            self._timing_stop(event_name)
-            
-        except Exception as e:
-            # Log warning but don't fail the build
-            import warnings
-            warnings.warn(
-                f"Failed to time compilation for {event_name}: {e}",
-                RuntimeWarning
-            )
-            # Try to stop timing if it was started
-            try:
-                if event_name in self._timing_start.__self__._active_starts:
-                    self._timing_stop(event_name)
-            except Exception:
-                pass
+        # Start timing
+        self._timing_start(event_name)
+
+        # Create placeholder arguments
+        placeholder_args = _create_placeholder_args(device_function, precision)
+
+        # Create and launch placeholder kernel
+        _run_placeholder_kernel(device_function, placeholder_args)
+
+        cuda.synchronize()
+
+        # Stop timing
+        self._timing_stop(event_name)
+

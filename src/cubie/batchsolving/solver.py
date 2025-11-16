@@ -29,7 +29,7 @@ from cubie._utils import merge_kwargs_into_settings
 from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
-from cubie.time_logger import _default_logger
+from cubie.time_logger import _default_timelogger
 
 
 def solve_ivp(
@@ -176,7 +176,7 @@ class Solver:
             loop_settings = {}
 
         # Set global time logging level
-        _default_logger.set_verbosity(time_logging_level)
+        _default_timelogger.set_verbosity(time_logging_level)
 
         super().__init__()
         precision = system.precision
@@ -836,7 +836,7 @@ class Solver:
         Updates the global time logger verbosity. This affects all
         timing events across the entire CuBIE package.
         """
-        _default_logger.set_verbosity(verbosity)
+        _default_timelogger.set_verbosity(verbosity)
 
     @property
     def solve_info(self) -> SolveSpec:
