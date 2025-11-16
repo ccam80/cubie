@@ -47,7 +47,7 @@ class CUDAFunctionCache:
             _default_timelogger.register_event(event_name, "compile",
                                              description)
 
-def _create_placeholder_args(device_function, precision) -> tuple:
+def _create_placeholder_args(device_function, precision=np.float32) -> tuple:
     """Create minimal placeholder arguments for device function.
     
     Parameters

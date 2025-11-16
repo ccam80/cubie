@@ -1,6 +1,7 @@
 from typing import Callable, Union
 
 import attrs
+import numba
 import pytest
 from numba import cuda
 import numpy as np
@@ -252,10 +253,14 @@ def test_get_cached_output_not_implemented_error_multiple(
         factory_with_settings.get_cached_output("not_implemented_2")
     assert "not_implemented_2" in str(exc2.value)
 
-
+@pytest.mark.nocudasim
 def test_create_placeholder_args():
     """Test placeholder argument creation."""
-    @cuda.jit(device=True)
+
+    @cuda.jit([numba.float32(numba.float32[:],
+                numba.float32[:],
+                numba.float32[:])],
+                device=True)
     def device_func(a, b, c):
         return a[0] + b[0] + c[0]
 
@@ -263,9 +268,9 @@ def test_create_placeholder_args():
     args = args[0]
     assert len(args) == 3
     assert all(isinstance(arg, np.ndarray) for arg in args)
-    assert all(arg.dtype == np.float64 for arg in args)
+    assert all(arg.dtype == np.float32 for arg in args)
 
-
+@pytest.mark.nocudasim
 def test_create_placeholder_args_zero_params():
     """Test zero parameter case."""
     @cuda.jit(device=True)
@@ -275,15 +280,20 @@ def test_create_placeholder_args_zero_params():
     args = _create_placeholder_args(device_func, np.float64)
     assert args == tuple()
 
-
+@pytest.mark.nocudasim
 def test_create_placeholder_args_precision():
     """Test different precision types."""
-    @cuda.jit(device=True)
-    def device_func32(a, b):
+    @cuda.jit([numba.float32(numba.float32[:],
+                numba.float32[:]),
+               numba.float64(numba.float64[:],
+                             numba.float64[:])],
+              device=True)
+    def device_func(a, b):
         return a[0] + b[0]
 
-    args32 = _create_placeholder_args(device_func32, np.float32)[0]
-    args64 = _create_placeholder_args(device_func32, np.float64)[0]
+    args = _create_placeholder_args(device_func, np.float32)
+    args32 = args[0]
+    args64 = args[1]
 
     assert all(arg.dtype == np.float32 for arg in args32)
     assert all(arg.dtype == np.float64 for arg in args64)
