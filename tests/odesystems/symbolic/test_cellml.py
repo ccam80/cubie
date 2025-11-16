@@ -4,8 +4,7 @@ import numpy as np
 import sympy as sp
 
 from cubie import solve_ivp, SolveResult
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model, \
-    _eq_to_equality_str
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 from cubie._utils import is_devfunc
 
 # Note: cellmlmanip import removed - tests should fail if dependency missing
@@ -178,6 +177,25 @@ def test_default_units_for_symbolic_ode():
     assert ode.state_units == {'x': 'dimensionless'}
     assert ode.parameter_units == {'a': 'dimensionless'}
     assert ode.observable_units == {}
+
+
+def test_cellml_uses_sympy_pathway(basic_model):
+    """Verify CellML adapter uses SymPy pathway internally."""
+    assert basic_model.num_states == 1
+    assert is_devfunc(basic_model.dxdt_function)
+    
+    initial_vals = basic_model.indices.states.default_values
+    assert len(initial_vals) > 0
+
+
+def test_cellml_timing_events_updated():
+    """Verify timing events use new SymPy preparation name."""
+    from cubie.time_logger import _default_timelogger
+    
+    registered_events = _default_timelogger.event_registry
+    assert "codegen_cellml_sympy_preparation" in registered_events
+    
+    assert "codegen_cellml_string_formatting" not in registered_events
 
 def test_custom_units_for_symbolic_ode():
     """Verify custom units can be specified for SymbolicODE."""

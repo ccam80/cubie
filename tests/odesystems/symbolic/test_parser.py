@@ -15,11 +15,15 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
     TIME_SYMBOL,
+    _detect_input_type,
     _lhs_pass,
+    _lhs_pass_sympy,
+    _normalize_sympy_equations,
     _process_calls,
     _process_parameters,
     _replace_if,
     _rhs_pass,
+    _rhs_pass_sympy,
     _sanitise_input_math,
     ParsedEquations,
     parse_input,
@@ -97,6 +101,195 @@ class TestProcessCalls:
         equations = ["dx = x + y"]
         funcs = _process_calls(equations)
         assert funcs == {}
+
+
+class TestDetectInputType:
+    """Test input type detection for parse_input."""
+    
+    def test_detect_string_single_line(self):
+        """Test detection of single-line string input."""
+        dxdt = "dx = -k * x"
+        result = _detect_input_type(dxdt)
+        assert result == 'string'
+    
+    def test_detect_string_list(self):
+        """Test detection of string list input."""
+        dxdt = ["dx = -k * x", "dy = k * x"]
+        result = _detect_input_type(dxdt)
+        assert result == 'string'
+    
+    def test_detect_sympy_equality(self):
+        """Test detection of sp.Equality input."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        dxdt = [sp.Eq(dx, -k * x)]
+        result = _detect_input_type(dxdt)
+        assert result == 'sympy'
+    
+    def test_detect_sympy_tuple(self):
+        """Test detection of (Symbol, Expr) tuple input."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        dxdt = [(dx, -k * x)]
+        result = _detect_input_type(dxdt)
+        assert result == 'sympy'
+    
+    def test_detect_sympy_expression(self):
+        """Test detection of bare sp.Expr input."""
+        x, k = sp.symbols('x k')
+        dxdt = [-k * x]
+        result = _detect_input_type(dxdt)
+        assert result == 'sympy'
+    
+    def test_detect_none_input(self):
+        """Test error on None input."""
+        with pytest.raises(TypeError, match="cannot be None"):
+            _detect_input_type(None)
+    
+    def test_detect_empty_list(self):
+        """Test error on empty list."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            _detect_input_type([])
+    
+    def test_detect_invalid_type(self):
+        """Test error on invalid type."""
+        with pytest.raises(TypeError, match="must be string or iterable"):
+            _detect_input_type(123)
+    
+    def test_detect_invalid_element_type(self):
+        """Test error on invalid element type."""
+        with pytest.raises(TypeError, match="must be strings or SymPy"):
+            _detect_input_type([123, 456])
+
+
+class TestNormalizeSympyEquations:
+    """Test SymPy equation normalization."""
+    
+    def test_normalize_equality(self):
+        """Test normalization of sp.Equality objects."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        equations = [sp.Eq(dx, -k * x)]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        result = _normalize_sympy_equations(equations, index_map)
+        
+        assert len(result) == 1
+        assert result[0][0] == dx
+        assert result[0][1] == -k * x
+    
+    def test_normalize_tuple(self):
+        """Test normalization of (Symbol, Expr) tuples."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        equations = [(dx, -k * x)]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        result = _normalize_sympy_equations(equations, index_map)
+        
+        assert len(result) == 1
+        assert result[0][0] == dx
+        assert result[0][1] == -k * x
+    
+    def test_normalize_mixed_formats(self):
+        """Test normalization of mixed Equality and tuple."""
+        x, y, k = sp.symbols('x y k')
+        dx, dy = sp.symbols('dx dy')
+        equations = [
+            sp.Eq(dx, -k * x),
+            (dy, k * x)
+        ]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x', 'y'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        result = _normalize_sympy_equations(equations, index_map)
+        
+        assert len(result) == 2
+        assert result[0][0] == dx
+        assert result[1][0] == dy
+    
+    def test_normalize_invalid_tuple_length(self):
+        """Test error on tuple with wrong length."""
+        x = sp.Symbol('x')
+        equations = [(x, x, x)]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        with pytest.raises(TypeError, match="exactly 2 elements"):
+            _normalize_sympy_equations(equations, index_map)
+    
+    def test_normalize_invalid_lhs_type(self):
+        """Test error on non-Symbol LHS in Equality."""
+        x = sp.Symbol('x')
+        equations = [sp.Eq(x + 1, x)]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        with pytest.raises(ValueError, match="LHS of sp.Equality must be"):
+            _normalize_sympy_equations(equations, index_map)
+    
+    def test_normalize_bare_expression_error(self):
+        """Test error on bare sp.Expr (cannot infer LHS)."""
+        x = sp.Symbol('x')
+        equations = [x + 1]
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=['x'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        with pytest.raises(TypeError, match="Bare sp.Expr not supported"):
+            _normalize_sympy_equations(equations, index_map)
+    
+    def test_normalize_empty_list(self):
+        """Test empty equation list returns empty result."""
+        equations = []
+        
+        index_map = IndexedBases.from_user_inputs(
+            states=[],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[]
+        )
+        
+        result = _normalize_sympy_equations(equations, index_map)
+        assert result == []
 
 
 class TestProcessParameters:
@@ -732,3 +925,177 @@ class TestFunctions:
         # Operator-apply code should contain calls to the provided derivative name
         code = generate_operator_apply_code(equations=eq_map, index_map=index_map)
         assert "myfunc_grad(" in code
+
+
+class TestSympyInputPathway:
+    """Integration tests for SymPy input pathway."""
+    
+    def test_simple_ode_sympy_equality(self):
+        """Test simple ODE via SymPy Equality input."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        dxdt = [sp.Eq(dx, -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 1
+        assert str(parsed_eqs.state_derivatives[0][0]) == 'dx'
+        rhs_syms = parsed_eqs.state_derivatives[0][1].free_symbols
+        assert any(str(s) == 'k' for s in rhs_syms)
+        assert any(str(s) == 'x' for s in rhs_syms)
+    
+    def test_simple_ode_sympy_tuple(self):
+        """Test simple ODE via tuple input."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        dxdt = [(dx, -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 1
+        assert str(parsed_eqs.state_derivatives[0][0]) == 'dx'
+    
+    def test_ode_with_observables_sympy(self):
+        """Test ODE with observables via SymPy input."""
+        x, y, k = sp.symbols('x y k')
+        dx, dy, z = sp.symbols('dx dy z')
+        
+        dxdt = [
+            sp.Eq(dx, -k * x),
+            sp.Eq(dy, k * x),
+            sp.Eq(z, x + y)
+        ]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x', 'y'],
+            parameters=['k'],
+            observables=['z'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 2
+        assert len(parsed_eqs.observables) == 1
+        assert str(parsed_eqs.observables[0][0]) == 'z'
+    
+    def test_ode_with_user_functions_sympy(self):
+        """Test ODE with user functions via SymPy input."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        custom_func = sp.Function('custom_func')
+        
+        dxdt = [sp.Eq(dx, -k * custom_func(x))]
+        
+        def custom_impl(val):
+            return val ** 2
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            user_functions={'custom_func': custom_impl},
+            strict=True
+        )
+        
+        assert 'custom_func' in funcs
+        assert len(parsed_eqs.state_derivatives) == 1
+    
+    def test_sympy_vs_string_equivalence(self):
+        """Test that SymPy and string input produce same results."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        dxdt_sympy = [sp.Eq(dx, -k * x)]
+        
+        dxdt_string = "dx = -k * x"
+        
+        result_sympy = parse_input(
+            dxdt=dxdt_sympy,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        result_string = parse_input(
+            dxdt=dxdt_string,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        sympy_eq = result_sympy[3].state_derivatives[0]
+        string_eq = result_string[3].state_derivatives[0]
+        
+        assert str(sympy_eq[0]) == str(string_eq[0])
+        assert str(sympy_eq[1]) == str(string_eq[1])
+    
+    def test_sympy_infer_states_non_strict(self):
+        """Test state inference in non-strict mode."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        dxdt = [sp.Eq(dx, -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=[],
+            parameters=['k'],
+            strict=False
+        )
+        
+        assert 'x' in index_map.state_names
+        assert len(parsed_eqs.state_derivatives) == 1
+    
+    def test_sympy_infer_parameters_non_strict(self):
+        """Test parameter inference from RHS symbols."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        dxdt = [sp.Eq(dx, -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=[],
+            strict=False
+        )
+        
+        assert 'k' in index_map.parameter_names
+    
+    def test_sympy_user_functions_symbols_dict(self):
+        """Test user functions are properly added to symbols dict in SymPy pathway."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        
+        custom_func = sp.Function('custom_func')
+        dxdt = [sp.Eq(dx, -k * custom_func(x))]
+        
+        def custom_impl(val):
+            return val ** 2
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            user_functions={'custom_func': custom_impl},
+            strict=True
+        )
+        
+        # Verify user function in symbols dict
+        assert 'custom_func' in all_symbols
+        assert all_symbols['custom_func'] is custom_impl
+        
+        # Verify no alias map for SymPy input (aliases only for string pathway)
+        assert '__function_aliases__' not in all_symbols
