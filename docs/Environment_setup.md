@@ -156,6 +156,10 @@ Before starting, ensure you have:
 
 ### Step 8: Set Up JAX Environment (Optional)
 
+**Note**: The original conda environment files may fail due to outdated CUDA dependency management. We provide both the original conda method and an alternative venv method.
+
+#### Option A: Using Conda (Original Method)
+
 1. **Create the JAX conda environment**:
    ```bash
    cd ~/GPUODEBenchmarks
@@ -171,7 +175,45 @@ Before starting, ensure you have:
    conda deactivate
    ```
 
+#### Option B: Using Python venv (Alternative if Conda Fails)
+
+1. **Install Python 3.10 and venv**:
+   ```bash
+   sudo apt install python3.10 python3.10-venv python3-pip -y
+   ```
+
+2. **Create and activate venv**:
+   ```bash
+   cd ~/GPUODEBenchmarks/GPU_ODE_JAX
+   python3.10 -m venv venv_jax
+   source venv_jax/bin/activate
+   ```
+
+3. **Install JAX with CUDA support** (using latest versions):
+   ```bash
+   pip install --upgrade pip
+   pip install "jax[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+   pip install diffrax equinox jaxtyping numpy scipy typeguard
+   ```
+
+4. **Verify the installation**:
+   ```bash
+   python -c "import jax; print('JAX version:', jax.__version__); print('Devices:', jax.devices())"
+   deactivate
+   ```
+
+5. **Update runner script** to use venv activation:
+   ```bash
+   # Edit runner_scripts/gpu/run_ode_jax.sh
+   # Add after the shebang: source ./GPU_ODE_JAX/venv_jax/bin/activate
+   # Add at the end: deactivate
+   ```
+
 ### Step 9: Set Up PyTorch Environment (Optional)
+
+**Note**: The original conda environment files may fail due to outdated CUDA dependency management. We provide both the original conda method and an alternative venv method.
+
+#### Option A: Using Conda (Original Method)
 
 1. **Create the PyTorch conda environment**:
    ```bash
@@ -186,6 +228,100 @@ Before starting, ensure you have:
    pip install git+https://github.com/utkarsh530/torchdiffeq.git@u/vmap
    conda deactivate
    ```
+
+#### Option B: Using Python venv (Alternative if Conda Fails)
+
+1. **Install Python 3.10 and venv** (if not already done):
+   ```bash
+   sudo apt install python3.10 python3.10-venv python3-pip -y
+   ```
+
+2. **Create and activate venv**:
+   ```bash
+   cd ~/GPUODEBenchmarks/GPU_ODE_PyTorch
+   python3.10 -m venv venv_torch
+   source venv_torch/bin/activate
+   ```
+
+3. **Install PyTorch with CUDA support** (using latest versions):
+   ```bash
+   pip install --upgrade pip
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+   pip install numpy scipy
+   ```
+
+4. **Install custom torchdiffeq**:
+   ```bash
+   pip install git+https://github.com/utkarsh530/torchdiffeq.git@u/vmap
+   ```
+
+5. **Verify the installation**:
+   ```bash
+   python -c "import torch; print('PyTorch version:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+   deactivate
+   ```
+
+6. **Update runner script** to use venv activation:
+   ```bash
+   # Edit runner_scripts/gpu/run_ode_pytorch.sh
+   # Add after the shebang: source ./GPU_ODE_PyTorch/venv_torch/bin/activate
+   # Add at the end: deactivate
+   ```
+
+### Modifying Runner Scripts for venv (If Using Option B)
+
+If you chose to use Python venv instead of conda for JAX or PyTorch, you need to modify the corresponding runner scripts to activate the venv before running the benchmark script.
+
+#### For JAX (if using venv):
+
+Edit `runner_scripts/gpu/run_ode_jax.sh`:
+
+```bash
+#!/bin/bash
+# Activate venv
+source ./GPU_ODE_JAX/venv_jax/bin/activate
+
+a=8
+max_a=$1
+XLA_PYTHON_CLIENT_PREALLOCATE=false
+while [ $a -le $max_a ]
+do
+    # Print the values
+    echo "No. of trajectories = $a"
+    python3 ./GPU_ODE_JAX/bench_diffrax.py $a	
+    # increment the value
+    a=$((a*4))
+done
+
+# Deactivate venv
+deactivate
+```
+
+#### For PyTorch (if using venv):
+
+Edit `runner_scripts/gpu/run_ode_pytorch.sh`:
+
+```bash
+#!/bin/bash
+# Activate venv
+source ./GPU_ODE_PyTorch/venv_torch/bin/activate
+
+a=8
+max_a=$1
+while [ $a -le $max_a ]
+do
+    # Print the values
+    echo "No. of trajectories = $a"
+    python3 ./GPU_ODE_PyTorch/bench_torchdiffeq.py $a	
+    # increment the value
+    a=$((a*4))
+done
+
+# Deactivate venv
+deactivate
+```
+
+**Important**: These modifications are only needed if you used venv instead of conda. If you successfully used conda, no changes are needed.
 
 ### Step 10: Run Your First Benchmark
 
@@ -232,6 +368,17 @@ Before starting, ensure you have:
 **Issue: Conda environment creation fails**
 - Update conda: `conda update -n base -c defaults conda`
 - Try creating environment with `--force` flag
+- **If conda continues to fail**: Use the venv alternative (Option B) described in Steps 8 and 9
+
+**Issue: JAX/PyTorch conda environments fail with CUDA dependency errors**
+- This is a known issue with the original environment.yml files due to outdated CUDA dependency specifications
+- **Solution**: Use the Python venv alternative (Option B) in Steps 8 and 9, which uses current package versions
+- After setting up venv, modify the runner scripts as described in "Modifying Runner Scripts for venv"
+
+**Issue: Python not finding JAX/PyTorch after venv setup**
+- Ensure you activated the venv: `source ./GPU_ODE_JAX/venv_jax/bin/activate` (or venv_torch)
+- Check installation: `pip list | grep jax` (or `grep torch`)
+- Verify runner script has activation line at the beginning
 
 **Issue: Out of memory errors**
 - Start with smaller trajectory counts (-n 32 or -n 64)
@@ -272,6 +419,10 @@ Since you'll be modifying the benchmark suite, work with your own fork:
 
 ### Step 2: Create Cubie Environment
 
+**Choose either conda (Option A) or Python venv (Option B)**. If JAX/PyTorch conda failed, use venv for consistency.
+
+#### Option A: Using Conda
+
 1. **Create a conda environment for Cubie**:
    ```bash
    cd ~/GPUODEBenchmarks
@@ -308,6 +459,35 @@ Since you'll be modifying the benchmark suite, work with your own fork:
    python -c "import cubie; print('Cubie version:', cubie.__version__)"
    conda deactivate
    ```
+
+#### Option B: Using Python venv (Recommended if conda failed)
+
+1. **Create directory and venv**:
+   ```bash
+   cd ~/GPUODEBenchmarks
+   mkdir -p GPU_ODE_Cubie
+   cd GPU_ODE_Cubie
+   python3.10 -m venv venv_cubie
+   source venv_cubie/bin/activate
+   ```
+
+2. **Install Cubie and dependencies**:
+   ```bash
+   pip install --upgrade pip
+   pip install cubie
+   pip install numpy==1.26.4
+   pip install numba numba-cuda[cu12]
+   pip install attrs sympy
+   ```
+
+3. **Test Cubie installation**:
+   ```bash
+   python -c "import cubie; print('Cubie version:', cubie.__version__)"
+   python -c "import numba.cuda; print('CUDA available:', numba.cuda.is_available())"
+   deactivate
+   ```
+
+4. **Remember**: If using venv, you'll need to modify `runner_scripts/gpu/run_ode_cubie.sh` to include venv activation (see cubie_benchmark.md).
 
 ### Step 3: Install Benchmark Scripts
 
@@ -358,6 +538,48 @@ See `cubie_benchmark.md` for complete implementation details.
    # Requires modifications to plotting scripts
    julia --project=. ./runner_scripts/plot/plot_ode_comp.jl
    ```
+
+### Summary: Key Changes When Using venv Instead of Conda
+
+If you used Python venv (Option B) for JAX, PyTorch, or Cubie, the following changes are required to the benchmark system:
+
+**1. Runner Scripts Must Activate/Deactivate venv**
+
+Each affected runner script needs:
+- Add `source ./GPU_ODE_<Language>/venv_<name>/bin/activate` at the start
+- Add `deactivate` at the end
+
+Example for JAX (`runner_scripts/gpu/run_ode_jax.sh`):
+```bash
+#!/bin/bash
+source ./GPU_ODE_JAX/venv_jax/bin/activate
+# ... existing benchmark loop ...
+deactivate
+```
+
+**2. No Changes to Main run_benchmark.sh**
+
+The main `run_benchmark.sh` script does NOT need modification. It calls the runner scripts, which handle environment activation.
+
+**3. No Changes to Benchmark Python Scripts**
+
+The actual benchmark scripts (`bench_*.py`) remain unchanged. They rely on the activated environment.
+
+**4. Directory Structure Difference**
+
+- Conda: Environment managed by conda (external to repo)
+- venv: Each `GPU_ODE_<Language>/` contains its own `venv_<name>/` directory
+
+**5. Environment Recreation**
+
+- Conda: `conda env create -f environment.yml`
+- venv: Run setup script or manually create/activate/pip install
+
+**What Doesn't Change:**
+- Output format and data directory structure
+- Benchmark logic and timing methodology  
+- Integration with plotting scripts
+- Main orchestration via run_benchmark.sh
 
 ### Step 6: Commit and Push Changes
 

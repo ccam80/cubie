@@ -6,6 +6,16 @@ This document provides complete instructions for implementing Cubie support in a
 
 Add Cubie as a benchmarked GPU ODE solver to GPUODEBenchmarks, enabling direct performance comparisons with Julia/DiffEqGPU, JAX/Diffrax, PyTorch/torchdiffeq, and C++/MPGOS implementations.
 
+## Important Note: Conda vs Python venv
+
+**The original GPUODEBenchmarks repository uses conda environments**, but the environment.yml files for JAX and PyTorch may fail with modern CUDA setups due to outdated dependency specifications. 
+
+**Recommendation**: Use Python venv instead of conda for Cubie (and optionally for JAX/PyTorch). This guide provides both approaches:
+- **Conda**: Traditional approach, matches original repo structure
+- **Python venv**: Modern approach, more reliable with current CUDA drivers
+
+If you encounter conda environment creation failures, use the venv approach. The runner scripts need minor modifications (adding `source` and `deactivate` lines) when using venv.
+
 ## Repository Structure Overview
 
 The GPUODEBenchmarks repository follows this pattern for each solver:
@@ -31,7 +41,9 @@ GPUODEBenchmarks/
 
 Create the following files in this directory:
 
-#### File 1.1: `GPU_ODE_Cubie/environment.yml`
+#### File 1.1: `GPU_ODE_Cubie/environment.yml` (Conda - Optional)
+
+**Note**: You can use either conda or Python venv for Cubie. The venv approach is shown in File 1.1b below.
 
 ```yaml
 name: venv_cubie
@@ -49,6 +61,49 @@ dependencies:
       - numba-cuda[cu12]
       - attrs
       - sympy
+```
+
+#### File 1.1b: Alternative - Python venv Setup (Recommended)
+
+If you prefer using Python venv (or if conda fails), create a setup script instead:
+
+**`GPU_ODE_Cubie/setup_venv.sh`**:
+```bash
+#!/bin/bash
+# Setup Python venv for Cubie benchmarking
+
+# Ensure Python 3.10 is installed
+sudo apt install python3.10 python3.10-venv python3-pip -y
+
+# Create venv
+python3.10 -m venv venv_cubie
+
+# Activate venv
+source venv_cubie/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install Cubie and dependencies
+pip install cubie
+pip install numpy==1.26.4
+pip install numba numba-cuda[cu12]
+pip install attrs sympy
+
+# Verify installation
+python -c "import cubie; print('Cubie installed successfully')"
+python -c "import numba.cuda; print('CUDA available:', numba.cuda.is_available())"
+
+# Deactivate
+deactivate
+
+echo "Cubie environment setup complete. Activate with: source GPU_ODE_Cubie/venv_cubie/bin/activate"
+```
+
+Make executable and run:
+```bash
+chmod +x GPU_ODE_Cubie/setup_venv.sh
+./GPU_ODE_Cubie/setup_venv.sh
 ```
 
 #### File 1.2: `GPU_ODE_Cubie/bench_cubie.py`
@@ -216,6 +271,7 @@ with open("./data/CUBIE/Cubie_times_adaptive.txt", "a+") as file:
 
 **Location**: `runner_scripts/gpu/run_ode_cubie.sh`
 
+**If using conda**:
 ```bash
 #!/bin/bash
 a=8
@@ -228,9 +284,34 @@ do
 done
 ```
 
+**If using Python venv** (recommended):
+```bash
+#!/bin/bash
+# Activate venv
+source ./GPU_ODE_Cubie/venv_cubie/bin/activate
+
+a=8
+max_a=$1
+while [ $a -le $max_a ]
+do
+    echo "No. of trajectories = $a"
+    python3 ./GPU_ODE_Cubie/bench_cubie.py $a
+    a=$((a*4))
+done
+
+# Deactivate venv
+deactivate
+```
+
 **Make executable**:
 ```bash
 chmod +x runner_scripts/gpu/run_ode_cubie.sh
+```
+
+**Note**: If you used venv for Cubie, make sure you've run the setup script first:
+```bash
+cd ~/GPUODEBenchmarks
+./GPU_ODE_Cubie/setup_venv.sh
 ```
 
 ### Task 3: Modify Main Orchestration Script
