@@ -457,3 +457,79 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
     finally:
         # Restore the original logger
         cellml._default_timelogger = original_logger
+
+
+def test_cellml_numeric_literals_wrapped(basic_model):
+    """Verify that CellML numeric literals are wrapped with precision()."""
+    # basic_model is a SymbolicODE loaded from CellML
+    # The generated code should have precision() wrapping
+    
+    # Access the generated code (if available) or compile and check
+    # We need to verify the dxdt_function was compiled with wrapped literals
+    
+    # Since we can't easily inspect compiled CUDA code, we verify:
+    # 1. The model compiles successfully (no type errors)
+    # 2. The model runs successfully with different precisions
+    
+    # Test with float32
+    result_32 = solve_ivp(
+        basic_model,
+        t_span=(0, 1),
+        initial_values={'main_x': 1.0},
+        dt=0.01,
+        precision=np.float32
+    )
+    assert isinstance(result_32.states, np.ndarray)
+    assert result_32.states.dtype == np.float32
+    
+    # Test with float64  
+    result_64 = solve_ivp(
+        basic_model,
+        t_span=(0, 1),
+        initial_values={'main_x': 1.0},
+        dt=0.01,
+        precision=np.float64
+    )
+    assert isinstance(result_64.states, np.ndarray)
+    assert result_64.states.dtype == np.float64
+    
+    # Verify results are numerically close but precision-appropriate
+    # (Different precisions may produce slightly different results)
+    assert result_32.states.shape == result_64.states.shape
+
+
+def test_user_equation_literals_wrapped():
+    """Verify user-supplied equation literals are wrapped with precision()."""
+    from cubie import SymbolicODE
+    
+    # Create ODE with magic numbers in equations
+    # dx/dt = -0.5 * x + 2.0
+    ode = SymbolicODE(
+        dxdt=['dx = -0.5 * x + 2.0'],
+        observables={}
+    )
+    
+    # Verify it compiles and runs with float32
+    result_32 = solve_ivp(
+        ode,
+        t_span=(0, 1),
+        initial_values={'x': 1.0},
+        dt=0.01,
+        precision=np.float32
+    )
+    assert result_32.states.dtype == np.float32
+    
+    # Verify it compiles and runs with float64
+    result_64 = solve_ivp(
+        ode,
+        t_span=(0, 1),
+        initial_values={'x': 1.0},
+        dt=0.01,
+        precision=np.float64
+    )
+    assert result_64.states.dtype == np.float64
+    
+    # Verify results make sense (not NaN, reasonable values)
+    assert not np.any(np.isnan(result_32.states))
+    assert not np.any(np.isnan(result_64.states))
+

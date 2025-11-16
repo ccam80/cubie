@@ -267,3 +267,104 @@ def test_functions():
     """Test that expressions containing SymPy functions are successfully
     converted to CUDA-compatible functions as given by CUDA_FUNCTIONS"""
     pass
+
+
+class TestNumericPrecisionWrapping:
+    """Test cases for numeric literal precision wrapping."""
+
+    def test_print_float_wrapped(self):
+        """Test that Float literals are wrapped with precision()."""
+        printer = CUDAPrinter()
+        expr = sp.Float(0.5)
+        result = printer.doprint(expr)
+        assert result == "precision(0.5)"
+
+    def test_print_integer_wrapped(self):
+        """Test that Integer literals are wrapped with precision()."""
+        printer = CUDAPrinter()
+        expr = sp.Integer(2)
+        result = printer.doprint(expr)
+        assert result == "precision(2)"
+
+    def test_print_rational_wrapped(self):
+        """Test that Rational literals are wrapped with precision()."""
+        printer = CUDAPrinter()
+        expr = sp.Rational(1, 2)
+        result = printer.doprint(expr)
+        assert result == "precision(1/2)"
+
+    def test_expression_with_literals(self):
+        """Test that all literals in expressions are wrapped."""
+        printer = CUDAPrinter()
+        x = sp.Symbol('x')
+        expr = x + sp.Float(0.5) * sp.Integer(2)
+        result = printer.doprint(expr)
+        # Verify all literals are wrapped
+        assert "precision(0.5)" in result
+        assert "precision(2)" in result
+        # Verify expression structure preserved (x + ...)
+        assert "x" in result
+
+    def test_negative_float(self):
+        """Test negative float literals are wrapped correctly."""
+        printer = CUDAPrinter()
+        expr = sp.Float(-0.5)
+        result = printer.doprint(expr)
+        assert result == "precision(-0.5)"
+
+    def test_negative_integer(self):
+        """Test negative integer literals are wrapped correctly."""
+        printer = CUDAPrinter()
+        expr = sp.Integer(-2)
+        result = printer.doprint(expr)
+        assert result == "precision(-2)"
+
+    def test_scientific_notation(self):
+        """Test scientific notation floats are wrapped correctly."""
+        printer = CUDAPrinter()
+        expr = sp.Float(1.5e-10)
+        result = printer.doprint(expr)
+        assert "precision(1.5e-10)" in result or "precision(1.5e-010)" in result
+
+    def test_piecewise_with_literals(self):
+        """Test that literals in Piecewise expressions are wrapped."""
+        printer = CUDAPrinter()
+        x = sp.Symbol('x')
+        # Piecewise((0.5, x > 0), (0, True))
+        expr = sp.Piecewise((sp.Float(0.5), x > sp.Integer(0)), 
+                            (sp.Integer(0), True))
+        result = printer.doprint(expr)
+        # All numeric literals should be wrapped
+        assert "precision(0.5)" in result
+        assert "precision(0)" in result
+
+    def test_large_integer(self):
+        """Test large integers are wrapped without precision loss."""
+        printer = CUDAPrinter()
+        expr = sp.Integer(1000000)
+        result = printer.doprint(expr)
+        assert result == "precision(1000000)"
+
+    def test_zero_literal(self):
+        """Test zero literal is wrapped."""
+        printer = CUDAPrinter()
+        expr = sp.Integer(0)
+        result = printer.doprint(expr)
+        assert result == "precision(0)"
+
+    def test_rational_negative(self):
+        """Test negative rational literals are wrapped."""
+        printer = CUDAPrinter()
+        expr = sp.Rational(-1, 3)
+        result = printer.doprint(expr)
+        assert result == "precision(-1/3)"
+
+    def test_mixed_expression_with_power_replacement(self):
+        """Test literals are wrapped even after power replacement."""
+        printer = CUDAPrinter()
+        x = sp.Symbol('x')
+        # x**2 + 0.5 should become x*x + precision(0.5)
+        expr = x**2 + sp.Float(0.5)
+        result = printer.doprint(expr)
+        assert "x*x" in result  # Power replacement happens
+        assert "precision(0.5)" in result  # Literal wrapping happens

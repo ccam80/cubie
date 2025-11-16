@@ -143,6 +143,35 @@ class CUDAPrinter(PythonCodePrinter):
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
+    def _print_Pow(self, expr: sp.Pow) -> str:
+        """Print power expression, avoiding precision wrap for numeric exponents.
+
+        Parameters
+        ----------
+        expr
+            Power expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation that preserves numeric exponents unwrapped
+            for power-to-multiplication optimization.
+
+        Notes
+        -----
+        Exponents are not wrapped with precision() so that the
+        _replace_powers_with_multiplication regex can detect patterns like
+        x**2 and x**3 for optimization.
+        """
+        base = self._print(expr.base)
+        # Print exponent without wrapping - temporarily disable precision wrap
+        exp_expr = expr.exp
+        if isinstance(exp_expr, (sp.Float, sp.Integer, sp.Rational)):
+            exponent = str(exp_expr)
+        else:
+            exponent = self._print(exp_expr)
+        return f"{base}**{exponent}"
+
     def _print_Piecewise(self, expr: sp.Piecewise) -> str:
         """Render a ``Piecewise`` expression as nested ternaries.
 
@@ -286,6 +315,58 @@ class CUDAPrinter(PythonCodePrinter):
         # Fallback: print a plain function call to avoid PrintMethodNotImplementedError
         args = [self._print(arg) for arg in expr.args]
         return f"{func_name}({', '.join(args)})"
+
+    def _print_Float(self, expr: sp.Float) -> str:
+        """Print a floating-point literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Float expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+        """
+        return f"precision({str(expr)})"
+
+    def _print_Integer(self, expr: sp.Integer) -> str:
+        """Print an integer literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Integer expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+        """
+        return f"precision({str(expr)})"
+
+    def _print_Rational(self, expr: sp.Rational) -> str:
+        """Print a rational number literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Rational expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(p/q)``.
+
+        Notes
+        -----
+        The rational is printed as ``p/q`` where ``p`` and ``q`` are the
+        numerator and denominator. Python evaluates this division at
+        runtime, then ``precision()`` casts the result to the configured
+        dtype.
+        """
+        return f"precision({str(expr)})"
 
 # TODO: Singularity skips from Chaste codegen, piecewise blend if required
 
