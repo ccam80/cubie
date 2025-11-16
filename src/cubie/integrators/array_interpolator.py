@@ -14,7 +14,7 @@ from cubie.cuda_simsafe import selp
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
@@ -27,7 +27,7 @@ FloatArray = NDArray[np.floating]
 
 
 @define
-class InterpolatorCache:
+class InterpolatorCache(CUDAFunctionCache):
     """Cached device helpers emitted by :class:`ArrayInterpolator`."""
 
     evaluation_function: Optional[Callable] = field(default=None)

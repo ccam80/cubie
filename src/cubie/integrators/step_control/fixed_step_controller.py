@@ -1,13 +1,15 @@
 """Fixed step-size controller implementations."""
 
-from typing import Callable
 
 from attrs import define, field
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.step_control.base_step_controller import (
-    BaseStepControllerConfig, BaseStepController)
+    BaseStepControllerConfig,
+    BaseStepController,
+    ControllerCache,
+)
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
@@ -89,7 +91,7 @@ class FixedStepController(BaseStepController):
         config = FixedStepControlConfig(precision=precision, n=n, dt=dt)
         self.setup_compile_settings(config)
 
-    def build(self) -> Callable:
+    def build(self) -> ControllerCache:
         """Return a device function that always accepts with fixed step.
 
         Returns
@@ -128,7 +130,7 @@ class FixedStepController(BaseStepController):
             accept_out[0] = int32(1)
             return int32(0)
 
-        return controller_fixed_step
+        return ControllerCache(device_function=controller_fixed_step)
 
     @property
     def local_memory_elements(self) -> int:

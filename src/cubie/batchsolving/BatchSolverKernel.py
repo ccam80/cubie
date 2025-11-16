@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities."""
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import numpy as np
@@ -14,7 +14,7 @@ from cubie.cuda_simsafe import is_cudasim_enabled
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
     OutputArrays,
@@ -63,6 +63,9 @@ class ChunkParams:
     size: int
     runs: int
 
+@attrs.define()
+class BatchSolverCache(CUDAFunctionCache):
+    device_function: Union[int, Callable] = attrs.field(default=-1)
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -742,10 +745,9 @@ class BatchSolverKernel(CUDAFactory):
 
         return self.device_function
 
-    def build(self) -> Callable:
+    def build(self) -> BatchSolverCache:
         """Compile the integration kernel and return it."""
-
-        return self.build_kernel()
+        return BatchSolverCache(device_function=self.build_kernel())
 
     @property
     def profileCUDA(self) -> bool:

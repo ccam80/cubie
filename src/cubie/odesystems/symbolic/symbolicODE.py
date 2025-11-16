@@ -502,6 +502,7 @@ class SymbolicODE(BaseODE):
         elif func_type == "cached_aux_count":
             if self._jacobian_aux_count is None:
                 self.get_solver_helper("prepare_jac")
+            _default_timelogger.stop_event(event_name)
             return self._jacobian_aux_count
         elif func_type == "calculate_cached_jvp":
             code = generate_cached_jvp_code(

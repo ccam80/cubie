@@ -9,14 +9,15 @@ implement specific control strategies.
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 import warnings
 
+import attrs
 import numba
 from numpy import float32
 from attrs import define, field
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
     precision_validator
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -29,6 +30,10 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
     'gamma', 'max_newton_iters'
 }
+
+@attrs.define
+class ControllerCache(CUDAFunctionCache):
+    device_function: Union[Callable, int] = attrs.field(default=-1)
 
 @define
 class BaseStepControllerConfig(ABC):
