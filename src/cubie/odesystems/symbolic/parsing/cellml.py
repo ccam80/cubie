@@ -52,6 +52,26 @@ from typing import Optional, List
 import re
 
 from cubie._utils import PrecisionDType
+from cubie.time_logger import _default_timelogger
+
+# Register timing events for cellml import functions
+# Module-level registration required for proper event tracking
+_default_timelogger.register_event(
+    "codegen_cellml_load_model", "codegen",
+    "Codegen time for cellmlmanip.load_model()"
+)
+_default_timelogger.register_event(
+    "codegen_cellml_symbol_conversion", "codegen",
+    "Codegen time for converting Dummy symbols to Symbols"
+)
+_default_timelogger.register_event(
+    "codegen_cellml_equation_processing", "codegen",
+    "Codegen time for processing differential and algebraic equations"
+)
+_default_timelogger.register_event(
+    "codegen_cellml_string_formatting", "codegen",
+    "Codegen time for formatting equations as strings"
+)
 
 
 def _sanitize_symbol_name(name: str) -> str:
@@ -253,14 +273,17 @@ def load_cellml_model(
     if name is None:
         name = path_obj.stem
     
+    _default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
+    _default_timelogger.stop_event("codegen_cellml_load_model")
     
     # Extract initial values and units from CellML model
     initial_values = {}
     state_units = {}
     
+    _default_timelogger.start_event("codegen_cellml_symbol_conversion")
     # Convert Dummy symbols to regular Symbols with sanitized names
     # cellmlmanip returns Dummy symbols but we need regular Symbols
     states = []
@@ -307,7 +330,9 @@ def load_cellml_model(
                     all_symbol_units[clean_name] = str(atom.units)
                 else:
                     all_symbol_units[clean_name] = "dimensionless"
+    _default_timelogger.stop_event("codegen_cellml_symbol_conversion")
     
+    _default_timelogger.start_event("codegen_cellml_equation_processing")
     # Filter differential equations and algebraic equations separately
     differential_equations = []
     algebraic_equations = []
@@ -318,7 +343,9 @@ def load_cellml_model(
             differential_equations.append(eq_substituted)
         else:
             algebraic_equations.append(eq_substituted)
+    _default_timelogger.stop_event("codegen_cellml_equation_processing")
     
+    _default_timelogger.start_event("codegen_cellml_string_formatting")
     # Convert equations to string format for SymbolicODE.create()
     dxdt_strings = []
     for eq in differential_equations:
@@ -400,6 +427,7 @@ def load_cellml_model(
         parameters_dict = {**parameters_dict, **parameters}
     # If parameters is a list, parameters_dict already contains the extracted values
     # for variables in that list, so no additional merge is needed
+    _default_timelogger.stop_event("codegen_cellml_string_formatting")
     
     # Import here to avoid circular import with codegen modules
     # cellml is imported by parsing/__init__.py which is imported
