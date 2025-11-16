@@ -36,6 +36,7 @@ class D2xdt2Min(SummaryMetric):
             name="d2xdt2_min",
             buffer_size=3,
             output_size=1,
+            unit_modification="[unit]*s^-2",
         )
 
     def build(self) -> MetricFuncCache:

@@ -585,7 +585,7 @@ class CUDAFactory(ABC):
             old_value = getattr(self._compile_settings, key)
             try:
                 value_changed = (
-                    getattr(self._compile_settings, key) != value
+                    old_value != value
                 )
             except ValueError:
                 # Maybe the size of an array has changed?

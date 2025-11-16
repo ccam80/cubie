@@ -620,6 +620,11 @@ class Solver:
         return self.kernel.summary_legend_per_variable
 
     @property
+    def summary_unit_modifications(self) -> dict[int, str]:
+        """Expose summary unit modifications keyed by variable index."""
+        return self.kernel.summary_unit_modifications
+
+    @property
     def saved_state_indices(self):
         """Expose saved state indices."""
         return self.kernel.saved_state_indices

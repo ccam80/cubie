@@ -11,13 +11,18 @@ import numba
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie._utils import (
     PrecisionDType,
-    getype_validator,
-    inrangetype_validator,
     precision_converter,
     precision_validator,
 )
 from cubie.odesystems.SystemValues import SystemValues
 
+def update_precisions(instance, attribute, value):
+    """Update precision of all values in an ODEData instance."""
+    instance.parameters.precision = value
+    instance.constants.precision = value
+    instance.initial_states.precision = value
+    instance.observables.precision = value
+    return value
 
 @attrs.define
 class SystemSizes:
@@ -107,22 +112,11 @@ class ODEData:
     precision: PrecisionDType = attrs.field(
         converter=precision_converter,
         validator=precision_validator,
+        on_setattr=update_precisions,
         default=float32
     )
     num_drivers: int = attrs.field(
         validator=attrs.validators.instance_of(int), default=1
-    )
-    _beta: float = attrs.field(
-        default=1.0,
-        validator=inrangetype_validator(float, -32678, 32677),
-    )
-    _gamma: float = attrs.field(
-        default=1.0,
-        validator=inrangetype_validator(float, -32678, 32677),
-    )
-    preconditioner_order: int = attrs.field(
-        default=0,
-        validator=getype_validator(int, 0),
     )
     _mass: Any = attrs.field(default=None, eq=False)
 

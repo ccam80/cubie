@@ -961,6 +961,12 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.summary_legend_per_variable
 
     @property
+    def summary_unit_modifications(self) -> Any:
+        """Unit modifications for each summarised variable."""
+
+        return self.single_integrator.summary_unit_modifications
+
+    @property
     def saved_state_indices(self) -> Any:
         """Indices of saved state variables."""
 

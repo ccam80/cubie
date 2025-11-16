@@ -447,7 +447,7 @@ class OutputConfig:
 
     @saved_state_indices.setter
     def saved_state_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the state indices that will be saved.
 
@@ -474,7 +474,7 @@ class OutputConfig:
 
     @saved_observable_indices.setter
     def saved_observable_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the observable indices that will be saved.
 
@@ -494,12 +494,14 @@ class OutputConfig:
 
     @property
     def summarised_state_indices(self) -> NDArray[np.int_]:
-        """State indices included in summary calculations."""
+        """State indices for summaries, or an empty array when disabled."""
+        if not self.save_summaries:
+            return np.asarray([], dtype=np.int_)
         return self._summarised_state_indices
 
     @summarised_state_indices.setter
     def summarised_state_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the state indices used for summary calculations.
 
@@ -519,12 +521,14 @@ class OutputConfig:
 
     @property
     def summarised_observable_indices(self) -> NDArray[np.int_]:
-        """Observable indices included in summary calculations."""
+        """Observable indices for summaries, or an empty array when disabled."""
+        if not self.save_summaries:
+            return np.asarray([], dtype=np.int_)
         return self._summarised_observable_indices
 
     @summarised_observable_indices.setter
     def summarised_observable_indices(
-        self, value: Sequence[int] | NDArray[np.int_]
+        self, value: Union[Sequence[int], NDArray[np.int_]]
     ) -> None:
         """Set the observable indices used for summary calculations.
 
@@ -630,6 +634,22 @@ class OutputConfig:
         legend_tuple = summary_metrics.legend(self._summary_types)
         legend_dict = dict(zip(range(len(legend_tuple)), legend_tuple))
         return legend_dict
+
+    @property
+    def summary_unit_modifications(self) -> dict[int, str]:
+        """Map per-variable summary indices to unit modifications.
+
+        Returns
+        -------
+        dict[int, str]
+            Dictionary that assigns each per-variable summary slot to its
+            unit modification string.
+        """
+        if not self._summary_types:
+            return {}
+        unit_mod_tuple = summary_metrics.unit_modifications(self._summary_types)
+        unit_mod_dict = dict(zip(range(len(unit_mod_tuple)), unit_mod_tuple))
+        return unit_mod_dict
 
     @property
     def summary_parameters(self) -> dict[str, object]:
@@ -859,10 +879,10 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
-        saved_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        saved_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        summarised_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
-        summarised_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
+        saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        summarised_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
@@ -920,7 +940,7 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-        
+
         if precision is None:
             precision = np.float32
 
