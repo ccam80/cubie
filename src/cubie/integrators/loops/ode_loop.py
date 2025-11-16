@@ -8,10 +8,11 @@ compiled kernels only need to focus on algorithmic updates.
 from math import ceil
 from typing import Callable, Optional, Set
 
+import attrs
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp
 from cubie._utils import PrecisionDType
@@ -20,6 +21,17 @@ from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
+
+@attrs.define
+class IVPLoopCache(CUDAFunctionCache):
+    """Cache for IVP loop device function.
+    
+    Attributes
+    ----------
+    loop_function
+        Compiled CUDA device function that executes the integration loop.
+    """
+    loop_function: Callable = attrs.field()
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
 # the solver API so helper utilities can consistently merge keyword arguments
@@ -528,7 +540,27 @@ class IVPLoop(CUDAFactory):
                 status = int32(32)
             return status
 
-        return loop_fn
+        # Attach critical shapes for dummy execution
+        # Parameters in order: initial_states, parameters, driver_coefficients,
+        # shared_scratch, persistent_local, state_output, observables_output,
+        # state_summaries_output, observable_summaries_output,
+        # iteration_counters_output, duration, settling_time, t0
+        loop_fn.critical_shapes = (
+            (n_states,),  # initial_states
+            (n_parameters,),  # parameters
+            (100,n_states,6),  # driver_coefficients
+            (32768//8), # local persistent - not really used
+            (32768//8),  # persistent_local - arbitrary 32kb provided / float64
+            (100, n_states), # state_output
+            (100, n_observables), # observables_output
+            (100, n_states),  # state_summaries_output
+            (100, n_observables), # obs summ output
+            (1, n_counters),  # iteration_counters_output
+            None,  # duration - scalar
+            None,  # settling_time - scalar
+            None,  # t0 - scalar (optional)
+        )
+        return IVPLoopCache(loop_function=loop_fn)
 
     @property
     def dt_save(self) -> float:
@@ -575,6 +607,17 @@ class IVPLoop(CUDAFactory):
         """Return the output compile flags associated with the loop."""
 
         return self.compile_settings.compile_flags
+
+    @property
+    def device_function(self):
+        """Return the compiled CUDA loop function.
+        
+        Returns
+        -------
+        callable
+            Compiled CUDA device function.
+        """
+        return self.get_cached_output('loop_function')
 
     @property
     def save_state_fn(self) -> Optional[Callable]:

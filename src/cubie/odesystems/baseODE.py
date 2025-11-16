@@ -7,13 +7,13 @@ import attrs
 import numpy as np
 from numpy.typing import NDArray
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 
 
 @attrs.define
-class ODECache:
+class ODECache(CUDAFunctionCache):
     """Cache compiled CUDA device and support functions for an ODE system.
 
     Attributes default to ``-1`` when the corresponding function is not built.

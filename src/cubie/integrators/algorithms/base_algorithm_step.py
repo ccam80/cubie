@@ -15,10 +15,9 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
-    gttype_validator,
     opt_gttype_validator,
 )
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible algorithm step parameters across all algorithm types
@@ -376,7 +375,7 @@ class BaseStepConfig(ABC):
         return tableau.stage_count
 
 @attrs.define
-class StepCache:
+class StepCache(CUDAFunctionCache):
     """Container for compiled device helpers used by an algorithm step.
 
     Parameters

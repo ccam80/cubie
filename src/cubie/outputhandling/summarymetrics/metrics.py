@@ -19,10 +19,11 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+
 
 @attrs.define
-class MetricFuncCache:
+class MetricFuncCache(CUDAFunctionCache):
     """Cache container for compiled metric functions.
 
     Attributes

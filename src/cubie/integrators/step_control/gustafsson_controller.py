@@ -12,6 +12,8 @@ from cubie.integrators.step_control.adaptive_step_controller import (
 )
 from cubie._utils import PrecisionDType, getype_validator, inrangetype_validator
 from cubie.cuda_simsafe import selp
+from cubie.integrators.step_control.base_step_controller import ControllerCache
+
 
 @define
 class GustafssonStepControlConfig(AdaptiveStepControlConfig):
@@ -150,7 +152,7 @@ class GustafssonController(BaseAdaptiveStepController):
         rtol: np.ndarray,
         algorithm_order: int,
         safety: float,
-    ) -> Callable:
+    ) -> ControllerCache:
         """Create the device function for the Gustafsson controller.
 
         Parameters
@@ -268,4 +270,4 @@ class GustafssonController(BaseAdaptiveStepController):
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
-        return controller_gustafsson
+        return ControllerCache(device_function=controller_gustafsson)

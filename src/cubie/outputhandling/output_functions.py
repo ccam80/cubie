@@ -13,7 +13,7 @@ import attrs
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.outputhandling.output_config import OutputCompileFlags, OutputConfig
 from cubie.outputhandling.output_sizes import (
     SummariesBufferSizes,
@@ -41,7 +41,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
 
 
 @attrs.define
-class OutputFunctionCache:
+class OutputFunctionCache(CUDAFunctionCache):
     """Cache container for compiled output functions.
 
     Attributes
