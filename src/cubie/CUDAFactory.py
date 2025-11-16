@@ -52,45 +52,54 @@ def _create_placeholder_args(device_function, precision) -> tuple:
     
     Parameters
     ----------
-    param_count
-        Number of parameters the device function expects
+    device_function
+        CUDA device function to create arguments for
     precision
         Numerical precision for scalar and array arguments
     
     Returns
     -------
     tuple
-        Tuple of 1-element arrays with specified precision
+        Tuple of arguments with appropriate types and shapes
     
     Notes
     -----
-    Creates minimal 1-element arrays for all parameters. This works
-    for most CUDA device functions which expect array parameters.
-    Scalars are automatically converted when needed.
+    Creates minimal arrays for all parameters. If the device function has
+    a `critical_shapes` attribute, those shapes are used instead of size-1
+    arrays to avoid illegal memory access during dummy execution.
     """
+    # Check if critical_shapes attribute exists
+    has_critical_shapes = hasattr(device_function, 'critical_shapes')
+    critical_shapes = getattr(device_function, 'critical_shapes', None)
+    
     args_out = tuple()
     try:
         sigs = device_function.signatures
-        for sig in sigs:
+        for sig_idx, sig in enumerate(sigs):
             args = tuple()
-            for item in sig:
+            for param_idx, item in enumerate(sig):
                 if isinstance(item, numba.types.Array):
+                    # Determine shape - use critical_shapes if available
+                    if has_critical_shapes and critical_shapes and param_idx < len(critical_shapes):
+                        shape = critical_shapes[param_idx]
+                        if shape is None or len(shape) == 0:
+                            shape = (1,) * item.ndim
+                    else:
+                        shape = (1,) * item.ndim
+                    
+                    # Create array with appropriate dtype and shape
                     if item.dtype == numba.float64:
-                        args += (np.ones((1, )*item.ndim, dtype=np.float64),)
+                        args += (np.ones(shape, dtype=np.float64),)
                     elif item.dtype == numba.float32:
-                        args += (np.ones((1, )*item.ndim, dtype=np.float32),)
+                        args += (np.ones(shape, dtype=np.float32),)
                     elif item.dtype == numba.types.float16:
-                        args += (np.ones((1,) * item.ndim, dtype=np.float16),)
+                        args += (np.ones(shape, dtype=np.float16),)
                     elif item.dtype == numba.int64:
-                        args += (
-                            np.ones((1,) * item.ndim, dtype=np.int64),
-                        )
+                        args += (np.ones(shape, dtype=np.int64),)
                     elif item.dtype == numba.int32:
-                        args += (
-                            np.ones((1,) * item.ndim, dtype=np.int32),
-                        )
+                        args += (np.ones(shape, dtype=np.int32),)
                     elif item.dtype == numba.types.int16:
-                        args += (np.ones((1, )*item.ndim, dtype=np.int16),)
+                        args += (np.ones(shape, dtype=np.int16),)
                 elif isinstance(item, numba.types.Integer):
                     if item.bitwidth <= 8:
                         args += (np.int8(1),)
@@ -113,12 +122,24 @@ def _create_placeholder_args(device_function, precision) -> tuple:
             args_out += (args,)
         return args_out
     except:
+        # Fallback when no signatures available yet
         sig = inspect.signature(device_function.py_func)
-        params = list(sig.parameters.keys()) # TODO: see if we need to get shapes
-        # out
+        params = list(sig.parameters.keys())
         param_count = len(params)
-        return tuple(np.array([1.0], dtype=precision) for _ in
-                     range(param_count))
+        
+        # Use critical_shapes if available
+        if has_critical_shapes and critical_shapes:
+            args = tuple()
+            for param_idx in range(param_count):
+                if param_idx < len(critical_shapes) and critical_shapes[param_idx] is not None:
+                    shape = critical_shapes[param_idx]
+                    args += (np.ones(shape, dtype=precision),)
+                else:
+                    # Scalar or unknown
+                    args += (np.array(1.0, dtype=precision),)
+            return (args,)
+        else:
+            return (tuple(np.array(1.0, dtype=precision) for _ in range(param_count)),)
 
 def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
     """Create minimal CUDA kernel to trigger device function compilation.

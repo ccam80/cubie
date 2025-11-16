@@ -541,6 +541,27 @@ class IVPLoop(CUDAFactory):
                 status = int32(32)
             return status
 
+        # Attach critical shapes for dummy execution
+        # Parameters in order: initial_states, parameters, driver_coefficients,
+        # shared_scratch, persistent_local, state_output, observables_output,
+        # state_summaries_output, observable_summaries_output,
+        # iteration_counters_output, duration, settling_time, t0
+        loop_fn.critical_shapes = (
+            (n_states,),  # initial_states
+            (n_parameters,),  # parameters
+            None,  # driver_coefficients - complex, use default
+            None,  # shared_scratch - complex, use default
+            None,  # persistent_local - complex, use default
+            (1, n_states) if save_state_bool else (0, n_states),  # state_output
+            (1, n_observables) if save_obs_bool else (0, n_observables),  # observables_output
+            (1,) if summarise_state_bool else (0,),  # state_summaries_output - simplified
+            (1,) if summarise_obs_bool else (0,),  # observable_summaries_output - simplified
+            (1, n_counters) if save_counters_bool else (0, n_counters),  # iteration_counters_output
+            None,  # duration - scalar
+            None,  # settling_time - scalar
+            None,  # t0 - scalar (optional)
+        )
+
         return IVPLoopCache(loop_function=loop_fn)
 
     @property
