@@ -8,6 +8,7 @@ import attrs
 import numpy as np
 from numpy import array_equal, asarray
 from numba import cuda
+import numba
 
 from cubie._utils import in_attr
 from cubie.time_logger import _default_timelogger
@@ -67,13 +68,57 @@ def _create_placeholder_args(device_function, precision) -> tuple:
     for most CUDA device functions which expect array parameters.
     Scalars are automatically converted when needed.
     """
-    sig = inspect.signature(device_function.py_func)
-    params = list(sig.parameters.keys()) # TODO: see if we need to get shapes
-    # out
-    param_count = len(params)
-    return tuple(np.array([1.0], dtype=precision) for _ in
-                 range(param_count))
-
+    args_out = tuple()
+    try:
+        sigs = device_function.signatures
+        for sig in sigs:
+            args = tuple()
+            for item in sig:
+                if isinstance(item, numba.types.Array):
+                    if item.dtype == numba.float64:
+                        args += (np.ones((1, )*item.ndim, dtype=np.float64),)
+                    elif item.dtype == numba.float32:
+                        args += (np.ones((1, )*item.ndim, dtype=np.float32),)
+                    elif item.dtype == numba.types.float16:
+                        args += (np.ones((1,) * item.ndim, dtype=np.float16),)
+                    elif item.dtype == numba.int64:
+                        args += (
+                            np.ones((1,) * item.ndim, dtype=np.int64),
+                        )
+                    elif item.dtype == numba.int32:
+                        args += (
+                            np.ones((1,) * item.ndim, dtype=np.int32),
+                        )
+                    elif item.dtype == numba.types.int16:
+                        args += (np.ones((1, )*item.ndim, dtype=np.int16),)
+                elif isinstance(item, numba.types.Integer):
+                    if item.bitwidth <= 8:
+                        args += (np.int8(1),)
+                    elif item.bitwidth <= 16:
+                        args += (np.int16(1),)
+                    elif item.bitwidth <= 32:
+                        args += (np.int32(1),)
+                    elif item.bitwidth <= 64:
+                       args += (np.int64(1),)
+                elif isinstance(item, numba.types.Float):
+                    if item.bitwidth <= 16:
+                        args += (np.float16(1),)
+                    elif item.bitwidth <= 32:
+                        args += (np.float32(1),)
+                    elif item.bitwidth <= 64:
+                        args += (np.float64(1),)
+                else:
+                    raise TypeError(
+                        f"Unsupported parameter type {item} in device function.")
+            args_out += (args,)
+        return args_out
+    except:
+        sig = inspect.signature(device_function.py_func)
+        params = list(sig.parameters.keys()) # TODO: see if we need to get shapes
+        # out
+        param_count = len(params)
+        return tuple(np.array([1.0], dtype=precision) for _ in
+                     range(param_count))
 
 def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
     """Create minimal CUDA kernel to trigger device function compilation.
@@ -95,81 +140,210 @@ def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
     Calls numba.cuda.synchronize() with no stream; will hang until compilation
     and run are complete.
     """
-    param_count = len(placeholder_args)
-    if param_count == 0:
-        @cuda.jit
-        def kernel():
-            if cuda.grid(1) == 0:
-                device_func()
-    elif param_count == 1:
-        @cuda.jit
-        def kernel(a1):
-            if cuda.grid(1) == 0:
-                device_func(a1)
-    elif param_count == 2:
-        @cuda.jit
-        def kernel(a1, a2):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2)
-    elif param_count == 3:
-        @cuda.jit
-        def kernel(a1, a2, a3):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3)
-    elif param_count == 4:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4)
-    elif param_count == 5:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5)
-    elif param_count == 6:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6)
-    elif param_count == 7:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7)
-    elif param_count == 8:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8)
-    elif param_count == 9:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9)
-    elif param_count == 10:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
-    elif param_count == 11:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
-    elif param_count == 12:
-        @cuda.jit
-        def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12):
-            if cuda.grid(1) == 0:
-                device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)
-    else:
-        # Fallback for very large parameter counts
-        raise ValueError(
-            "CUDA device function has more than 12 parameters. "
-            "Extend _create_placeholder_kernel to support this function."
-        )
-    kernel[1, 1](*placeholder_args)
-    cuda.synchronize()
+    for signature in placeholder_args:
 
+        param_count = len(signature)
+        if param_count == 0:
+            @cuda.jit
+            def kernel():
+                if cuda.grid(1) == 0:
+                    device_func()
+        elif param_count == 1:
+            @cuda.jit
+            def kernel(a1):
+                if cuda.grid(1) == 0:
+                    device_func(a1)
+        elif param_count == 2:
+            @cuda.jit
+            def kernel(a1, a2):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2)
+        elif param_count == 3:
+            @cuda.jit
+            def kernel(a1, a2, a3):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3)
+        elif param_count == 4:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4)
+        elif param_count == 5:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5)
+        elif param_count == 6:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6)
+        elif param_count == 7:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7)
+        elif param_count == 8:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7, a8)
+        elif param_count == 9:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+        elif param_count == 10:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+        elif param_count == 11:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+        elif param_count == 12:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12):
+                if cuda.grid(1) == 0:
+                    device_func(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12)
+        elif param_count == 13:
+            @cuda.jit
+            def kernel(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13
+                    )
+        elif param_count == 14:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14
+                    )
+        elif param_count == 15:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15
+                    )
+        elif param_count == 16:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16
+                    )
+        elif param_count == 17:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17
+                    )
+        elif param_count == 18:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18
+                    )
+        elif param_count == 19:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19
+                    )
+        elif param_count == 20:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19, a20
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19, a20
+                    )
+        elif param_count == 21:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19, a20, a21
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19, a20, a21
+                    )
+        elif param_count == 22:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19, a20, a21, a22
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19, a20, a21, a22
+                    )
+        elif param_count == 23:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19, a20, a21, a22, a23
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23
+                    )
+        elif param_count == 24:
+            @cuda.jit
+            def kernel(
+                a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
+                a15, a16, a17, a18, a19, a20, a21, a22, a23, a24
+            ):
+                if cuda.grid(1) == 0:
+                    device_func(
+                        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12,
+                        a13, a14, a15, a16, a17, a18, a19, a20, a21, a22,
+                        a23, a24
+                    )
+        else:
+            # Fallback for very large parameter counts
+            raise ValueError(
+                "CUDA device function has more than 24 parameters. "
+                "Extend _run_placeholder_kernel to support this function."
+            )
+        kernel[1, 1](*signature)
+        cuda.synchronize()
 
 class CUDAFactory(ABC):
     """Factory for creating and caching CUDA device functions.
@@ -508,4 +682,3 @@ class CUDAFactory(ABC):
 
         # Stop timing
         self._timing_stop(event_name)
-

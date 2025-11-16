@@ -9,7 +9,7 @@ from attrs import define, field, validators
 from numba import cuda, int32
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import selp, from_dtype
 
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
@@ -341,6 +341,8 @@ class ArrayInterpolator(CUDAFactory):
             Device function which evaluates input polynomials at a given time.
         """
         precision = self.precision
+        numba_precision = from_dtype(precision)
+
         order = self.order
         num_inputs = self.num_inputs
         resolution = precision(self.dt)
@@ -354,7 +356,12 @@ class ArrayInterpolator(CUDAFactory):
         evaluation_start = precision(start_time - (
             resolution if pad_clamped else precision(0.0)))
         # no cover: start
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit(
+                (numba_precision,
+                numba_precision[:,:,::1],
+                numba_precision[:]),
+                device=True,
+                inline=True)
         def evaluate_all(
             time,
             coefficients,
@@ -396,7 +403,11 @@ class ArrayInterpolator(CUDAFactory):
         # no cover: end
 
         # no cover: start
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit([(numba_precision,
+                numba_precision[:,:,::1],
+                numba_precision[::1])],
+                device=True,
+                inline=True)
         def evaluate_time_derivative(
             time,
             coefficients,
