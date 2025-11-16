@@ -161,12 +161,16 @@ class CUDAPrinter(PythonCodePrinter):
         -----
         Array indices must be integers and should not be wrapped with
         precision() to avoid type errors during indexing operations.
+        Float indices are converted to integers.
         """
         base = self._print(expr.args[0])
         # Print indices without wrapping - they must be integers
         indices = []
         for idx in expr.args[1:]:
-            if isinstance(idx, (sp.Integer, sp.Float, sp.Rational)):
+            if isinstance(idx, sp.Float):
+                # Convert float indices to integers
+                indices.append(str(int(idx)))
+            elif isinstance(idx, (sp.Integer, sp.Rational)):
                 # Don't wrap numeric indices
                 indices.append(str(idx))
             else:
@@ -265,7 +269,8 @@ class CUDAPrinter(PythonCodePrinter):
         str
             Source string with ``x**2`` or ``x**2.0`` rewritten.
         """
-        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.0)?\b", r"\1*\1", expr_str)
+        # Match x**2 or x**2.0000... (any number of zeros or digits after decimal)
+        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b", r"\1*\1", expr_str)
 
     def _replace_cube_powers(self, expr_str: str) -> str:
         """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
@@ -280,7 +285,8 @@ class CUDAPrinter(PythonCodePrinter):
         str
             Source string with ``x**3`` or ``x**3.0`` rewritten.
         """
-        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.0)?\b', r'\1*\1*\1',
+        # Match x**3 or x**3.0000... (any number of zeros or digits after decimal)
+        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b', r'\1*\1*\1',
                       expr_str)
 
     def _ifelse_to_selp(self, expr_str: str) -> str:

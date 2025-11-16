@@ -249,8 +249,9 @@ def test_piecewise_assignment_is_wrapped_outside():
     p = CUDAPrinter()
     out = p.doprint(expr, assign_to=aux_4)
 
-    # Expect: aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (0))
-    assert _compact(out) == _compact("aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (0))")
+    # Expect: aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (precision(0)))
+    # Note: 0 is wrapped with precision() for type safety
+    assert _compact(out) == _compact("aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (precision(0)))")
 
 
 def test_piecewise_inside_expression_assignment():
@@ -260,8 +261,9 @@ def test_piecewise_inside_expression_assignment():
     p = CUDAPrinter()
     out = p.doprint(expr, assign_to=_cse10)
 
-    # Expect: _cse10 = E_v*(_cse1 if _cse3 else (0))
-    assert _compact(out) == _compact("_cse10 = E_v*(_cse1 if _cse3 else (0))")
+    # Expect: _cse10 = E_v*(_cse1 if _cse3 else (precision(0)))
+    # Note: 0 is wrapped with precision() for type safety
+    assert _compact(out) == _compact("_cse10 = E_v*(_cse1 if _cse3 else (precision(0)))")
 
 def test_functions():
     """Test that expressions containing SymPy functions are successfully
