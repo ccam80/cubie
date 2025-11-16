@@ -105,13 +105,12 @@ class TimeLogger:
                 f"Event '{event_name}' not registered. "
                 "Call _register_event() before using this event."
             )
-        
+
+        # If a job is logged twice for some reason, skip subsequent starts
+        # to capture from first start to first return
         if event_name in self._active_starts:
             return
-            # raise ValueError(
-            #     f"Event '{event_name}' already has an active start. "
-            #     "Call stop_event() before starting again."
-            # )
+
         
         timestamp = time.perf_counter()
         event = TimingEvent(
@@ -160,11 +159,8 @@ class TimeLogger:
             )
         
         if event_name not in self._active_starts:
-            return # skip "inner" path if called twice
-            raise ValueError(
-                f"Event '{event_name}' has no active start. "
-                "Call start_event() before stop_event()."
-            )
+            return # skip extra stops if called twice
+
         
         timestamp = time.perf_counter()
         duration = timestamp - self._active_starts[event_name]
