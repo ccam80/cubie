@@ -65,7 +65,7 @@ class ChunkParams:
 
 @attrs.define()
 class BatchSolverCache(CUDAFunctionCache):
-    device_function: Union[int, Callable] = attrs.field(default=-1)
+    solver_kernel: Union[int, Callable] = attrs.field(default=-1)
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -337,8 +337,8 @@ class BatchSolverKernel(CUDAFactory):
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = precision(0.0)
                 chunk_t0 = t0 + precision(i) * chunk_params.duration
-            
-            self.device_function[
+
+            self.kernel[
                 BLOCKSPERGRID,
                 (threads_per_loop, runsperblock),
                 stream,
@@ -768,12 +768,15 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def kernel(self) -> Callable:
         """Compiled integration kernel callable."""
-
         return self.device_function
+
+    @property
+    def device_function(self):
+        return self.get_cached_output("solver_kernel")
 
     def build(self) -> BatchSolverCache:
         """Compile the integration kernel and return it."""
-        return BatchSolverCache(device_function=self.build_kernel())
+        return BatchSolverCache(solver_kernel=self.build_kernel())
 
     @property
     def profileCUDA(self) -> bool:

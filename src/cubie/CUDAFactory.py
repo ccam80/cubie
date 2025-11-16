@@ -363,7 +363,8 @@ def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
                 "CUDA device function has more than 24 parameters. "
                 "Extend _run_placeholder_kernel to support this function."
             )
-        kernel[1, 1](*signature)
+        # Give it a bunch of shared memory (actual number arbitrary)
+        kernel[1, 1, 0, 32768](*signature)
         cuda.synchronize()
 
 class CUDAFactory(ABC):
@@ -606,7 +607,6 @@ class CUDAFactory(ABC):
         """Rebuild cached outputs if they are invalid."""
         build_result = self.build()
 
-        # build() must always return attrs class cache
         if not isinstance(build_result, CUDAFunctionCache):
             raise TypeError(
                 "build() must return an attrs class (CUDAFunctionCache "
@@ -666,23 +666,23 @@ class CUDAFactory(ABC):
         self, device_function: Any, event_name: str
     ) -> None:
         """Trigger compilation of device function and record timing.
-        
+
         Parameters
         ----------
         device_function
             Numba CUDA device function to compile
         event_name
             Name of timing event to record (must be pre-registered)
-        
+
         Notes
         -----
         Creates a minimal CUDA kernel that calls the device function
         with appropriately typed arguments. The kernel launch triggers
         Numba's JIT compilation, which is timed and recorded.
-        
+
         Called automatically by _build() for all device functions
         returned from build(). Manual invocation is not needed.
-        
+
         In CUDA simulator mode, timing is skipped silently as
         compilation does not occur.
         """
@@ -699,7 +699,10 @@ class CUDAFactory(ABC):
             # Create and launch placeholder kernel
             _run_placeholder_kernel(device_function, placeholder_args)
         else:
-            device_function[1,1](*placeholder_args)
+            # If function is a kernel, just run it directly
+            for signature in placeholder_args:
+                # Give it a bunch of shared memory (actual number arbitrary)
+                device_function[1,1,0,32768](*signature)
 
         cuda.synchronize()
 

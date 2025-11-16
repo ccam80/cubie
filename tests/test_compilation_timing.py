@@ -17,11 +17,11 @@ def test_compilation_caching():
     """
     # Define a reasonably complex ODE system
     # Using a simple 3-state system with nonlinear terms
-    equations = {
-        'x': '-k1*x + k2*y*z',
-        'y': 'k1*x - k2*y*z - k3*y',
-        'z': 'k3*y - k4*z'
-    }
+    equations = [
+        'dx = -k1*x + k2*y*z',
+        'dy = k1*x - k2*y*z - k3*y',
+        'dz = k3*y - k4*z'
+    ]
     
     initial_values = {
         'x': [1.0],
@@ -41,8 +41,8 @@ def test_compilation_caching():
     _default_timelogger.set_verbosity('verbose')
     _default_timelogger.events = []  # Clear previous events
     
-    system1 = SymbolicODE.from_equations(
-        equations=equations,
+    system1 = create_ODE_system(
+        dxdt=equations,
         parameters=list(parameters.keys()),
         name="TestSystem1"
     )
@@ -74,11 +74,11 @@ def test_compilation_caching():
     _default_timelogger.events = []  # Clear events
     
     # Swap equation order to force new codegen
-    equations_swapped = {
-        'z': 'k3*y - k4*z',
-        'x': '-k1*x + k2*y*z',
-        'y': 'k1*x - k2*y*z - k3*y',
-    }
+    equations_swapped = [
+        'dz = k3*y - k4*z',
+        'dx = -k1*x + k2*y*z',
+        'dy = k1*x - k2*y*z - k3*y',
+    ]
     
     system2 = SymbolicODE.from_equations(
         equations=equations_swapped,
@@ -141,11 +141,10 @@ def test_timelogger_default_mode_printing():
     # Future implementation should modify print_summary or add new methods
     # to print category-specific summaries at appropriate times
     
-    equations = {
-        'x': '-k*x',
-        'y': 'k*x'
-    }
-    
+    equations = ['dx = -k*x',
+        'dy = k*x'
+    ]
+
     initial_values = {
         'x': [1.0],
         'y': [0.0]

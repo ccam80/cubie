@@ -107,10 +107,11 @@ class TimeLogger:
             )
         
         if event_name in self._active_starts:
-            raise ValueError(
-                f"Event '{event_name}' already has an active start. "
-                "Call stop_event() before starting again."
-            )
+            return
+            # raise ValueError(
+            #     f"Event '{event_name}' already has an active start. "
+            #     "Call stop_event() before starting again."
+            # )
         
         timestamp = time.perf_counter()
         event = TimingEvent(
@@ -159,6 +160,7 @@ class TimeLogger:
             )
         
         if event_name not in self._active_starts:
+            return # skip "inner" path if called twice
             raise ValueError(
                 f"Event '{event_name}' has no active start. "
                 "Call start_event() before stop_event()."

@@ -33,16 +33,15 @@ if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
 
 
 @attrs.define
-class SingleIntegratorRunCoreCache(CUDAFunctionCache):
+class SingleIntegratorRunCache(CUDAFunctionCache):
     """Cache for SingleIntegratorRunCore device function.
     
     Attributes
     ----------
-    solver_kernel
+    single_integrator_function
         Compiled CUDA loop callable ready for execution on device.
     """
-    solver_kernel: Callable = attrs.field()
-
+    single_integrator_function: Callable = attrs.field()
 
 class SingleIntegratorRunCore(CUDAFactory):
     """Coordinate a single ODE integration loop and its dependencies.
@@ -196,7 +195,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         callable
             Compiled CUDA device function.
         """
-        return self.get_cached_output('solver_kernel')
+        return self.get_cached_output('single_integrator_function')
 
     def check_compatibility(
         self,
@@ -555,4 +554,4 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function
 
-        return SingleIntegratorRunCoreCache(solver_kernel=loop_fn)
+        return SingleIntegratorRunCache(single_integrator_function=loop_fn)
