@@ -311,14 +311,32 @@ class TimeLogger:
         
         return durations
     
-    def print_summary(self) -> None:
-        """Print timing summary per category.
+    def print_summary(self, category: Optional[str] = None) -> None:
+        """Print timing summary for all events or specific category.
+        
+        Parameters
+        ----------
+        category : str, optional
+            If provided, print summary only for events in this category
+            ('codegen', 'runtime', or 'compile'). If None, print all events.
+        
+        Notes
+        -----
+        In 'default' verbosity mode, this method can be called with specific
+        categories to print summaries at different stages:
+        - Call with category='codegen' after parsing is complete
+        - Call with category='compile' after compilation is complete
+        - Call with category='runtime' after kernels return
         """
-        durations = self.get_aggregate_durations()
-        if durations:
-            print("\nTiming Summary:")
-            for name, duration in sorted(durations.items()):
-                print(f"  {name}: {duration:.3f}s")
+        if self.verbosity == 'default':
+            durations = self.get_aggregate_durations(category=category)
+            if durations:
+                if category:
+                    print(f"\n{category.capitalize()} Timing Summary:")
+                else:
+                    print("\nTiming Summary:")
+                for name, duration in sorted(durations.items()):
+                    print(f"  {name}: {duration:.3f}s")
         # verbose and debug already printed inline
     
     def set_verbosity(self, verbosity: Optional[str]) -> None:
