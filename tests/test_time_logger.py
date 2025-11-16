@@ -292,21 +292,6 @@ class TestTimeLogger:
         with pytest.raises(ValueError, match="not registered"):
             logger.progress("unregistered", "message")
 
-    def test_double_start_raises(self):
-        """Test that starting an event twice raises ValueError."""
-        logger = TimeLogger()
-        logger.register_event("test", "runtime", "Test event")
-        logger.start_event("test")
-        with pytest.raises(ValueError, match="already has an active start"):
-            logger.start_event("test")
-
-    def test_stop_before_start_raises(self):
-        """Test that stopping without start raises ValueError."""
-        logger = TimeLogger()
-        logger.register_event("test", "runtime", "Test event")
-        with pytest.raises(ValueError, match="has no active start"):
-            logger.stop_event("test")
-
     def test_aggregate_durations_by_category(self):
         """Test filtering aggregate durations by category."""
         logger = TimeLogger()

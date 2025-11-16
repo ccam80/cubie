@@ -6,14 +6,10 @@ from typing import Callable, Dict, Optional, Set, TYPE_CHECKING, Union, Any, \
 
 import numpy as np
 from attrs import define, field, validators
-from numba import cuda, int32
+from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import selp, from_dtype
-
-if TYPE_CHECKING:
-    from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
-
+from cubie.cuda_simsafe import selp
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import (
     PrecisionDType,
@@ -22,6 +18,10 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
+
 
 FloatArray = NDArray[np.floating]
 

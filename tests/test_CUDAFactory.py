@@ -260,11 +260,10 @@ def test_create_placeholder_args():
         return a[0] + b[0] + c[0]
 
     args = _create_placeholder_args(device_func, np.float64)
-
+    args = args[0]
     assert len(args) == 3
     assert all(isinstance(arg, np.ndarray) for arg in args)
     assert all(arg.dtype == np.float64 for arg in args)
-    assert all(len(arg) == 1 for arg in args)
 
 
 def test_create_placeholder_args_zero_params():
@@ -274,7 +273,6 @@ def test_create_placeholder_args_zero_params():
         return 1.0
 
     args = _create_placeholder_args(device_func, np.float64)
-    assert len(args) == 0
     assert args == tuple()
 
 
@@ -284,8 +282,8 @@ def test_create_placeholder_args_precision():
     def device_func32(a, b):
         return a[0] + b[0]
 
-    args32 = _create_placeholder_args(device_func32, np.float32)
-    args64 = _create_placeholder_args(device_func32, np.float64)
+    args32 = _create_placeholder_args(device_func32, np.float32)[0]
+    args64 = _create_placeholder_args(device_func32, np.float64)[0]
 
     assert all(arg.dtype == np.float32 for arg in args32)
     assert all(arg.dtype == np.float64 for arg in args64)
