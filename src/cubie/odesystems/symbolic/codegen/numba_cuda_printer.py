@@ -143,6 +143,37 @@ class CUDAPrinter(PythonCodePrinter):
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
+    def _print_Indexed(self, expr: sp.Indexed) -> str:
+        """Print indexed expression with unwrapped integer indices.
+
+        Parameters
+        ----------
+        expr
+            Indexed expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation with base[indices] where indices are NOT
+            wrapped with precision().
+
+        Notes
+        -----
+        Array indices must be integers and should not be wrapped with
+        precision() to avoid type errors during indexing operations.
+        """
+        base = self._print(expr.args[0])
+        # Print indices without wrapping - they must be integers
+        indices = []
+        for idx in expr.args[1:]:
+            if isinstance(idx, (sp.Integer, sp.Float, sp.Rational)):
+                # Don't wrap numeric indices
+                indices.append(str(idx))
+            else:
+                # For symbolic indices, print normally
+                indices.append(self._print(idx))
+        return f"{base}[{', '.join(indices)}]"
+
     def _print_Pow(self, expr: sp.Pow) -> str:
         """Print power expression, avoiding precision wrap for numeric exponents.
 
