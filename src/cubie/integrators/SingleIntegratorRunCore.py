@@ -38,10 +38,10 @@ class SingleIntegratorRunCoreCache(CUDAFunctionCache):
     
     Attributes
     ----------
-    device_function
+    solver_kernel
         Compiled CUDA loop callable ready for execution on device.
     """
-    device_function: Callable = attrs.field()
+    solver_kernel: Callable = attrs.field()
 
 
 class SingleIntegratorRunCore(CUDAFactory):
@@ -186,6 +186,17 @@ class SingleIntegratorRunCore(CUDAFactory):
         if self._algo_step.is_adaptive:
             return int(self._system.sizes.states)
         return 0
+
+    @property
+    def device_function(self):
+        """Return the compiled CUDA solver kernel.
+        
+        Returns
+        -------
+        callable
+            Compiled CUDA device function.
+        """
+        return self.get_cached_output('solver_kernel')
 
     def check_compatibility(
         self,
@@ -544,4 +555,4 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function
 
-        return SingleIntegratorRunCoreCache(device_function=loop_fn)
+        return SingleIntegratorRunCoreCache(solver_kernel=loop_fn)

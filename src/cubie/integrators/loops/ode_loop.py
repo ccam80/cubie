@@ -28,10 +28,10 @@ class IVPLoopCache(CUDAFunctionCache):
     
     Attributes
     ----------
-    device_function
+    loop_function
         Compiled CUDA device function that executes the integration loop.
     """
-    device_function: Callable = attrs.field()
+    loop_function: Callable = attrs.field()
 
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
@@ -541,7 +541,7 @@ class IVPLoop(CUDAFactory):
                 status = int32(32)
             return status
 
-        return IVPLoopCache(device_function=loop_fn)
+        return IVPLoopCache(loop_function=loop_fn)
 
     @property
     def dt_save(self) -> float:
@@ -588,6 +588,17 @@ class IVPLoop(CUDAFactory):
         """Return the output compile flags associated with the loop."""
 
         return self.compile_settings.compile_flags
+
+    @property
+    def device_function(self):
+        """Return the compiled CUDA loop function.
+        
+        Returns
+        -------
+        callable
+            Compiled CUDA device function.
+        """
+        return self.get_cached_output('loop_function')
 
     @property
     def save_state_fn(self) -> Optional[Callable]:
