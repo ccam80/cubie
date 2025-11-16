@@ -620,16 +620,15 @@ class BatchSolverKernel(CUDAFactory):
         n_states = int(system_sizes.states)
         n_parameters = int(system_sizes.parameters)
         n_observables = int(system_sizes.observables)
-        n_counters = int(system_sizes.counters)
         integration_kernel.critical_shapes = (
             (1, n_states),  # inits - [n_runs, n_states]
             (1, n_parameters),  # params - [n_runs, n_parameters]
-            None,  # d_coefficients - complex driver array
-            (1, 1, n_states) if save_state else (0, 1, n_states),  # state_output
-            (1, 1, n_observables) if save_observables else (0, 1, n_observables),  # observables_output
-            (1, 1) if save_state_summaries else (0, 1),  # state_summaries_output - simplified
-            (1, 1) if save_observable_summaries else (0, 1),  # observables_summaries_output - simplified
-            (1, 1, n_counters),  # iteration_counters_output
+            (100,n_states,6),  # d_coefficients - complex driver array
+            (100, 1, n_states), # state_output
+            (100, 1, n_observables),  # observables_output
+            (100, 1, n_observables), # state_summaries_output
+            (100, 1, n_observables), # observables_summaries_output
+            (100, 1, 4), # iteration_counters_output
             (1,),  # status_codes_output
             None,  # duration - scalar
             None,  # warmup - scalar

@@ -33,7 +33,6 @@ class IVPLoopCache(CUDAFunctionCache):
     """
     loop_function: Callable = attrs.field()
 
-
 # Recognised compile-critical loop configuration parameters. These keys mirror
 # the solver API so helper utilities can consistently merge keyword arguments
 # into loop-specific settings dictionaries.
@@ -549,19 +548,18 @@ class IVPLoop(CUDAFactory):
         loop_fn.critical_shapes = (
             (n_states,),  # initial_states
             (n_parameters,),  # parameters
-            None,  # driver_coefficients - complex, use default
-            None,  # shared_scratch - complex, use default
-            None,  # persistent_local - complex, use default
-            (1, n_states) if save_state_bool else (0, n_states),  # state_output
-            (1, n_observables) if save_obs_bool else (0, n_observables),  # observables_output
-            (1,) if summarise_state_bool else (0,),  # state_summaries_output - simplified
-            (1,) if summarise_obs_bool else (0,),  # observable_summaries_output - simplified
-            (1, n_counters) if save_counters_bool else (0, n_counters),  # iteration_counters_output
+            (100,n_states,6),  # driver_coefficients
+            (32768//8), # local persistent - not really used
+            (32768//8),  # persistent_local - arbitrary 32kb provided / float64
+            (100, n_states), # state_output
+            (100, n_observables), # observables_output
+            (100, n_states),  # state_summaries_output
+            (100, n_observables), # obs summ output
+            (1, n_counters),  # iteration_counters_output
             None,  # duration - scalar
             None,  # settling_time - scalar
             None,  # t0 - scalar (optional)
         )
-
         return IVPLoopCache(loop_function=loop_fn)
 
     @property

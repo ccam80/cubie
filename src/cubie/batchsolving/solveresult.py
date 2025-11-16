@@ -21,6 +21,7 @@ from cubie.batchsolving import ArrayTypes
 from cubie._utils import (
     PrecisionDType,
     slice_variable_dimension,
+    opt_gttype_validator,
     getype_validator,
     gttype_validator,
     precision_converter,
@@ -67,7 +68,8 @@ class SolveSpec:
     precision
         Floating-point precision factory used for host conversions.
     """
-    dt: float = attrs.field(validator=gttype_validator(float, 0.0))
+    dt: Optional[float] = attrs.field(validator=opt_gttype_validator(float,
+                                                                    0.0))
     dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_save: float = attrs.field(validator=gttype_validator(float, 0.0))

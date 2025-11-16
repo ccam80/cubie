@@ -2,7 +2,7 @@
 
 import time
 import pytest
-from cubie import SymbolicODE, create_ODE_system
+from cubie import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
 from cubie.time_logger import _default_timelogger
 
@@ -80,8 +80,8 @@ def test_compilation_caching():
         'dy = k1*x - k2*y*z - k3*y',
     ]
     
-    system2 = SymbolicODE.from_equations(
-        equations=equations_swapped,
+    system2 = create_ODE_system(
+        dxdt=equations_swapped,
         parameters=list(parameters.keys()),
         name="TestSystem2"
     )
@@ -166,7 +166,7 @@ def test_timelogger_default_mode_printing():
         y0=initial_values,
         parameters=parameters,
         duration=0.01,
-        dt=1e-4,
+
         method='radau',
         settling_time=0.0,
     )
