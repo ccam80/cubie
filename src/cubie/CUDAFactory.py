@@ -10,7 +10,7 @@ from numpy import array_equal, asarray
 from numba import cuda
 import numba
 
-from cubie._utils import in_attr
+from cubie._utils import in_attr, is_devfunc
 from cubie.time_logger import _default_timelogger
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
@@ -674,9 +674,11 @@ class CUDAFactory(ABC):
 
         # Create placeholder arguments
         placeholder_args = _create_placeholder_args(device_function, precision)
-
-        # Create and launch placeholder kernel
-        _run_placeholder_kernel(device_function, placeholder_args)
+        if is_devfunc(device_function):
+            # Create and launch placeholder kernel
+            _run_placeholder_kernel(device_function, placeholder_args)
+        else:
+            device_function[1,1](*placeholder_args)
 
         cuda.synchronize()
 
