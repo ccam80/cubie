@@ -305,3 +305,155 @@ def test_eq_to_equality_str_piecewise_recursive():
     # Expect no raw 'Eq(' tokens remain
     assert 'Eq(' not in out_str
 
+
+def test_cellml_time_logging_events_registered():
+    """Verify time logging events are registered for cellml import."""
+    from cubie.time_logger import _default_timelogger
+    
+    # Check that all cellml events are registered
+    expected_events = [
+        "codegen_cellml_load_model",
+        "codegen_cellml_symbol_conversion",
+        "codegen_cellml_equation_processing",
+        "codegen_cellml_string_formatting",
+    ]
+    
+    for event_name in expected_events:
+        assert event_name in _default_timelogger._event_registry
+        assert _default_timelogger._event_registry[event_name]["category"] == "codegen"
+
+
+def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
+    """Verify time logging events are recorded during cellml import."""
+    from cubie.time_logger import TimeLogger
+    
+    # Create a new logger to track just this import
+    test_logger = TimeLogger(verbosity='default')
+    
+    # Register the events
+    test_logger.register_event(
+        "codegen_cellml_load_model", "codegen",
+        "Codegen time for cellmlmanip.load_model()"
+    )
+    test_logger.register_event(
+        "codegen_cellml_symbol_conversion", "codegen",
+        "Codegen time for converting Dummy symbols to Symbols"
+    )
+    test_logger.register_event(
+        "codegen_cellml_equation_processing", "codegen",
+        "Codegen time for processing differential and algebraic equations"
+    )
+    test_logger.register_event(
+        "codegen_cellml_string_formatting", "codegen",
+        "Codegen time for formatting equations as strings"
+    )
+    
+    # Temporarily replace the global logger
+    from cubie.odesystems.symbolic.parsing import cellml
+    original_logger = cellml._default_timelogger
+    cellml._default_timelogger = test_logger
+    
+    try:
+        # Load a model
+        ode_system = load_cellml_model(
+            str(cellml_fixtures_dir / "basic_ode.cellml")
+        )
+
+        # Verify model loaded successfully
+        assert ode_system is not None
+
+        # Verify events were recorded
+        event_names = [event.name for event in test_logger.events]
+        
+        # Check that start and stop events were recorded for each operation
+        assert "codegen_cellml_load_model" in event_names
+        assert "codegen_cellml_symbol_conversion" in event_names
+        assert "codegen_cellml_equation_processing" in event_names
+        assert "codegen_cellml_string_formatting" in event_names
+        
+        # Check that each event has both start and stop
+        for event_name in [
+            "codegen_cellml_load_model",
+            "codegen_cellml_symbol_conversion",
+            "codegen_cellml_equation_processing",
+            "codegen_cellml_string_formatting",
+        ]:
+            start_events = [e for e in test_logger.events
+                          if e.name == event_name and e.event_type == "start"]
+            stop_events = [e for e in test_logger.events
+                         if e.name == event_name and e.event_type == "stop"]
+            assert len(start_events) == 1, f"Expected 1 start event for {event_name}"
+            assert len(stop_events) == 1, f"Expected 1 stop event for {event_name}"
+        
+        # Verify durations can be calculated
+        for event_name in [
+            "codegen_cellml_load_model",
+            "codegen_cellml_symbol_conversion",
+            "codegen_cellml_equation_processing",
+            "codegen_cellml_string_formatting",
+        ]:
+            duration = test_logger.get_event_duration(event_name)
+            assert duration is not None, f"Duration not found for {event_name}"
+            assert duration >= 0, f"Duration should be non-negative for {event_name}"
+        
+    finally:
+        # Restore the original logger
+        cellml._default_timelogger = original_logger
+
+
+def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
+    """Verify time logging can aggregate cellml import durations."""
+    from cubie.time_logger import TimeLogger
+    
+    # Create a new logger to track just this import
+    test_logger = TimeLogger(verbosity='default')
+    
+    # Register the events
+    test_logger.register_event(
+        "codegen_cellml_load_model", "codegen",
+        "Codegen time for cellmlmanip.load_model()"
+    )
+    test_logger.register_event(
+        "codegen_cellml_symbol_conversion", "codegen",
+        "Codegen time for converting Dummy symbols to Symbols"
+    )
+    test_logger.register_event(
+        "codegen_cellml_equation_processing", "codegen",
+        "Codegen time for processing differential and algebraic equations"
+    )
+    test_logger.register_event(
+        "codegen_cellml_string_formatting", "codegen",
+        "Codegen time for formatting equations as strings"
+    )
+    
+    # Temporarily replace the global logger
+    from cubie.odesystems.symbolic.parsing import cellml
+    original_logger = cellml._default_timelogger
+    cellml._default_timelogger = test_logger
+    
+    try:
+        # Load a model
+        ode_system = load_cellml_model(
+            str(cellml_fixtures_dir / "basic_ode.cellml")
+        )
+
+        # Verify model loaded successfully
+        assert ode_system is not None
+
+        # Get aggregate durations for codegen category
+        durations = test_logger.get_aggregate_durations(category="codegen")
+        
+        # Verify all cellml events are in the aggregation
+        assert "codegen_cellml_load_model" in durations
+        assert "codegen_cellml_symbol_conversion" in durations
+        assert "codegen_cellml_equation_processing" in durations
+        assert "codegen_cellml_string_formatting" in durations
+        
+        # Verify all durations are non-negative
+        for event_name, duration in durations.items():
+            if event_name.startswith("codegen_cellml_"):
+                assert duration >= 0, f"Duration should be non-negative for {event_name}"
+
+    finally:
+        # Restore the original logger
+        cellml._default_timelogger = original_logger
