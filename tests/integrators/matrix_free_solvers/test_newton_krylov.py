@@ -29,10 +29,6 @@ def placeholder_system(precision):
     base = cuda.to_device(np.array([1.0], dtype=precision))
     return residual, operator, base
 
-@pytest.fixture(scope="module")
-def symbolic_system(system_setup):
-    return system_setup["sym_system"]
-
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
 

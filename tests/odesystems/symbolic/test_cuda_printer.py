@@ -286,13 +286,6 @@ class TestNumericPrecisionWrapping:
         assert result.endswith(")")
         assert "0.5" in result or "0.500000" in result
 
-    # def test_print_integer_wrapped(self):
-    #     """Test that Integer literals are wrapped with precision()."""
-    #     printer = CUDAPrinter()
-    #     expr = sp.Integer(2)
-    #     result = printer.doprint(expr)
-    #     assert result == "precision(2)"
-
     def test_print_rational_wrapped(self):
         """Test that Rational literals are wrapped with precision()."""
         printer = CUDAPrinter()
@@ -320,13 +313,6 @@ class TestNumericPrecisionWrapping:
         assert result.startswith("precision(-")
         assert "-0.5" in result or "-0.500000" in result
 
-    # def test_negative_integer(self):
-    #     """Test negative integer literals are wrapped correctly."""
-    #     printer = CUDAPrinter()
-    #     expr = sp.Integer(-2)
-    #     result = printer.doprint(expr)
-    #     assert result == "precision(-2)"
-
     def test_scientific_notation(self):
         """Test scientific notation floats are wrapped correctly."""
         printer = CUDAPrinter()
@@ -347,13 +333,6 @@ class TestNumericPrecisionWrapping:
         # (one for 0.5 and one for 0 in the condition)
         assert result.count("precision(") >= 2
         assert "if" in result  # Piecewise uses ternary
-
-    # def test_large_integer(self):
-    #     """Test large integers are wrapped without precision loss."""
-    #     printer = CUDAPrinter()
-    #     expr = sp.Integer(1000000)
-    #     result = printer.doprint(expr)
-    #     assert result == "precision(1000000)"
 
     def test_zero_literal(self):
         """Test zero literal is wrapped."""

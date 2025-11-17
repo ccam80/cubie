@@ -145,47 +145,6 @@ class CUDAPrinter(PythonCodePrinter):
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
-    # def _print_Indexed(self, expr: sp.Indexed) -> str:
-    #     """Print indexed expression with unwrapped integer indices.
-    #
-    #     Parameters
-    #     ----------
-    #     expr
-    #         Indexed expression to render.
-    #
-    #     Returns
-    #     -------
-    #     str
-    #         Printed representation with base[indices] where indices are NOT
-    #         wrapped with precision().
-    #
-    #     Notes
-    #     -----
-    #     Array indices must be integers and should not be wrapped with
-    #     precision() to avoid type errors during indexing operations.
-    #     Float indices are converted to integers.
-    #     Index expressions (e.g., i+1) are printed without precision wrapping.
-    #     """
-    #     base = self._print(expr.args[0])
-    #     # Print indices without wrapping - they must be integers
-    #     indices = []
-    #     for idx in expr.args[1:]:
-    #         if isinstance(idx, sp.Float):
-    #             # Convert float indices to integers
-    #             indices.append(str(int(idx)))
-    #         elif isinstance(idx, (sp.Integer, sp.Rational)):
-    #             # Don't wrap numeric indices
-    #             indices.append(str(idx))
-    #         else:
-    #             # For symbolic/expression indices, disable precision wrapping
-    #             old_in_index = self._in_index_context
-    #             self._in_index_context = True
-    #             try:
-    #                 indices.append(self._print(idx))
-    #             finally:
-    #                 self._in_index_context = old_in_index
-    #     return f"{base}[{', '.join(indices)}]"
-
     def _print_Pow(self, expr: sp.Pow) -> str:
         """Print power expression, avoiding precision wrap for numeric exponents.
 
@@ -406,24 +365,6 @@ class CUDAPrinter(PythonCodePrinter):
         if self._in_index_context:
             return str(expr)
         return f"precision({str(expr)})"
-
-    # def _print_Integer(self, expr: sp.Integer) -> str:
-    #     """Print an integer literal wrapped with precision().
-    #
-    #     Parameters
-    #     ----------
-    #     expr
-    #         Integer expression to render.
-    #
-    #     Returns
-    #     -------
-    #     str
-    #         Precision-wrapped representation: ``precision(value)``.
-    #         When in index context, returns unwrapped value.
-    #     """
-    #     if self._in_index_context:
-    #         return str(expr)
-    #     return f"precision({str(expr)})"
 
     def _print_Rational(self, expr: sp.Rational) -> str:
         """Print a rational number literal wrapped with precision().
