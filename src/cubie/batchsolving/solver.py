@@ -308,8 +308,8 @@ class Solver:
 
     def solve(
         self,
-        initial_values: Union[np.ndarray, Dict[str, np.ndarray]],
-        parameters: Union[np.ndarray, Dict[str, np.ndarray]],
+        initial_values: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,

@@ -105,7 +105,7 @@ def resolve_supplied_tableau(
 def get_algorithm_step(
     precision: type,
     settings: Optional[Mapping[str, Any]] = None,
-    warn_on_unused: bool = True,
+    warn_on_unused: bool = False,
     **kwargs: Any,
 ) -> BaseAlgorithmStep:
     """Thin factory which filters arguments and instantiates an algorithm.

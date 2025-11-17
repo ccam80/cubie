@@ -123,7 +123,7 @@ class TimeLogger:
         self._active_starts[event_name] = timestamp
         
         if self.verbosity == 'debug':
-            print(f"[DEBUG] Started: {event_name}")
+            print(f"TIMELOGGER [DEBUG] Started: {event_name}")
     
     def stop_event(self, event_name: str, **metadata: Any) -> None:
         """Record the end of a timed operation.
@@ -175,9 +175,10 @@ class TimeLogger:
         self.events.append(event)
         
         if self.verbosity == 'debug':
-            print(f"[DEBUG] Stopped: {event_name} ({duration:.3f}s)")
+            print(f"TIMELOGGER [DEBUG] Stopped: {event_name} "
+                  f"({duration:.3f}s)")
         elif self.verbosity == 'verbose':
-            print(f"{event_name}: {duration:.3f}s")
+            print(f"TIMELOGGER {event_name}: {duration:.3f}s")
     
     def progress(
         self, event_name: str, message: str, **metadata: Any
@@ -229,7 +230,7 @@ class TimeLogger:
         self.events.append(event)
         
         if self.verbosity == 'debug':
-            print(f"[DEBUG] Progress: {event_name} - {message}")
+            print(f"TIMELOGGER [DEBUG] Progress: {event_name} - {message}")
     
     def get_event_duration(self, event_name: str) -> Optional[float]:
         """Query duration of a completed event.
@@ -330,11 +331,11 @@ class TimeLogger:
             durations = self.get_aggregate_durations(category=category)
             if durations:
                 if category:
-                    print(f"\n{category.capitalize()} Timing Summary:")
+                    print(f"\nTIMELOGGER {category.capitalize()} Timing Summary:")
                 else:
-                    print("\nTiming Summary:")
+                    print("\nTIMELOGGER Timing Summary:")
                 for name, duration in sorted(durations.items()):
-                    print(f"  {name}: {duration:.3f}s")
+                    print(f"TIMELOGGER   {name}: {duration:.3f}s")
         # verbose and debug already printed inline
     
     def set_verbosity(self, verbosity: Optional[str]) -> None:

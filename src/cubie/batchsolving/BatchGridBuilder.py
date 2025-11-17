@@ -518,12 +518,12 @@ class BatchGridBuilder:
             Initial state and parameter arrays aligned for batch execution.
         """
         param_request = {
-            k: np.asarray(v)
+            k: np.atleast_1d(v)
             for k, v in request.items()
             if k in self.parameters.names
         }
         state_request = {
-            k: np.asarray(v)
+            k: np.atleast_1d(v)
             for k, v in request.items()
             if k in self.states.names
         }

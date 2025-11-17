@@ -689,6 +689,7 @@ ERK_TABLEAU_REGISTRY: Dict[str, ERKTableau] = {
     "rk45": DORMAND_PRINCE_54_TABLEAU,
     "ode45": DORMAND_PRINCE_54_TABLEAU,
     "classical-rk4": CLASSICAL_RK4_TABLEAU,
+    "rk4": CLASSICAL_RK4_TABLEAU,
     "cash-karp-54": CASH_KARP_54_TABLEAU,
     "fehlberg-45": FEHLBERG_45_TABLEAU,
     "dormand-prince-853": DORMAND_PRINCE_853_TABLEAU,

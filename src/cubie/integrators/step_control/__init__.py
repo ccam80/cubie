@@ -33,7 +33,7 @@ _CONTROLLER_REGISTRY: Dict[str, Type[BaseStepController]] = {
 def get_controller(
     precision: PrecisionDType,
     settings: Optional[Mapping[str, Any]] = None,
-    warn_on_unused: bool = True,
+    warn_on_unused: bool = False,
     **kwargs: Any,
 ) -> BaseStepController:
     """Return a controller instance from a settings mapping.
