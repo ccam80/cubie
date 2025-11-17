@@ -636,6 +636,24 @@ class BatchSolverKernel(CUDAFactory):
             None,  # n_runs - scalar
         )
         
+        # Attach critical values for scalar parameters to avoid infinite loops
+        # in adaptive step controllers during dummy compilation
+        integration_kernel.critical_values = (
+            None,  # inits - array
+            None,  # params - array
+            None,  # d_coefficients - array
+            None,  # state_output - array
+            None,  # observables_output - array
+            None,  # state_summaries_output - array
+            None,  # observables_summaries_output - array
+            None,  # iteration_counters_output - array
+            None,  # status_codes_output - array
+            0.001,  # duration - small value to avoid long loops
+            0.0,  # warmup - zero for dummy runs
+            0.0,  # t0 - zero start time
+            1,  # n_runs - single run
+        )
+        
         return integration_kernel
 
     def update(

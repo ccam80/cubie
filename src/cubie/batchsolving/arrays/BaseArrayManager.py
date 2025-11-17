@@ -269,38 +269,36 @@ class BaseArrayManager(ABC):
         Warns
         -----
         UserWarning
-            If a device array is not found in the allocation response.
+            If a device array is not found in the allocation response during
+            an actual allocation (not dummy compilation).
 
         Notes
         -----
-        WARNING - HERE BE DRAGONS
-        This try/except is to catch case where tests were calling this method
-        with an empty _needs_reallocation list. When the same tests were
-        run one at a time, the error disappeared. I couldn't trace it to a
-        module-scope fixture or anything obvious. Adding the try/except
-        seems to have suppressed even the warning, and the problem has
-        stopped.
-        If you get this warning, check for the possibility of two
-        different classes calling allocate_queue in between "init" and
-        "initialise".
+        During dummy kernel compilation, arrays are not actually allocated,
+        so an empty response is expected and no warning is issued. Warnings
+        are only issued if the response contains some arrays but not the
+        expected one, indicating a potential allocation mismatch.
 
         Returns
         -------
         None
             Nothing is returned.
         """
+        # Suppress warnings if response is empty (dummy compilation)
+        is_dummy_compile = len(response.arr) == 0
 
         for array_label in self._needs_reallocation:
             try:
                 self.device.attach(array_label, response.arr[array_label])
             except KeyError:
-                warn(
-                    f"Device array {array_label} not found in allocation "
-                    f"response. See "
-                    f"BaseArrayManager._on_allocation_complete docstring "
-                    f"for more info.",
-                    UserWarning,
-                )
+                if not is_dummy_compile:
+                    warn(
+                        f"Device array {array_label} not found in allocation "
+                        f"response. See "
+                        f"BaseArrayManager._on_allocation_complete docstring "
+                        f"for more info.",
+                        UserWarning,
+                    )
         self._chunks = response.chunks
         self._chunk_axis = response.chunk_axis
         self._needs_reallocation.clear()
