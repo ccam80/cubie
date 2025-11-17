@@ -169,14 +169,12 @@ class InstanceMemorySettings:
         None
         """
         if key in self.allocations:
-            newalloc = {k: v for k, v in self.allocations.items() if k != key}
+            del self.allocations[key]
         else:
             warn(
                 f"Attempted to free allocation for {key}, but "
                 f"it was not found in the allocations list."
             )
-            newalloc = self.allocations
-        self.allocations = newalloc
 
     def free_all(self) -> None:
         """
