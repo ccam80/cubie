@@ -329,7 +329,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_sympy_formatting", "codegen",
+        "codegen_cellml_sympy_preparation", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -354,14 +354,14 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         assert "codegen_cellml_load_model" in event_names
         assert "codegen_cellml_symbol_conversion" in event_names
         assert "codegen_cellml_equation_processing" in event_names
-        assert "codegen_cellml_string_formatting" in event_names
+        assert "codegen_cellml_sympy_preparation" in event_names
         
         # Check that each event has both start and stop
         for event_name in [
             "codegen_cellml_load_model",
             "codegen_cellml_symbol_conversion",
             "codegen_cellml_equation_processing",
-            "codegen_cellml_string_formatting",
+            "codegen_cellml_sympy_preparation",
         ]:
             start_events = [e for e in test_logger.events
                           if e.name == event_name and e.event_type == "start"]
@@ -375,7 +375,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
             "codegen_cellml_load_model",
             "codegen_cellml_symbol_conversion",
             "codegen_cellml_equation_processing",
-            "codegen_cellml_string_formatting",
+            "codegen_cellml_sympy_preparation",
         ]:
             duration = test_logger.get_event_duration(event_name)
             assert duration is not None, f"Duration not found for {event_name}"
@@ -407,7 +407,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_sympy_formatting", "codegen",
+        "codegen_cellml_sympy_preparation", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -432,7 +432,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         assert "codegen_cellml_load_model" in durations
         assert "codegen_cellml_symbol_conversion" in durations
         assert "codegen_cellml_equation_processing" in durations
-        assert "codegen_cellml_sympy_formatting" in durations
+        assert "codegen_cellml_sympy_preparation" in durations
         
         # Verify all durations are non-negative
         for event_name, duration in durations.items():

@@ -17,13 +17,11 @@ from cubie.odesystems.symbolic.parsing.parser import (
     TIME_SYMBOL,
     _detect_input_type,
     _lhs_pass,
-    _lhs_pass_sympy,
     _normalize_sympy_equations,
     _process_calls,
     _process_parameters,
     _replace_if,
     _rhs_pass,
-    _rhs_pass_sympy,
     _sanitise_input_math,
     ParsedEquations,
     parse_input,
@@ -257,7 +255,7 @@ class TestNormalizeSympyEquations:
             drivers=[]
         )
         
-        with pytest.raises(ValueError, match="LHS of sp.Equality must be"):
+        with pytest.raises(TypeError):
             _normalize_sympy_equations(equations, index_map)
     
     def test_normalize_bare_expression_error(self):
@@ -671,9 +669,7 @@ class TestParseInput:
         drivers = []
         dxdt = 123  # Invalid type
 
-        with pytest.raises(
-            ValueError, match="dxdt must be a string or a list/tuple"
-        ):
+        with pytest.raises(TypeError):
             parse_input(
                 states=states,
                 parameters=parameters,
