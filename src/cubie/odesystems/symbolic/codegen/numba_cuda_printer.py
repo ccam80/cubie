@@ -98,8 +98,6 @@ class CUDAPrinter(PythonCodePrinter):
             aliases = self.symbol_map.get("__function_aliases__")
             if isinstance(aliases, dict):
                 self.func_aliases = aliases
-        # Flag to disable precision wrapping in index contexts
-        self._in_index_context: bool = False
 
     def doprint(self, expr: sp.Expr, **kwargs: Any) -> str:
         """Return the CUDA-oriented source string for ``expr``.
@@ -362,8 +360,6 @@ class CUDAPrinter(PythonCodePrinter):
             Precision-wrapped representation: ``precision(value)``.
             When in index context, returns unwrapped value.
         """
-        if self._in_index_context:
-            return str(expr)
         return f"precision({str(expr)})"
 
     def _print_Rational(self, expr: sp.Rational) -> str:
@@ -387,8 +383,6 @@ class CUDAPrinter(PythonCodePrinter):
         runtime, then ``precision()`` casts the result to the configured
         dtype.
         """
-        if self._in_index_context:
-            return str(expr)
         return f"precision({str(expr)})"
 
 
