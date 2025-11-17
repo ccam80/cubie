@@ -98,6 +98,8 @@ class CUDAPrinter(PythonCodePrinter):
             aliases = self.symbol_map.get("__function_aliases__")
             if isinstance(aliases, dict):
                 self.func_aliases = aliases
+        # Flag to disable precision wrapping in index contexts
+        self._in_index_context: bool = False
 
     def doprint(self, expr: sp.Expr, **kwargs: Any) -> str:
         """Return the CUDA-oriented source string for ``expr``.
@@ -162,6 +164,7 @@ class CUDAPrinter(PythonCodePrinter):
         Array indices must be integers and should not be wrapped with
         precision() to avoid type errors during indexing operations.
         Float indices are converted to integers.
+        Index expressions (e.g., i+1) are printed without precision wrapping.
         """
         base = self._print(expr.args[0])
         # Print indices without wrapping - they must be integers
@@ -174,8 +177,13 @@ class CUDAPrinter(PythonCodePrinter):
                 # Don't wrap numeric indices
                 indices.append(str(idx))
             else:
-                # For symbolic indices, print normally
-                indices.append(self._print(idx))
+                # For symbolic/expression indices, disable precision wrapping
+                old_in_index = self._in_index_context
+                self._in_index_context = True
+                try:
+                    indices.append(self._print(idx))
+                finally:
+                    self._in_index_context = old_in_index
         return f"{base}[{', '.join(indices)}]"
 
     def _print_Pow(self, expr: sp.Pow) -> str:
@@ -365,7 +373,10 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Precision-wrapped representation: ``precision(value)``.
+            When in index context, returns unwrapped value.
         """
+        if self._in_index_context:
+            return str(expr)
         return f"precision({str(expr)})"
 
     def _print_Integer(self, expr: sp.Integer) -> str:
@@ -380,7 +391,10 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Precision-wrapped representation: ``precision(value)``.
+            When in index context, returns unwrapped value.
         """
+        if self._in_index_context:
+            return str(expr)
         return f"precision({str(expr)})"
 
     def _print_Rational(self, expr: sp.Rational) -> str:
@@ -395,6 +409,7 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Precision-wrapped representation: ``precision(p/q)``.
+            When in index context, returns unwrapped value.
 
         Notes
         -----
@@ -403,6 +418,8 @@ class CUDAPrinter(PythonCodePrinter):
         runtime, then ``precision()`` casts the result to the configured
         dtype.
         """
+        if self._in_index_context:
+            return str(expr)
         return f"precision({str(expr)})"
 
 # TODO: Singularity skips from Chaste codegen, piecewise blend if required

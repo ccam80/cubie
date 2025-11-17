@@ -425,3 +425,26 @@ class TestNumericPrecisionWrapping:
         assert "precision(" in result  # Literal is wrapped
         # Only one precision call for the 2.5
         assert result.count("precision(") == 1
+
+    def test_index_arithmetic_not_wrapped(self):
+        """Test that arithmetic in array indices is not wrapped with precision()."""
+        printer = CUDAPrinter()
+        arr = sp.IndexedBase('state')
+        i = sp.Symbol('i')
+        
+        # Test i + 1 as index
+        expr1 = arr[i + 1]
+        result1 = printer.doprint(expr1)
+        assert result1 == "state[i + 1]"
+        assert "precision" not in result1
+        
+        # Test 2*i + 1 as index
+        expr2 = arr[2*i + 1]
+        result2 = printer.doprint(expr2)
+        assert result2 == "state[2*i + 1]"
+        assert "precision" not in result2
+        
+        # Test that the same expression outside an index IS wrapped
+        expr3 = sp.Integer(2)*i + sp.Integer(1)
+        result3 = printer.doprint(expr3)
+        assert "precision(" in result3
