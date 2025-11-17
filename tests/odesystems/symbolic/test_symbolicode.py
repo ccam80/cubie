@@ -233,5 +233,5 @@ class TestSympyStringEquivalence:
             observables=['z']
         )
         
-        assert len(ode_sympy.indices.observables) == 1
-        assert len(ode_string.indices.observables) == 1
+        assert len(ode_sympy.indices.observables.index_map) == 1
+        assert len(ode_string.indices.observables.index_map) == 1

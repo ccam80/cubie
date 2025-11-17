@@ -191,7 +191,7 @@ def test_cellml_timing_events_updated():
     """Verify timing events use new SymPy preparation name."""
     from cubie.time_logger import _default_timelogger
     
-    registered_events = _default_timelogger.event_registry
+    registered_events = _default_timelogger._event_registry
     assert "codegen_cellml_sympy_preparation" in registered_events
     
     assert "codegen_cellml_string_formatting" not in registered_events
@@ -300,7 +300,7 @@ def test_cellml_time_logging_events_registered():
         "codegen_cellml_load_model",
         "codegen_cellml_symbol_conversion",
         "codegen_cellml_equation_processing",
-        "codegen_cellml_string_formatting",
+        "codegen_cellml_sympy_preparation",
     ]
     
     for event_name in expected_events:
@@ -329,7 +329,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_string_formatting", "codegen",
+        "codegen_cellml_sympy_formatting", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -407,7 +407,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_string_formatting", "codegen",
+        "codegen_cellml_sympy_formatting", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -432,7 +432,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         assert "codegen_cellml_load_model" in durations
         assert "codegen_cellml_symbol_conversion" in durations
         assert "codegen_cellml_equation_processing" in durations
-        assert "codegen_cellml_string_formatting" in durations
+        assert "codegen_cellml_sympy_formatting" in durations
         
         # Verify all durations are non-negative
         for event_name, duration in durations.items():
