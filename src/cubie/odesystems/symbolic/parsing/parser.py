@@ -920,8 +920,14 @@ def _rhs_pass_sympy(
     validated_equations = []
     new_symbols = []
     
-    declared_symbols = {
-        value for value in all_symbols.values() 
+    # Build set of declared symbol names (strings) for comparison
+    declared_symbol_names = {
+        str(value) for value in all_symbols.values() 
+        if isinstance(value, sp.Symbol)
+    }
+    # Also build a map from name to symbol for reuse
+    symbol_map = {
+        str(value): value for value in all_symbols.values()
         if isinstance(value, sp.Symbol)
     }
     
@@ -933,7 +939,7 @@ def _rhs_pass_sympy(
         if strict:
             undeclared = {
                 sym for sym in rhs_symbols 
-                if sym not in declared_symbols
+                if str(sym) not in declared_symbol_names
             }
             if undeclared:
                 undeclared_names = sorted(str(s) for s in undeclared)
@@ -943,10 +949,13 @@ def _rhs_pass_sympy(
                 )
         else:
             for sym in rhs_symbols:
-                if sym not in declared_symbols:
+                sym_name = str(sym)
+                if sym_name not in declared_symbol_names:
+                    # Infer as parameter
                     new_symbols.append(sym)
-                    declared_symbols.add(sym)
-                    all_symbols[str(sym)] = sym
+                    declared_symbol_names.add(sym_name)
+                    all_symbols[sym_name] = sym
+                    symbol_map[sym_name] = sym
         
         validated_equations.append((lhs_sym, rhs_expr))
     
@@ -1339,19 +1348,51 @@ def parse_input(
         
         normalized_eqs = _normalize_sympy_equations(equations, index_map)
         
+        # Substitute user symbols with canonical symbols from index_map
+        # This ensures symbol identity matches for categorization
+        # Only substitute symbols that exist in index_map; leave others for inference
+        symbol_substitutions = {}
+        for sym_name, sym_obj in index_map.all_symbols.items():
+            if isinstance(sym_obj, sp.Symbol):
+                # Map both with and without real assumption to canonical symbol
+                symbol_substitutions[sp.Symbol(sym_name)] = sym_obj
+                symbol_substitutions[sp.Symbol(sym_name, real=True)] = sym_obj
+        
+        substituted_eqs = []
+        for lhs, rhs in normalized_eqs:
+            # Only substitute if symbol exists in map; otherwise keep as-is
+            # This allows inference of new symbols in non-strict mode
+            new_lhs = lhs.subs(symbol_substitutions, simultaneous=True) if lhs in symbol_substitutions else lhs
+            new_rhs = rhs.subs(symbol_substitutions, simultaneous=True)
+            substituted_eqs.append((new_lhs, new_rhs))
+        
         constants = index_map.constants.default_values
-        fn_hash = hash_system_definition(normalized_eqs, constants)
+        fn_hash = hash_system_definition(substituted_eqs, constants)
         
         anon_aux = _lhs_pass_sympy(
-            normalized_eqs, index_map, strict=strict
+            substituted_eqs, index_map, strict=strict
         )
+        
+        # After LHS pass, new states/dxdt may have been added (in non-strict mode)
+        # Substitute again to ensure all LHS symbols match canonical ones
+        final_symbol_substitutions = {}
+        for sym_name, sym_obj in index_map.all_symbols.items():
+            if isinstance(sym_obj, sp.Symbol):
+                final_symbol_substitutions[sp.Symbol(sym_name)] = sym_obj
+                final_symbol_substitutions[sp.Symbol(sym_name, real=True)] = sym_obj
+        
+        final_substituted_eqs = []
+        for lhs, rhs in substituted_eqs:
+            new_lhs = lhs.subs(final_symbol_substitutions, simultaneous=True)
+            new_rhs = rhs.subs(final_symbol_substitutions, simultaneous=True)
+            final_substituted_eqs.append((new_lhs, new_rhs))
         
         all_symbols = index_map.all_symbols.copy()
         all_symbols.setdefault("t", TIME_SYMBOL)
         all_symbols.update(anon_aux)
         
         equation_map, funcs, new_params = _rhs_pass_sympy(
-            equations=normalized_eqs,
+            equations=final_substituted_eqs,
             all_symbols=all_symbols,
             indexed_bases=index_map,
             user_funcs=user_functions,
