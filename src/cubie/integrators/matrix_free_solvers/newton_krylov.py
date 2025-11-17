@@ -71,15 +71,26 @@ def newton_krylov_solver_factory(
     if precision_dtype not in ALLOWED_PRECISIONS:
         raise ValueError("precision must be float16, float32, or float64.")
 
-    dtype = from_dtype(precision_dtype)
-    tol_squared = dtype(tolerance * tolerance)
-    typed_zero = dtype(0.0)
-    typed_one = dtype(1.0)
-    typed_damping = dtype(damping)
+    precision = from_dtype(precision_dtype)
+    tol_squared = precision(tolerance * tolerance)
+    typed_zero = precision(0.0)
+    typed_one = precision(1.0)
+    typed_damping = precision(damping)
     status_active = int32(-1)
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+
+    @cuda.jit([(precision[:],
+                precision[:],
+                precision[:],
+                precision,
+                precision,
+                precision,
+                precision[:],
+                precision[:],
+                int32[:])],
+                device=True,
+                inline=True)
     def newton_krylov_solver(
         stage_increment,
         parameters,

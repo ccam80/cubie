@@ -29,6 +29,9 @@ def placeholder_system(precision):
     base = cuda.to_device(np.array([1.0], dtype=precision))
     return residual, operator, base
 
+@pytest.fixture(scope="module")
+def symbolic_system(system_setup):
+    return system_setup["sym_system"]
 
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
@@ -46,7 +49,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         max_iters=16,
     )
 
-    scratch_len = 3 * n
+    scratch_len = 2 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -101,14 +104,14 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_newton_krylov_symbolic(system_setup, precision, precond_order, tolerance):
     """Solve a symbolic system with optional preconditioning provided by fixture."""
-
-    n = system_setup["n"]
+    sym_system = system_setup["sym_system"]
+    n = sym_system.num_states
     operator = system_setup["operator"]
     residual_func = system_setup["residual"]
     base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
     h = system_setup["h"]
-    # Use the real Neumann preconditioner factory from the fixture
+
     precond = (
         None if precond_order == 0 else system_setup["preconditioner"](precond_order)
     )
@@ -117,15 +120,17 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         n,
         preconditioner=precond,
         correction_type="minimal_residual",
-        tolerance=1e-6,
+        tolerance=1e-8,
         max_iters=1000,
+        precision=precision,
     )
     solver = newton_krylov_solver_factory(
         residual_function=residual_func,
         linear_solver=linear_solver,
         n=n,
-        tolerance=1e-8,
+        tolerance=1e-7,
         max_iters=1000,
+        precision=precision,
     )
 
     scratch_len = 2 * n
