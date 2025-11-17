@@ -289,21 +289,24 @@ class IndexedBases:
         """
         if isinstance(states, dict):
             state_names = list(states.keys())
-            state_defaults = states  # Pass dict directly
+            # Extract values in the same order as names for proper alignment
+            state_defaults = [states[name] for name in state_names]
         else:
             state_names = list(states)
             state_defaults = None
 
         if isinstance(parameters, dict):
             param_names = list(parameters.keys())
-            param_defaults = parameters  # Pass dict directly
+            # Extract values in the same order as names for proper alignment
+            param_defaults = [parameters[name] for name in param_names]
         else:
             param_names = list(parameters)
             param_defaults = None
 
         if isinstance(constants, dict):
             const_names = list(constants.keys())
-            const_defaults = constants  # Pass dict directly
+            # Extract values in the same order as names for proper alignment
+            const_defaults = [constants[name] for name in const_names]
         else:
             const_names = list(constants)
             const_defaults = None
