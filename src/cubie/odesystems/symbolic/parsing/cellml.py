@@ -239,19 +239,26 @@ def load_cellml_model(
     all_symbol_units = {}
     
     # Also convert any other Dummy symbols in the model equations
-    # Special handling for Quantity objects (numeric constants with units)
+    # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
                 clean_name = _sanitize_symbol_name(atom.name)
                 
-                # Check if this is a Quantity (numeric constant with units)
-                if Quantity is not None and isinstance(atom, Quantity):
-                    # Extract numeric value and convert to Float
-                    # Always use Float for consistency, even for whole numbers
-                    value = float(atom)
-                    dummy_to_symbol[atom] = sp.Float(value)
-                    continue
+                # Check if this is a numeric quantity (name starts with _)
+                if atom.name.startswith('_'):
+                    try:
+                        # Try to parse as a float
+                        value = float(atom.name[1:])
+                        # Use Integer for whole numbers, Float for decimals
+                        if value == int(value):
+                            dummy_to_symbol[atom] = sp.Integer(int(value))
+                        else:
+                            dummy_to_symbol[atom] = sp.Float(value)
+                        continue
+                    except (ValueError, IndexError):
+                        # Not a numeric value, treat as regular symbol
+                        pass
                 
                 # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
