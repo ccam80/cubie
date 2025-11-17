@@ -205,15 +205,20 @@ class CUDAPrinter(PythonCodePrinter):
         Exponents are not wrapped with precision() so that the
         _replace_powers_with_multiplication regex can detect patterns like
         x**2 and x**3 for optimization.
+        
+        Parentheses are added around compound base expressions to ensure
+        correct precedence (e.g., (a + b)**2 not a + b**2).
         """
-        base = self._print(expr.base)
+        PREC = sp.printing.precedence.precedence
+        base_str = self.parenthesize(expr.base, PREC(expr))
+        
         # Print exponent without wrapping - temporarily disable precision wrap
         exp_expr = expr.exp
         if isinstance(exp_expr, (sp.Float, sp.Integer, sp.Rational)):
             exponent = str(exp_expr)
         else:
             exponent = self._print(exp_expr)
-        return f"{base}**{exponent}"
+        return f"{base_str}**{exponent}"
 
     def _print_Piecewise(self, expr: sp.Piecewise) -> str:
         """Render a ``Piecewise`` expression as nested ternaries.
@@ -276,9 +281,21 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**2`` or ``x**2.0`` rewritten.
+            
+        Notes
+        -----
+        Matches both simple identifiers (x**2, arr[i]**2) and parenthesized
+        expressions ((a + b)**2).
         """
-        # Match x**2 or x**2.0000... (any number of zeros or digits after decimal)
-        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b", r"\1*\1", expr_str)
+        # Match identifier or array access
+        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b"
+        expr_str = re.sub(simple_pattern, r"\1*\1", expr_str)
+        
+        # Match parenthesized expressions
+        paren_pattern = r"(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
+        expr_str = re.sub(paren_pattern, r"\1*\1", expr_str)
+        
+        return expr_str
 
     def _replace_cube_powers(self, expr_str: str) -> str:
         """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
@@ -292,10 +309,21 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**3`` or ``x**3.0`` rewritten.
+            
+        Notes
+        -----
+        Matches both simple identifiers (x**3, arr[i]**3) and parenthesized
+        expressions ((a + b)**3).
         """
-        # Match x**3 or x**3.0000... (any number of zeros or digits after decimal)
-        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b', r'\1*\1*\1',
-                      expr_str)
+        # Match identifier or array access
+        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b'
+        expr_str = re.sub(simple_pattern, r'\1*\1*\1', expr_str)
+        
+        # Match parenthesized expressions
+        paren_pattern = r'(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
+        expr_str = re.sub(paren_pattern, r'\1*\1*\1', expr_str)
+        
+        return expr_str
 
     def _ifelse_to_selp(self, expr_str: str) -> str:
         """Replace conditional expressions with ``selp`` calls.
