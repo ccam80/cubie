@@ -138,9 +138,8 @@ class InstanceMemorySettings:
 
         Notes
         -----
-        This will overwrite any previous allocation with the same key, which
-        should function as intended but suggests the previous batch has not
-        been properly deallocated. A warning is emitted in this case.
+        If a previous allocation exists with the same key, it is freed
+        before adding the new allocation.
 
         Returns
         -------
@@ -148,12 +147,8 @@ class InstanceMemorySettings:
         """
 
         if key in self.allocations:
-            warn(
-                f"Overwriting previous allocation for {key} at a "
-                f"settings level - this suggests that the previous "
-                f"array wasn't deallocated properly using the "
-                f"memory manager."
-            )
+            # Free the old allocation before adding the new one
+            self.free(key)
         self.allocations[key] = arr
 
     def free(self, key: str) -> None:
@@ -174,14 +169,12 @@ class InstanceMemorySettings:
         None
         """
         if key in self.allocations:
-            newalloc = {k: v for k, v in self.allocations.items() if k != key}
+            del self.allocations[key]
         else:
             warn(
                 f"Attempted to free allocation for {key}, but "
                 f"it was not found in the allocations list."
             )
-            newalloc = self.allocations
-        self.allocations = newalloc
 
     def free_all(self) -> None:
         """
@@ -191,7 +184,8 @@ class InstanceMemorySettings:
         -------
         None
         """
-        for key in self.allocations:
+        to_free = self.allocations.copy()
+        for key in to_free:
             self.free(key)
 
     @property
