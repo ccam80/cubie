@@ -5,7 +5,7 @@ from numba import cuda
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def system_setup(request, precision):
     """Generate symbolic systems for solver tests.
 
