@@ -86,7 +86,8 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         atol=tolerance.abs_tight,
     )
 
-
+@pytest.mark.parametrize("precision_override", [np.float64], indirect=True,
+                         ids=[""])
 @pytest.mark.parametrize(
     "system_setup",
     [
