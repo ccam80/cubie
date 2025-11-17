@@ -184,7 +184,8 @@ class InstanceMemorySettings:
         -------
         None
         """
-        for key in self.allocations:
+        to_free = self.allocations.copy()
+        for key in to_free:
             self.free(key)
 
     @property
