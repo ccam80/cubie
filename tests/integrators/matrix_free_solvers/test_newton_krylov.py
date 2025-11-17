@@ -128,7 +128,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         residual_function=residual_func,
         linear_solver=linear_solver,
         n=n,
-        tolerance=1e-7,
+        tolerance=1e-8,
         max_iters=1000,
         precision=precision,
     )
@@ -162,18 +162,18 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     # Nonlinear system needs preconditioning.
-    if system_setup["id"] == "nonlinear" and precond_order == 0:
-        assert (
-            status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        )
-    else:
-        assert status_code == SolverRetCodes.SUCCESS
-        assert_allclose(
-            x.copy_to_host(),
-            expected_increment,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
-        )
+    # if system_setup["id"] == "nonlinear" and precond_order == 0:
+    #     assert (
+    #         status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    #     )
+    # else:
+    assert status_code == SolverRetCodes.SUCCESS
+    assert_allclose(
+        x.copy_to_host(),
+        expected_increment,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 def test_newton_krylov_failure(precision):

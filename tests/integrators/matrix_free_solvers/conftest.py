@@ -102,7 +102,7 @@ def system_setup(request, precision):
 
     # Step forward until we converge onto the solution
     state_fp = state_init_host.copy()
-    for _ in range(128):
+    for _ in range(32):
         dxdt_kernel[1, 1](state_fp, params, drivers, observables, deriv, zero_time)
         new_state = base_host + h * deriv
         if np.max(np.abs(new_state - state_fp)) < precision(1e-7):
