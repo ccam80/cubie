@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from numba import cuda
+from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     linear_solver_factory,
@@ -86,8 +87,6 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         atol=tolerance.abs_tight,
     )
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True,
-                         ids=[""])
 @pytest.mark.parametrize(
     "system_setup",
     [
@@ -129,7 +128,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         max_iters=1000,
     )
 
-    scratch_len = 3 * n
+    scratch_len = 2 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -164,7 +163,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         )
     else:
         assert status_code == SolverRetCodes.SUCCESS
-        assert np.allclose(
+        assert_allclose(
             x.copy_to_host(),
             expected_increment,
             rtol=tolerance.rel_tight,

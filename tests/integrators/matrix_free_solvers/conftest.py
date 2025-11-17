@@ -67,7 +67,8 @@ def system_setup(request, precision):
 
 
     #Construct system, generate helper functions
-    sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)])
+    sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)],
+                                   precision=precision)
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
     operator = sym_system.get_solver_helper("linear_operator")
