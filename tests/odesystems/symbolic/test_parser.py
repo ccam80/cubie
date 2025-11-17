@@ -1095,3 +1095,73 @@ class TestSympyInputPathway:
         
         # Verify no alias map for SymPy input (aliases only for string pathway)
         assert '__function_aliases__' not in all_symbols
+    
+    def test_sympy_derivative_lhs_equality(self):
+        """Test canonical SymPy form with sp.Eq(sp.Derivative(...), ...)."""
+        x, k, t = sp.symbols('x k t')
+        
+        # Canonical SymPy form for ODEs
+        dxdt = [sp.Eq(sp.Derivative(x, t), -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 1
+        lhs, rhs = parsed_eqs.state_derivatives[0]
+        assert str(lhs) == 'dx'
+        assert str(rhs) == '-k*x'
+    
+    def test_sympy_derivative_lhs_tuple(self):
+        """Test tuple form with sp.Derivative as LHS."""
+        x, k, t = sp.symbols('x k t')
+        
+        # Tuple form with Derivative
+        dxdt = [(sp.Derivative(x, t), -k * x)]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 1
+        lhs, rhs = parsed_eqs.state_derivatives[0]
+        assert str(lhs) == 'dx'
+        assert str(rhs) == '-k*x'
+    
+    def test_sympy_derivative_multiple_states(self):
+        """Test multiple states with Derivative form."""
+        x, y, k, t = sp.symbols('x y k t')
+        z = sp.Symbol('z')
+        
+        dxdt = [
+            sp.Eq(sp.Derivative(x, t), -k * x),
+            sp.Eq(sp.Derivative(y, t), k * x),
+            sp.Eq(z, x + y)
+        ]
+        
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x', 'y'],
+            parameters=['k'],
+            observables=['z'],
+            strict=True
+        )
+        
+        assert len(parsed_eqs.state_derivatives) == 2
+        assert len(parsed_eqs.observables) == 1
+        
+        # Check state derivatives
+        state_lhs = [str(lhs) for lhs, _ in parsed_eqs.state_derivatives]
+        assert 'dx' in state_lhs
+        assert 'dy' in state_lhs
+        
+        # Check observable
+        obs_lhs, obs_rhs = parsed_eqs.observables[0]
+        assert str(obs_lhs) == 'z'
+        assert str(obs_rhs) == 'x + y'

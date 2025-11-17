@@ -81,14 +81,15 @@ def _detect_input_type(dxdt: Union[str, Iterable]) -> str:
     elif isinstance(first_elem, tuple):
         if len(first_elem) == 2:
             lhs, rhs = first_elem
-            if isinstance(lhs, sp.Symbol) and isinstance(rhs, sp.Expr):
+            # Accept both Symbol and Derivative as LHS
+            if isinstance(lhs, (sp.Symbol, sp.Derivative)) and isinstance(rhs, sp.Expr):
                 return 'sympy'
     
     raise TypeError(
         f"dxdt elements must be strings or SymPy expressions, "
         f"got {type(first_elem).__name__}. "
         f"Valid SymPy formats: sp.Equality, sp.Expr, or "
-        f"tuple of (sp.Symbol, sp.Expr)"
+        f"tuple of (sp.Symbol|sp.Derivative, sp.Expr)"
     )
 
 
@@ -99,27 +100,42 @@ def _normalize_sympy_equations(
     """Normalize various SymPy equation formats to (lhs, rhs) tuples.
     
     Converts sp.Equality objects and (Symbol, Expr) tuples into a standardized
-    format for downstream processing. Validates that LHS elements are Symbols
-    and provides clear error messages for unsupported formats.
+    format for downstream processing. Supports both direct Symbol LHS and
+    canonical Derivative LHS (e.g., sp.Derivative(x, t) for ODEs). When a
+    Derivative is encountered, the state variable is extracted and converted
+    to the corresponding dx symbol.
     
     Parameters
     ----------
     equations
-        SymPy equations in various formats.
+        SymPy equations in various formats:
+        - sp.Eq(sp.Symbol('dx'), expr)
+        - sp.Eq(sp.Derivative(x, t), expr)  # Canonical ODE form
+        - (sp.Symbol('dx'), expr)
+        - (sp.Derivative(x, t), expr)
     index_map
         Indexed symbol collections for validation.
     
     Returns
     -------
     list
-        Standardized list of (lhs_symbol, rhs_expr) tuples.
+        Standardized list of (lhs_symbol, rhs_expr) tuples where LHS is
+        always a Symbol (Derivatives are converted to dx form).
     
     Raises
     ------
     TypeError
         If equations contain invalid format.
     ValueError
-        If LHS symbols cannot be categorized.
+        If LHS symbols cannot be categorized or Derivative is invalid.
+    
+    Examples
+    --------
+    >>> x, k, t = sp.symbols('x k t')
+    >>> # Canonical SymPy form
+    >>> eq = sp.Eq(sp.Derivative(x, t), -k*x)
+    >>> normalized = _normalize_sympy_equations([eq], index_map)
+    >>> # Returns: [(sp.Symbol('dx'), -k*x)]
     """
     try:
         eq_list = list(equations)
@@ -133,13 +149,31 @@ def _normalize_sympy_equations(
             lhs = eq.lhs
             rhs = eq.rhs
             
-            if not isinstance(lhs, sp.Symbol):
-                raise ValueError(
-                    f"Equation {i}: LHS of sp.Equality must be sp.Symbol, "
-                    f"got {type(lhs).__name__}"
-                )
+            # Handle Derivative on LHS (canonical SymPy form for ODEs)
+            if isinstance(lhs, sp.Derivative):
+                # Extract state variable from Derivative(x, t)
+                if len(lhs.args) < 1:
+                    raise ValueError(
+                        f"Equation {i}: Derivative has no arguments"
+                    )
+                state_var = lhs.args[0]
+                if not isinstance(state_var, sp.Symbol):
+                    raise ValueError(
+                        f"Equation {i}: Derivative argument must be Symbol, "
+                        f"got {type(state_var).__name__}"
+                    )
+                # Create dx symbol from state variable x
+                lhs_symbol = sp.Symbol(f"d{state_var.name}", real=True)
+                normalized.append((lhs_symbol, rhs))
             
-            normalized.append((lhs, rhs))
+            elif isinstance(lhs, sp.Symbol):
+                normalized.append((lhs, rhs))
+            
+            else:
+                raise ValueError(
+                    f"Equation {i}: LHS of sp.Equality must be sp.Symbol "
+                    f"or sp.Derivative, got {type(lhs).__name__}"
+                )
         
         elif isinstance(eq, tuple):
             if len(eq) != 2:
@@ -150,18 +184,34 @@ def _normalize_sympy_equations(
             
             lhs, rhs = eq
             
-            if not isinstance(lhs, sp.Symbol):
-                raise TypeError(
-                    f"Equation {i}: Tuple LHS must be sp.Symbol, "
-                    f"got {type(lhs).__name__}"
-                )
-            if not isinstance(rhs, sp.Expr):
-                raise TypeError(
-                    f"Equation {i}: Tuple RHS must be sp.Expr, "
-                    f"got {type(rhs).__name__}"
-                )
+            # Handle Derivative in tuple format as well
+            if isinstance(lhs, sp.Derivative):
+                if len(lhs.args) < 1:
+                    raise ValueError(
+                        f"Equation {i}: Derivative has no arguments"
+                    )
+                state_var = lhs.args[0]
+                if not isinstance(state_var, sp.Symbol):
+                    raise ValueError(
+                        f"Equation {i}: Derivative argument must be Symbol, "
+                        f"got {type(state_var).__name__}"
+                    )
+                lhs_symbol = sp.Symbol(f"d{state_var.name}", real=True)
+                normalized.append((lhs_symbol, rhs))
             
-            normalized.append((lhs, rhs))
+            elif isinstance(lhs, sp.Symbol):
+                if not isinstance(rhs, sp.Expr):
+                    raise TypeError(
+                        f"Equation {i}: Tuple RHS must be sp.Expr, "
+                        f"got {type(rhs).__name__}"
+                    )
+                normalized.append((lhs, rhs))
+            
+            else:
+                raise TypeError(
+                    f"Equation {i}: Tuple LHS must be sp.Symbol or "
+                    f"sp.Derivative, got {type(lhs).__name__}"
+                )
         
         elif isinstance(eq, sp.Expr):
             raise TypeError(
