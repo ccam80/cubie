@@ -18,6 +18,7 @@ from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
     topological_sort,
+    prune_unused_assignments,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -239,6 +240,8 @@ def _build_operator_body(
             aux_assignments.append((lhs, rhs_substituted))
 
     exprs = mass_assigns + aux_assignments + out_updates
+    exprs = prune_unused_assignments(exprs, outputsym_str='out')
+
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
         return "        pass"
@@ -272,6 +275,8 @@ def _build_cached_jvp_body(
         out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
 
     exprs = aux_assignments + out_updates
+    exprs = prune_unused_assignments(exprs, outputsym_str='out')
+
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
         return "        pass"
@@ -298,6 +303,7 @@ def _build_prepare_body(
         idx = cached_slots.get(lhs)
         if idx is not None:
             exprs.append((cached[idx], lhs))
+    exprs = prune_unused_assignments(exprs, outputsym_str='cached_aux')
 
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
@@ -682,6 +688,8 @@ def _build_n_stage_operator_lines(
             "t": time_arg,
         }
     )
+    eval_exprs = prune_unused_assignments(eval_exprs,
+                                          outputsym_str='out')
 
     lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
     if not lines:
