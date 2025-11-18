@@ -206,6 +206,9 @@ def _build_operator_body(
             if entry == 0:
                 continue
             sym = sp.Symbol(f"m_{i}{j}")
+            # Convert integer mass matrix entries to float for precision
+            if isinstance(entry, sp.Integer):
+                entry = sp.Float(float(entry))
             mass_assigns.append((sym, entry))
             mv += sym * v[j]
         # Apply state substitution to jvp_terms (only for non-cached case)

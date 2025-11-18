@@ -143,6 +143,60 @@ class CUDAPrinter(PythonCodePrinter):
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
+    def _print_Integer(self, expr: sp.Integer) -> str:
+        """Print an integer literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Integer expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+
+        Notes
+        -----
+        Integer literals in expressions are wrapped to avoid float64 promotion
+        in NumPy operations. This method is bypassed for array indices (via
+        _print_Indexed) and power exponents (via _print_Pow).
+        """
+        return f"precision({str(expr)})"
+
+    def _print_Indexed(self, expr: sp.Indexed) -> str:
+        """Print indexed expression without wrapping indices.
+
+        Parameters
+        ----------
+        expr
+            Indexed expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation with base[indices] where index expressions
+            are NOT wrapped with precision().
+
+        Notes
+        -----
+        Array indices must be integers and should not be wrapped with
+        precision() to avoid type errors. This method ensures that integers
+        appearing in index expressions (e.g., state[i + 1]) are not wrapped.
+        """
+        base = self._print(expr.args[0])
+        indices = []
+        for idx in expr.args[1:]:
+            # Print index expression without precision wrapping
+            # We temporarily replace _print_Integer to bypass wrapping
+            old_print_int = self._print_Integer
+            self._print_Integer = lambda x: str(x)
+            try:
+                indices.append(self._print(idx))
+            finally:
+                self._print_Integer = old_print_int
+        return f"{base}[{', '.join(indices)}]"
+
     def _print_Pow(self, expr: sp.Pow) -> str:
         """Print power expression, avoiding precision wrap for numeric exponents.
 
@@ -248,8 +302,9 @@ class CUDAPrinter(PythonCodePrinter):
         simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b"
         expr_str = re.sub(simple_pattern, r"\1*\1", expr_str)
         
-        # Match parenthesized expressions
-        paren_pattern = r"(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
+        # Match parenthesized expressions (but not function calls)
+        # Negative lookbehind (?<!\w) ensures no word char before (
+        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
         expr_str = re.sub(paren_pattern, r"\1*\1", expr_str)
         
         return expr_str
@@ -276,8 +331,9 @@ class CUDAPrinter(PythonCodePrinter):
         simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b'
         expr_str = re.sub(simple_pattern, r'\1*\1*\1', expr_str)
         
-        # Match parenthesized expressions
-        paren_pattern = r'(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
+        # Match parenthesized expressions (but not function calls)
+        # Negative lookbehind (?<!\w) ensures no word char before (
+        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
         expr_str = re.sub(paren_pattern, r'\1*\1*\1', expr_str)
         
         return expr_str
