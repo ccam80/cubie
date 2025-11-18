@@ -487,7 +487,7 @@ class TestMemoryManager:
         mgr = registered_mgr
         instance = registered_instance
         arr = np.zeros((2, 2), dtype=np.float32)
-        mgr.registry[id(instance)].add_alocation("foo", arr)
+        mgr.registry[id(instance)].add_allocation("foo", arr)
         mgr.registry[id(instance)].add_allocation("bar", arr)
         mgr.free_all()
         assert mgr.registry[id(instance)].allocations == {}
