@@ -5,12 +5,11 @@ from typing import Optional
 import sympy as sp
 
 from cubie.odesystems.symbolic.codegen import print_cuda_multiple
-from cubie.odesystems.symbolic.codegen.jacobian import _prune_unused_assignments
 from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
-    topological_sort,
+    topological_sort, prune_unused_assignments,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -105,10 +104,8 @@ def generate_dxdt_lines(
             for lhs, rhs in processed
             if lhs not in observable_symbols
         ]
-        processed = _prune_unused_assignments(
-            processed,
-            output_symbols=index_map.dxdt.ref_map.keys(),
-        )
+        processed = prune_unused_assignments(processed,
+                                             output_symbols=index_map.dxdt.ref_map.keys())
         symbol_map = index_map.all_arrayrefs
 
     dxdt_lines = print_cuda_multiple(processed, symbol_map=symbol_map)
@@ -143,6 +140,10 @@ def generate_observables_lines(
     ``equations`` should support ``copy`` to avoid mutating the caller's
     expression list when applying substitutions.
     """
+    # Early return if no observables
+    if not index_map.observables.ref_map:
+        return ["pass"]
+    
     working_equations = list(equations.observable_system)
 
     if cse:
@@ -165,7 +166,7 @@ def generate_observables_lines(
         (lhs.subs(arrayrefs), rhs.subs(arrayrefs))
         for lhs, rhs in substituted
     ]
-    substituted = _prune_unused_assignments(substituted, "observables")
+    substituted = prune_unused_assignments(substituted, "observables")
     obs_lines = print_cuda_multiple(
         substituted, symbol_map=index_map.all_arrayrefs
     )

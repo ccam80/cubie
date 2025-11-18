@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple
 import sympy as sp
 
 from cubie.odesystems.symbolic.codegen import print_cuda_multiple
-from cubie.odesystems.symbolic.codegen.jacobian import _prune_unused_assignments
 from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
     ParsedEquations,
@@ -14,7 +13,7 @@ from cubie.odesystems.symbolic.parsing import (
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
-    topological_sort,
+    topological_sort, prune_unused_assignments,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -131,11 +130,8 @@ def generate_time_derivative_lines(
     else:
         processed = topological_sort(assignments)
 
-    processed = _prune_unused_assignments(
-        processed,
-        outputsym_str="time_rhs",
-        output_symbols=final_symbol_map.keys(),
-    )
+    processed = prune_unused_assignments(processed, outputsym_str="time_rhs",
+                                         output_symbols=final_symbol_map.keys())
 
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(final_symbol_map)

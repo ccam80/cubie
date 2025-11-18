@@ -14,12 +14,15 @@ from cubie.odesystems.symbolic.parsing.parser import (
     ParsedEquations,
     TIME_SYMBOL,
 )
-from cubie.odesystems.symbolic.codegen._stage_utils import build_stage_metadata, \
-    prepare_stage_data
+from cubie.odesystems.symbolic.codegen._stage_utils import (
+    build_stage_metadata,
+    prepare_stage_data,
+)
 from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     cse_and_stack,
     topological_sort,
+    prune_unused_assignments,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -192,7 +195,7 @@ def _build_neumann_body_with_state_subs(
     substituted_assignments = [
         (lhs, rhs.subs(state_subs)) for lhs, rhs in assignments
     ]
-    
+
     lines = print_cuda_multiple(substituted_assignments, symbol_map=index_map.all_arrayrefs)
     if not lines:
         lines = ["pass"]
@@ -201,6 +204,9 @@ def _build_neumann_body_with_state_subs(
             ln.replace("v[", "out[").replace("jvp[", "jvp[")
             for ln in lines
         ]
+    substituted_assignments = prune_unused_assignments(
+            substituted_assignments, outputsym_str='out'
+    )
     return "\n".join("            " + ln for ln in lines)
 
 def _build_cached_neumann_body(
@@ -232,10 +238,12 @@ def _build_cached_neumann_body(
         rhs = jvp_terms.get(i, sp.S.Zero)
         exprs.append((sp.Symbol(f"jvp[{i}]"), rhs))
 
+    exprs = prune_unused_assignments(exprs, outputsym_str='v')
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
         return "            pass"
     replaced = [ln.replace("v[", "out[") for ln in lines]
+
     return "\n".join("            " + ln for ln in replaced)
 
 def _build_n_stage_neumann_lines(
@@ -392,6 +400,7 @@ def _build_n_stage_neumann_lines(
             "t": time_arg,
         }
     )
+    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='jvp')
 
     lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
     if not lines:
