@@ -334,6 +334,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                counters,
                 int32(0),
                 newton_initial_guesses,
                 newton_iteration_guesses,
@@ -345,7 +346,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_residuals,
                 linear_squared_norms,
                 linear_preconditioned_vectors,
-                counters,
             )
 
             for idx in range(n):
@@ -371,6 +371,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                counters,
                 int32(0),
                 dummy_newton_initial_guesses,
                 dummy_newton_iteration_guesses,
@@ -382,7 +383,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dummy_linear_residuals,
                 dummy_linear_squared_norms,
                 dummy_linear_preconditioned_vectors,
-                counters,
             )
             status |= be_status & status_mask
 

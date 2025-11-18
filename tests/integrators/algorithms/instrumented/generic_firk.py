@@ -376,6 +376,7 @@ class FIRKStep(ODEImplicitStep):
                 typed_zero,
                 state,
                 solver_scratch,
+                counters,
                 int32(0),
                 newton_initial_guesses,
                 newton_iteration_guesses,

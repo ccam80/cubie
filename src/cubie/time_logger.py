@@ -59,7 +59,7 @@ class TimeLogger:
     Use set_verbosity() to configure the global logger level.
     """
     
-    def __init__(self, verbosity: Optional[str] = 'default') -> None:
+    def __init__(self, verbosity: Optional[str] = None) -> None:
         if verbosity not in {'default', 'verbose', 'debug', None, 'None'}:
             raise ValueError(
                 f"verbosity must be 'default', 'verbose', 'debug', "

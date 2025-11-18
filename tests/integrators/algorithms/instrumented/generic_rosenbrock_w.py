@@ -373,10 +373,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             else:
                 proposed_drivers[:] = numba_precision(0.0)
 
-                # Stage 0 copies the cached final increment as its guess.
-                stage_increment = stage_store[:n]
-                for idx in range(n):
-                    stage_increment[idx] = time_derivative[idx]
+            # Stage 0 copies the cached final increment as its guess.
+            stage_increment = stage_store[:n]
+
+            for idx in range(n):
+                stage_increment[idx] = time_derivative[idx]
 
             time_derivative_rhs(
                 state,
