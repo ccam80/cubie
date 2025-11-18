@@ -1123,3 +1123,26 @@ def test_get_total_request_size():
     total_size = get_total_request_size(requests)
     expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
     assert total_size == expected_size
+
+
+@pytest.mark.nocudasim
+def test_ensure_cuda_context():
+    """Test _ensure_cuda_context validates CUDA is available."""
+    from cubie.memory.mem_manager import _ensure_cuda_context
+    
+    # This test should not crash when CUDA is available
+    # It will raise RuntimeError if CUDA context cannot be initialized
+    try:
+        _ensure_cuda_context()
+    except RuntimeError as e:
+        pytest.fail(f"CUDA context validation failed: {e}")
+
+
+def test_ensure_cuda_context_simulation():
+    """Test _ensure_cuda_context is no-op in simulation mode."""
+    from cubie.memory.mem_manager import _ensure_cuda_context
+    from cubie.cuda_simsafe import CUDA_SIMULATION
+    
+    # In simulation mode, the function should do nothing and not raise
+    if CUDA_SIMULATION:
+        _ensure_cuda_context()  # Should not raise
