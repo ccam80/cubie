@@ -16,12 +16,12 @@ import numpy as np
 import cupy as cp
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def stream1():
     return cuda.stream()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def stream2():
     return cuda.stream()
 
@@ -70,16 +70,19 @@ def test_cupy_stream_wrapper(stream1, stream2, cp_stream_nocheck):
 def test_cupy_wrapper_mgr_check(stream1, stream2):
     cuda.set_memory_manager(CuPyAsyncNumbaManager)
     cuda.close()
+    stream1 = cuda.stream()
     with current_cupy_stream(stream1) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is True, "Async manager not detected"
 
     cuda.set_memory_manager(CuPySyncNumbaManager)
     cuda.close()
+    stream1 = cuda.stream()
     with current_cupy_stream(stream2) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is True, "Sync manager not detected"
 
     cuda.set_memory_manager(NumbaCUDAMemoryManager)
     cuda.close()
+    stream1 = cuda.stream()
     with current_cupy_stream(stream1) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is False, (
             "Default manager not detected"

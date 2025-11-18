@@ -17,6 +17,7 @@ from cubie.cuda_simsafe import (
     NumbaCUDAMemoryManager,
     current_mem_info,
     set_cuda_memory_manager,
+    CUDA_SIMULATION,
 )
 from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
@@ -62,6 +63,50 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     -------
     None
     """
+
+
+def _ensure_cuda_context() -> None:
+    """
+    Ensure CUDA context is initialized before memory operations.
+
+    This function validates that a CUDA context exists and is functional,
+    triggering initialization if needed. If the context cannot be created
+    or is in a bad state, it raises a clear exception rather than causing
+    a segfault.
+
+    This is particularly important after cuda.close() calls which can
+    leave the context in a state requiring reinitialization.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    RuntimeError
+        If CUDA context cannot be initialized or is not functional.
+    """
+    if not CUDA_SIMULATION:
+        try:
+            # Attempt to access current context - triggers creation if
+            # needed. After cuda.close(), this will create a new context
+            ctx = cuda.current_context()
+            if ctx is None:
+                raise RuntimeError(
+                    "CUDA context is None - GPU may not be accessible"
+                )
+            # Verify context is functional by checking memory info
+            # This will fail if GPU is not responsive
+            _ = ctx.get_memory_info()
+        except Exception as e:
+            # Provide helpful error message instead of segfault
+            raise RuntimeError(
+                f"Failed to initialize or verify CUDA context: {e}. "
+                "This may indicate GPU driver issues, insufficient "
+                "permissions, or the GPU may be in an unrecoverable "
+                "state after cuda.close(). Try restarting the process "
+                "or checking GPU availability."
+            ) from e
 
 
 # These will be keys to a dict, so must be hashable: eq=False
@@ -1090,6 +1135,7 @@ class MemoryManager:
         NotImplementedError
             If memory_type is "managed" (not yet supported).
         """
+        _ensure_cuda_context()
         cp_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             if memory_type == "device":
@@ -1338,6 +1384,7 @@ class MemoryManager:
         -------
         None
         """
+        _ensure_cuda_context()
         stream = self.get_stream(instance)
         cp_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
@@ -1366,6 +1413,7 @@ class MemoryManager:
         -------
         None
         """
+        _ensure_cuda_context()
         stream = self.get_stream(instance)
         cp_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
@@ -1385,6 +1433,7 @@ class MemoryManager:
         -------
         None
         """
+        _ensure_cuda_context()
         stream = self.get_stream(instance)
         stream.synchronize()
 
