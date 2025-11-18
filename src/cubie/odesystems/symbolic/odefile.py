@@ -16,7 +16,7 @@ GENERATED_DIR = Path(cwd) / "generated"
 HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
           "changes in here - they'll just be overwritten! Instead, modify "
           "the sympy input which you used to define the file.\n"
-          "from numba import cuda\n"
+          "from numba import cuda, int32\n"
           "import math\n"
           "from cubie.cuda_simsafe import *\n"
           "\n")

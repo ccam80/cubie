@@ -99,6 +99,10 @@ class CUDAPrinter(PythonCodePrinter):
             if isinstance(aliases, dict):
                 self.func_aliases = aliases
 
+        #Printer context flags for conditional wrapping, for example
+        self._in_index = False
+        self._in_pow = False
+
     def doprint(self, expr: sp.Expr, **kwargs: Any) -> str:
         """Return the CUDA-oriented source string for ``expr``.
 
@@ -143,27 +147,6 @@ class CUDAPrinter(PythonCodePrinter):
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
-    def _print_Integer(self, expr: sp.Integer) -> str:
-        """Print an integer literal wrapped with precision().
-
-        Parameters
-        ----------
-        expr
-            Integer expression to render.
-
-        Returns
-        -------
-        str
-            Precision-wrapped representation: ``precision(value)``.
-
-        Notes
-        -----
-        Integer literals in expressions are wrapped to avoid float64 promotion
-        in NumPy operations. This method is bypassed for array indices (via
-        _print_Indexed) and power exponents (via _print_Pow).
-        """
-        return f"precision({str(expr)})"
-
     def _print_Indexed(self, expr: sp.Indexed) -> str:
         """Print indexed expression without wrapping indices.
 
@@ -185,17 +168,36 @@ class CUDAPrinter(PythonCodePrinter):
         appearing in index expressions (e.g., state[i + 1]) are not wrapped.
         """
         base = self._print(expr.args[0])
-        indices = []
-        for idx in expr.args[1:]:
-            # Print index expression without precision wrapping
-            # We temporarily replace _print_Integer to bypass wrapping
-            old_print_int = self._print_Integer
-            self._print_Integer = lambda x: str(x)
-            try:
-                indices.append(self._print(idx))
-            finally:
-                self._print_Integer = old_print_int
-        return f"{base}[{', '.join(indices)}]"
+        indices = expr.args[1:]
+
+        # let other print functions know we're in an index -
+        # for example, leave integers uncast
+        self._in_index = True
+        index = [self._print(ind) for ind in indices]
+        self._in_index = False
+        return f"{base}[{', '.join(index)}]"
+
+    def _print_Integer(self, expr: sp.Integer) -> str:
+        """Print an integer literal wrapped with int32().
+
+        Parameters
+        ----------
+        expr
+            Integer expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+
+        Notes
+        -----
+        Integer literals in expressions are wrapped to avoid float64 promotion
+        when multiplying by float32 values operations.
+        """
+        if self._in_index or self._in_pow:
+            return super()._print_Integer(expr)
+        return f"int32({str(expr)})"
 
     def _print_Pow(self, expr: sp.Pow) -> str:
         """Print power expression, avoiding precision wrap for numeric exponents.
@@ -222,13 +224,12 @@ class CUDAPrinter(PythonCodePrinter):
         """
         PREC = sp.printing.precedence.precedence
         base_str = self.parenthesize(expr.base, PREC(expr))
-        
-        # Print exponent without wrapping - temporarily disable precision wrap
         exp_expr = expr.exp
-        if isinstance(exp_expr, (sp.Float, sp.Integer, sp.Rational)):
-            exponent = str(exp_expr)
-        else:
-            exponent = self._print(exp_expr)
+
+        # Let other print functions know we're in a power expression
+        self._in_pow = True
+        exponent = self._print(exp_expr)
+        self._in_pow = False
         return f"{base_str}**{exponent}"
 
     def _print_Piecewise(self, expr: sp.Piecewise) -> str:
@@ -416,6 +417,11 @@ class CUDAPrinter(PythonCodePrinter):
             Precision-wrapped representation: ``precision(value)``.
             When in index context, returns unwrapped value.
         """
+
+        # Leave small round floats intact for replace_powers optimisation
+        if self._in_pow:
+            if (expr == sp.Float(2.0) or expr == sp.Float(3.0)):
+                return super()._print_Float(expr)
         return f"precision({str(expr)})"
 
     def _print_Rational(self, expr: sp.Rational) -> str:
