@@ -126,8 +126,35 @@ class ODEFile:
         if not self.cached_file_valid(self.fn_hash):
             self._init_file(self.fn_hash)
         text = self.file_path.read_text() if self.file_path.exists() else ""
-        base_name = func_name.replace("_factory", "")
-        if func_name not in text or f"return {base_name}" not in text:
+        # Check if function is properly defined (has both definition and return)
+        # Look for the function definition followed by a return at the same indentation level
+        has_function = f"def {func_name}(" in text
+        if has_function:
+            lines = text.split('\n')
+            in_function = False
+            func_indent = None
+            has_return = False
+            for line in lines:
+                if f"def {func_name}(" in line:
+                    in_function = True
+                    # Determine indentation level of the function
+                    func_indent = len(line) - len(line.lstrip())
+                elif in_function:
+                    stripped = line.lstrip()
+                    if not stripped:  # Empty line
+                        continue
+                    current_indent = len(line) - len(stripped)
+                    # Check if we've left the function (dedented to same or less indentation)
+                    if current_indent <= func_indent and stripped.startswith("def "):
+                        break
+                    # Look for return statement at the function's indentation level + one indent
+                    if current_indent == func_indent + 4 and stripped.startswith("return "):
+                        has_return = True
+                        break
+            if not has_return:
+                has_function = False
+        
+        if not has_function:
             if code_lines is None:
                 raise ValueError(
                     f"{func_name} not found in cache and no code provided."
