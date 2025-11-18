@@ -1,11 +1,8 @@
 import warnings
-from urllib import response
 
 import pytest
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 from cubie.cuda_simsafe import (
-    DeviceNDArrayBase,
-    MappedNDArray,
     NumbaCUDAMemoryManager,
     Stream,
 )
@@ -490,7 +487,7 @@ class TestMemoryManager:
         mgr = registered_mgr
         instance = registered_instance
         arr = np.zeros((2, 2), dtype=np.float32)
-        mgr.registry[id(instance)].add_allocation("foo", arr)
+        mgr.registry[id(instance)].add_alocation("foo", arr)
         mgr.registry[id(instance)].add_allocation("bar", arr)
         mgr.free_all()
         assert mgr.registry[id(instance)].allocations == {}
@@ -1021,7 +1018,6 @@ class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_to_device(self, registered_mgr, registered_instance):
         """Test to_device copies values to allocated device arrays correctly."""
-        from numba import cuda
 
         mgr = registered_mgr
         instance = registered_instance
