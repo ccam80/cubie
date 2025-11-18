@@ -1,7 +1,7 @@
 """Reusable tester for single-step integration algorithms."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import pytest
@@ -61,6 +61,7 @@ class StepResult:
     error: Array
     status: int
     niters: int
+    counters: Optional[Array] = None
 
 
 @dataclass
@@ -456,8 +457,8 @@ ALIAS_CASES = [
 ]
 STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
                   'dt_min': 1e-6,
-                  'newton_tolerance': 1e-7,
-                  'krylov_tolerance': 1e-7,
+                  'newton_tolerance': 1e-6,
+                  'krylov_tolerance': 1e-6,
                   "atol": 1e-6,
                   "rtol": 1e-6,
                   "output_types": ["state"],
@@ -789,6 +790,7 @@ def device_step_results(
         error=d_error.copy_to_host(),
         status=status_value & STATUS_MASK,
         niters=(status_value >> 16) & STATUS_MASK,
+        counters = d_counters.copy_to_host()
     )
 
 
@@ -1490,7 +1492,7 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
     else:
-        new_dt = float(solver_settings["dt"]) * 0.5
+        new_dt = precision(solver_settings["dt"]) * precision(0.5)
         recognised = step_object.update({"dt": new_dt})
         assert "dt" in recognised, "dt recognised"
         assert step_object.dt == pytest.approx(

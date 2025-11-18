@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from numba import cuda
+from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     linear_solver_factory,
@@ -53,7 +54,7 @@ def test_neumann_preconditioner(
 
     expected_scalar = sum((h * precision(0.5)) ** k for k in range(order + 1))
     expected = np.full(n, expected_scalar, dtype=precision)
-    assert np.allclose(
+    assert_allclose(
         out.copy_to_host(),
         expected,
         rtol=tolerance.rel_tight,

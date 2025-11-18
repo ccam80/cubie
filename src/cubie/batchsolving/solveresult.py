@@ -201,7 +201,10 @@ class SolveResult:
             Object providing access to output arrays and metadata.
         results_type
             Format of the returned results. Options are ``"full"``, ``"numpy"``,
-            ``"numpy_per_summary"``, and ``"pandas"``. Defaults to ``"full"``.
+            ``"numpy_per_summary"``, ``raw``, and ``"pandas"``. Defaults to
+            ``"full"``. ``raw`` shortcuts all processing and outputs numpy
+            arrays that are a direct copy of the host, without legends or
+            supporting information.
 
         Returns
         -------
@@ -209,7 +212,13 @@ class SolveResult:
             ``SolveResult`` when ``results_type`` is ``"full"``; otherwise a
             dictionary containing the requested representation.
         """
-
+        if results_type == 'raw':
+            return {
+                'state': solver.state,
+                'observables': solver.observables,
+                'state_summaries': solver.state_summaries,
+                'observable_summaries': solver.observable_summaries,
+            }
         active_outputs = solver.active_output_arrays
         state_active = active_outputs.state
         observables_active = active_outputs.observables

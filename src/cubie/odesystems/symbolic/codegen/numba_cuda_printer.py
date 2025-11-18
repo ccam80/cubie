@@ -99,6 +99,10 @@ class CUDAPrinter(PythonCodePrinter):
             if isinstance(aliases, dict):
                 self.func_aliases = aliases
 
+        #Printer context flags for conditional wrapping, for example
+        self._in_index = False
+        self._in_pow = False
+
     def doprint(self, expr: sp.Expr, **kwargs: Any) -> str:
         """Return the CUDA-oriented source string for ``expr``.
 
@@ -142,6 +146,91 @@ class CUDAPrinter(PythonCodePrinter):
         if expr in self.symbol_map:
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
+
+    def _print_Indexed(self, expr: sp.Indexed) -> str:
+        """Print indexed expression without wrapping indices.
+
+        Parameters
+        ----------
+        expr
+            Indexed expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation with base[indices] where index expressions
+            are NOT wrapped with precision().
+
+        Notes
+        -----
+        Array indices must be integers and should not be wrapped with
+        precision() to avoid type errors. This method ensures that integers
+        appearing in index expressions (e.g., state[i + 1]) are not wrapped.
+        """
+        base = self._print(expr.args[0])
+        indices = expr.args[1:]
+
+        # let other print functions know we're in an index -
+        # for example, leave integers uncast
+        self._in_index = True
+        index = [self._print(ind) for ind in indices]
+        self._in_index = False
+        return f"{base}[{', '.join(index)}]"
+
+    def _print_Integer(self, expr: sp.Integer) -> str:
+        """Print an integer literal wrapped with int32().
+
+        Parameters
+        ----------
+        expr
+            Integer expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+
+        Notes
+        -----
+        Integer literals in expressions are wrapped to avoid float64 promotion
+        when multiplying by float32 values operations.
+        """
+        if self._in_index or self._in_pow:
+            return super()._print_Integer(expr)
+        return f"int32({str(expr)})"
+
+    def _print_Pow(self, expr: sp.Pow) -> str:
+        """Print power expression, avoiding precision wrap for numeric exponents.
+
+        Parameters
+        ----------
+        expr
+            Power expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation that preserves numeric exponents unwrapped
+            for power-to-multiplication optimization.
+
+        Notes
+        -----
+        Exponents are not wrapped with precision() so that the
+        _replace_powers_with_multiplication regex can detect patterns like
+        x**2 and x**3 for optimization.
+        
+        Parentheses are added around compound base expressions to ensure
+        correct precedence (e.g., (a + b)**2 not a + b**2).
+        """
+        PREC = sp.printing.precedence.precedence
+        base_str = self.parenthesize(expr.base, PREC(expr))
+        exp_expr = expr.exp
+
+        # Let other print functions know we're in a power expression
+        self._in_pow = True
+        exponent = self._print(exp_expr)
+        self._in_pow = False
+        return f"{base_str}**{exponent}"
 
     def _print_Piecewise(self, expr: sp.Piecewise) -> str:
         """Render a ``Piecewise`` expression as nested ternaries.
@@ -204,8 +293,22 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**2`` or ``x**2.0`` rewritten.
+            
+        Notes
+        -----
+        Matches both simple identifiers (x**2, arr[i]**2) and parenthesized
+        expressions ((a + b)**2).
         """
-        return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.0)?\b", r"\1*\1", expr_str)
+        # Match identifier or array access
+        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b"
+        expr_str = re.sub(simple_pattern, r"\1*\1", expr_str)
+        
+        # Match parenthesized expressions (but not function calls)
+        # Negative lookbehind (?<!\w) ensures no word char before (
+        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
+        expr_str = re.sub(paren_pattern, r"\1*\1", expr_str)
+        
+        return expr_str
 
     def _replace_cube_powers(self, expr_str: str) -> str:
         """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
@@ -219,9 +322,22 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**3`` or ``x**3.0`` rewritten.
+            
+        Notes
+        -----
+        Matches both simple identifiers (x**3, arr[i]**3) and parenthesized
+        expressions ((a + b)**3).
         """
-        return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.0)?\b', r'\1*\1*\1',
-                      expr_str)
+        # Match identifier or array access
+        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b'
+        expr_str = re.sub(simple_pattern, r'\1*\1*\1', expr_str)
+        
+        # Match parenthesized expressions (but not function calls)
+        # Negative lookbehind (?<!\w) ensures no word char before (
+        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
+        expr_str = re.sub(paren_pattern, r'\1*\1*\1', expr_str)
+        
+        return expr_str
 
     def _ifelse_to_selp(self, expr_str: str) -> str:
         """Replace conditional expressions with ``selp`` calls.
@@ -287,7 +403,50 @@ class CUDAPrinter(PythonCodePrinter):
         args = [self._print(arg) for arg in expr.args]
         return f"{func_name}({', '.join(args)})"
 
-# TODO: Singularity skips from Chaste codegen, piecewise blend if required
+    def _print_Float(self, expr: sp.Float) -> str:
+        """Print a floating-point literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Float expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(value)``.
+            When in index context, returns unwrapped value.
+        """
+
+        # Leave small round floats intact for replace_powers optimisation
+        if self._in_pow:
+            if (expr == sp.Float(2.0) or expr == sp.Float(3.0)):
+                return super()._print_Float(expr)
+        return f"precision({str(expr)})"
+
+    def _print_Rational(self, expr: sp.Rational) -> str:
+        """Print a rational number literal wrapped with precision().
+
+        Parameters
+        ----------
+        expr
+            Rational expression to render.
+
+        Returns
+        -------
+        str
+            Precision-wrapped representation: ``precision(p/q)``.
+            When in index context, returns unwrapped value.
+
+        Notes
+        -----
+        The rational is printed as ``p/q`` where ``p`` and ``q`` are the
+        numerator and denominator. Python evaluates this division at
+        runtime, then ``precision()`` casts the result to the configured
+        dtype.
+        """
+        return f"precision({str(expr)})"
+
 
 
 def print_cuda(

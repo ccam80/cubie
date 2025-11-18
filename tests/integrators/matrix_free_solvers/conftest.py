@@ -1,11 +1,7 @@
 import numpy as np
 import pytest
-from numba import cuda, from_dtype
+from numba import cuda
 
-from cubie.odesystems.symbolic.codegen import (
-    generate_neumann_preconditioner_code,
-    generate_stage_residual_code,
-)
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
@@ -67,24 +63,19 @@ def system_setup(request, precision):
 
 
     #Construct system, generate helper functions
-    sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)])
+    sym_system = create_ODE_system(dxdt,
+                                   states=[f"x{i}" for i in range(3)],
+                                   precision=precision)
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
     operator = sym_system.get_solver_helper("linear_operator")
-    neumann_code = generate_neumann_preconditioner_code(
-        sym_system.equations, sym_system.indices
-    )
-    neumann_factory = sym_system.gen_file.import_function(
-        "neumann_preconditioner_factory", neumann_code
-    )
-    code = generate_stage_residual_code(sym_system.equations, sym_system.indices)
-    res_factory = sym_system.gen_file.import_function(
-        "stage_residual", code
-    )
-    residual_func = res_factory(
-        sym_system.constants.values_dict,
-        from_dtype(sym_system.precision),
-    )
+    # Use helper interface for residual and preconditioner generation
+    residual_func = sym_system.get_solver_helper("stage_residual")
+
+    def make_precond(order):
+        return sym_system.get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=order
+        )
 
     # start system from a non-equilibrium position, generate initial guesses
     # using Euler
@@ -109,11 +100,12 @@ def system_setup(request, precision):
     dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv, zero_time)
     state_init_host = base_host + h * deriv * precision(1.05)
 
+    # Step forward until we converge onto the solution
     state_fp = state_init_host.copy()
     for _ in range(32):
         dxdt_kernel[1, 1](state_fp, params, drivers, observables, deriv, zero_time)
         new_state = base_host + h * deriv
-        if np.max(np.abs(new_state - state_fp)) < precision(1e-12):
+        if np.max(np.abs(new_state - state_fp)) < precision(1e-7):
             state_fp = new_state
             break
         state_fp = new_state
@@ -144,12 +136,6 @@ def system_setup(request, precision):
         F[:, j] = temp_out
     mr_expected = np.linalg.solve(F, mr_rhs)
 
-    def make_precond(order):
-        return neumann_factory(
-            sym_system.constants.values_dict,
-            from_dtype(sym_system.precision),
-            order=order,
-        )
 
     return {
         "id": system,
@@ -163,6 +149,7 @@ def system_setup(request, precision):
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,
         "nk_expected": nk_expected,
+        "sym_system": sym_system,
     }
 
 

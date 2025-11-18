@@ -352,7 +352,8 @@ class TestGenerateObservablesFacCode:
 
         code = generate_observables_fac_code(equations, indexed_bases)
 
-        assert "(state[0] + state[1])**2" in code
+        # Power replacement optimization converts **2 to explicit multiplication
+        assert ("(state[0] + state[1])*(state[0] + state[1])" in code)
         assert "out[" not in code
 
 

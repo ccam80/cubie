@@ -148,11 +148,30 @@ def hash_system_definition(
     constant name-value pairs. Any change to either component produces a new
     hash so cached artifacts can be refreshed.
     """
-    # Process dxdt equations
-    if isinstance(dxdt, (list, tuple)):
-        if isinstance(dxdt[0], (list, tuple)):
+    if isinstance(dxdt, (list, tuple)) and len(dxdt) > 0:
+        first_elem = dxdt[0]
+        if isinstance(first_elem, sp.Equality) or \
+           (isinstance(first_elem, tuple) and 
+            len(first_elem) == 2 and 
+            isinstance(first_elem[0], sp.Symbol)):
+            hash_strings = []
+            for eq in dxdt:
+                if isinstance(eq, sp.Equality):
+                    lhs_str = str(eq.lhs)
+                    rhs_str = str(eq.rhs)
+                elif isinstance(eq, tuple):
+                    lhs_str = str(eq[0])
+                    rhs_str = str(eq[1])
+                else:
+                    lhs_str = str(eq)
+                    rhs_str = ""
+                hash_strings.append(f"{lhs_str} = {rhs_str}")
+            dxdt_str = "\n".join(hash_strings)
+        elif isinstance(first_elem, (list, tuple)):
             dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
-        dxdt_str = "".join(dxdt)
+            dxdt_str = "".join(dxdt)
+        else:
+            dxdt_str = "".join(dxdt)
     elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
         dxdt_pairs = [f"{str(symbol)}{str(expr)}" for symbol, expr in dxdt]
         dxdt_str = "".join(dxdt_pairs)

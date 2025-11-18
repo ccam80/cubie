@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from numba import cuda
+from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     linear_solver_factory,
@@ -28,7 +29,6 @@ def placeholder_system(precision):
     base = cuda.to_device(np.array([1.0], dtype=precision))
     return residual, operator, base
 
-
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
 
@@ -45,7 +45,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         max_iters=16,
     )
 
-    scratch_len = 3 * n
+    scratch_len = 2 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -86,7 +86,6 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         atol=tolerance.abs_tight,
     )
 
-
 @pytest.mark.parametrize(
     "system_setup",
     [
@@ -101,14 +100,14 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_newton_krylov_symbolic(system_setup, precision, precond_order, tolerance):
     """Solve a symbolic system with optional preconditioning provided by fixture."""
-
-    n = system_setup["n"]
+    sym_system = system_setup["sym_system"]
+    n = sym_system.num_states
     operator = system_setup["operator"]
     residual_func = system_setup["residual"]
     base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
     h = system_setup["h"]
-    # Use the real Neumann preconditioner factory from the fixture
+
     precond = (
         None if precond_order == 0 else system_setup["preconditioner"](precond_order)
     )
@@ -117,8 +116,9 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         n,
         preconditioner=precond,
         correction_type="minimal_residual",
-        tolerance=1e-6,
+        tolerance=1e-8,
         max_iters=1000,
+        precision=precision,
     )
     solver = newton_krylov_solver_factory(
         residual_function=residual_func,
@@ -126,9 +126,10 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         n=n,
         tolerance=1e-8,
         max_iters=1000,
+        precision=precision,
     )
 
-    scratch_len = 3 * n
+    scratch_len = 2 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -157,18 +158,18 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     # Nonlinear system needs preconditioning.
-    if system_setup["id"] == "nonlinear" and precond_order == 0:
-        assert (
-            status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        )
-    else:
-        assert status_code == SolverRetCodes.SUCCESS
-        assert np.allclose(
-            x.copy_to_host(),
-            expected_increment,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
-        )
+    # if system_setup["id"] == "nonlinear" and precond_order == 0:
+    #     assert (
+    #         status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    #     )
+    # else:
+    assert status_code == SolverRetCodes.SUCCESS
+    assert_allclose(
+        x.copy_to_host(),
+        expected_increment,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 def test_newton_krylov_failure(precision):

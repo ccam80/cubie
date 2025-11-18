@@ -38,7 +38,7 @@ class TestTimeLogger:
     def test_initialization_default(self):
         """Test TimeLogger initialization with default verbosity."""
         logger = TimeLogger()
-        assert logger.verbosity == "default"
+        assert logger.verbosity == None
         assert logger.events == []
 
     def test_initialization_verbose(self):
@@ -86,7 +86,7 @@ class TestTimeLogger:
 
     def test_start_event(self):
         """Test recording a start event."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity="default")
         logger.register_event("test_operation", "runtime", "Test operation")
         logger.start_event("test_operation")
         
@@ -97,7 +97,7 @@ class TestTimeLogger:
 
     def test_stop_event(self):
         """Test recording a stop event."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("test_operation", "runtime", "Test operation")
         logger.start_event("test_operation")
         time.sleep(0.01)
@@ -110,7 +110,7 @@ class TestTimeLogger:
 
     def test_progress_event(self):
         """Test recording a progress event."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("test_operation", "runtime", "Test operation")
         logger.progress("test_operation", "50% complete")
         
@@ -121,7 +121,7 @@ class TestTimeLogger:
 
     def test_get_event_duration(self):
         """Test calculating duration between start and stop events."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("test_operation", "runtime", "Test operation")
         logger.start_event("test_operation")
         time.sleep(0.02)
@@ -151,7 +151,7 @@ class TestTimeLogger:
 
     def test_multiple_operations(self):
         """Test tracking multiple operations."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("operation1", "runtime", "Operation 1")
         logger.register_event("operation2", "runtime", "Operation 2")
         logger.start_event("operation1")
@@ -222,7 +222,7 @@ class TestTimeLogger:
 
     def test_get_aggregate_durations(self):
         """Test aggregating event durations."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("operation1", "runtime", "Operation 1")
         logger.start_event("operation1")
         time.sleep(0.01)
@@ -237,7 +237,7 @@ class TestTimeLogger:
 
     def test_empty_event_name_raises(self):
         """Test that empty event names raise ValueError."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("valid", "runtime", "Valid event")
         with pytest.raises(ValueError, match="event_name cannot be empty"):
             logger.start_event("")
@@ -284,7 +284,7 @@ class TestTimeLogger:
 
     def test_unregistered_event_raises(self):
         """Test that unregistered events raise ValueError."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         with pytest.raises(ValueError, match="not registered"):
             logger.start_event("unregistered")
         with pytest.raises(ValueError, match="not registered"):
@@ -294,7 +294,7 @@ class TestTimeLogger:
 
     def test_aggregate_durations_by_category(self):
         """Test filtering aggregate durations by category."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("codegen1", "codegen", "Codegen 1")
         logger.register_event("runtime1", "runtime", "Runtime 1")
         logger.register_event("compile1", "compile", "Compile 1")
@@ -324,7 +324,7 @@ class TestTimeLogger:
 
     def test_aggregate_durations_compile_category(self):
         """Test filtering aggregate durations for compile category."""
-        logger = TimeLogger()
+        logger = TimeLogger(verbosity='default')
         logger.register_event("compile1", "compile", "Compile 1")
         logger.register_event("runtime1", "runtime", "Runtime 1")
         

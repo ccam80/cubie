@@ -384,26 +384,26 @@ class DIRKStep(ODEImplicitStep):
                         )
                 if stage_implicit[0]:
                     status_code |= nonlinear_solver(
-                            stage_increment,
-                            parameters,
-                            proposed_drivers,
-                            stage_time,
-                            dt_value,
-                            diagonal_coeffs[0],
-                            stage_base,
-                            solver_scratch,
-                            int32(0),
-                            newton_initial_guesses,
-                            newton_iteration_guesses,
-                            newton_residuals,
-                            newton_squared_norms,
-                            newton_iteration_scale,
-                            linear_initial_guesses,
-                            linear_iteration_guesses,
-                            linear_residuals,
-                            linear_squared_norms,
-                            linear_preconditioned_vectors,
-                            counters,
+                        stage_increment,
+                        parameters,
+                        proposed_drivers,
+                        stage_time,
+                        dt_value,
+                        diagonal_coeffs[0],
+                        stage_base,
+                        solver_scratch,
+                        counters,
+                        int32(0),
+                        newton_initial_guesses,
+                        newton_iteration_guesses,
+                        newton_residuals,
+                        newton_squared_norms,
+                        newton_iteration_scale,
+                        linear_initial_guesses,
+                        linear_iteration_guesses,
+                        linear_residuals,
+                        linear_squared_norms,
+                        linear_preconditioned_vectors,
                     )
 
                     for idx in range(n):
@@ -514,6 +514,7 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_scratch,
+                        counters,
                         int32(stage_idx),
                         newton_initial_guesses,
                         newton_iteration_guesses,
@@ -525,7 +526,6 @@ class DIRKStep(ODEImplicitStep):
                         linear_residuals,
                         linear_squared_norms,
                         linear_preconditioned_vectors,
-                        counters,
                     )
                     status_code |= solver_ret
 
