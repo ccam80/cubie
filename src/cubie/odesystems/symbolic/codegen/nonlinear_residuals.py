@@ -16,6 +16,7 @@ from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
     topological_sort,
+    prune_unused_assignments,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -162,6 +163,7 @@ def _build_residual_lines(
         eval_exprs = cse_and_stack(eval_exprs)
     else:
         eval_exprs = topological_sort(eval_exprs)
+    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
 
     lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
     if not lines:
@@ -285,6 +287,7 @@ def _build_n_stage_residual_lines(
         }
     )
 
+    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
     lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
     if not lines:
         return "        pass"

@@ -204,3 +204,68 @@ def render_constant_assignments(
         for name in constant_names
     ]
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def prune_unused_assignments(
+    expressions: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    outputsym_str: str = "jvp",
+    output_symbols: Optional[Iterable[sp.Symbol]] = None,
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    """Remove assignments that do not contribute to the final JVP outputs.
+
+    Parameters
+    ----------
+    expressions
+        Topologically sorted assignments ``(lhs, rhs)``.
+    outputsym_str
+        Prefix identifying JVP output symbols. Ignored when
+        ``output_symbols`` is provided.
+    output_symbols
+        Optional collection of output symbols to retain when pruning.
+        When supplied, only assignments contributing to these symbols are
+        kept.
+
+    Returns
+    -------
+    List[Tuple[sp.Symbol, sp.Expr]]
+        Pruned assignments that are required to compute the JVP outputs.
+
+    Notes
+    -----
+    The function assumes that the list is topologically sorted and that output
+    assignments have left-hand-side symbols whose names start with
+    ``"jvp["``. It preserves the relative order of kept assignments.
+    """
+    exprs = list(expressions)
+    if not exprs:
+        return exprs
+
+    lhs_symbols = [lhs for lhs, _ in exprs]
+    all_lhs = set(lhs_symbols)
+
+    # Detect outputs by name convention
+    if output_symbols is not None:
+        output_syms = set(output_symbols) & all_lhs
+    else:
+        output_syms = {
+            lhs
+            for lhs in lhs_symbols
+            if str(lhs).startswith(f"{outputsym_str}[")
+        }
+
+    # If we can't detect outputs, do nothing
+    if not output_syms:
+        return exprs
+
+    used: set[sp.Symbol] = set(output_syms)
+    kept: list[Tuple[sp.Symbol, sp.Expr]] = []
+
+    for lhs, rhs in reversed(exprs):
+        if lhs in used:
+            kept.append((lhs, rhs))
+            # Only follow dependencies that are assigned to
+            deps = rhs.free_symbols & all_lhs
+            deps_syms = {s for s in deps if isinstance(s, sp.Symbol)}
+            used.update(deps_syms)
+    kept.reverse()
+    return kept

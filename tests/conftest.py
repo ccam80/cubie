@@ -50,7 +50,7 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
-enable_tempdir = "1"
+enable_tempdir = "0"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
