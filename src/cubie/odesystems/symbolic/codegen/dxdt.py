@@ -143,6 +143,10 @@ def generate_observables_lines(
     ``equations`` should support ``copy`` to avoid mutating the caller's
     expression list when applying substitutions.
     """
+    # Early return if no observables
+    if not index_map.observables.ref_map:
+        return ["pass"]
+    
     working_equations = list(equations.observable_system)
 
     if cse:
