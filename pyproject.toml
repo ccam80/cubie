@@ -22,8 +22,7 @@ dependencies = [
     "numba",
     "numba-cuda[cu12]",
     "attrs",
-    "sympy",
-
+    "sympy>=1.13.0",
 ]
 
 [project.urls]

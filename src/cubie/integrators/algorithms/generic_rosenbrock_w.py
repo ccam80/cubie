@@ -473,6 +473,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             # Stage 0 slice copies the cached final increment as its guess.
             stage_increment = stage_store[:n]
+
             for idx in range(n):
                 stage_increment[idx] = time_derivative[idx]
 

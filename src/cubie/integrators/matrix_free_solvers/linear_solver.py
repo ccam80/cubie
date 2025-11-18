@@ -69,13 +69,23 @@ def linear_solver_factory(
         )
     preconditioned = 1 if preconditioner is not None else 0
 
-    precision_dtype = np.dtype(precision)
-    precision_scalar = from_dtype(precision_dtype)
-    typed_zero = precision_scalar(0.0)
+    precision = from_dtype(precision)
+    typed_zero = precision(0.0)
     tol_squared = tolerance * tolerance
 
     # no cover: start
-    @cuda.jit(device=True)
+    @cuda.jit([(precision[:],
+                precision[:],
+                precision[:],
+                precision[:],
+                precision,
+                precision,
+                precision,
+                precision[:],
+                precision[:],
+                )],
+              device=True,
+              inline=True,)
     def linear_solver(
         state,
         parameters,
@@ -127,8 +137,8 @@ def linear_solver_factory(
         ``drivers`` are treated as read-only context values.
         """
 
-        preconditioned_vec = cuda.local.array(n, precision_scalar)
-        temp = cuda.local.array(n, precision_scalar)
+        preconditioned_vec = cuda.local.array(n, precision)
+        temp = cuda.local.array(n, precision)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
@@ -188,7 +198,7 @@ def linear_solver_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, 0.0, alpha)
+            alpha_effective = selp(converged, precision(0.0), alpha)
 
             acc = typed_zero
             for i in range(n):
@@ -317,7 +327,7 @@ def linear_solver_cached_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, 0.0, alpha)
+            alpha_effective = selp(converged, precision(0.0), alpha)
 
             acc = typed_zero
             for i in range(n):

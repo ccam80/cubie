@@ -155,6 +155,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                counters,
                 int32(0),
                 newton_initial_guesses,
                 newton_iteration_guesses,
@@ -166,7 +167,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 linear_residuals,
                 linear_squared_norms,
                 linear_preconditioned_vectors,
-                counters,
             )
 
             for idx in range(n):

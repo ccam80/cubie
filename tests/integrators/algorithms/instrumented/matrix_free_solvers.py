@@ -327,7 +327,31 @@ def inst_newton_krylov_solver_factory(
     status_active = int32(-1)
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+            [(numba_precision[:],
+             numba_precision[:],
+             numba_precision[:],
+             numba_precision,
+             numba_precision,
+             numba_precision,
+             numba_precision[:],
+             numba_precision[:],
+             int32[:],
+             int32,
+             numba_precision[:,:],
+             numba_precision[:,:],
+             numba_precision[:,:],
+             numba_precision[:],
+             numba_precision[:],
+             numba_precision[:],
+             numba_precision[:,:],
+             numba_precision[:,:],
+             numba_precision[:,:],
+             numba_precision[:],
+             numba_precision[:,:],
+             )],
+            device=True,
+            inline=True)
     def newton_krylov_solver(
         stage_increment,
         parameters,

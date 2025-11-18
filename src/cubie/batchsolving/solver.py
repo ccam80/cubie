@@ -161,7 +161,7 @@ class Solver:
         memory_settings: Optional[Dict[str, object]] = None,
         loop_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
-        time_logging_level: Optional[str] = 'default',
+        time_logging_level: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         if output_settings is None:
