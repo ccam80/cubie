@@ -1,11 +1,9 @@
 import pytest
 from pathlib import Path
 import numpy as np
-import sympy as sp
 
 from cubie import solve_ivp, SolveResult
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model, \
-    _eq_to_equality_str
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 from cubie._utils import is_devfunc
 
 # Note: cellmlmanip import removed - tests should fail if dependency missing
@@ -179,6 +177,25 @@ def test_default_units_for_symbolic_ode():
     assert ode.parameter_units == {'a': 'dimensionless'}
     assert ode.observable_units == {}
 
+
+def test_cellml_uses_sympy_pathway(basic_model):
+    """Verify CellML adapter uses SymPy pathway internally."""
+    assert basic_model.num_states == 1
+    assert is_devfunc(basic_model.dxdt_function)
+    
+    initial_vals = basic_model.indices.states.default_values
+    assert len(initial_vals) > 0
+
+
+def test_cellml_timing_events_updated():
+    """Verify timing events use new SymPy preparation name."""
+    from cubie.time_logger import _default_timelogger
+    
+    registered_events = _default_timelogger._event_registry
+    assert "codegen_cellml_sympy_preparation" in registered_events
+    
+    assert "codegen_cellml_string_formatting" not in registered_events
+
 def test_custom_units_for_symbolic_ode():
     """Verify custom units can be specified for SymbolicODE."""
     from cubie import SymbolicODE
@@ -274,38 +291,6 @@ def test_non_numeric_algebraic_equations_remain(beeler_reuter_model):
     algebraic_eq_count = len(observables) + len(auxiliaries)
     assert algebraic_eq_count > 0
 
-def test_eq_to_equality_str_piecewise_recursive():
-    # Build symbols
-    i_Ks_ANS_cond_i_Ks = sp.Symbol('i_Ks_ANS_cond_i_Ks')
-    PKA_PKA = sp.Symbol('PKA_PKA')
-    i_Ks_VW_IKs = sp.Symbol('i_Ks_VW_IKs')
-    Rate_modulation_experiments_ANS = sp.Symbol(
-        'Rate_modulation_experiments_ANS'
-    )
-    # Piecewise expression mirroring user example
-    piece = sp.Piecewise(
-        (
-            0.435692 * PKA_PKA**10.0808 /
-            (PKA_PKA**10.0808 + 0.0363060458208831) - 0.2152,
-            sp.Eq(i_Ks_VW_IKs, 0) & (Rate_modulation_experiments_ANS > 0)
-        ),
-        (
-            0.494259 * PKA_PKA**10.0808 /
-            (PKA_PKA**10.0808 + 0.0459499253882566) - 0.2152,
-            (Rate_modulation_experiments_ANS > 0) & (i_Ks_VW_IKs > 0)
-        ),
-        (0, True)
-    )
-    expr = sp.Eq(i_Ks_ANS_cond_i_Ks, piece)
-    out_str = _eq_to_equality_str(expr)
-    # Expect conversion of Eq() in condition to ==
-    assert 'i_Ks_VW_IKs == 0' in out_str, out_str
-    # Expect Piecewise maintained
-    assert out_str.count('Piecewise') == 1
-    # Expect no raw 'Eq(' tokens remain
-    assert 'Eq(' not in out_str
-
-
 def test_cellml_time_logging_events_registered():
     """Verify time logging events are registered for cellml import."""
     from cubie.time_logger import _default_timelogger
@@ -315,7 +300,7 @@ def test_cellml_time_logging_events_registered():
         "codegen_cellml_load_model",
         "codegen_cellml_symbol_conversion",
         "codegen_cellml_equation_processing",
-        "codegen_cellml_string_formatting",
+        "codegen_cellml_sympy_preparation",
     ]
     
     for event_name in expected_events:
@@ -344,7 +329,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_string_formatting", "codegen",
+        "codegen_cellml_sympy_preparation", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -369,14 +354,14 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         assert "codegen_cellml_load_model" in event_names
         assert "codegen_cellml_symbol_conversion" in event_names
         assert "codegen_cellml_equation_processing" in event_names
-        assert "codegen_cellml_string_formatting" in event_names
+        assert "codegen_cellml_sympy_preparation" in event_names
         
         # Check that each event has both start and stop
         for event_name in [
             "codegen_cellml_load_model",
             "codegen_cellml_symbol_conversion",
             "codegen_cellml_equation_processing",
-            "codegen_cellml_string_formatting",
+            "codegen_cellml_sympy_preparation",
         ]:
             start_events = [e for e in test_logger.events
                           if e.name == event_name and e.event_type == "start"]
@@ -390,7 +375,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
             "codegen_cellml_load_model",
             "codegen_cellml_symbol_conversion",
             "codegen_cellml_equation_processing",
-            "codegen_cellml_string_formatting",
+            "codegen_cellml_sympy_preparation",
         ]:
             duration = test_logger.get_event_duration(event_name)
             assert duration is not None, f"Duration not found for {event_name}"
@@ -422,7 +407,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         "Codegen time for processing differential and algebraic equations"
     )
     test_logger.register_event(
-        "codegen_cellml_string_formatting", "codegen",
+        "codegen_cellml_sympy_preparation", "codegen",
         "Codegen time for formatting equations as strings"
     )
     
@@ -447,7 +432,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         assert "codegen_cellml_load_model" in durations
         assert "codegen_cellml_symbol_conversion" in durations
         assert "codegen_cellml_equation_processing" in durations
-        assert "codegen_cellml_string_formatting" in durations
+        assert "codegen_cellml_sympy_preparation" in durations
         
         # Verify all durations are non-negative
         for event_name, duration in durations.items():

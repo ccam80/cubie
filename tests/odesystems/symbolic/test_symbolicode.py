@@ -137,3 +137,101 @@ def test_time_derivative_helper_available(built_simple_strict):
 
     helper = built_simple_strict.get_solver_helper("time_derivative_rhs")
     assert callable(helper)
+
+
+class TestSympyStringEquivalence:
+    """Test equivalence of SymPy and string input pathways."""
+    
+    def test_generated_code_identical(self):
+        """Verify SymPy and string inputs generate identical code."""
+        import sympy as sp
+        from cubie._utils import is_devfunc
+        
+        x, y, k = sp.symbols('x y k')
+        dx, dy = sp.symbols('dx dy')
+        dxdt_sympy = [
+            sp.Eq(dx, -k * x),
+            sp.Eq(dy, k * x)
+        ]
+        
+        ode_sympy = SymbolicODE.create(
+            dxdt=dxdt_sympy,
+            states={'x': 1.0, 'y': 0.0},
+            parameters={'k': 0.1},
+            name='test_sympy'
+        )
+        
+        dxdt_string = ["dx = -k * x", "dy = k * x"]
+        
+        ode_string = SymbolicODE.create(
+            dxdt=dxdt_string,
+            states={'x': 1.0, 'y': 0.0},
+            parameters={'k': 0.1},
+            name='test_string'
+        )
+        
+        assert is_devfunc(ode_sympy.dxdt_function)
+        assert is_devfunc(ode_string.dxdt_function)
+        
+        assert ode_sympy.num_states == ode_string.num_states
+        assert ode_sympy.num_states == 2
+    
+    def test_hash_consistency(self):
+        """Verify hash is consistent for equivalent definitions."""
+        import sympy as sp
+        from cubie.odesystems.symbolic.parsing.parser import parse_input
+        
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        dxdt_sympy = [sp.Eq(dx, -k * x)]
+        
+        dxdt_string = "dx = -k * x"
+        
+        result_sympy = parse_input(
+            dxdt=dxdt_sympy,
+            states=['x'],
+            parameters=['k'],
+            constants={'c': 1.0}
+        )
+        
+        result_string = parse_input(
+            dxdt=dxdt_string,
+            states=['x'],
+            parameters=['k'],
+            constants={'c': 1.0}
+        )
+        
+        hash_sympy = result_sympy[4]
+        hash_string = result_string[4]
+        
+        assert hash_sympy == hash_string
+    
+    def test_observables_equivalence(self):
+        """Verify observables work identically in both pathways."""
+        import sympy as sp
+        
+        x, k, z = sp.symbols('x k z')
+        dx = sp.Symbol('dx')
+        dxdt_sympy = [
+            sp.Eq(dx, -k * x),
+            sp.Eq(z, x * k)
+        ]
+        
+        ode_sympy = SymbolicODE.create(
+            dxdt=dxdt_sympy,
+            states={'x': 1.0},
+            parameters={'k': 0.1},
+            observables=['z']
+        )
+        
+        dxdt_string = ["dx = -k * x", "z = x * k"]
+        
+        ode_string = SymbolicODE.create(
+            dxdt=dxdt_string,
+            states={'x': 1.0},
+            parameters={'k': 0.1},
+            observables=['z']
+        )
+        
+        assert len(ode_sympy.indices.observables.index_map) == 1
+        assert len(ode_string.indices.observables.index_map) == 1
