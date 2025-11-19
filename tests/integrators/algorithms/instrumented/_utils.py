@@ -1,11 +1,9 @@
 """Utilities shared across instrumentation-enabled integrator tests."""
 
-from dataclasses import dataclass
-
 import numpy as np
+import attrs
 
-
-@dataclass(slots=True)
+@attrs.define(slots=True)
 class InstrumentationHostBuffers:
     """Host-side buffers for instrumented integrator diagnostics.
 

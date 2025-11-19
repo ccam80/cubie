@@ -11,7 +11,7 @@ The implementation intentionally favours clarity over performance so that the
 behaviour matches the reference implementation used in the tests.
 """
 
-from dataclasses import dataclass
+import attrs
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
@@ -39,7 +39,7 @@ from tests.system_fixtures import (
 ArrayFloat = NDArray[np.floating[Any]]
 
 
-@dataclass
+@attrs.define
 class StepRecord:
     """Time-stamped record of a proposed step.
 

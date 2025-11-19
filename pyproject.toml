@@ -14,7 +14,7 @@ authors = [
     { name="Chris Cameron" }
 ]
 readme = "readme.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
