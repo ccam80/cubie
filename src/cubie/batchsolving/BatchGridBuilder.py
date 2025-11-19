@@ -371,6 +371,8 @@ def combine_grids(
         return g1_repeat, g2_tile
     # For 'verbatim' pair rows directly and error if row counts differ
     elif kind == "verbatim":
+        if grid1.shape[0] == 1:
+            grid1 = g1_repeat = np.repeat(grid1, grid2.shape[0], axis=0)
         if grid1.shape[0] != grid2.shape[0]:
             raise ValueError(
                 "For 'verbatim', both grids must have the same number of rows."
@@ -417,8 +419,12 @@ def extend_grid_to_array(
         # When multidimensional ensure the grid column count matches indices
         if grid.shape[1] != indices.shape[0]:
             raise ValueError("Grid shape does not match indices shape.")
-        array = np.vstack([default_values] * grid.shape[0])
-        array[:, indices] = grid
+        if default_values.shape[0] == indices.shape[0]:
+            # All indices swept, just pass the array straight through
+            array = grid
+        else:
+            array = np.vstack([default_values] * grid.shape[0])
+            array[:, indices] = grid
 
     return array
 
@@ -582,6 +588,19 @@ class BatchGridBuilder:
         #Fetch updated state from system
         self.precision = self.states.precision
 
+        # fast path when arrays are provided directly
+        if kind=='verbatim':
+            if isinstance(states, np.ndarray) and isinstance(params, np.ndarray):
+                state_sets = states.shape[0]
+                param_sets = params.shape[0]
+                if state_sets == param_sets:
+                    return self._cast_to_precision(states, params)
+                elif state_sets == 1:
+                    states = np.repeat(states, param_sets, axis=0)
+                    return self._cast_to_precision(states, params)
+                elif param_sets == 1:
+                    params = np.repeat(params, state_sets, axis=0)
+                    return self._cast_to_precision(states, params)
         parray = None
         sarray = None
         if request is not None:

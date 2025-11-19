@@ -317,7 +317,7 @@ class Solver:
         blocksize: int = 256,
         stream: Any = None,
         chunk_axis: str = "run",
-        grid_type: str = "combinatorial",
+        grid_type: str = "verbatim",
         results_type: str = "full",
         **kwargs: Any,
     ) -> SolveResult:
