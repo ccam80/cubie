@@ -1,7 +1,7 @@
 """Shared utilities for CPU reference integrator implementations."""
 
 import math
-from dataclasses import dataclass, field
+import attrs
 from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
@@ -181,7 +181,7 @@ def _log_newton_iteration(
         logging_squared_norms[stage_index, index] = squared_norm
 
 
-@dataclass
+@attrs.define
 class StepResult:
     """Container describing the outcome of a single integration step."""
 
@@ -192,7 +192,7 @@ class StepResult:
     niters: int = 0
 
 
-@dataclass(slots=True)
+@attrs.define(slots=True)
 class InstrumentedStepResult:
     """Return container with per-stage diagnostics for a CPU step."""
 
@@ -219,7 +219,7 @@ class InstrumentedStepResult:
     linear_residuals: Union[Array, None] = None
     linear_squared_norms: Union[Array, None] = None
     linear_preconditioned_vectors: Union[Array, None] = None
-    extra_vectors: dict[str, Array] = field(default_factory=dict)
+    extra_vectors: Optional[dict[str, Array]] = None
 
 
 StepResultLike = Union[StepResult, InstrumentedStepResult]

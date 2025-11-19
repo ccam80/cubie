@@ -1,7 +1,6 @@
 """Parse symbolic ODE descriptions into structured SymPy objects."""
 
 import re
-from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
@@ -18,6 +17,7 @@ from warnings import warn
 import sympy as sp
 from sympy.parsing.sympy_parser import T, parse_expr
 from sympy.core.function import AppliedUndef
+import attrs
 
 from ..indexedbasemaps import IndexedBases
 from ..sym_utils import hash_system_definition
@@ -294,7 +294,7 @@ KNOWN_FUNCTIONS = {
 }
 
 
-@dataclass(frozen=True)
+@attrs.define(frozen=True)
 class ParsedEquations:
     """Container separating state, observable, and auxiliary assignments.
 
@@ -321,9 +321,9 @@ class ParsedEquations:
     state_derivatives: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
     observables: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
     auxiliaries: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
-    _state_symbols: frozenset[sp.Symbol] = field(repr=False)
-    _observable_symbols: frozenset[sp.Symbol] = field(repr=False)
-    _auxiliary_symbols: frozenset[sp.Symbol] = field(repr=False)
+    _state_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
+    _observable_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
+    _auxiliary_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
 
     def __iter__(self) -> Iterable[Tuple[sp.Symbol, sp.Expr]]:
         """Iterate over all equations in the original evaluation order."""
@@ -416,9 +416,9 @@ class ParsedEquations:
             state_derivatives=state_eqs,
             observables=observable_eqs,
             auxiliaries=auxiliary_eqs,
-            _state_symbols=state_symbols,
-            _observable_symbols=observable_symbols,
-            _auxiliary_symbols=auxiliary_symbols,
+            state_symbols=state_symbols,
+            observable_symbols=observable_symbols,
+            auxiliary_symbols=auxiliary_symbols,
         )
 
 

@@ -1,6 +1,6 @@
 """Reusable tester for single-step integration algorithms."""
 
-from dataclasses import dataclass
+import attrs
 from typing import Any, Optional
 
 import numpy as np
@@ -52,7 +52,7 @@ from tests.integrators.cpu_reference.algorithms import (
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
 
-@dataclass
+@attrs.define
 class StepResult:
     """Container holding the outputs of a single step execution."""
 
@@ -64,7 +64,7 @@ class StepResult:
     counters: Optional[Array] = None
 
 
-@dataclass
+@attrs.define
 class DualStepResult:
     """Container recording back-to-back step executions."""
 

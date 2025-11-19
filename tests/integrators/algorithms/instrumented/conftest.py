@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+import attrs
 from typing import Dict, List, Optional, Union, Tuple, Any
 
 import numpy as np
@@ -200,7 +200,7 @@ def step_inputs(
         "driver_coefficients": driver_coefficients,
     }
 
-@dataclass
+@attrs.define
 class DeviceInstrumentedResult:
     """Host-side copies of the arrays produced by the CUDA step."""
 
@@ -227,7 +227,7 @@ class DeviceInstrumentedResult:
     status: Optional[int] = None
     niters: Optional[int] = None
     stage_count: Optional[int] = None
-    extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
+    extra_vectors: Optional[Dict[str, np.ndarray]] = None
 
 @pytest.fixture(scope="session")
 def instrumented_step_object(

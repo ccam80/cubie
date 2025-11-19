@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import attrs
 import math
 from typing import Mapping, Optional, Union
 
@@ -570,7 +570,7 @@ def generate_test_array(precision, size, style, scale=None):
         )
 
 # ******************** Device Test Kernels *********************************  #
-@dataclass
+@attrs.define
 class LoopRunResult:
     """Container holding the outputs produced by a single loop execution."""
 

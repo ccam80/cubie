@@ -12,7 +12,7 @@ markers.  The script requires NumPy, Matplotlib, and a CUDA-capable device (or
 Numba's CUDA simulator).
 """
 
-from dataclasses import dataclass
+import attrs
 from typing import Any, Dict, Iterable, Tuple
 
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
 Array = NDArray[np.floating[Any]]
 
 
-@dataclass
+@attrs.define
 class HandlingConfig:
     """Describe how samples should be extrapolated beyond their support."""
 

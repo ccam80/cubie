@@ -266,9 +266,9 @@ def generate_analytical_jvp(
         ),
         observables=tuple(),
         auxiliaries=tuple(auxiliary_entries),
-        _state_symbols=state_syms,
-        _observable_symbols=observable_syms,
-        _auxiliary_symbols=auxiliary_syms,
+        state_symbols=state_syms,
+        observable_symbols=observable_syms,
+        auxiliary_symbols=auxiliary_syms,
     )
     jac = generate_jacobian(
         parsed_substituted,

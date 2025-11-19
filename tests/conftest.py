@@ -52,6 +52,21 @@ from tests.system_fixtures import (
 
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
+
+# --------------------------------------------------------------------------- #
+#                           Test ordering hook                                #
+# --------------------------------------------------------------------------- #
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    # move tests which close the CUDA context to the very end, so that the
+    # streams used in session-scoped fixtures don't disappear on them mid-run
+    final_basenames = {"test_cupyemm.py", "test_memmgmt.py"}
+    # iterate over a shallow copy to allow safe in-place removals/appends
+    for item in items[:]:
+        if item.fspath.basename in final_basenames:
+            items.remove(item)
+            items.append(item)
+    pass
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #

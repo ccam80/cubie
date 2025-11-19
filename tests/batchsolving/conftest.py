@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import attrs
 
 import numpy as np
 import pytest
@@ -82,7 +82,7 @@ def batch_input_arrays(
     )
 
 
-@dataclass
+@attrs.define
 class BatchResult:
     """Container for CPU reference outputs for a single batch run."""
 
