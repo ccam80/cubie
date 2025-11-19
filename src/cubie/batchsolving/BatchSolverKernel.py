@@ -127,6 +127,7 @@ class BatchSolverKernel(CUDAFactory):
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
+        self._lineinfo = profileCUDA
 
         precision = system.precision
         self._duration = precision(0.0)
@@ -358,7 +359,9 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_t0,
                 numruns,
             )
-            self.memory_manager.sync_stream(self)
+            # We don't want to sync between chunks, we should queue runs and
+            # transfers in the stream and sync before final result fetch.
+            # self.memory_manager.sync_stream(self)
 
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
@@ -504,6 +507,7 @@ class BatchSolverKernel(CUDAFactory):
                 precision,
                 int32,
             ),
+            lineinfo=self._lineinfo,
         )
         def integration_kernel(
             inits,
@@ -1119,13 +1123,24 @@ class BatchSolverKernel(CUDAFactory):
 
     def enable_profiling(self) -> None:
         """Enable CUDA profiling hooks for subsequent launches."""
-
+        self._lineinfo=True
         self._profileCUDA = True
 
     def disable_profiling(self) -> None:
         """Disable CUDA profiling hooks for subsequent launches."""
-
+        self._lineinfo=False
         self._profileCUDA = False
+
+    def set_stride_order(self, order: Tuple[str]) -> None:
+        """Set the stride order for device arrays.
+
+        Parameters
+        ----------
+        order
+            Tuple of labels in ["time", "run", "variable"]. The last string in
+            this order is the contiguous dimension on chip.
+        """
+        self.memory_manager.set_global_stride_ordering(order)
 
     @property
     def output_types(self) -> Any:

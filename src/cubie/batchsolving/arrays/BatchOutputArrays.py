@@ -10,8 +10,6 @@ import attrs.validators as val
 import numpy as np
 from numpy.typing import NDArray
 
-ChunkIndices = Union[slice, NDArray[np.integer]]
-
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
@@ -20,6 +18,8 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 )
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
+
+ChunkIndices = Union[slice, NDArray[np.integer]]
 
 
 @attrs.define(slots=False)

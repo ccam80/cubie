@@ -388,7 +388,7 @@ class Solver:
             stream=stream,
             chunk_axis=chunk_axis,
         )
-
+        self.memory_manager.sync_stream(self.kernel)
         return SolveResult.from_solver(self, results_type=results_type)
 
     def update(
@@ -544,6 +544,16 @@ class Solver:
         """
         self.kernel.disable_profiling()
 
+    def set_stride_order(self, order: Tuple[str]) -> None:
+        """Set the stride order for device arrays.
+
+        Parameters
+        ----------
+        order
+            Tuple of labels in ["time", "run", "variable"]. The last string in
+            this order is the contiguous dimension on chip.
+        """
+        self.kernel.set_stride_order(order)
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
     ) -> np.ndarray:
