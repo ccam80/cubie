@@ -7,7 +7,8 @@ from numpy._typing import ArrayLike
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
-    BaseAdaptiveStepController, AdaptiveStepControlConfig
+    BaseAdaptiveStepController,
+    AdaptiveStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
 
@@ -137,17 +138,17 @@ class AdaptiveIController(BaseAdaptiveStepController):
             (deadband_min == unity_gain)
             and (deadband_max == unity_gain)
         )
-
+        numba_precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
                 [(
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
                     int32,
                     int32[::1],
-                    precision[::1],
+                    numba_precision[::1],
                 )],
             device=True,
             inline=True,
