@@ -493,9 +493,9 @@ class BatchSolverKernel(CUDAFactory):
         # no cover: start
         @cuda.jit(
             (
-                precision[:, :],
-                precision[:, :],
-                precision[:, :, :],
+                precision[:, ::1],
+                precision[:, ::1],
+                precision[:, :, ::1],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
