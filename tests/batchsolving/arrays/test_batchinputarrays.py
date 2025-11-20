@@ -103,7 +103,7 @@ class TestInputArrayContainer:
     def test_device_factory(self):
         """Test device factory method"""
         container = InputArrayContainer.device_factory()
-        assert container.get_managed_array("initial_values").memory_type == "device"
+        assert container.get_managed_array("initial_values").memory_type == "mapped"
 
 
 class TestInputArrays:
@@ -120,7 +120,7 @@ class TestInputArrays:
         for _, managed in input_arrays_manager.host.iter_managed_arrays():
             assert managed.memory_type == "host"
         for _, managed in input_arrays_manager.device.iter_managed_arrays():
-            assert managed.memory_type == "device"
+            assert managed.memory_type == "mapped"
 
     def test_from_solver_factory(self, solver):
         """Test creating InputArrays from solver"""

@@ -412,6 +412,7 @@ class OutputArrays(BaseArrayManager):
         for array_name, slot in self.host.iter_managed_arrays():
             array = slot.array
             device_array = self.device.get_array(array_name)
+            device_obj = self.device.get_managed_array(array_name)
             if getattr(self.active_outputs, array_name):
                 stride_order = slot.stride_order
                 if self._chunk_axis in stride_order:
@@ -422,7 +423,13 @@ class OutputArrays(BaseArrayManager):
                     target_slice = slice_tuple
                 else:
                     target_slice = Ellipsis
-                array[target_slice] = device_array
+                
+                # Direct assignment for mapped memory (no explicit copy needed)
+                # For other memory types, use explicit copy
+                if device_obj.memory_type == "mapped":
+                    array[target_slice] = device_array
+                else:
+                    array[target_slice] = device_array.copy()
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

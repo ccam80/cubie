@@ -61,7 +61,7 @@ class InputArrayContainer(ArrayContainer):
 
     @classmethod
     def device_factory(cls) -> "InputArrayContainer":
-        """Create a container configured for device memory transfers.
+        """Create a container configured for mapped memory transfers.
 
         Returns
         -------
@@ -69,7 +69,7 @@ class InputArrayContainer(ArrayContainer):
             Device-side container instance.
         """
         container = cls()
-        container.set_memory_type("device")
+        container.set_memory_type("mapped")
         return container
 
     # @property
@@ -155,7 +155,7 @@ class InputArrays(BaseArrayManager):
         """
         super().__attrs_post_init__()
         self.host.set_memory_type("host")
-        self.device.set_memory_type("device")
+        self.device.set_memory_type("mapped")
 
     def update(
         self,
@@ -315,13 +315,17 @@ class InputArrays(BaseArrayManager):
         # self.from_device(from_, to_)
         pass
 
-    def initialise(self, host_indices: Union[slice, NDArray]) -> None:
+    def initialise(
+        self, host_indices: Union[slice, NDArray], chunk_index: int = 0
+    ) -> None:
         """Copy a batch chunk of host data to device buffers.
 
         Parameters
         ----------
         host_indices
             Indices for the chunk being initialized.
+        chunk_index
+            The index of the current chunk being processed.
 
         Returns
         -------
@@ -330,47 +334,36 @@ class InputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method copies the appropriate chunk of data from host to device
-        arrays before kernel execution. Unchunkable arrays are only copied
-        on the first chunk or when explicitly marked for overwrite.
+        Mapped device arrays are host-accessible pinned memory. Direct
+        assignment triggers implicit synchronization by the CUDA runtime,
+        eliminating the need for explicit copy operations. All chunked
+        arrays are copied to ensure lingering data from previous chunks
+        is overwritten.
         """
-        from_ = []
-        to_ = []
-
-        if self._chunks <= 1:
-            arrays_to_copy = [array for array in self._needs_overwrite]
-            self._needs_overwrite = []
-        else:
-            # Determine if this is the first chunk
-            is_first_chunk = (
-                isinstance(host_indices, slice) and host_indices.start == 0
-            ) or (
-                isinstance(host_indices, np.ndarray) and host_indices[0] == 0
-            )
-
-            # On first chunk, copy arrays needing overwrite
-            # On subsequent chunks, only copy chunkable arrays
-            if is_first_chunk and self._needs_overwrite:
-                arrays_to_copy = list(self._needs_overwrite)
-                self._needs_overwrite = []
-            else:
-                # Only copy chunkable arrays after first chunk
-                arrays_to_copy = [
-                    name for name in self.device.array_names()
-                    if self.device.get_managed_array(name).is_chunked
-                ]
-
-        for array_name in arrays_to_copy:
+        for array_name, slot in self.host.iter_managed_arrays():
+            array = slot.array
+            device_array = self.device.get_array(array_name)
             device_obj = self.device.get_managed_array(array_name)
-            to_.append(device_obj.array)
-            host_obj = self.host.get_managed_array(array_name)
+            
+            # Copy all arrays if no chunking, or if this is unchunkable
+            # For chunked arrays, always copy to overwrite lingering data
             if self._chunks <= 1 or not device_obj.is_chunked:
-                from_.append(host_obj.array)
+                # Direct assignment for mapped memory (no explicit copy needed)
+                if device_obj.memory_type == "mapped":
+                    device_array[:] = array
+                else:
+                    self.to_device([array], [device_array])
             else:
-                stride_order = host_obj.stride_order
-                chunk_index = stride_order.index(self._chunk_axis)
-                slice_tuple = [slice(None)] * len(stride_order)
-                slice_tuple[chunk_index] = host_indices
-                from_.append(host_obj.array[tuple(slice_tuple)])
-
-        self.to_device(from_, to_)
+                # Copy the appropriate chunk slice
+                stride_order = slot.stride_order
+                if self._chunk_axis in stride_order:
+                    chunk_idx = stride_order.index(self._chunk_axis)
+                    slice_tuple = [slice(None)] * len(stride_order)
+                    slice_tuple[chunk_idx] = host_indices
+                    slice_tuple = tuple(slice_tuple)
+                    
+                    # Direct assignment for mapped memory
+                    if device_obj.memory_type == "mapped":
+                        device_array[:] = array[slice_tuple]
+                    else:
+                        self.to_device([array[slice_tuple]], [device_array])
