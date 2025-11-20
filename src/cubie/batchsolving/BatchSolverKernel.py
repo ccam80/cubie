@@ -63,9 +63,11 @@ class ChunkParams:
     size: int
     runs: int
 
+
 @attrs.define()
 class BatchSolverCache(CUDAFunctionCache):
     solver_kernel: Union[int, Callable] = attrs.field(default=-1)
+
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -480,9 +482,8 @@ class BatchSolverKernel(CUDAFactory):
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
-        save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
-        
+
         multiple_inits = config.multiple_inits
         multiple_params = config.multiple_params
 
@@ -493,6 +494,7 @@ class BatchSolverKernel(CUDAFactory):
         run_stride_f32 = int(
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
+
         # no cover: start
         @cuda.jit(
             (
@@ -584,8 +586,8 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-            # Conditionally index inits and params based on compile-time flags
-            # When multiple_inits/multiple_params is False, all runs use row 0
+            # Conditionally index based on compile-time flags
+            # When multiple_inits/multiple_params is False, use row 0
             init_index = run_index if multiple_inits else 0
             param_index = run_index if multiple_params else 0
             rx_inits = inits[init_index, :]
@@ -622,11 +624,12 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
         # no cover: end
-        
+
         # Attach critical shapes for dummy execution
         # Parameters in order: inits, params, d_coefficients, state_output,
-        # observables_output, state_summaries_output, observables_summaries_output,
-        # iteration_counters_output, status_codes_output, duration, warmup, t0, n_runs
+        # observables_output, state_summaries_output,
+        # observables_summaries_output, iteration_counters_output,
+        # status_codes_output, duration, warmup, t0, n_runs
         system_sizes = self.system_sizes
         n_states = int(system_sizes.states)
         n_parameters = int(system_sizes.parameters)
@@ -634,21 +637,21 @@ class BatchSolverKernel(CUDAFactory):
         integration_kernel.critical_shapes = (
             (1, n_states),  # inits - [n_runs, n_states]
             (1, n_parameters),  # params - [n_runs, n_parameters]
-            (100,n_states,6),  # d_coefficients - complex driver array
-            (100, 1, n_states), # state_output
+            (100, n_states, 6),  # d_coefficients - complex driver array
+            (100, 1, n_states),  # state_output
             (100, 1, n_observables),  # observables_output
-            (100, 1, n_observables), # state_summaries_output
-            (100, 1, n_observables), # observables_summaries_output
-            (100, 1, 4), # iteration_counters_output
+            (100, 1, n_observables),  # state_summaries_output
+            (100, 1, n_observables),  # observables_summaries_output
+            (100, 1, 4),  # iteration_counters_output
             (1,),  # status_codes_output
             None,  # duration - scalar
             None,  # warmup - scalar
             None,  # t0 - scalar
             None,  # n_runs - scalar
         )
-        
-        # Attach critical values for scalar parameters to avoid infinite loops
-        # in adaptive step controllers during dummy compilation
+
+        # Attach critical values for scalar parameters to avoid infinite
+        # loops in adaptive step controllers during dummy compilation
         integration_kernel.critical_values = (
             None,  # inits - array
             None,  # params - array
@@ -664,7 +667,7 @@ class BatchSolverKernel(CUDAFactory):
             0.0,  # t0 - zero start time
             1,  # n_runs - single run
         )
-        
+
         return integration_kernel
 
     def update(
@@ -710,7 +713,7 @@ class BatchSolverKernel(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= self.single_integrator.update(
-                updates_dict, silent=True
+            updates_dict, silent=True
         )
         updates_dict.update({
             "loop_function": self.single_integrator.device_function,
@@ -720,11 +723,11 @@ class BatchSolverKernel(CUDAFactory):
             "shared_memory_elements": (
                 self.single_integrator.shared_memory_elements
             ),
-             "ActiveOutputs": self.output_arrays.active_outputs,
+            "ActiveOutputs": self.output_arrays.active_outputs,
         })
 
         all_unrecognized -= self.update_compile_settings(
-                updates_dict, silent=True
+            updates_dict, silent=True
         )
 
         recognised = set(updates_dict.keys()) - all_unrecognized
@@ -842,7 +845,6 @@ class BatchSolverKernel(CUDAFactory):
 
         return self.single_integrator.shared_memory_bytes
 
-
     @property
     def threads_per_loop(self) -> int:
         """CUDA threads consumed by each run in the loop."""
@@ -908,7 +910,6 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def system(self) -> "BaseODE":
         """Underlying ODE system handled by the kernel."""
-
         return self.single_integrator.system
 
     @property
@@ -1130,12 +1131,12 @@ class BatchSolverKernel(CUDAFactory):
 
     def enable_profiling(self) -> None:
         """Enable CUDA profiling hooks for subsequent launches."""
-        self._lineinfo=True
+        self._lineinfo = True
         self._profileCUDA = True
 
     def disable_profiling(self) -> None:
         """Disable CUDA profiling hooks for subsequent launches."""
-        self._lineinfo=False
+        self._lineinfo = False
         self._profileCUDA = False
 
     def set_stride_order(self, order: Tuple[str]) -> None:

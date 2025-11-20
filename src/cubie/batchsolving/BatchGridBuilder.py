@@ -615,12 +615,13 @@ class BatchGridBuilder:
         arrays already describe paired rows, set ``kind`` to ``"verbatim"`` to
         keep them aligned.
         """
-        #Fetch updated state from system
+        # Fetch updated state from system
         self.precision = self.states.precision
 
         # fast path when arrays are provided directly
-        if kind=='verbatim':
-            if isinstance(states, np.ndarray) and isinstance(params, np.ndarray):
+        if kind == 'verbatim':
+            if isinstance(states, np.ndarray) and \
+                    isinstance(params, np.ndarray):
                 state_sets = states.shape[0]
                 param_sets = params.shape[0]
                 if state_sets == param_sets:
@@ -894,7 +895,9 @@ class BatchGridBuilder:
 
     @staticmethod
     def extend_grid_to_array(
-        grid: np.ndarray, indices: np.ndarray, default_values: np.ndarray
+        grid: np.ndarray,
+        indices: np.ndarray,
+        default_values: np.ndarray
     ) -> np.ndarray:
         return extend_grid_to_array(grid, indices, default_values)
 

@@ -308,8 +308,8 @@ class Solver:
 
     def solve(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,
@@ -373,8 +373,11 @@ class Solver:
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update(
-                {"driver_function": self.driver_interpolator.evaluation_function,
-                 "driver_del_t": self.driver_interpolator.driver_del_t}
+                {
+                    "driver_function":
+                        self.driver_interpolator.evaluation_function,
+                    "driver_del_t": self.driver_interpolator.driver_del_t
+                }
             )
 
         # Update kernel with grid metadata before running
@@ -442,7 +445,6 @@ class Solver:
             updates_dict["driver_del_t"] = (
                 self.driver_interpolator.driver_del_t
             )
-
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
@@ -557,6 +559,7 @@ class Solver:
             this order is the contiguous dimension on chip.
         """
         self.kernel.set_stride_order(order)
+
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
     ) -> np.ndarray:
@@ -839,16 +842,16 @@ class Solver:
     def algorithm(self):
         """Return the configured algorithm name."""
         return self.kernel.algorithm
-    
+
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.
-        
+
         Parameters
         ----------
         verbosity : str or None
             New verbosity level. Options are 'default', 'verbose',
             'debug', None, or 'None'.
-        
+
         Notes
         -----
         Updates the global time logger verbosity. This affects all
