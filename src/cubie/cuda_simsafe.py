@@ -186,7 +186,6 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
     )
     def selp(pred, true_value, false_value):
         return true_value if pred else false_value
@@ -194,7 +193,6 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
     )
     def activemask():
         return 0xFFFFFFFF
@@ -202,7 +200,6 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
     )
     def all_sync(mask, predicate):
         return predicate
