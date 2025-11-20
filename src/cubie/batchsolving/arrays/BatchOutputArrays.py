@@ -405,9 +405,9 @@ class OutputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method copies mapped device arrays over the specified slice
-        of host arrays. The copy operation may trigger CUDA runtime
-        synchronization.
+        Mapped device arrays are host-accessible pinned memory. Direct
+        assignment triggers implicit synchronization by the CUDA runtime,
+        eliminating the need for explicit copy operations.
         """
         for array_name, slot in self.host.iter_managed_arrays():
             array = slot.array
@@ -422,10 +422,7 @@ class OutputArrays(BaseArrayManager):
                     target_slice = slice_tuple
                 else:
                     target_slice = Ellipsis
-                array[target_slice] = device_array.copy()
-                # I'm not sure that we can stream a Mapped transfer,
-                # as transfer is managed by the CUDA runtime. If we just
-                # overwrite, that might jog the cuda runtime to synchronize.
+                array[target_slice] = device_array
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

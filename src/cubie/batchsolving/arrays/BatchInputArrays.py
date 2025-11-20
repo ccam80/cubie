@@ -324,7 +324,8 @@ class InputArrays(BaseArrayManager):
         Notes
         -----
         This method copies the appropriate chunk of data from host to device
-        arrays before kernel execution.
+        arrays before kernel execution. Unchunkable arrays are only copied
+        on the first chunk or when explicitly marked for overwrite.
         """
         from_ = []
         to_ = []
@@ -333,7 +334,24 @@ class InputArrays(BaseArrayManager):
             arrays_to_copy = [array for array in self._needs_overwrite]
             self._needs_overwrite = []
         else:
-            arrays_to_copy = list(self.device.array_names())
+            # Determine if this is the first chunk
+            is_first_chunk = (
+                isinstance(host_indices, slice) and host_indices.start == 0
+            ) or (
+                isinstance(host_indices, np.ndarray) and host_indices[0] == 0
+            )
+            
+            # On first chunk, copy arrays needing overwrite
+            # On subsequent chunks, only copy chunkable arrays
+            if is_first_chunk and self._needs_overwrite:
+                arrays_to_copy = list(self._needs_overwrite)
+                self._needs_overwrite = []
+            else:
+                # Only copy chunkable arrays after first chunk
+                arrays_to_copy = [
+                    name for name in self.device.array_names()
+                    if self.device.get_managed_array(name).is_chunked
+                ]
 
         for array_name in arrays_to_copy:
             device_obj = self.device.get_managed_array(array_name)
