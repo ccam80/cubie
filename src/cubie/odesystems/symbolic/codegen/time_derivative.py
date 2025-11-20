@@ -37,7 +37,7 @@ TIME_DERIVATIVE_TEMPLATE = (
     "               precision[::1],\n"
     "               precision[::1],\n"
     "               precision[::1],\n"
-    "               precision[:],\n"
+    "               precision[::1],\n"
     "               precision),\n"
     "              device=True,\n"
     "              inline=True)\n"
