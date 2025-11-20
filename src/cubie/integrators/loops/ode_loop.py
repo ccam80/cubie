@@ -10,7 +10,7 @@ from typing import Callable, Optional, Set
 
 import attrs
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int16, int32, float64
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -236,9 +236,9 @@ class IVPLoop(CUDAFactory):
                     precision[:, :],
                     precision[:, :],
                     precision[:,::1],
-                    precision,
-                    precision,
-                    precision,
+                    float64,
+                    float64,
+                    float64,
                 )
             ],
             device=True,
@@ -258,7 +258,7 @@ class IVPLoop(CUDAFactory):
             iteration_counters_output,
             duration,
             settling_time,
-            t0=precision(0.0),
+            t0=float64(0.0),
         ): # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
@@ -296,8 +296,8 @@ class IVPLoop(CUDAFactory):
             int
                 Status code aggregating errors and iteration counts.
             """
-            t = precision(t0)
-            t_end = precision(settling_time + duration)
+            t = float64(t0)
+            t_end = float64(settling_time + duration)
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
@@ -350,7 +350,7 @@ class IVPLoop(CUDAFactory):
             # Seed initial observables from initial state.
             if driver_function is not None and n_drivers > 0:
                 driver_function(
-                    t,
+                    precision(t),
                     driver_coefficients,
                     drivers_buffer,
                 )
@@ -360,24 +360,24 @@ class IVPLoop(CUDAFactory):
                     parameters_buffer,
                     drivers_buffer,
                     observables_buffer,
-                    t,
+                    precision(t),
                 )
 
             save_idx = int32(0)
             summary_idx = int32(0)
 
-            if settling_time > precision(0.0):
+            if settling_time > float64(0.0):
                 # Don't save t0, wait until settling_time
-                next_save = precision(settling_time)
+                next_save = float64(settling_time)
             else:
                 # Seed initial state and save/update summaries
-                next_save = precision(dt_save)
+                next_save = float64(settling_time + dt_save)
 
                 save_state(
                     state_buffer,
                     observables_buffer,
                     counters_since_save,
-                    t,
+                    precision(t),
                     state_output[save_idx * save_state_bool, :],
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
@@ -440,7 +440,7 @@ class IVPLoop(CUDAFactory):
                         do_save = (t + dt[0]  +equality_breaker) >= next_save
                         dt_eff = selp(do_save, next_save - t, dt[0])
 
-                        status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
+                        status |= selp(dt_eff <= float64(0.0), int32(16), int32(0))
 
                     step_status = step_function(
                         state_buffer,
@@ -452,8 +452,8 @@ class IVPLoop(CUDAFactory):
                         observables_buffer,
                         observables_proposal_buffer,
                         error,
-                        dt_eff,
-                        t,
+                        precision(dt_eff),
+                        precision(t),
                         first_step_flag,
                         prev_step_accepted_flag,
                         remaining_shared_scratch,
@@ -525,7 +525,7 @@ class IVPLoop(CUDAFactory):
                             state_buffer,
                             observables_buffer,
                             counters_since_save,
-                            t,
+                            precision(t),
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
                             iteration_counters_output[save_idx * save_counters_bool, :],

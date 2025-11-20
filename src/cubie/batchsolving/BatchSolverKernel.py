@@ -264,10 +264,10 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        precision = self.precision
-        duration = precision(duration)
-        warmup = precision(warmup)
-        t0 = precision(t0)
+        # Time parameters always use float64 for accumulation accuracy
+        duration = np.float64(duration)
+        warmup = np.float64(warmup)
+        t0 = np.float64(t0)
 
         self._duration = duration
         self._warmup = warmup
@@ -336,8 +336,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = precision(0.0)
-                chunk_t0 = t0 + precision(i) * chunk_params.duration
+                chunk_warmup = np.float64(0.0)
+                chunk_t0 = t0 + np.float64(i) * chunk_params.duration
 
             self.kernel[
                 BLOCKSPERGRID,
@@ -505,9 +505,9 @@ class BatchSolverKernel(CUDAFactory):
                 precision[:, :, :],
                 int32[:, :, :],
                 int32[::1],
-                precision,
-                precision,
-                precision,
+                float64,
+                float64,
+                float64,
                 int32,
             ),
             **compile_kwargs,
@@ -523,8 +523,8 @@ class BatchSolverKernel(CUDAFactory):
             iteration_counters_output,
             status_codes_output,
             duration,
-            warmup=precision(0.0),
-            t0=precision(0.0),
+            warmup=float64(0.0),
+            t0=float64(0.0),
             n_runs=1,
         ):
             """Execute the compiled single-run loop for each batch chunk.
@@ -849,11 +849,11 @@ class BatchSolverKernel(CUDAFactory):
     def duration(self) -> float:
         """Requested integration duration."""
 
-        return self.precision(self._duration)
+        return np.float64(self._duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        self._duration = self.precision(value)
+        self._duration = np.float64(value)
 
     @property
     def dt(self) -> Optional[float]:
@@ -865,21 +865,21 @@ class BatchSolverKernel(CUDAFactory):
     def warmup(self) -> float:
         """Configured warmup duration."""
 
-        return self.precision(self._warmup)
+        return np.float64(self._warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        self._warmup = self.precision(value)
+        self._warmup = np.float64(value)
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
 
-        return self.precision(self._t0)
+        return np.float64(self._t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        self._t0 = self.precision(value)
+        self._t0 = np.float64(value)
 
     @property
     def output_length(self) -> int:
