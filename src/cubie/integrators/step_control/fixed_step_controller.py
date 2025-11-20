@@ -3,6 +3,7 @@
 
 from attrs import define, field
 from numba import cuda, int32
+from cubie.cuda_simsafe import compile_kwargs
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.step_control.base_step_controller import (
@@ -100,7 +101,12 @@ class FixedStepController(BaseStepController):
             CUDA device function that keeps the step size constant.
         """
 
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            **compile_kwargs,
+        )
         def controller_fixed_step(
             dt, state, state_prev, error, accept_out, local_temp
         ):  # pragma: no cover - CUDA

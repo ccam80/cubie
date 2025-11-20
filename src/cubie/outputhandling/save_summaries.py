@@ -22,11 +22,16 @@ from typing import Callable, Sequence, Union
 from numba import cuda
 from numpy.typing import ArrayLike
 
+from cubie.cuda_simsafe import compile_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
 from .output_sizes import SummariesBufferSizes
 
 
-@cuda.jit(device=True, inline=True)
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
 def do_nothing(
     buffer,
     output,
@@ -117,7 +122,11 @@ def chain_metrics(
     remaining_metric_params = function_params[1:]
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def wrapper(
         buffer,
         output,
@@ -241,7 +250,11 @@ def save_summary_factory(
     )
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def save_summary_metrics_func(
         buffer_state_summaries,
         buffer_observable_summaries,

@@ -6,6 +6,7 @@ of local minima (negative peaks) in variable values during integration.
 """
 
 from numba import cuda
+from cubie.cuda_simsafe import compile_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -60,6 +61,7 @@ class NegativePeaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def update(
             value,
@@ -109,6 +111,7 @@ class NegativePeaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def save(
             buffer,

@@ -12,7 +12,7 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 
 from cubie._utils import PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 
 
 def linear_solver_factory(
@@ -74,18 +74,23 @@ def linear_solver_factory(
     tol_squared = tolerance * tolerance
 
     # no cover: start
-    @cuda.jit([(precision[:],
-                precision[:],
-                precision[:],
-                precision[:],
-                precision,
-                precision,
-                precision,
-                precision[:],
-                precision[:],
-                )],
-              device=True,
-              inline=True,)
+    @cuda.jit(
+        [
+            (precision[:],
+             precision[:],
+             precision[:],
+             precision[:],
+             precision,
+             precision,
+             precision,
+             precision[:],
+             precision[:],
+            )
+        ],
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def linear_solver(
         state,
         parameters,
@@ -245,7 +250,10 @@ def linear_solver_cached_factory(
     tol_squared = tolerance * tolerance
 
     # no cover: start
-    @cuda.jit(device=True)
+    @cuda.jit(
+        device=True,
+        **compile_kwargs,
+    )
     def linear_solver_cached(
         state,
         parameters,

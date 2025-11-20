@@ -18,6 +18,10 @@ import numpy as np
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
+# Compile kwargs for cuda.jit decorators
+# lineinfo is not supported in CUDASIM mode
+compile_kwargs: dict[str, bool] = {} if CUDA_SIMULATION else {"lineinfo": True}
+
 
 class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
     """Minimal stub of a CUDA memory manager."""
@@ -183,28 +187,49 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
 
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+    )
     def selp(pred, true_value, false_value):
         return true_value if pred else false_value
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+    )
     def activemask():
         return 0xFFFFFFFF
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+    )
     def all_sync(mask, predicate):
         return predicate
 
 else:  # pragma: no cover - relies on GPU runtime
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def selp(pred, true_value, false_value):
         return cuda.selp(pred, true_value, false_value)
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def activemask():
         return cuda.activemask()
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def all_sync(mask, predicate):
         return cuda.all_sync(mask, predicate)
 
@@ -220,6 +245,7 @@ __all__ = [
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
+    "compile_kwargs",
     "DeviceNDArrayBase",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",

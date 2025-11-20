@@ -8,6 +8,7 @@ both metrics are needed.
 """
 
 from numba import cuda
+from cubie.cuda_simsafe import compile_kwargs
 from math import sqrt
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -65,6 +66,7 @@ class StdRms(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def update(
             value,
@@ -107,6 +109,7 @@ class StdRms(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def save(
             buffer,

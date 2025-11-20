@@ -11,7 +11,7 @@ from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -195,7 +195,12 @@ class AdaptivePIController(BaseAdaptiveStepController):
         )
 
         # step sizes and norms can be approximate - fastmath is fine
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            **compile_kwargs,
+        )
         def controller_PI(
             dt, state, state_prev, error, niters, accept_out, local_temp
         ):  # pragma: no cover - CUDA

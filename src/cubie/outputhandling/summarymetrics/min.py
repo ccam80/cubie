@@ -6,6 +6,7 @@ encountered during integration for each variable.
 """
 
 from numba import cuda
+from cubie.cuda_simsafe import compile_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -58,6 +59,7 @@ class Min(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def update(
             value,
@@ -93,6 +95,7 @@ class Min(SummaryMetric):
             ],
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def save(
             buffer,
