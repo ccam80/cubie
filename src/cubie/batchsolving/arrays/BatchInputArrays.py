@@ -296,17 +296,24 @@ class InputArrays(BaseArrayManager):
         This method copies data from device back to host for the specified
         chunk indices.
         """
-        stride_order = self.host.get_managed_array("initial_values").stride_order
-        slice_tuple = [slice(None)] * len(stride_order)
-        if self._chunk_axis in stride_order:
-            chunk_index = stride_order.index(self._chunk_axis)
-            slice_tuple[chunk_index] = host_indices
-            slice_tuple = tuple(slice_tuple)
+        # This functionality was added without the device-code support to make
+        # it do anything, so it just wastes time. To restore it, if useful,
+        # The singleintegratorrun function needs a toggle and to overwrite
+        # the initial states vecotr with it's own final state on exit.
+        # This is requested in #76 https://github.com/ccam80/cubie/issues/76
 
-        to_ = [self.host.initial_values.array[slice_tuple]]
-        from_ = [self.device.initial_values.array]
-
-        self.from_device(from_, to_)
+        # stride_order = self.host.get_managed_array("initial_values").stride_order
+        # slice_tuple = [slice(None)] * len(stride_order)
+        # if self._chunk_axis in stride_order:
+        #     chunk_index = stride_order.index(self._chunk_axis)
+        #     slice_tuple[chunk_index] = host_indices
+        #     slice_tuple = tuple(slice_tuple)
+        #
+        # to_ = [self.host.initial_values.array[slice_tuple]]
+        # from_ = [self.device.initial_values.array]
+        #
+        # self.from_device(from_, to_)
+        pass
 
     def initialise(self, host_indices: Union[slice, NDArray]) -> None:
         """Copy a batch chunk of host data to device buffers.
