@@ -594,7 +594,7 @@ class IVPLoop(CUDAFactory):
             None,  # state_summaries_output
             None, # obs summ output
             None,  # iteration_counters_output
-            0.01,  # duration - scalar
+            self.dt_save + 0.01,  # duration - scalar
             0.0,  # settling_time - scalar
             0.0,  # t0 - scalar (optional)
         )
