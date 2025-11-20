@@ -361,7 +361,7 @@ class Solver:
         if kwargs:
             self.update(kwargs, silent=True)
 
-        inits, params = self.grid_builder(
+        inits, params, grid_metadata = self.grid_builder(
             states=initial_values, params=parameters, kind=grid_type
         )
 
@@ -376,6 +376,9 @@ class Solver:
                 {"driver_function": self.driver_interpolator.evaluation_function,
                  "driver_del_t": self.driver_interpolator.driver_del_t}
             )
+
+        # Update kernel with grid metadata before running
+        self.kernel.update_compile_settings(grid_metadata, silent=True)
 
         self.kernel.run(
             inits=inits,

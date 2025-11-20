@@ -182,6 +182,13 @@ class InputArrays(BaseArrayManager):
         None
             This method updates internal references and enqueues allocations.
         """
+        # Optimize storage for single-row cases
+        config = solver_instance.compile_settings
+        if not config.multiple_inits and initial_values.shape[0] > 1:
+            initial_values = initial_values[0:1, :]
+        if not config.multiple_params and parameters.shape[0] > 1:
+            parameters = parameters[0:1, :]
+        
         updates_dict = {
             "initial_values": initial_values,
             "parameters": parameters,

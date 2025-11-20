@@ -506,7 +506,7 @@ class BatchGridBuilder:
         self,
         request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
         kind: str = "combinatorial",
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Build parameter and state grids from a mixed request dictionary.
 
         Parameters
@@ -520,8 +520,10 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray and np.ndarray
-            Initial state and parameter arrays aligned for batch execution.
+        tuple of np.ndarray, np.ndarray, and dict
+            Initial state and parameter arrays aligned for batch execution
+            plus metadata dictionary containing ``multiple_inits`` and
+            ``multiple_params`` flags.
         """
         param_request = {
             k: np.atleast_1d(v)
@@ -546,6 +548,24 @@ class BatchGridBuilder:
 
         return self._cast_to_precision(initial_values_array, params_array)
 
+    @staticmethod
+    def _has_single_unique_row(arr: np.ndarray) -> bool:
+        """Check if array has only one unique row.
+
+        Parameters
+        ----------
+        arr
+            Two-dimensional array to check.
+
+        Returns
+        -------
+        bool
+            ``True`` when all rows are identical.
+        """
+        if arr.shape[0] <= 1:
+            return True
+        return np.all(arr == arr[0, :])
+
     def __call__(
         self,
         request: Optional[
@@ -554,7 +574,7 @@ class BatchGridBuilder:
         params: Optional[Union[Dict, ArrayLike]] = None,
         states: Optional[Union[Dict, ArrayLike]] = None,
         kind: str = "combinatorial",
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Process user input to generate parameter and state arrays.
 
         Parameters
@@ -574,8 +594,10 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray and np.ndarray
-            Initial state and parameter arrays aligned for batch execution.
+        tuple of np.ndarray, np.ndarray, and dict
+            Initial state and parameter arrays aligned for batch execution
+            plus metadata dictionary containing ``multiple_inits`` and
+            ``multiple_params`` boolean flags.
 
         Notes
         -----
@@ -787,7 +809,7 @@ class BatchGridBuilder:
 
     def _cast_to_precision(
         self, states: np.ndarray, params: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
         """Cast state and parameter arrays to the system precision.
 
         Parameters
@@ -799,13 +821,19 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray and np.ndarray
+        tuple of np.ndarray, np.ndarray, and dict
             State and parameter arrays with ``dtype`` matching
-            ``self.precision``.
+            ``self.precision`` plus metadata dictionary containing
+            ``multiple_inits`` and ``multiple_params`` flags.
         """
+        metadata = {
+            "multiple_inits": not self._has_single_unique_row(states),
+            "multiple_params": not self._has_single_unique_row(params),
+        }
         return (
             states.astype(self.precision, copy=False),
             params.astype(self.precision, copy=False),
+            metadata,
         )
 
     # ------------------------------------------------------------------

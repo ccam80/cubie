@@ -482,6 +482,9 @@ class BatchSolverKernel(CUDAFactory):
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
+        
+        multiple_inits = config.multiple_inits
+        multiple_params = config.multiple_params
 
         local_elements_per_run = config.local_memory_elements
         shared_elems_per_run = config.shared_memory_elements
@@ -581,8 +584,12 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-            rx_inits = inits[run_index, :]
-            rx_params = params[run_index, :]
+            # Conditionally index inits and params based on compile-time flags
+            # When multiple_inits/multiple_params is False, all runs use row 0
+            init_index = run_index if multiple_inits else 0
+            param_index = run_index if multiple_params else 0
+            rx_inits = inits[init_index, :]
+            rx_params = params[param_index, :]
             rx_state = state_output[:, run_index * save_state, :]
             rx_observables = observables_output[
                 :, run_index * save_observables, :
