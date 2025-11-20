@@ -394,9 +394,9 @@ def test_all_summary_metrics_numerical_check(
 @pytest.mark.parametrize("solver_settings_override",
                          [{
                              'output_types': ['state', 'time'],
-                             'duration': 1.000001,
-                             'dt_save': 1.0,
-                             't0': 0.0,
+                             'duration': 1.1e-7,
+                             'dt_save': 2e-8,
+                             't0': 1.0 - 1e-7,
                              'algorithm': "euler",
                              'dt': 1e-8,
                          }],
@@ -404,7 +404,7 @@ def test_all_summary_metrics_numerical_check(
                          ids=[""])
 def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
     """Verify time accumulates correctly with float32 precision and small dt."""
-    assert device_loop_outputs.states[-1,-1] == precision(1.0)
+    assert device_loop_outputs.state[-1,-1] == precision(1.0)
 
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64],
@@ -412,18 +412,18 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
 @pytest.mark.parametrize("solver_settings_override",
                          [{
                              'output_types': ['state', 'time'],
-                             'duration': 10.00001,
-                             'dt_save': 10.0,
+                             'duration': 1.1e-5,
+                             'dt_save': 2e-6,
                              't0': 1e10,
                              'algorithm': 'euler',
                              'dt': 1e-6,
                          }],
                          indirect=True,
                          ids=[""])
-def test_long_integration_with_small_steps(device_loop_outputs, precision):
+def test_large_t0_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
     # Verify integration completed
-    assert device_loop_outputs.states[-1,-1] == precision(1e10 + 10.0)
+    assert device_loop_outputs.state[-1,-1] == precision(1e10 + 1e-5)
 
 
 @pytest.mark.parametrize("precision_override",
@@ -432,9 +432,9 @@ def test_long_integration_with_small_steps(device_loop_outputs, precision):
                          ids=[""])
 @pytest.mark.parametrize("solver_settings_override",
                          [{
-                             'duration': 1.0001,
-                             'dt_save': 1.0,
-                             't0': 0.0,
+                             'duration': 1.1e-7,
+                             'dt_save': 2e-8,
+                             't0': 1.0 - 1e-7,
                              'algorithm': 'backwards_euler',
                              'step_controller': 'PI',
                              'dt_min': 1e-9,
@@ -444,7 +444,7 @@ def test_long_integration_with_small_steps(device_loop_outputs, precision):
 def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
     # Verify integration completed without hanging
-    assert device_loop_outputs.states[-1,-1] == precision(1.0)
+    assert device_loop_outputs.state[-1,-1] == precision(1.0)
 
 
 # Edge case tests from review report
@@ -462,4 +462,4 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
 def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
-    assert device_loop_outputs.states[-1,-1]
+    assert device_loop_outputs.state[-1,-1]

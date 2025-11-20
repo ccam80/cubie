@@ -523,9 +523,9 @@ class BatchSolverKernel(CUDAFactory):
             iteration_counters_output,
             status_codes_output,
             duration,
-            warmup=float64(0.0),
-            t0=float64(0.0),
-            n_runs=1,
+            warmup,
+            t0,
+            n_runs,
         ):
             """Execute the compiled single-run loop for each batch chunk.
 

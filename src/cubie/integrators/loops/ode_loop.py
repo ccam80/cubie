@@ -258,7 +258,7 @@ class IVPLoop(CUDAFactory):
             iteration_counters_output,
             duration,
             settling_time,
-            t0=float64(0.0),
+            t0,
         ): # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
