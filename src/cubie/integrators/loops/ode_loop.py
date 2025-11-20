@@ -425,9 +425,8 @@ class IVPLoop(CUDAFactory):
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
                 # Terminate when all expected saves are collected OR when
-                # time exceeds the requested duration (accounting for float
-                # precision).
-                time_exceeded = t >= (t_end - equality_breaker)
+                # time exceeds the requested duration.
+                time_exceeded = t > t_end
                 finished = (save_idx >= n_output_samples) or time_exceeded
 
                 if all_sync(mask, finished):
