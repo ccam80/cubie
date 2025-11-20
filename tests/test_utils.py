@@ -387,4 +387,3 @@ def test_is_devfnc():
     assert dev_is_device
     assert not kernel_is_device
     assert not noncuda_is_device
-

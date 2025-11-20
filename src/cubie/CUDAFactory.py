@@ -79,117 +79,119 @@ def _create_placeholder_args(
     critical_values = getattr(device_function, 'critical_values', None)
     
     args_out = tuple()
-    try:
+    if hasattr(device_function, 'signatures'):
         sigs = device_function.signatures
-        for sig_idx, sig in enumerate(sigs):
-            args = tuple()
-            for param_idx, item in enumerate(sig):
-                if isinstance(item, numba.types.Array):
-                    # Determine shape - use critical_shapes if available
-                    shape_available = (
-                        has_critical_shapes and critical_shapes and
-                        param_idx < len(critical_shapes)
-                    )
-                    if shape_available:
-                        shape = critical_shapes[param_idx]
-                        if shape is None or len(shape) == 0:
+        if sigs is not None:
+            for sig_idx, sig in enumerate(sigs):
+                args = tuple()
+                for param_idx, item in enumerate(sig):
+                    if isinstance(item, numba.types.Array):
+                        # Determine shape - use critical_shapes if available
+                        shape_available = (
+                            has_critical_shapes and critical_shapes and
+                            param_idx < len(critical_shapes)
+                        )
+                        if shape_available:
+                            shape = critical_shapes[param_idx]
+                            if isinstance(shape, int):
+                                shape = (shape,) * item.ndim
+                            if shape is None:
+                                shape = (1,) * item.ndim
+                        else:
                             shape = (1,) * item.ndim
-                    else:
-                        shape = (1,) * item.ndim
-                    
-                    # Create array with appropriate dtype and shape
-                    if item.dtype == numba.float64:
-                        args += (np.ones(shape, dtype=np.float64),)
-                    elif item.dtype == numba.float32:
-                        args += (np.ones(shape, dtype=np.float32),)
-                    elif item.dtype == numba.types.float16:
-                        args += (np.ones(shape, dtype=np.float16),)
-                    elif item.dtype == numba.int64:
-                        args += (np.ones(shape, dtype=np.int64),)
-                    elif item.dtype == numba.int32:
-                        args += (np.ones(shape, dtype=np.int32),)
-                    elif item.dtype == numba.types.int16:
-                        args += (np.ones(shape, dtype=np.int16),)
-                elif isinstance(item, numba.types.Integer):
-                    # Use critical_values if available for this parameter
-                    use_critical = (
-                        has_critical_values and critical_values and
-                        param_idx < len(critical_values) and
-                        critical_values[param_idx] is not None
-                    )
-                    if use_critical:
-                        value = critical_values[param_idx]
-                    else:
-                        value = 1
 
-                    if item.bitwidth <= 8:
-                        args += (np.int8(value),)
-                    elif item.bitwidth <= 16:
-                        args += (np.int16(value),)
-                    elif item.bitwidth <= 32:
-                        args += (np.int32(value),)
-                    elif item.bitwidth <= 64:
-                       args += (np.int64(value),)
-                elif isinstance(item, numba.types.Float):
-                    # Use critical_values if available for this parameter
-                    use_critical = (
-                        has_critical_values and critical_values and
-                        param_idx < len(critical_values) and
-                        critical_values[param_idx] is not None
-                    )
-                    if use_critical:
-                        value = critical_values[param_idx]
-                    else:
-                        value = 1.0
+                        # Create array with appropriate dtype and shape
+                        if item.dtype == numba.float64:
+                            args += (np.ones(shape, dtype=np.float64),)
+                        elif item.dtype == numba.float32:
+                            args += (np.ones(shape, dtype=np.float32),)
+                        elif item.dtype == numba.types.float16:
+                            args += (np.ones(shape, dtype=np.float16),)
+                        elif item.dtype == numba.int64:
+                            args += (np.ones(shape, dtype=np.int64),)
+                        elif item.dtype == numba.int32:
+                            args += (np.ones(shape, dtype=np.int32),)
+                        elif item.dtype == numba.types.int16:
+                            args += (np.ones(shape, dtype=np.int16),)
+                    elif isinstance(item, numba.types.Integer):
+                        # Use critical_values if available for this parameter
+                        use_critical = (
+                            has_critical_values and critical_values and
+                            param_idx < len(critical_values) and
+                            critical_values[param_idx] is not None
+                        )
+                        if use_critical:
+                            value = critical_values[param_idx]
+                        else:
+                            value = 1
 
-                    if item.bitwidth <= 16:
-                        args += (np.float16(value),)
-                    elif item.bitwidth <= 32:
-                        args += (np.float32(value),)
-                    elif item.bitwidth <= 64:
-                        args += (np.float64(value),)
-                else:
-                    raise TypeError(
-                        f"Unsupported parameter type {item} in "
-                        f"device function."
-                    )
-            args_out += (args,)
-        return args_out
-    except:
-        # Fallback when no signatures available yet
-        sig = inspect.signature(device_function.py_func)
-        params = list(sig.parameters.keys())
-        param_count = len(params)
-        
-        # Use critical_shapes and critical_values if available
-        if has_critical_shapes and critical_shapes:
-            args = tuple()
-            for param_idx in range(param_count):
-                shape_available = (
-                    param_idx < len(critical_shapes) and
-                    critical_shapes[param_idx] is not None
-                )
-                if shape_available:
-                    shape = critical_shapes[param_idx]
-                    args += (np.ones(shape, dtype=precision),)
-                else:
-                    # Scalar or unknown - use critical_values if available
-                    use_critical = (
-                        has_critical_values and critical_values and
-                        param_idx < len(critical_values) and
-                        critical_values[param_idx] is not None
-                    )
-                    if use_critical:
-                        value = critical_values[param_idx]
+                        if item.bitwidth <= 8:
+                            args += (np.int8(value),)
+                        elif item.bitwidth <= 16:
+                            args += (np.int16(value),)
+                        elif item.bitwidth <= 32:
+                            args += (np.int32(value),)
+                        elif item.bitwidth <= 64:
+                           args += (np.int64(value),)
+                    elif isinstance(item, numba.types.Float):
+                        # Use critical_values if available for this parameter
+                        use_critical = (
+                            has_critical_values and critical_values and
+                            param_idx < len(critical_values) and
+                            critical_values[param_idx] is not None
+                        )
+                        if use_critical:
+                            value = critical_values[param_idx]
+                        else:
+                            value = 1.0
+
+                        if item.bitwidth <= 16:
+                            args += (np.float16(value),)
+                        elif item.bitwidth <= 32:
+                            args += (np.float32(value),)
+                        elif item.bitwidth <= 64:
+                            args += (np.float64(value),)
                     else:
-                        value = 1.0
-                    args += (np.array(value, dtype=precision),)
-            return (args,)
-        else:
-            default_args = tuple(
-                np.array(1.0, dtype=precision) for _ in range(param_count)
+                        raise TypeError(
+                            f"Unsupported parameter type {item} in "
+                            f"device function."
+                        )
+                args_out += (args,)
+            return args_out
+    # Fallback when no signatures available yet
+    sig = inspect.signature(device_function.py_func)
+    params = list(sig.parameters.keys())
+    param_count = len(params)
+
+    # Use critical_shapes and critical_values if available
+    if has_critical_shapes and critical_shapes:
+        args = tuple()
+        for param_idx in range(param_count):
+            shape_available = (
+                param_idx < len(critical_shapes) and
+                critical_shapes[param_idx] is not None
             )
-            return (default_args,)
+            if shape_available:
+                shape = critical_shapes[param_idx]
+                args += (np.ones(shape, dtype=precision),)
+            else:
+                # Scalar or unknown - use critical_values if available
+                use_critical = (
+                    has_critical_values and critical_values and
+                    param_idx < len(critical_values) and
+                    critical_values[param_idx] is not None
+                )
+                if use_critical:
+                    value = critical_values[param_idx]
+                else:
+                    value = 1.0
+                args += (np.array(value, dtype=precision),)
+        return (args,)
+    else:
+        default_args = tuple(
+            np.array(1.0, dtype=precision) for _ in range(param_count)
+        )
+        return (default_args,)
 
 def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
     """Create minimal CUDA kernel to trigger device function compilation.
@@ -668,6 +670,7 @@ class CUDAFactory(ABC):
         self._cache_valid = True
         
         # Trigger compilation by running a placeholder kernel
+        # if _default_timelogger.verbosity is not None:
         for field in attrs.fields(type(self._cache)):
             device_func = getattr(self._cache, field.name)
             if device_func is None or device_func == -1:
