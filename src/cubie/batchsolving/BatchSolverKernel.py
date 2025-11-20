@@ -10,7 +10,7 @@ from numba import int32, int16
 
 import attrs
 
-from cubie.cuda_simsafe import is_cudasim_enabled
+from cubie.cuda_simsafe import CUDA_SIMULATION, is_cudasim_enabled
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -127,7 +127,8 @@ class BatchSolverKernel(CUDAFactory):
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
-        self._lineinfo = profileCUDA
+        # lineinfo is not supported in CUDASIM mode
+        self._lineinfo = profileCUDA if not CUDA_SIMULATION else False
 
         precision = system.precision
         self._duration = precision(0.0)
@@ -1123,7 +1124,8 @@ class BatchSolverKernel(CUDAFactory):
 
     def enable_profiling(self) -> None:
         """Enable CUDA profiling hooks for subsequent launches."""
-        self._lineinfo=True
+        # lineinfo is not supported in CUDASIM mode
+        self._lineinfo = False if CUDA_SIMULATION else True
         self._profileCUDA = True
 
     def disable_profiling(self) -> None:
