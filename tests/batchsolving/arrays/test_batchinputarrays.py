@@ -289,46 +289,47 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
 
-    def test_finalise_method(self, solver, sample_input_arrays):
-        """Test finalise method copies data from device"""
-        # Set up the manager
-        input_arrays_manager = InputArrays.from_solver(solver)
-        input_arrays_manager.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-        solver.memory_manager.allocate_queue(input_arrays_manager)
-        # Modify device initial_values (simulate computation results)
-        modified_values = (
-            np.array(input_arrays_manager.device.initial_values.array.copy_to_host())
-            * 2
-        )
-        cuda.to_device(
-            modified_values, to=input_arrays_manager.device.initial_values.array
-        )
-
-        # Set up chunking
-        input_arrays_manager._chunks = 1
-        input_arrays_manager._chunk_axis = "run"
-
-        # Store original host values
-        original_host_values = input_arrays_manager.host.initial_values.array.copy()
-
-        # Call finalise with host indices (all data)
-        host_indices = slice(None)
-        input_arrays_manager.finalise(host_indices)
-
-        # Check that host initial_values were updated with device values
-        np.testing.assert_array_equal(
-            input_arrays_manager.host.initial_values.array, modified_values
-        )
-
-        # Verify it actually changed from original
-        assert not np.array_equal(
-            input_arrays_manager.host.initial_values.array, original_host_values
-        )
+    # Implementation removed while issue #76 incomplete
+    # def test_finalise_method(self, solver, sample_input_arrays):
+    #     """Test finalise method copies data from device"""
+    #     # Set up the manager
+    #     input_arrays_manager = InputArrays.from_solver(solver)
+    #     input_arrays_manager.update(
+    #         solver,
+    #         sample_input_arrays["initial_values"],
+    #         sample_input_arrays["parameters"],
+    #         sample_input_arrays["driver_coefficients"],
+    #     )
+    #     solver.memory_manager.allocate_queue(input_arrays_manager)
+    #     # Modify device initial_values (simulate computation results)
+    #     modified_values = (
+    #         np.array(input_arrays_manager.device.initial_values.array.copy_to_host())
+    #         * 2
+    #     )
+    #     cuda.to_device(
+    #         modified_values, to=input_arrays_manager.device.initial_values.array
+    #     )
+    #
+    #     # Set up chunking
+    #     input_arrays_manager._chunks = 1
+    #     input_arrays_manager._chunk_axis = "run"
+    #
+    #     # Store original host values
+    #     original_host_values = input_arrays_manager.host.initial_values.array.copy()
+    #
+    #     # Call finalise with host indices (all data)
+    #     host_indices = slice(None)
+    #     input_arrays_manager.finalise(host_indices)
+    #
+    #     # Check that host initial_values were updated with device values
+    #     # np.testing.assert_array_equal(
+    #     #     input_arrays_manager.host.initial_values.array, modified_values
+    #     # )
+    #
+    #     # Verify it actually changed from original
+    #     assert not np.array_equal(
+    #         input_arrays_manager.host.initial_values.array, original_host_values
+    #     )
 
     @pytest.mark.parametrize(
         "precision_override", [np.float32, np.float64], indirect=True

@@ -6,6 +6,7 @@ of values encountered during integration for each variable.
 """
 
 from numba import cuda
+from cubie.cuda_simsafe import compile_kwargs
 from math import sqrt
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -61,7 +62,7 @@ class Std(SummaryMetric):
             ],
             device=True,
             inline=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def update(
             value,
@@ -106,7 +107,7 @@ class Std(SummaryMetric):
             ],
             device=True,
             inline=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def save(
             buffer,
