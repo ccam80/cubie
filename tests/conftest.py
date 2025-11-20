@@ -389,7 +389,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     float_keys = {
         "duration",
         "warmup",
-        "dt"
+        "dt",
         "dt_min",
         "dt_max",
         "dt_save",
