@@ -150,7 +150,10 @@ if __name__ == "__main__":
     print("\nCUDA Device Info:")
     print(f"  Available: {cuda.is_available()}")
     if cuda.is_available():
-        print(f"  Device: {cuda.get_current_device().name}")
+        try:
+            print(f"  Device: {cuda.get_current_device().name}")
+        except AttributeError:
+            print("  Device: CUDA Simulator (no GPU)")
     print()
     
     # Run tests
