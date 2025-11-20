@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.5...v0.1.0) (2025-11-20)
+
+
+### Features
+
+* ``raw`` output type added to output device array copies with no processing ([22cef9f](https://github.com/ccam80/cubie/commit/22cef9ff02000d1e60a6576a3ef54a54918e6658))
+* add time logging to cellml import ([#257](https://github.com/ccam80/cubie/issues/257)) ([6a220f8](https://github.com/ccam80/cubie/commit/6a220f8e78653f1727967b2092002f78ba41db71))
+* Additional summary output metrics added ([#212](https://github.com/ccam80/cubie/issues/212)) ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* CellML to Cubie adapter layer added ([#221](https://github.com/ccam80/cubie/issues/221)) ([b8f448e](https://github.com/ccam80/cubie/commit/b8f448e532c6c5410fd06aa13a87531301468de3))
+* load_from_cellml updated to parse complicated models ([#238](https://github.com/ccam80/cubie/issues/238)) ([50341f6](https://github.com/ccam80/cubie/commit/50341f62704f44f95f9e591635609e3c1e3bcd74))
+* summary metrics combined (eg. extrema, [mean, std, rms]) to reduce buffer space ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* summary metrics now respect numerical precision ([daccbae](https://github.com/ccam80/cubie/commit/daccbae24945c081d75585a6052ec95a45885808))
+* Sympy inputs from CellML now go Sympy-&gt;Sympy instead of through strings ([#259](https://github.com/ccam80/cubie/issues/259)) ([23e201d](https://github.com/ccam80/cubie/commit/23e201df19c0c607ee8bc4512f2b04147bdb29be))
+* time logging added to parsing, codegen, and CUDA compilation ([#256](https://github.com/ccam80/cubie/issues/256)) ([5d8f75b](https://github.com/ccam80/cubie/commit/5d8f75b800ef59f02a049e037ac9333f03fdbefd))
+* Warp-friendly FSAL caching implented, redundant accumulation removed ([#211](https://github.com/ccam80/cubie/issues/211)) ([96a9dd0](https://github.com/ccam80/cubie/commit/96a9dd00fc35e9d65fede8ade7f6579ec3e896e3))
+
+
+### Bug Fixes
+
+* _ensure_context() method added to avoid segfaults in CI ([#265](https://github.com/ccam80/cubie/issues/265)) ([60acecc](https://github.com/ccam80/cubie/commit/60acecccb787913c0837d072f40d9e51e347fd3a))
+* `shift` value in standard deviation calcs now updates after each save. ([073d406](https://github.com/ccam80/cubie/commit/073d406f4578cff67db5d223da607e5ecd437138))
+* add set_stride_order method for access from solver ([e4b80d3](https://github.com/ccam80/cubie/commit/e4b80d3985366c9b1f2ce2f5da7baac3c4210452))
+* contiguous arrays now marked as such for the compiler to do its grim work ([#276](https://github.com/ccam80/cubie/issues/276)) ([fe97291](https://github.com/ccam80/cubie/commit/fe972918a79518dc407750a7be552182291701ed))
+* Controller-algorithm compatibility enforced ([4ab0230](https://github.com/ccam80/cubie/commit/4ab0230c9261e3857f099167db2735db6a6c2955))
+* correct fsal warp-vote implementation ([60448f1](https://github.com/ccam80/cubie/commit/60448f10b3976533152450fa3d2b56ebae0af337))
+* Counters array added to ERK signature ([99db833](https://github.com/ccam80/cubie/commit/99db8337e75be96ed69fe582b230264e1e2ea425))
+* CUDAFactories now only precompile if timelogging is on ([836da2a](https://github.com/ccam80/cubie/commit/836da2a417d197bbfdc06ad8188b991ae184ca78))
+* dead code and duplications pruned from codegenned device functions ([#266](https://github.com/ccam80/cubie/issues/266)) ([de0dda8](https://github.com/ccam80/cubie/commit/de0dda8f14a4c50ec1c1794c01634907bd87d4c7))
+* fast path through batchgridbuilder for arrays provided verbatim added ([080ab66](https://github.com/ccam80/cubie/commit/080ab66d7fc8b4a6cd9e4291392e773c44152175))
+* FSAL warp test now doesn't break everything ([2e68692](https://github.com/ccam80/cubie/commit/2e68692da71f643aa725ed0a1ad8c10a8c2b980a))
+* infinite loops in adaptive steppers under dummy compile now finite ([b0547fd](https://github.com/ccam80/cubie/commit/b0547fdcc0c379c84af10375ceedf479da67dc4d))
+* lineinfo toggle for CUDA compilation now conditional on CUDASIM status ([#280](https://github.com/ccam80/cubie/issues/280)) ([6d5bf57](https://github.com/ccam80/cubie/commit/6d5bf57a6a381379e9e22f9c5901326051dd5835))
+* Missing iteration_counters type added to device signature in BatchSolverKernel ([6eefd67](https://github.com/ccam80/cubie/commit/6eefd67140767d8b452b99fbdcf8d19bf7e91edb))
+* move stream sync function to after chunked queue ([e4b80d3](https://github.com/ccam80/cubie/commit/e4b80d3985366c9b1f2ce2f5da7baac3c4210452))
+* numeric literals now wrapped with precision() or int32 in CUDA code generation ([#258](https://github.com/ccam80/cubie/issues/258)) ([21850f2](https://github.com/ccam80/cubie/commit/21850f293b6743e2fe677b4fccc85129f86cdbca))
+* partially update cuda signatures with contiguity ([8754661](https://github.com/ccam80/cubie/commit/87546613825922befad0c2145e28807b04ab62d8))
+* reduced nonlinear solver memory footprint (3n → 2n buffers) ([#224](https://github.com/ccam80/cubie/issues/224)) ([c4d95d4](https://github.com/ccam80/cubie/commit/c4d95d419f72ce12e1242767fd9bd7056e81ce5d))
+* remove redundant overwrite of initial values host array until [#76](https://github.com/ccam80/cubie/issues/76) is implemented in device code ([bc39fbb](https://github.com/ccam80/cubie/commit/bc39fbbc52ea3475cbe2b8581a59f8ae6c7fdfc9))
+* Replace PEP 604 union syntax with Union[] for Python 3.8 compatibility ([#236](https://github.com/ccam80/cubie/issues/236)) ([ea1e1fb](https://github.com/ccam80/cubie/commit/ea1e1fb89db14e798d0d12a1ed2e68f6b114c81a))
+* update placeholder parameters to not hide exception ([8754661](https://github.com/ccam80/cubie/commit/87546613825922befad0c2145e28807b04ab62d8))
+* Use a warp-vote for FSAL caching, otherwise there is no benefit and potential divergence ([d0334a2](https://github.com/ccam80/cubie/commit/d0334a2841518467f2b794fa7a325861b7e9471a))
+* Vern7 tableau corrected to match source ([e6b900a](https://github.com/ccam80/cubie/commit/e6b900a0452926a953709e1cf65f89fc147a1c97))
+
+
+### Documentation
+
+* cubie_internal_structure.md filled with agent reference ([#177](https://github.com/ccam80/cubie/issues/177)) ([02738e0](https://github.com/ccam80/cubie/commit/02738e06f7343910e292721d43cdc0ec127adf4e))
+
 ## [Unreleased]
 
 ### Features
