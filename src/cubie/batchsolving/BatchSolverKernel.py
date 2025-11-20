@@ -10,7 +10,8 @@ from numba import int32, int16
 
 import attrs
 
-from cubie.cuda_simsafe import is_cudasim_enabled
+from cubie.cuda_simsafe import is_cudasim_enabled, \
+    compile_kwargs
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -127,7 +128,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
-        self._lineinfo = profileCUDA
 
         precision = system.precision
         self._duration = precision(0.0)
@@ -474,6 +474,9 @@ class BatchSolverKernel(CUDAFactory):
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
+        if 'lineinfo' in compile_kwargs:
+            compile_kwargs['lineinfo'] = self.profileCUDA
+
         loopfunction = self.single_integrator.device_function
 
         output_flags = config.ActiveOutputs
@@ -507,7 +510,7 @@ class BatchSolverKernel(CUDAFactory):
                 precision,
                 int32,
             ),
-            lineinfo=self._lineinfo,
+            **compile_kwargs,
         )
         def integration_kernel(
             inits,
@@ -1123,12 +1126,10 @@ class BatchSolverKernel(CUDAFactory):
 
     def enable_profiling(self) -> None:
         """Enable CUDA profiling hooks for subsequent launches."""
-        self._lineinfo=True
         self._profileCUDA = True
 
     def disable_profiling(self) -> None:
         """Disable CUDA profiling hooks for subsequent launches."""
-        self._lineinfo=False
         self._profileCUDA = False
 
     def set_stride_order(self, order: Tuple[str]) -> None:

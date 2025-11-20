@@ -10,6 +10,8 @@ from typing import Callable, Sequence, Union
 from numba import cuda
 from numpy.typing import ArrayLike
 
+from cubie.cuda_simsafe import compile_kwargs
+
 
 def save_state_factory(
     saved_state_indices: Union[Sequence[int], ArrayLike],
@@ -62,7 +64,7 @@ def save_state_factory(
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def save_state_func(
         current_state,

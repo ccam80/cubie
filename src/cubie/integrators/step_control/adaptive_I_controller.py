@@ -9,7 +9,7 @@ from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import compile_kwargs, selp
 
 import numpy as np
 
@@ -152,7 +152,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             device=True,
             inline=True,
             fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_I(
             dt,

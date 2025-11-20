@@ -11,7 +11,7 @@ from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -208,7 +208,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             device=True,
             inline=True,
             fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_PI(
             dt, state, state_prev, error, niters, accept_out, local_temp
