@@ -670,14 +670,14 @@ class CUDAFactory(ABC):
         self._cache_valid = True
         
         # Trigger compilation by running a placeholder kernel
-        # if _default_timelogger.verbosity is not None:
-        for field in attrs.fields(type(self._cache)):
-            device_func = getattr(self._cache, field.name)
-            if device_func is None or device_func == -1:
-                continue
-            if hasattr(device_func, 'py_func'):
-                event_name = f"compile_{field.name}"
-                self.specialize_and_compile(device_func, event_name)
+        if _default_timelogger.verbosity is not None:
+            for field in attrs.fields(type(self._cache)):
+                device_func = getattr(self._cache, field.name)
+                if device_func is None or device_func == -1:
+                    continue
+                if hasattr(device_func, 'py_func'):
+                    event_name = f"compile_{field.name}"
+                    self.specialize_and_compile(device_func, event_name)
 
     def get_cached_output(self, output_name):
         """Return a named cached output.
