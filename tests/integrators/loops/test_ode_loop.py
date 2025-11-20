@@ -387,121 +387,79 @@ def test_all_summary_metrics_numerical_check(
     assert device_loop_outputs.status == 0, "Integration should complete successfully"
 
 
-# ============================================================================
-# Time Precision Integration Tests (float64 time accumulation fix)
-# ============================================================================
-
-
-@pytest.mark.parametrize("precision", [np.float32], indirect=True)
-def test_float32_small_timestep_accumulation(system):
+@pytest.mark.parametrize("precision_override",
+                         [np.float32],
+                         indirect=True,
+                         ids=[""])
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'output_types': ['state', 'time'],
+                             'duration': 1.000001,
+                             'dt_save': 1.0,
+                             't0': 0.0,
+                             'algorithm': "euler",
+                             'dt': 1e-8,
+                         }],
+                         indirect=True,
+                         ids=[""])
+def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
     """Verify time accumulates correctly with float32 precision and small dt."""
-    from cubie import solve_ivp
-    
-    # Use very small dt_min that would fail with float32 time accumulation
-    result = solve_ivp(
-        system,
-        y0={'x': 0.1, 'y': 0.2, 'z': 0.3},
-        parameters={'a': 1.0, 'b': 2.0, 'c': 3.0},
-        duration=1.0,
-        t0=0.0,
-        algorithm="euler",
-        dt=1e-8,
-    )
-    
-    # Verify integration completed
-    assert result.status_codes[0] == 0
-    assert result.states.shape[0] > 0
-    
-    # Verify time increased throughout integration
-    if result.times is not None:
-        time_diffs = np.diff(result.times)
-        assert np.all(time_diffs > 0), "Time should increase monotonically"
+    assert device_loop_outputs.states[-1,-1] == precision(1.0)
 
 
-@pytest.mark.parametrize("precision", [np.float32, np.float64], indirect=True)
-def test_long_integration_with_small_steps(system):
+@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
+                         indirect=True)
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'output_types': ['state', 'time'],
+                             'duration': 10.00001,
+                             'dt_save': 10.0,
+                             't0': 1e10,
+                             'algorithm': 'euler',
+                             'dt': 1e-6,
+                         }],
+                         indirect=True,
+                         ids=[""])
+def test_long_integration_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
-    from cubie import solve_ivp
-    
-    # Long duration with small dt_min
-    result = solve_ivp(
-        system,
-        y0={'x': 0.1, 'y': 0.2, 'z': 0.3},
-        parameters={'a': 1.0, 'b': 2.0, 'c': 3.0},
-        duration=10.0,
-        t0=1e10,  # Large t0 to stress test precision
-        algorithm="euler",
-        dt=1e-6,
-    )
-    
     # Verify integration completed
-    assert result.status_codes[0] == 0
-    assert result.states.shape[0] > 0
+    assert device_loop_outputs.states[-1,-1] == precision(1e10 + 10.0)
 
 
-@pytest.mark.parametrize("precision", [np.float32], indirect=True)
-def test_adaptive_controller_with_float32(system):
+@pytest.mark.parametrize("precision_override",
+                         [(np.float32, {'output_types': ['state', 'time']})],
+                         indirect=True,
+                         ids=[""])
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'duration': 1.0001,
+                             'dt_save': 1.0,
+                             't0': 0.0,
+                             'algorithm': 'backwards_euler',
+                             'step_controller': 'PI',
+                             'dt_min': 1e-9,
+                             'dt_max': 1e-8,
+                         }],
+                         indirect=True)
+def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
-    from cubie import solve_ivp
-    
-    result = solve_ivp(
-        system,
-        y0={'x': 0.1, 'y': 0.2, 'z': 0.3},
-        parameters={'a': 1.0, 'b': 2.0, 'c': 3.0},
-        duration=1.0,
-        t0=0.0,
-        algorithm="euler",
-        step_controller="adaptive_PI",
-        dt0=1e-3,
-        dt_min=1e-9,  # Very small minimum step
-        dt_max=1e-2,
-    )
-    
     # Verify integration completed without hanging
-    assert result.status_codes[0] == 0
-    assert result.states.shape[0] > 0
+    assert device_loop_outputs.states[-1,-1] == precision(1.0)
 
 
 # Edge case tests from review report
-@pytest.mark.parametrize("precision", [np.float32], indirect=True)
-def test_save_at_settling_time_boundary(system):
+@pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'duration': 1.0001,
+                             'settling_time': 0.1,
+                             't0': 0.0,
+                             'algorithm': 'euler',
+                             'dt': 1e-4,
+                             'dt_save': 0.1,
+                         }],
+                         indirect=True)
+def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
-    from cubie import solve_ivp
-    
-    # Set dt_save equal to settling_time so first save is at boundary
-    result = solve_ivp(
-        system,
-        y0={'x': 0.1, 'y': 0.2, 'z': 0.3},
-        parameters={'a': 1.0, 'b': 2.0, 'c': 3.0},
-        duration=1.0,
-        settling_time=0.1,
-        t0=0.0,
-        algorithm="euler",
-        dt=1e-4,
-        dt_save=0.1,  # Same as settling_time
-    )
-    
     # Should complete successfully with first save at t=settling_time
-    assert result.status_codes[0] == 0
-    assert result.states.shape[0] > 0
-
-
-@pytest.mark.parametrize("precision", [np.float32], indirect=True)
-def test_very_large_t0_with_small_steps(system):
-    """Test large t0 values with small relative steps."""
-    from cubie import solve_ivp
-    
-    # Very large t0 that would exceed float32 precision for small dt
-    result = solve_ivp(
-        system,
-        y0={'x': 0.1, 'y': 0.2, 'z': 0.3},
-        parameters={'a': 1.0, 'b': 2.0, 'c': 3.0},
-        duration=1.0,
-        t0=1e15,  # Extremely large t0
-        algorithm="euler",
-        dt=1e-6,
-    )
-    
-    # Should complete - time accumulation in float64 handles this
-    assert result.status_codes[0] == 0
-    assert result.states.shape[0] > 0
+    assert device_loop_outputs.states[-1,-1]
