@@ -85,8 +85,8 @@ def run_reference_loop(
 
     initial_state = inputs["initial_values"].astype(precision, copy=True)
     params = inputs["parameters"].astype(precision, copy=True)
-    duration = precision(solver_settings["duration"])
-    warmup = precision(solver_settings["warmup"])
+    duration = np.float64(solver_settings["duration"])
+    warmup = np.float64(solver_settings["warmup"])
     dt_save = precision(solver_settings["dt_save"])
     dt_summarise = precision(solver_settings["dt_summarise"])
 
@@ -125,24 +125,24 @@ def run_reference_loop(
     state_history = []
     observable_history = []
     time_history = []
-    t = precision(0.0)
+    t = np.float64(0.0)
     drivers_initial = driver_evaluator(precision(t))
     observables = evaluator.observables(
         state,
         params,
         drivers_initial,
-        t,
+        precision(t),
     )
 
-    if warmup > precision(0.0):
-        next_save_time = warmup
+    if warmup > np.float64(0.0):
+        next_save_time = np.float64(warmup)
     else:
-        next_save_time = dt_save
+        next_save_time = np.float64(warmup + dt_save)
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [t]
 
-    end_time = precision(warmup + duration)
+    end_time = np.float64(warmup + duration)
     fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
     fixed_step_count = 0
     equality_breaker = (
@@ -187,14 +187,14 @@ def run_reference_loop(
 
         state = result.state.copy()
         observables = result.observables.copy()
-        t += precision(dt)
+        t = t + precision(dt)
 
         if do_save:
             if len(state_history) < max_save_samples:
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(t - warmup))
-            next_save_time += dt_save
+            next_save_time = next_save_time + dt_save
             save_idx += 1
 
     state_output = _collect_saved_outputs(

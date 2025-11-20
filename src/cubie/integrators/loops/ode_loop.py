@@ -438,9 +438,9 @@ class IVPLoop(CUDAFactory):
                             step_counter = int32(0)
                     else:
                         do_save = (t + dt[0]  +equality_breaker) >= next_save
-                        dt_eff = selp(do_save, next_save - t, dt[0])
+                        dt_eff = selp(do_save, precision(next_save - t), dt[0])
 
-                        status |= selp(dt_eff <= float64(0.0), int32(16), int32(0))
+                        status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
                     step_status = step_function(
                         state_buffer,
@@ -452,7 +452,7 @@ class IVPLoop(CUDAFactory):
                         observables_buffer,
                         observables_proposal_buffer,
                         error,
-                        precision(dt_eff),
+                        dt_eff,
                         precision(t),
                         first_step_flag,
                         prev_step_accepted_flag,

@@ -590,3 +590,51 @@ def test_solver_num_runs_property(solver):
     num_runs = solver.num_runs
     # num_runs might be None before solving, so just check it's accessible
     assert num_runs is not None or num_runs is None
+
+
+# ============================================================================
+# Time Precision Tests (float64 time accumulation)
+# ============================================================================
+
+
+@pytest.mark.parametrize("precision", [np.float32], indirect=True)
+def test_solver_stores_time_as_float64(system):
+    """Verify Solver stores time parameters as float64."""
+    solver = Solver(
+        system,
+        algorithm="euler",
+        dt=1e-3,
+    )
+    
+    # Set time parameters as float32
+    solver.kernel.duration = np.float32(10.0)
+    solver.kernel.warmup = np.float32(1.0)
+    solver.kernel.t0 = np.float32(5.0)
+    
+    # Verify retrieved as float64
+    assert isinstance(solver.kernel.duration, (float, np.floating))
+    assert isinstance(solver.kernel.warmup, (float, np.floating))
+    assert isinstance(solver.kernel.t0, (float, np.floating))
+    
+    # Verify values preserved
+    assert np.isclose(solver.kernel.duration, 10.0)
+    assert np.isclose(solver.kernel.warmup, 1.0)
+    assert np.isclose(solver.kernel.t0, 5.0)
+
+
+@pytest.mark.parametrize("precision", [np.float32, np.float64], indirect=True)
+def test_time_precision_independent_of_state_precision(system):
+    """Verify time precision is float64 regardless of state precision."""
+    
+    solver = Solver(
+        system,
+        algorithm="euler",
+        dt=1e-3,
+    )
+    
+    solver.kernel.duration = 5.0
+    solver.kernel.t0 = 1.0
+    
+    # Time should be float64 even when state precision is float32
+    assert solver.kernel.duration == np.float64(5.0)
+    assert solver.kernel.t0 == np.float64(1.0)
