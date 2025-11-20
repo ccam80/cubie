@@ -340,7 +340,7 @@ class InputArrays(BaseArrayManager):
             ) or (
                 isinstance(host_indices, np.ndarray) and host_indices[0] == 0
             )
-            
+
             # On first chunk, copy arrays needing overwrite
             # On subsequent chunks, only copy chunkable arrays
             if is_first_chunk and self._needs_overwrite:
