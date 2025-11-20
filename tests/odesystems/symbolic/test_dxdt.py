@@ -160,7 +160,7 @@ class TestGenerateDxdtFacCode:
         code = generate_dxdt_fac_code(simple_equations, indexed_bases)
 
         # Should contain proper parameter types
-        assert "precision[:]" in code
+        assert "precision[::1]" in code
         assert "device=True" in code
         assert "inline=True" in code
 
