@@ -385,3 +385,47 @@ def test_all_summary_metrics_numerical_check(
     )
     
     assert device_loop_outputs.status == 0, "Integration should complete successfully"
+
+
+@pytest.mark.parametrize("system_override", ["linear"], ids=[""],
+                         indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "algorithm": "tsit5",
+            "step_controller": "i",
+            "dt": 0.01,
+            "dt_min": 1e-9,
+            "dt_max": 0.1,
+            "dt_save": 1.0,
+            "atol": 1e-8,
+            "rtol": 1e-8,
+            "duration": 1.000001,
+            "output_types": ["state"],
+        }
+    ],
+    ids=["float32-precision-hang"],
+    indirect=True,
+)
+def test_adaptive_solver_float32_precision_termination(
+    device_loop_outputs,
+    precision,
+):
+    """Verify adaptive solver terminates correctly with float32 precision.
+    
+    Regression test for hang when duration is slightly larger than dt_save.
+    With duration=1.000001 and dt_save=1.0 in float32, floating-point errors
+    could prevent the final save from occurring, causing the loop to continue
+    until max_steps. The fix adds a direct time check to ensure termination.
+    """
+    # Integration should complete without hitting max_steps
+    # status bit 32 (0x20) indicates max steps exhausted
+    assert (device_loop_outputs.status & 0x20) == 0, \
+        "Loop should terminate normally, not by max_steps exhaustion"
+    
+    # Should have collected expected number of saves
+    # With duration=1.000001 and dt_save=1.0, expect 2 saves (t=0 and t=1.0)
+    expected_saves = int(np.ceil(precision(1.000001) / precision(1.0)))
+    assert device_loop_outputs.state.shape[0] == expected_saves, \
+        f"Expected {expected_saves} saves, got {device_loop_outputs.state.shape[0]}"

@@ -421,7 +421,11 @@ class IVPLoop(CUDAFactory):
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
-                finished = save_idx >= n_output_samples
+                # Terminate when all expected saves are collected OR when
+                # time exceeds the requested duration (accounting for float
+                # precision).
+                time_exceeded = t >= (t_end - equality_breaker)
+                finished = (save_idx >= n_output_samples) or time_exceeded
 
                 if all_sync(mask, finished):
                     return status
