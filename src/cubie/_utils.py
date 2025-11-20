@@ -294,6 +294,7 @@ def clamp_factory(precision):
         precision(precision, precision, precision),
         device=True,
         inline=True,
+        lineinfo=True,
     )
     def clamp(value, minimum, maximum):
         clamped_high = selp(value > maximum, maximum, value)
@@ -307,6 +308,7 @@ def clamp_factory(precision):
     (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
+    lineinfo=True,
 )
 def get_noise_64(
     noise_array,
@@ -338,6 +340,7 @@ def get_noise_64(
     (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
+    lineinfo=True,
 )
 def get_noise_32(
     noise_array,

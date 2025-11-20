@@ -74,18 +74,23 @@ def linear_solver_factory(
     tol_squared = tolerance * tolerance
 
     # no cover: start
-    @cuda.jit([(precision[:],
-                precision[:],
-                precision[:],
-                precision[:],
-                precision,
-                precision,
-                precision,
-                precision[:],
-                precision[:],
-                )],
-              device=True,
-              inline=True,)
+    @cuda.jit(
+        [
+            (precision[:],
+             precision[:],
+             precision[:],
+             precision[:],
+             precision,
+             precision,
+             precision,
+             precision[:],
+             precision[:],
+            )
+        ],
+        device=True,
+        inline=True,
+        lineinfo=True,
+    )
     def linear_solver(
         state,
         parameters,
@@ -245,7 +250,10 @@ def linear_solver_cached_factory(
     tol_squared = tolerance * tolerance
 
     # no cover: start
-    @cuda.jit(device=True)
+    @cuda.jit(
+        device=True,
+        lineinfo=True,
+    )
     def linear_solver_cached(
         state,
         parameters,

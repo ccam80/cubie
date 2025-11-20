@@ -60,6 +60,7 @@ class Peaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def update(
             value,
@@ -110,6 +111,7 @@ class Peaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def save(
             buffer,

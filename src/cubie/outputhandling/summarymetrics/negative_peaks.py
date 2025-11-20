@@ -60,6 +60,7 @@ class NegativePeaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def update(
             value,
@@ -109,6 +110,7 @@ class NegativePeaks(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def save(
             buffer,

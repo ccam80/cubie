@@ -218,10 +218,30 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
-        equality_breaker = precision(1e-7) if precision is np.float32 else (
-        precision(1e-14))
+        equality_breaker = (
+            precision(1e-7) if precision is np.float32 else (precision(1e-14))
+        )
 
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit(
+            [
+                (
+                    precision[::1],
+                    precision[::1],
+                    precision[:, :, ::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[:, :, :],
+                    precision[:, :, :],
+                    precision[::1],
+                    precision,
+                    precision,
+                    precision,
+                )
+            ],
+            device=True,
+            inline=True,
+            lineinfo=True,
+        )
         def loop_fn(
             initial_states,
             parameters,

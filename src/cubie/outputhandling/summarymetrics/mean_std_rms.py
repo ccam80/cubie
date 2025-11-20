@@ -65,6 +65,7 @@ class MeanStdRms(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def update(
             value,
@@ -107,6 +108,7 @@ class MeanStdRms(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def save(
             buffer,

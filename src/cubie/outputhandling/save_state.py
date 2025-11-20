@@ -59,7 +59,11 @@ def save_state_factory(
     nobs = len(saved_observable_indices)
     nstates = len(saved_state_indices)
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        lineinfo=True,
+    )
     def save_state_func(
         current_state,
         current_observables,

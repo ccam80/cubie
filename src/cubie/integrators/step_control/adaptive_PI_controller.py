@@ -195,7 +195,12 @@ class AdaptivePIController(BaseAdaptiveStepController):
         )
 
         # step sizes and norms can be approximate - fastmath is fine
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            lineinfo=True,
+        )
         def controller_PI(
             dt, state, state_prev, error, niters, accept_out, local_temp
         ):  # pragma: no cover - CUDA

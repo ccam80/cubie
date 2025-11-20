@@ -100,7 +100,12 @@ class FixedStepController(BaseStepController):
             CUDA device function that keeps the step size constant.
         """
 
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            lineinfo=True,
+        )
         def controller_fixed_step(
             dt, state, state_prev, error, accept_out, local_temp
         ):  # pragma: no cover - CUDA

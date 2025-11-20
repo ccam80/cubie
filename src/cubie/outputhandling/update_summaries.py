@@ -26,7 +26,11 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 from .output_sizes import SummariesBufferSizes
 
 
-@cuda.jit(device=True, inline=True)
+@cuda.jit(
+    device=True,
+    inline=True,
+    lineinfo=True,
+)
 def do_nothing(
     values,
     buffer,
@@ -110,7 +114,11 @@ def chain_metrics(
     remaining_params = function_params[1:]
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        lineinfo=True,
+    )
     def wrapper(
         value,
         buffer,
@@ -210,7 +218,11 @@ def update_summary_factory(
     )
 
     # no cover: start
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+        device=True,
+        inline=True,
+        lineinfo=True,
+    )
     def update_summary_metrics_func(
         current_state,
         current_observables,

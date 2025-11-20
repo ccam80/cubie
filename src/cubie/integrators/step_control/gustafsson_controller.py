@@ -197,7 +197,12 @@ class GustafssonController(BaseAdaptiveStepController):
             and (deadband_max == unity_gain)
         )
 
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            lineinfo=True,
+        )
         def controller_gustafsson(
             dt, state, state_prev, error, niters, accept_out, local_temp
         ):  # pragma: no cover - CUDA

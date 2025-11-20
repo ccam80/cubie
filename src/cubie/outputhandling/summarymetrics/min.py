@@ -58,6 +58,7 @@ class Min(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def update(
             value,
@@ -93,6 +94,7 @@ class Min(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def save(
             buffer,

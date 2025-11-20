@@ -61,6 +61,7 @@ class Std(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def update(
             value,
@@ -105,6 +106,7 @@ class Std(SummaryMetric):
             ],
             device=True,
             inline=True,
+            lineinfo=True,
         )
         def save(
             buffer,

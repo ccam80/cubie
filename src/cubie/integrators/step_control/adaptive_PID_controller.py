@@ -213,7 +213,12 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             and (deadband_max == unity_gain)
         )
 
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            lineinfo=True,
+        )
         def controller_PID(
             dt,
             state,

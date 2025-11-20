@@ -139,7 +139,12 @@ class AdaptiveIController(BaseAdaptiveStepController):
         )
 
         # step sizes and norms can be approximate - fastmath is fine
-        @cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(
+            device=True,
+            inline=True,
+            fastmath=True,
+            lineinfo=True,
+        )
         def controller_I(
             dt,
             state,
