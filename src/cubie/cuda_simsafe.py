@@ -18,6 +18,10 @@ import numpy as np
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
+# Compile kwargs for cuda.jit decorators
+# lineinfo is not supported in CUDASIM mode
+compile_kwargs: dict[str, bool] = {} if CUDA_SIMULATION else {"lineinfo": True}
+
 
 class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
     """Minimal stub of a CUDA memory manager."""
@@ -208,7 +212,7 @@ else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def selp(pred, true_value, false_value):
         return cuda.selp(pred, true_value, false_value)
@@ -216,7 +220,7 @@ else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def activemask():
         return cuda.activemask()
@@ -224,7 +228,7 @@ else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def all_sync(mask, predicate):
         return cuda.all_sync(mask, predicate)
@@ -241,6 +245,7 @@ __all__ = [
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
+    "compile_kwargs",
     "DeviceNDArrayBase",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",

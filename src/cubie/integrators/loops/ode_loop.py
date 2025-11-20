@@ -14,7 +14,7 @@ from numba import cuda, int16, int32
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import PrecisionDType
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,
@@ -243,7 +243,7 @@ class IVPLoop(CUDAFactory):
             ],
             device=True,
             inline=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def loop_fn(
             initial_states,

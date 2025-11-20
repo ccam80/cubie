@@ -17,7 +17,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float64,
 )
 from attrs import fields, has, validators, Attribute
-from cubie.cuda_simsafe import is_devfunc, selp
+from cubie.cuda_simsafe import compile_kwargs, is_devfunc, selp
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -294,7 +294,7 @@ def clamp_factory(precision):
         precision(precision, precision, precision),
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def clamp(value, minimum, maximum):
         clamped_high = selp(value > maximum, maximum, value)
@@ -308,7 +308,7 @@ def clamp_factory(precision):
     (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
-    lineinfo=True,
+    **compile_kwargs,
 )
 def get_noise_64(
     noise_array,
@@ -340,7 +340,7 @@ def get_noise_64(
     (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
-    lineinfo=True,
+    **compile_kwargs,
 )
 def get_noise_32(
     noise_array,
