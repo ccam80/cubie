@@ -26,6 +26,12 @@ When arrays are supplied directly they are treated as fully specified row
 sets. Dictionary inputs trigger combinatorial expansion before assembly so
 that every value combination is represented in the resulting grid.
 
+The grid builder also returns metadata indicating whether initial states or
+parameters have multiple unique values (``multiple_inits`` and
+``multiple_params``). When a variable has only one unique value across all
+runs, the kernel can optimize memory usage by storing a single copy in
+constant memory rather than duplicating it for every run.
+
 Examples
 --------
 >>> import numpy as np
@@ -35,11 +41,13 @@ Examples
 >>> grid_builder = BatchGridBuilder.from_system(system)
 >>> params = {"p0": [0.1, 0.2], "p1": [10, 20]}
 >>> states = {"x0": [1.0, 2.0], "x1": [0.5, 1.5]}
->>> inits, params = grid_builder(
+>>> inits, params, metadata = grid_builder(
 ...     params=params, states=states, kind="combinatorial"
 ... )
 >>> print(inits.shape)
 (16, 2)
+>>> print(metadata)
+{'multiple_inits': True, 'multiple_params': True}
 >>> print(inits)
 [[1.  0.5]
  [1.  0.5]
@@ -81,7 +89,7 @@ Example 2: verbatim arrays
 
 >>> params = np.array([[0.1, 0.2], [10, 20]])
 >>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
->>> inits, params = grid_builder(params=params, states=states, kind="verbatim")
+>>> inits, params, metadata = grid_builder(params=params, states=states, kind="verbatim")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)
@@ -93,7 +101,7 @@ Example 2: verbatim arrays
 [[ 0.1  0.2]
  [10.  20. ]]
 
->>> inits, params = grid_builder(
+>>> inits, params, metadata = grid_builder(
 ...     params=params, states=states, kind="combinatorial"
 ... )
 >>> print(inits.shape)
@@ -119,14 +127,14 @@ Same as individual dictionaries
 ...     "x0": [1.0, 2.0],
 ...     "x1": [0.5, 1.5],
 ... }
->>> inits, params = grid_builder(request=request, kind="combinatorial")
+>>> inits, params, metadata = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (16, 2)
 >>> print(params.shape)
 (16, 2)
 
 >>> request = {"p0": [0.1, 0.2]}
->>> inits, params = grid_builder(request=request, kind="combinatorial")
+>>> inits, params, metadata = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)  # unspecified variables are filled with defaults from system
