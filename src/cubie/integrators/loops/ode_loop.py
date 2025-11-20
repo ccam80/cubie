@@ -437,7 +437,7 @@ class IVPLoop(CUDAFactory):
                         if do_save:
                             step_counter = int32(0)
                     else:
-                        do_save = (t + dt[0]  +equality_breaker) >= next_save
+                        do_save = (t + dt[0]  + equality_breaker) >= next_save
                         dt_eff = selp(do_save, next_save - t, dt[0])
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
