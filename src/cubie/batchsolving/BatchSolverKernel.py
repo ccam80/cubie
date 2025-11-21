@@ -888,11 +888,7 @@ class BatchSolverKernel(CUDAFactory):
         Includes both initial state (at t=t0 or t=settling_time) and final
         state (at t=t_end) for complete trajectory coverage.
         """
-        from cubie.integrators.loops.ode_loop_config import ODELoopConfig
-        return ODELoopConfig.calculate_n_saves(
-            self.duration,
-            self.single_integrator.dt_save
-        )
+        return int(np.ceil(self.duration / self.single_integrator.dt_save)) + 1
 
     @property
     def summaries_length(self) -> int:
