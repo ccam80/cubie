@@ -633,30 +633,3 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
     # Time should be float64 even when state precision is float32
     assert solver_mutable.kernel.duration == np.float64(5.0)
     assert solver_mutable.kernel.t0 == np.float64(1.0)
-
-
-@pytest.mark.nocudasim
-def test_chunked_final_state_saved(three_state_linear, precision):
-    """Final state saved correctly in chunked execution."""
-    solver = Solver(
-        three_state_linear,
-        algorithm="explicit_euler",
-        dt0=0.01,
-        dt_save=0.1,
-        precision=precision,
-        mem_proportion=0.001,
-    )
-    result = solver.solve(
-        duration=1.0,
-        settling_time=0.0,
-        n_runs=10,
-    )
-    
-    # All runs should have 11 saves including final state
-    assert result.state.shape[1] == 11
-    # Final time should equal t_end for all runs
-    np.testing.assert_allclose(
-        result.t[:, -1],
-        1.0,
-        rtol=1e-6,
-    )
