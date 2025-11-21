@@ -331,7 +331,7 @@ class BatchSolverKernel(CUDAFactory):
 
         for i in range(self.chunks):
             indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
-            self.input_arrays.initialise(indices)
+            self.input_arrays.initialise(indices, chunk_index=i)
             self.output_arrays.initialise(indices)
 
             # Don't use warmup in runs starting after t=t0
