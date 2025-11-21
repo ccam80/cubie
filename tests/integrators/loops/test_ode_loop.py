@@ -463,3 +463,115 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1]
+
+
+@pytest.mark.nocudasim
+class TestFinalStateSaving:
+    """Test that final state at t_end is always saved."""
+    
+    def test_final_state_saved_exact_multiple(
+        self, three_state_linear, precision
+    ):
+        """Final state saved when duration is exact multiple of dt_save."""
+        from cubie import Solver
+        solver = Solver(
+            three_state_linear,
+            algorithm="explicit_euler",
+            dt0=0.01,
+            dt_save=0.1,
+            precision=precision,
+        )
+        result = solver.solve(
+            duration=1.0,
+            settling_time=0.0,
+            n_runs=1,
+        )
+        
+        # Should have 11 saves: t=0.0, 0.1, 0.2, ..., 0.9, 1.0
+        assert result.state.shape[0] == 11
+        # Final time should equal t0 + duration
+        np.testing.assert_allclose(
+            result.t[-1],
+            0.0 + 1.0,
+            rtol=1e-6,
+        )
+    
+    def test_final_state_saved_non_divisible(
+        self, three_state_linear, precision
+    ):
+        """Final state saved when duration not divisible by dt_save."""
+        from cubie import Solver
+        solver = Solver(
+            three_state_linear,
+            algorithm="explicit_euler",
+            dt0=0.01,
+            dt_save=0.1,
+            precision=precision,
+        )
+        result = solver.solve(
+            duration=1.23,
+            settling_time=0.0,
+            n_runs=1,
+        )
+        
+        # Should have 14 saves
+        assert result.state.shape[0] == 14
+        # Final time should equal t0 + duration
+        np.testing.assert_allclose(
+            result.t[-1],
+            0.0 + 1.23,
+            rtol=1e-6,
+        )
+    
+    def test_final_state_saved_with_settling_time(
+        self, three_state_linear, precision
+    ):
+        """Final state saved with settling_time > 0."""
+        from cubie import Solver
+        solver = Solver(
+            three_state_linear,
+            algorithm="explicit_euler",
+            dt0=0.01,
+            dt_save=0.1,
+            precision=precision,
+        )
+        result = solver.solve(
+            duration=1.0,
+            settling_time=0.5,
+            n_runs=1,
+        )
+        
+        # Should have 11 saves: t=0.5, 0.6, ..., 1.4, 1.5
+        assert result.state.shape[0] == 11
+        # Final time should equal settling_time + duration
+        np.testing.assert_allclose(
+            result.t[-1],
+            0.5 + 1.0,
+            rtol=1e-6,
+        )
+    
+    @pytest.mark.parametrize("algorithm", ["explicit_euler", "rk4"])
+    def test_final_state_multiple_algorithms(
+        self, three_state_linear, precision, algorithm
+    ):
+        """Final state saving works across different algorithms."""
+        from cubie import Solver
+        solver = Solver(
+            three_state_linear,
+            algorithm=algorithm,
+            dt0=0.01,
+            dt_save=0.1,
+            precision=precision,
+        )
+        result = solver.solve(
+            duration=1.0,
+            settling_time=0.0,
+            n_runs=1,
+        )
+        
+        assert result.state.shape[0] == 11
+        np.testing.assert_allclose(
+            result.t[-1],
+            1.0,
+            rtol=1e-6,
+        )

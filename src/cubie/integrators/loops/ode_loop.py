@@ -261,6 +261,12 @@ class IVPLoop(CUDAFactory):
             t0,
         ): # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
+            
+            The loop terminates when save_idx >= n_output_samples, where
+            n_output_samples is the first dimension of state_output or
+            observables_output arrays. These arrays are sized using
+            ceil(duration/dt_save) + 1 to ensure both the initial state
+            (at t=t0 or t=settling_time) and final state (at t=t_end) are saved.
 
             Parameters
             ----------
@@ -424,6 +430,8 @@ class IVPLoop(CUDAFactory):
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
+                # Loop terminates when all required saves collected
+                # n_output_samples includes both initial and final states
                 finished = save_idx >= n_output_samples
 
                 if all_sync(mask, finished):

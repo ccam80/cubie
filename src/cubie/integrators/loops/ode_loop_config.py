@@ -536,3 +536,40 @@ class ODELoopConfig:
 
         return self.local_indices.loop_elements
 
+    @staticmethod
+    def calculate_n_saves(duration: float, dt_save: float) -> int:
+        """Calculate the number of saves including initial and final states.
+        
+        The calculation uses ceiling division to handle non-exact multiples
+        of dt_save, and adds 1 to ensure both the initial state (at t=t0
+        or t=settling_time) and the final state (at t=t_end) are saved.
+        
+        Parameters
+        ----------
+        duration
+            Total integration duration (always float64 as per time precision).
+        dt_save
+            Interval between saves (in user precision).
+        
+        Returns
+        -------
+        int
+            Number of save points required for the integration.
+            
+        Notes
+        -----
+        - Uses float64 for duration to match time precision architecture
+        - Formula: ceil(duration / dt_save) + 1
+        - The +1 accounts for saving both endpoints (initial and final states)
+        - Handles edge cases where duration is near-integer multiple of dt_save
+        
+        Examples
+        --------
+        >>> ODELoopConfig.calculate_n_saves(1.0, 0.1)
+        11  # saves at t=0.0, 0.1, 0.2, ..., 0.9, 1.0
+        >>> ODELoopConfig.calculate_n_saves(1.23, 0.1)
+        14  # saves at t=0.0, 0.1, ..., 1.2, 1.23
+        """
+        from math import ceil
+        return int(ceil(np.float64(duration) / dt_save)) + 1
+

@@ -398,9 +398,12 @@ class SingleRunOutputSizes(ArraySizingClass):
         :meth:`from_solver` to remain aligned with solver metadata.
         """
         heights = OutputArrayHeights.from_output_fns(output_fns)
-        output_samples = int(
-            ceil(run_settings.duration / run_settings.dt_save)
+        from cubie.integrators.loops.ode_loop_config import ODELoopConfig
+        output_samples = ODELoopConfig.calculate_n_saves(
+            run_settings.duration,
+            run_settings.dt_save
         )
+        # Summaries use interval semantics (no +1) unlike saves
         summarise_samples = int(
             ceil(run_settings.duration / run_settings.dt_summarise)
         )

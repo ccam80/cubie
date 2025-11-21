@@ -883,13 +883,26 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def output_length(self) -> int:
-        """Number of saved trajectory samples in the main run."""
-
-        return int(np.ceil(self.duration / self.single_integrator.dt_save))
+        """Number of saved trajectory samples in the main run.
+        
+        Includes both initial state (at t=t0 or t=settling_time) and final
+        state (at t=t_end) for complete trajectory coverage.
+        """
+        from cubie.integrators.loops.ode_loop_config import ODELoopConfig
+        return ODELoopConfig.calculate_n_saves(
+            self.duration,
+            self.single_integrator.dt_save
+        )
 
     @property
     def summaries_length(self) -> int:
-        """Number of summary intervals across the integration window."""
+        """Number of summary intervals across the integration window.
+        
+        Note: Summaries use ceil(duration/dt_summarise) WITHOUT the +1
+        because summary intervals represent aggregated metrics across time
+        windows, not point-in-time snapshots. Interval semantics differ
+        from save point semantics (see output_length).
+        """
 
         return int(
             np.ceil(self._duration / self.single_integrator.dt_summarise)
@@ -897,7 +910,13 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def warmup_length(self) -> int:
-        """Number of warmup save intervals completed before capturing output."""
+        """Number of warmup save intervals completed before capturing output.
+        
+        Note: Warmup uses ceil(warmup/dt_save) WITHOUT the +1 because warmup
+        saves are transient and discarded after settling. The final warmup
+        state becomes the initial state of the main run, so there is no need
+        to save both endpoints in the warmup phase.
+        """
 
         return int(np.ceil(self._warmup / self.single_integrator.dt_save))
 
