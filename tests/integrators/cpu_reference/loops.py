@@ -87,6 +87,7 @@ def run_reference_loop(
     params = inputs["parameters"].astype(precision, copy=True)
     duration = np.float64(solver_settings["duration"])
     warmup = np.float64(solver_settings["warmup"])
+    t0 = np.float64(solver_settings["t0"])
     dt_save = precision(solver_settings["dt_save"])
     dt_summarise = precision(solver_settings["dt_summarise"])
 
@@ -119,13 +120,14 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = int(np.ceil(duration / dt_save))
+    max_save_samples = (int(np.round(np.float64(duration) / precision(dt_save)))
+                        + 1)
 
     state = initial_state.copy()
     state_history = []
     observable_history = []
     time_history = []
-    t = np.float64(0.0)
+    t = t0
     drivers_initial = driver_evaluator(precision(t))
     observables = evaluator.observables(
         state,
@@ -135,29 +137,27 @@ def run_reference_loop(
     )
 
     if warmup > np.float64(0.0):
-        next_save_time = np.float64(warmup)
+        next_save_time = np.float64(warmup + t0)
+        save_idx = 0
     else:
-        next_save_time = np.float64(warmup) + np.float64(dt_save)
+        next_save_time = np.float64(warmup + t0) + np.float64(dt_save)
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [t]
+        save_idx = 1
 
-    end_time = np.float64(warmup + duration)
+    end_time = np.float64(warmup + t0 + duration)
     fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
     fixed_step_count = 0
-    equality_breaker = (
-        precision(1e-7)
-        if precision is np.float32
-        else precision(1e-14)
-    )
-    status_flags = 0
-    save_idx = 0
 
-    while save_idx < max_save_samples:
+    status_flags = 0
+
+
+    while t < end_time:
         dt = controller.dt
         do_save = False
         if controller.is_adaptive:
-            if t + dt + equality_breaker >= next_save_time:
+            if t + dt >= next_save_time:
                 dt = precision(next_save_time - t)
                 do_save = True
         else:

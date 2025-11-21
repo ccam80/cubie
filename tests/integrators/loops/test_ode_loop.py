@@ -422,32 +422,32 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
                          ids=[""])
 def test_large_t0_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
-    # Verify integration completed
+    # There may be an ulp of error here, that's fine, we're testing the
+    # ability to accumulate time during long examples.
     assert np.isclose(device_loop_outputs.state[-1,-1],
                       precision(1e2 + 1e-5),
                       atol=2e-7)
-    # There may be an ulp of error here, that's fine, we're testing the
-    # ability to accumulate time during long examples.
+
 
 
 @pytest.mark.parametrize("precision_override",
-                         [(np.float32, {'output_types': ['state', 'time']})],
+                         [np.float32],
                          indirect=True,
                          ids=[""])
 @pytest.mark.parametrize("solver_settings_override",
                          [{
-                             'duration': 1.1e-7,
+                             'duration': 1e-7,
                              'dt_save': 2e-8,
                              't0': 1.0 - 1e-7,
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
+                             'output_types': ['state', 'time'],
                              'dt_min': 1e-9,
                              'dt_max': 1e-8,
                          }],
                          indirect=True)
 def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
-    # Verify integration completed without hanging
     assert device_loop_outputs.state[-1,-1] == precision(1.0)
 
 
@@ -457,9 +457,10 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     "solver_settings_override",
     [
         {
-            "duration": 1.1 + 0.2000,
+            "duration": 0.2000,
             "settling_time": 0.1,
             "t0": 1.0,
+            "output_types": ["state", "time"],
             "algorithm": "euler",
             "dt": 1e-2,
             "dt_save": 0.1,

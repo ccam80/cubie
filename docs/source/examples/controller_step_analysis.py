@@ -567,7 +567,7 @@ def run_reference_loop_with_history(
 
 
     save_time = output_functions.save_time
-    max_save_samples = int(np.ceil(duration / dt_save))
+    max_save_samples = int(np.round(duration / dt_save))
 
     state = initial_state.copy()
     state_history = [state.copy()]

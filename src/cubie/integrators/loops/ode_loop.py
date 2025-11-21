@@ -218,11 +218,6 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
-        equality_breaker = (
-            precision(1e-7) if config.precision is np.float32
-            else (precision(1e-14))
-        )
-
         @cuda.jit(
             [
                 (
@@ -303,7 +298,7 @@ class IVPLoop(CUDAFactory):
                 Status code aggregating errors and iteration counts.
             """
             t = float64(t0)
-            t_end = float64(settling_time + duration)
+            t_end = float64(settling_time + t0 + duration)
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
@@ -372,12 +367,12 @@ class IVPLoop(CUDAFactory):
             save_idx = int32(0)
             summary_idx = int32(0)
 
-            if settling_time > float64(0.0):
+            # Set next save for settling time, or save first value if
+            # starting at t0
+            next_save = settling_time + t0
+            if settling_time == float64(0.0):
                 # Don't save t0, wait until settling_time
-                next_save = float64(settling_time)
-            else:
-                # Seed initial state and save/update summaries
-                next_save = float64(settling_time + dt_save)
+                next_save += float64(dt_save)
 
                 save_state(
                     state_buffer,
@@ -430,9 +425,9 @@ class IVPLoop(CUDAFactory):
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
-                # Loop terminates when all required saves collected
-                # n_output_samples includes both initial and final states
-                finished = save_idx >= n_output_samples
+                finished = t > t_end
+                # also exit loop if min step size limit hit - things are bad
+                finished |= (status & 0x8)
 
                 if all_sync(mask, finished):
                     return status
@@ -445,7 +440,14 @@ class IVPLoop(CUDAFactory):
                         if do_save:
                             step_counter = int32(0)
                     else:
-                        do_save = (t + dt[0]  +equality_breaker) >= next_save
+                        # I'm unsure about whether to include an
+                        # equality-breaking 1e-14 or so. The
+                        # idea is that if we're at next_save but for
+                        # roundoff, we should save rather than take a 1e-14
+                        # step next time. But step size could be < 1e-14,
+                        # and epsilon is relative to the magnitude of t,
+                        # so this seems dangerous. I've removed, hesitantly.
+                        do_save = (t + dt[0]) >= next_save
                         dt_eff = selp(do_save, precision(next_save - t), dt[0])
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))

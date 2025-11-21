@@ -602,7 +602,7 @@ def run_device_loop(
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
     total_time = warmup + duration
-    save_samples = int(np.ceil(precision(total_time) / precision(dt_save)))
+    save_samples = int(np.round(duration / precision(dt_save))) + 1
 
     heights = OutputArrayHeights.from_output_fns(output_functions)
 

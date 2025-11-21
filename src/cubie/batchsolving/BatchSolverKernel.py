@@ -888,7 +888,7 @@ class BatchSolverKernel(CUDAFactory):
         Includes both initial state (at t=t0 or t=settling_time) and final
         state (at t=t_end) for complete trajectory coverage.
         """
-        return int(np.ceil(self.duration / self.single_integrator.dt_save)) + 1
+        return int(np.round(self.duration / self.single_integrator.dt_save)) + 1
 
     @property
     def summaries_length(self) -> int:
