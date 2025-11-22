@@ -526,7 +526,7 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = selp(do_save, t + dt_save, next_save)
+                    next_save = selp(do_save, next_save + dt_save, next_save)
 
                     if do_save:
                         save_state(
