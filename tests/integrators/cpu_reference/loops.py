@@ -151,7 +151,7 @@ def run_reference_loop(
     status_flags = 0
 
 
-    while t < end_time:
+    while next_save_time <= end_time:
         dt = controller.dt
         do_save = False
         if t + dt >= next_save_time:
