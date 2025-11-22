@@ -430,9 +430,6 @@ class IVPLoop(CUDAFactory):
                     return status
 
                 if not finished:
-                    # Unified save logic for both adaptive and fixed modes
-                    # Both modes check whether next step would exceed save time
-                    # When fixed-step dt > dt_save, multiple consecutive reduced steps occur
                     do_save = (t + dt[0]) >= next_save
                     dt_eff = selp(do_save, precision(next_save - t), dt[0])
                     
