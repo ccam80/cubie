@@ -372,7 +372,7 @@ class IVPLoop(CUDAFactory):
 
             # Set next save for settling time, or save first value if
             # starting at t0
-            next_save = float64(settling_time + t0)
+            next_save = settling_time + t0
             if settling_time == float64(0.0):
                 # Save initial state at t0, then advance to first interval save
                 next_save += float64(dt_save)
@@ -500,7 +500,7 @@ class IVPLoop(CUDAFactory):
                             elif not accept:
                                 counters_since_save[i] += int32(1)
 
-                    t_proposal = t + float64(dt_eff)
+                    t_proposal = t + dt_eff
                     t = selp(accept, t_proposal, t)
 
                     for i in range(n_states):
@@ -526,7 +526,7 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = selp(do_save, next_save + float64(dt_save), next_save)
+                    next_save = selp(do_save, next_save + dt_save, next_save)
 
                     if do_save:
                         save_state(
