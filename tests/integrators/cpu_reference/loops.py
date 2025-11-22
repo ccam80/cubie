@@ -150,8 +150,10 @@ def run_reference_loop(
 
     status_flags = 0
 
-
-    while next_save_time <= end_time:
+    # Use epsilon tolerance to handle floating point accumulation errors
+    # Match CUDA loop behavior: exit when next_save > t_end + epsilon
+    epsilon = np.float64(dt_save) * 1e-8
+    while next_save_time <= end_time + epsilon:
         dt = controller.dt
         do_save = False
         if t + dt >= next_save_time:

@@ -427,7 +427,8 @@ class IVPLoop(CUDAFactory):
             for _ in range(max_steps):
                 # If save_last is true, then
                 # Exit as soon as we've saved the final step
-                finished = next_save > t_end
+                # Use epsilon tolerance to handle floating point accumulation
+                finished = next_save > t_end + dt_save * precision(1e-8)
                 if save_last:
                     #If last save requested, predicated commit dt, finished,
                     # do_save
