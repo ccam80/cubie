@@ -120,7 +120,7 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = (int(np.round(np.float64(duration) / precision(dt_save)))
+    max_save_samples = (int(np.floor(np.float64(duration) / precision(dt_save)))
                         + 1)
 
     state = initial_state.copy()
@@ -147,8 +147,6 @@ def run_reference_loop(
         save_idx = 1
 
     end_time = np.float64(warmup + t0 + duration)
-    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
-    fixed_step_count = 0
 
     status_flags = 0
 
@@ -156,16 +154,9 @@ def run_reference_loop(
     while t < end_time:
         dt = controller.dt
         do_save = False
-        if controller.is_adaptive:
-            if t + dt >= next_save_time:
-                dt = precision(next_save_time - t)
-                do_save = True
-        else:
-            if (fixed_step_count + 1) % fixed_steps_per_save == 0:
-                do_save = True
-                fixed_step_count = 0
-            else:
-                fixed_step_count += 1
+        if t + dt >= next_save_time:
+            dt = precision(next_save_time - t)
+            do_save = True
 
         result = stepper.step(
             state=state,

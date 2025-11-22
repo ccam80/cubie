@@ -206,7 +206,6 @@ class IVPLoop(CUDAFactory):
         dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
-        steps_per_save = int32(ceil(precision(dt_save) / precision(dt0)))
 
         # Loop sizes
         n_states = shared_indices.n_states
@@ -372,7 +371,7 @@ class IVPLoop(CUDAFactory):
             # starting at t0
             next_save = settling_time + t0
             if settling_time == float64(0.0):
-                # Don't save t0, wait until settling_time
+                # Save initial state at t0, then advance to first interval save
                 next_save += float64(dt_save)
 
                 save_state(
@@ -417,9 +416,6 @@ class IVPLoop(CUDAFactory):
                 if i < 2:
                     proposed_counters[i] = int32(0)
 
-            if fixed_mode:
-                step_counter = int32(0)
-
             mask = activemask()
 
             # --------------------------------------------------------------- #
@@ -434,24 +430,14 @@ class IVPLoop(CUDAFactory):
                     return status
 
                 if not finished:
+                    do_save = (t + dt[0]) >= next_save
+                    dt_eff = selp(do_save, precision(next_save - t), dt[0])
+                    
+                    status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
+                    
+                    # Fixed mode auto-accepts all steps; adaptive uses controller
                     if fixed_mode:
-                        step_counter += 1
                         accept = True
-                        do_save = (step_counter % steps_per_save) == 0
-                        if do_save:
-                            step_counter = int32(0)
-                    else:
-                        # I'm unsure about whether to include an
-                        # equality-breaking 1e-14 or so. The
-                        # idea is that if we're at next_save but for
-                        # roundoff, we should save rather than take a 1e-14
-                        # step next time. But step size could be < 1e-14,
-                        # and epsilon is relative to the magnitude of t,
-                        # so this seems dangerous. I've removed, hesitantly.
-                        do_save = (t + dt[0]) >= next_save
-                        dt_eff = selp(do_save, precision(next_save - t), dt[0])
-
-                        status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
                     step_status = step_function(
                         state_buffer,
