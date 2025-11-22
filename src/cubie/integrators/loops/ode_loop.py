@@ -206,6 +206,9 @@ class IVPLoop(CUDAFactory):
         dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
+        # save_last is not yet piped up from this level, but is intended and
+        # included in loop logic
+        save_last = False
 
         # Loop sizes
         n_states = shared_indices.n_states
@@ -422,7 +425,16 @@ class IVPLoop(CUDAFactory):
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
-                finished = t > t_end
+                # If save_last is true, then
+                # Exit as soon as we've saved the final step
+                finished = next_save > t_end
+                if save_last:
+                    #If last save requested, predicated commit dt, finished,
+                    # do_save
+                    at_last_save = finished and t < t_end
+                    finished = selp(at_last_save, False, True)
+                    dt[0] = selp(at_last_save, precision(t_end - t), dt[0])
+
                 # also exit loop if min step size limit hit - things are bad
                 finished |= (status & 0x8)
 
@@ -514,10 +526,9 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = selp(do_save, next_save + dt_save, next_save)
+                    next_save = selp(do_save, t + dt_save, next_save)
 
                     if do_save:
-
                         save_state(
                             state_buffer,
                             observables_buffer,
@@ -556,7 +567,7 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] = int32(0)
 
             if status == int32(0):
-                #Max iterations exhausted without other error
+                # Max iterations exhausted without other error
                 status = int32(32)
             return status
 
