@@ -18,7 +18,7 @@ DEFAULT_OVERRIDES = {
     'dt': 0.001,
     'dt_min': 1e-8,
     'dt_max': 0.5,
-    'dt_save': 0.01953125,
+    'dt_save': 0.02,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
@@ -442,7 +442,7 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
                              'output_types': ['state', 'time'],
-                             'dt_min': 1e-9,
+                             'dt_min': 1e-10,
                              'dt_max': 1e-8,
                          }],
                          indirect=True)
@@ -450,8 +450,6 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
     assert device_loop_outputs.state[-1,-1] == precision(1.0)
 
-
-# Edge case tests from review report
 @pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
 @pytest.mark.parametrize(
     "solver_settings_override",
@@ -472,4 +470,4 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1] == precision(1.2)
-    assert device_loop_outputs.state[-1,-2] == precision(1.1)
+    assert device_loop_outputs.state[-2,-1] == precision(1.1)

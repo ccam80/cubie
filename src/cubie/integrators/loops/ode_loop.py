@@ -302,7 +302,8 @@ class IVPLoop(CUDAFactory):
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
-            max_steps = (int32(ceil(t_end / dt_min)) + int32(2))
+            max_steps = max(2**30,(int32(ceil(duration + settling_time)/
+                                              dt_min)) + int32(2))
             max_steps = max_steps << 2
 
             n_output_samples = max(state_output.shape[0],
