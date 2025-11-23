@@ -203,8 +203,9 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         saves_per_summary = config.saves_per_summary
-        # dt_save stored as float64 for accumulation; cast to precision for
-        # step calculations
+        # dt_save stored as float64 for accumulation in next_save time
+        # tracking; time values are cast to precision when passed to device
+        # functions
         dt_save = float64(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
@@ -502,8 +503,8 @@ class IVPLoop(CUDAFactory):
                             elif not accept:
                                 counters_since_save[i] += int32(1)
 
-                    # Accumulate time in float64 for precision; dt_eff is cast
-                    # from precision to avoid accumulation errors
+                    # Accumulate time in float64 for precision; dt_eff is cast to
+                    # float64 from precision to avoid accumulation errors
                     t_proposal = t + float64(dt_eff)
                     t = selp(accept, t_proposal, t)
 
