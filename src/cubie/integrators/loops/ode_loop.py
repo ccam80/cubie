@@ -503,8 +503,8 @@ class IVPLoop(CUDAFactory):
                             elif not accept:
                                 counters_since_save[i] += int32(1)
 
-                    # Accumulate time in float64 for precision; dt_eff is cast to
-                    # float64 from precision to avoid accumulation errors
+                    # Accumulate time in float64 for precision; dt_eff (always
+                    # precision type) is cast to float64 to avoid accumulation errors
                     t_proposal = t + float64(dt_eff)
                     t = selp(accept, t_proposal, t)
 
