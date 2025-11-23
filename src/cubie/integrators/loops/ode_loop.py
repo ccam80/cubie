@@ -203,7 +203,7 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         saves_per_summary = config.saves_per_summary
-        dt_save = precision(config.dt_save)
+        dt_save = float64(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
         # save_last is not yet piped up from this level, but is intended and
@@ -372,10 +372,10 @@ class IVPLoop(CUDAFactory):
 
             # Set next save for settling time, or save first value if
             # starting at t0
-            next_save = settling_time + t0
+            next_save = float64(settling_time + t0)
             if settling_time == float64(0.0):
                 # Save initial state at t0, then advance to first interval save
-                next_save += float64(dt_save)
+                next_save += dt_save
 
                 save_state(
                     state_buffer,
@@ -500,7 +500,7 @@ class IVPLoop(CUDAFactory):
                             elif not accept:
                                 counters_since_save[i] += int32(1)
 
-                    t_proposal = t + dt_eff
+                    t_proposal = t + float64(dt_eff)
                     t = selp(accept, t_proposal, t)
 
                     for i in range(n_states):
