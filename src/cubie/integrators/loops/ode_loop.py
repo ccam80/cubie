@@ -204,8 +204,8 @@ class IVPLoop(CUDAFactory):
         # Timing values
         saves_per_summary = config.saves_per_summary
         # dt_save stored as float64 for accumulation in next_save time
-        # tracking; time values are cast to precision when passed to device
-        # functions
+        # tracking; time values are cast to precision type when passed to
+        # device functions
         dt_save = float64(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
