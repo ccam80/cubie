@@ -203,10 +203,9 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         saves_per_summary = config.saves_per_summary
-        # dt_save stored as float64 for accumulation in next_save time
-        # tracking; time values are cast to precision type when passed to
-        # device functions
-        dt_save = float64(config.dt_save)
+        # dt_save stored as precision type, cast to float64 when accumulating
+        # next_save to match CPU reference precision behavior
+        dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
         dt_min = precision(config.dt_min)
         # save_last is not yet piped up from this level, but is intended and
@@ -378,7 +377,7 @@ class IVPLoop(CUDAFactory):
             next_save = float64(settling_time + t0)
             if settling_time == float64(0.0):
                 # Save initial state at t0, then advance to first interval save
-                next_save += dt_save
+                next_save += float64(dt_save)
 
                 save_state(
                     state_buffer,
@@ -531,7 +530,7 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = selp(do_save, next_save + dt_save, next_save)
+                    next_save = selp(do_save, next_save + float64(dt_save), next_save)
 
                     if do_save:
                         save_state(
