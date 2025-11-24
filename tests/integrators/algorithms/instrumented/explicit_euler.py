@@ -63,8 +63,6 @@ class ExplicitEulerStep(ODEExplicitStep):
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Euler device step with instrumentation."""
 
-        cached_dt = numba_precision(dt)
-        dt_is_dynamic = dt is None
         has_driver_function = driver_function is not None
 
         @cuda.jit(
@@ -142,7 +140,6 @@ class ExplicitEulerStep(ODEExplicitStep):
             counters,
         ):
             typed_zero = numba_precision(0.0)
-            step_size = cached_dt
 
             for idx in range(n):
                 residuals[0, idx] = typed_zero
@@ -165,14 +162,14 @@ class ExplicitEulerStep(ODEExplicitStep):
 
             for idx in range(n):
                 stage_derivatives[0, idx] = proposed_state[idx]
-                stage_increments[0, idx] = step_size * proposed_state[idx]
+                stage_increments[0, idx] = dt_scalar * proposed_state[idx]
 
             for idx in range(n):
                 proposed_state[idx] = (
-                    state[idx] + step_size * proposed_state[idx]
+                    state[idx] + dt_scalar * proposed_state[idx]
                 )
 
-            next_time = time_scalar + step_size
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,

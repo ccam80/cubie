@@ -118,9 +118,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 time_scalar,
             )
 
-            fixed_dt = dt if dt is not None else dt_scalar
             for idx in range(n):
-                increment_guess = fixed_dt * predictor[idx]
+                increment_guess = dt_scalar * predictor[idx]
                 proposed_state[idx] = increment_guess
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
@@ -133,7 +132,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
 
-            next_time = time_scalar + fixed_dt
+            next_time = time_scalar + dt_scalar
 
             if has_driver_function:
                 driver_function(
@@ -151,7 +150,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                fixed_dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

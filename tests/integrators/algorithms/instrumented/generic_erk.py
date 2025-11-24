@@ -124,8 +124,6 @@ class ERKStep(ODEExplicitStep):
         multistage = stage_count > 1
         has_error = self.is_adaptive
         first_same_as_last = self.first_same_as_last
-        is_controller_fixed = self.is_controller_fixed
-        dt_compile = dt
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -220,13 +218,8 @@ class ERKStep(ODEExplicitStep):
 
             observable_count = proposed_observables.shape[0]
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
             current_time = time_scalar
-            end_time = current_time + dt_value
+            end_time = current_time + dt_scalar
 
             stage_accumulator = shared[:accumulator_length]
             if multistage:
@@ -287,7 +280,7 @@ class ERKStep(ODEExplicitStep):
 
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
-                stage_increments[0, idx] = dt_value * stage_rhs[idx]
+                stage_increments[0, idx] = dt_scalar * stage_rhs[idx]
 
             for idx in range(n):
                 increment = stage_rhs[idx]
@@ -322,11 +315,11 @@ class ERKStep(ODEExplicitStep):
                         stage_accumulator[base + idx] += contribution
 
                 stage_offset = (stage_idx - 1) * n
-                dt_stage = dt_value * stage_nodes[stage_idx]
+                dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_value
+                    stage_accumulator[stage_offset + idx] *= dt_scalar
                     stage_accumulator[stage_offset + idx] += state[idx]
 
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
@@ -370,7 +363,7 @@ class ERKStep(ODEExplicitStep):
                 for idx in range(n):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
                     stage_increments[stage_idx, idx] = (
-                        dt_value * stage_rhs[idx]
+                        dt_scalar * stage_rhs[idx]
                     )
 
                 # Accumulate f(y_jn) terms or capture direct stage state
@@ -396,13 +389,13 @@ class ERKStep(ODEExplicitStep):
 
                 # Scale and shift f(Y_n) value if accumulated
                 if accumulates_output:
-                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] *= dt_scalar
                     proposed_state[idx] += state[idx]
 
                 if has_error:
                     # Scale error if accumulated
                     if accumulates_error:
-                        error[idx] *= dt_value
+                        error[idx] *= dt_scalar
 
                     #Or form error from difference if captured from a-row
                     else:
