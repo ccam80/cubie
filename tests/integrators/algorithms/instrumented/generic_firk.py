@@ -330,9 +330,6 @@ class FIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            current_time = time_scalar
-            end_time = time_scalar + dt_scalar
-
             stage_increment = shared[stages_start:stages_end]
             stage_driver_stack = shared[drivers_start:drivers_end]
             solver_scratch = shared[:solver_shared_elements]
