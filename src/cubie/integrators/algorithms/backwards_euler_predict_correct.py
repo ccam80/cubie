@@ -143,9 +143,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = dt * predictor[i]
+                proposed_state[i] = dt_scalar * predictor[i]
 
-            next_time = time_scalar + dt
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -160,7 +160,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

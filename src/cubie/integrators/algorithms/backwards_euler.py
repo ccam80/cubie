@@ -230,7 +230,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = solver_scratch[i]
 
-            next_time = time_scalar + dt
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -243,7 +243,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

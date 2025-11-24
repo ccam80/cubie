@@ -100,7 +100,6 @@ class ExplicitEulerStep(ODEExplicitStep):
             Container holding the compiled step function.
         """
 
-        step_size = numba_precision(dt)
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -195,9 +194,9 @@ class ExplicitEulerStep(ODEExplicitStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = state[i] + step_size * dxdt_buffer[i]
+                proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
-            next_time = time_scalar + step_size
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,

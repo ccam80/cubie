@@ -341,10 +341,6 @@ class FIRKStep(ODEImplicitStep):
         nonlinear_solver = solver_fn
         stage_count = self.stage_count
         all_stages_n = config.all_stages_n
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
@@ -417,14 +413,8 @@ class FIRKStep(ODEImplicitStep):
         ):
             stage_state = cuda.local.array(n, numba_precision)
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
-
             current_time = time_scalar
-            end_time = current_time + dt_value
+            end_time = current_time + dt_scalar
 
             solver_scratch = shared[:solver_shared_elements]
             stage_rhs_flat = solver_scratch[:all_stages_n]
@@ -443,7 +433,7 @@ class FIRKStep(ODEImplicitStep):
                 for stage_idx in range(stage_count):
                     stage_time = (
                         current_time
-                        + dt_value * stage_time_fractions[stage_idx]
+                        + dt_scalar * stage_time_fractions[stage_idx]
                     )
                     driver_offset = stage_idx * n_drivers
                     driver_slice = stage_driver_stack[
@@ -461,7 +451,7 @@ class FIRKStep(ODEImplicitStep):
                 parameters,
                 stage_driver_stack,
                 current_time,
-                dt_value,
+                dt_scalar,
                 typed_zero,
                 state,
                 solver_scratch,
@@ -470,7 +460,7 @@ class FIRKStep(ODEImplicitStep):
 
             for stage_idx in range(stage_count):
                 stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
                 if has_driver_function:
@@ -539,7 +529,7 @@ class FIRKStep(ODEImplicitStep):
                         temp = solution_acc + term
                         compensation = (temp - solution_acc) - term
                         solution_acc += solution_weights[stage_idx] * rhs_value
-                    proposed_state[idx] = state[idx] + solution_acc * dt_value
+                    proposed_state[idx] = state[idx] + solution_acc * dt_scalar
 
             if has_error and accumulates_error:
                 # Standard accumulation path for error
@@ -548,7 +538,7 @@ class FIRKStep(ODEImplicitStep):
                     for stage_idx in range(stage_count):
                         rhs_value = stage_rhs_flat[stage_idx * n + idx]
                         error_acc += error_weights[stage_idx] * rhs_value
-                    error[idx] = dt_value * error_acc   
+                    error[idx] = dt_scalar * error_acc   
 
             if not ends_at_one:
                 if has_driver_function:
