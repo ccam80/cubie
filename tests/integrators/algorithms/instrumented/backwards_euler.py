@@ -140,7 +140,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for a backward Euler step."""
@@ -243,8 +242,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
 
-            fixed_dt = dt if dt is not None else dt_scalar
-            next_time = time_scalar + fixed_dt
+            next_time = time_scalar + dt_scalar
 
             if has_driver_function:
                 driver_function(
@@ -260,7 +258,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                fixed_dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

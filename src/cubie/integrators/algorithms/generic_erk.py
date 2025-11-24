@@ -121,7 +121,6 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -144,9 +143,6 @@ class ERKStep(ODEExplicitStep):
             np.float64).
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives. Should
             match signature expected by the integration kernel.
@@ -187,11 +183,7 @@ class ERKStep(ODEExplicitStep):
         
         >>> from cubie.integrators.algorithms.generic_erk import ERKStep
         >>> import numpy as np
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
         'pi'
         
@@ -200,12 +192,7 @@ class ERKStep(ODEExplicitStep):
         >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
         ...     CLASSICAL_RK4_TABLEAU
         ... )
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ...     tableau=CLASSICAL_RK4_TABLEAU,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3,tableau=CLASSICAL_RK4_TABLEAU)
         >>> step.controller_defaults.step_controller["step_controller"]
         'fixed'
         """
@@ -220,8 +207,6 @@ class ERKStep(ODEExplicitStep):
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
         
         config = ERKStepConfig(**config_kwargs)
 
@@ -239,17 +224,12 @@ class ERKStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
         tableau = config.tableau
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
 
         typed_zero = numba_precision(0.0)
         stage_count = tableau.stage_count
@@ -352,14 +332,8 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
-
             current_time = time_scalar
-            end_time = current_time + dt_value
+            end_time = current_time + dt_scalar
 
             stage_accumulator = shared[:accumulator_length]
             if multistage:
@@ -440,12 +414,12 @@ class ERKStep(ODEExplicitStep):
                         stage_accumulator[base + idx] += contribution
 
                 stage_offset = (stage_idx - 1) * n
-                dt_stage = dt_value * stage_nodes[stage_idx]
+                dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
                 # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_value
+                    stage_accumulator[stage_offset + idx] *= dt_scalar
                     stage_accumulator[stage_offset + idx] += state[idx]
 
                 # Rename the slice for clarity
@@ -500,13 +474,13 @@ class ERKStep(ODEExplicitStep):
 
                 # Scale and shift f(Y_n) value if accumulated
                 if accumulates_output:
-                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] *= dt_scalar
                     proposed_state[idx] += state[idx]
 
                 if has_error:
                     # Scale error if accumulated
                     if accumulates_error:
-                        error[idx] *= dt_value
+                        error[idx] *= dt_scalar
 
                     #Or form error from difference if captured from a-row
                     else:

@@ -19,7 +19,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the predictor-corrector scheme.
@@ -38,9 +37,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        dt
-            Fixed step size supplied for fixed-step execution.
-
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------
@@ -143,9 +141,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = dt * predictor[i]
+                proposed_state[i] = dt_scalar * predictor[i]
 
-            next_time = time_scalar + dt
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -160,7 +158,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

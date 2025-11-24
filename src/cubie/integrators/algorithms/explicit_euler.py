@@ -26,7 +26,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -40,9 +39,6 @@ class ExplicitEulerStep(ODEExplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Fixed step size used by the explicit update. Defaults to the
-            controller value when ``None`` is supplied.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -53,11 +49,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
         """
-        if dt is None:
-            dt = EE_DEFAULTS.step_controller['dt']
-
         config = ExplicitStepConfig(
-            dt=dt,
             precision=precision,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
@@ -74,7 +66,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: float,
         n_drivers: int,
     ) -> StepCache:
         """Build the device function for an explicit Euler step.
@@ -91,8 +82,8 @@ class ExplicitEulerStep(ODEExplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        dt
-            Step size used for integration.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------
@@ -100,7 +91,6 @@ class ExplicitEulerStep(ODEExplicitStep):
             Container holding the compiled step function.
         """
 
-        step_size = numba_precision(dt)
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -195,9 +185,9 @@ class ExplicitEulerStep(ODEExplicitStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = state[i] + step_size * dxdt_buffer[i]
+                proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
-            next_time = time_scalar + step_size
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,
