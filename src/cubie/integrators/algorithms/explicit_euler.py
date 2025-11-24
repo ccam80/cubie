@@ -74,7 +74,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: float,
         n_drivers: int,
     ) -> StepCache:
         """Build the device function for an explicit Euler step.
@@ -91,8 +90,8 @@ class ExplicitEulerStep(ODEExplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        dt
-            Step size used for integration.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------

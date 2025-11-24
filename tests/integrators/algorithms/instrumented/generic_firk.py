@@ -212,7 +212,6 @@ class FIRKStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int = 0,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
@@ -330,6 +329,9 @@ class FIRKStep(ODEImplicitStep):
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
+
+            current_time = time_scalar
+            end_time = time_scalar + dt_scalar
 
             stage_increment = shared[stages_start:stages_end]
             stage_driver_stack = shared[drivers_start:drivers_end]
