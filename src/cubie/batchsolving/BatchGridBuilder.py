@@ -26,12 +26,6 @@ When arrays are supplied directly they are treated as fully specified row
 sets. Dictionary inputs trigger combinatorial expansion before assembly so
 that every value combination is represented in the resulting grid.
 
-The grid builder also returns metadata indicating whether initial states or
-parameters have multiple unique values (``multiple_inits`` and
-``multiple_params``). When a variable has only one unique value across all
-runs, the kernel can optimize memory usage by storing a single copy in
-constant memory rather than duplicating it for every run.
-
 Examples
 --------
 >>> import numpy as np
@@ -41,13 +35,11 @@ Examples
 >>> grid_builder = BatchGridBuilder.from_system(system)
 >>> params = {"p0": [0.1, 0.2], "p1": [10, 20]}
 >>> states = {"x0": [1.0, 2.0], "x1": [0.5, 1.5]}
->>> inits, params, metadata = grid_builder(
+>>> inits, params = grid_builder(
 ...     params=params, states=states, kind="combinatorial"
 ... )
 >>> print(inits.shape)
 (16, 2)
->>> print(metadata)
-{'multiple_inits': True, 'multiple_params': True}
 >>> print(inits)
 [[1.  0.5]
  [1.  0.5]
@@ -89,7 +81,7 @@ Example 2: verbatim arrays
 
 >>> params = np.array([[0.1, 0.2], [10, 20]])
 >>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
->>> inits, params, metadata = grid_builder(params=params, states=states, kind="verbatim")
+>>> inits, params = grid_builder(params=params, states=states, kind="verbatim")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)
@@ -101,7 +93,7 @@ Example 2: verbatim arrays
 [[ 0.1  0.2]
  [10.  20. ]]
 
->>> inits, params, metadata = grid_builder(
+>>> inits, params = grid_builder(
 ...     params=params, states=states, kind="combinatorial"
 ... )
 >>> print(inits.shape)
@@ -127,14 +119,14 @@ Same as individual dictionaries
 ...     "x0": [1.0, 2.0],
 ...     "x1": [0.5, 1.5],
 ... }
->>> inits, params, metadata = grid_builder(request=request, kind="combinatorial")
+>>> inits, params = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (16, 2)
 >>> print(params.shape)
 (16, 2)
 
 >>> request = {"p0": [0.1, 0.2]}
->>> inits, params, metadata = grid_builder(request=request, kind="combinatorial")
+>>> inits, params = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)  # unspecified variables are filled with defaults from system
@@ -514,7 +506,7 @@ class BatchGridBuilder:
         self,
         request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
         kind: str = "combinatorial",
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Build parameter and state grids from a mixed request dictionary.
 
         Parameters
@@ -528,10 +520,8 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray, np.ndarray, and dict
-            Initial state and parameter arrays aligned for batch execution
-            plus metadata dictionary containing ``multiple_inits`` and
-            ``multiple_params`` flags.
+        tuple of np.ndarray and np.ndarray
+            Initial state and parameter arrays aligned for batch execution.
         """
         param_request = {
             k: np.atleast_1d(v)
@@ -556,24 +546,6 @@ class BatchGridBuilder:
 
         return self._cast_to_precision(initial_values_array, params_array)
 
-    @staticmethod
-    def _has_single_unique_row(arr: np.ndarray) -> bool:
-        """Check if array has only one unique row.
-
-        Parameters
-        ----------
-        arr
-            Two-dimensional array to check.
-
-        Returns
-        -------
-        bool
-            ``True`` when all rows are identical.
-        """
-        if arr.shape[0] <= 1:
-            return True
-        return np.all(arr == arr[0, :])
-
     def __call__(
         self,
         request: Optional[
@@ -582,7 +554,7 @@ class BatchGridBuilder:
         params: Optional[Union[Dict, ArrayLike]] = None,
         states: Optional[Union[Dict, ArrayLike]] = None,
         kind: str = "combinatorial",
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Process user input to generate parameter and state arrays.
 
         Parameters
@@ -602,10 +574,8 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray, np.ndarray, and dict
-            Initial state and parameter arrays aligned for batch execution
-            plus metadata dictionary containing ``multiple_inits`` and
-            ``multiple_params`` boolean flags.
+        tuple of np.ndarray and np.ndarray
+            Initial state and parameter arrays aligned for batch execution.
 
         Notes
         -----
@@ -615,13 +585,12 @@ class BatchGridBuilder:
         arrays already describe paired rows, set ``kind`` to ``"verbatim"`` to
         keep them aligned.
         """
-        # Fetch updated state from system
+        #Fetch updated state from system
         self.precision = self.states.precision
 
         # fast path when arrays are provided directly
-        if kind == 'verbatim':
-            if isinstance(states, np.ndarray) and \
-                    isinstance(params, np.ndarray):
+        if kind=='verbatim':
+            if isinstance(states, np.ndarray) and isinstance(params, np.ndarray):
                 state_sets = states.shape[0]
                 param_sets = params.shape[0]
                 if state_sets == param_sets:
@@ -818,7 +787,7 @@ class BatchGridBuilder:
 
     def _cast_to_precision(
         self, states: np.ndarray, params: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, dict]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Cast state and parameter arrays to the system precision.
 
         Parameters
@@ -830,19 +799,13 @@ class BatchGridBuilder:
 
         Returns
         -------
-        tuple of np.ndarray, np.ndarray, and dict
+        tuple of np.ndarray and np.ndarray
             State and parameter arrays with ``dtype`` matching
-            ``self.precision`` plus metadata dictionary containing
-            ``multiple_inits`` and ``multiple_params`` flags.
+            ``self.precision``.
         """
-        metadata = {
-            "multiple_inits": not self._has_single_unique_row(states),
-            "multiple_params": not self._has_single_unique_row(params),
-        }
         return (
             states.astype(self.precision, copy=False),
             params.astype(self.precision, copy=False),
-            metadata,
         )
 
     # ------------------------------------------------------------------
@@ -895,9 +858,7 @@ class BatchGridBuilder:
 
     @staticmethod
     def extend_grid_to_array(
-        grid: np.ndarray,
-        indices: np.ndarray,
-        default_values: np.ndarray
+        grid: np.ndarray, indices: np.ndarray, default_values: np.ndarray
     ) -> np.ndarray:
         return extend_grid_to_array(grid, indices, default_values)
 

@@ -33,12 +33,6 @@ class BatchSolverConfig:
         Number of precision elements required in shared memory per run.
     ActiveOutputs
         Flags describing which output buffers participate in a run.
-    multiple_inits
-        When ``False`` all runs share a single initial state stored in
-        constant memory; when ``True`` each run has its own initial state.
-    multiple_params
-        When ``False`` all runs share a single parameter set stored in
-        constant memory; when ``True`` each run has its own parameter set.
     """
 
     precision: PrecisionDType = attrs.field(
@@ -61,14 +55,6 @@ class BatchSolverConfig:
     ActiveOutputs: ActiveOutputs = attrs.field(
         factory=ActiveOutputs,
         validator=attrs.validators.instance_of(ActiveOutputs),
-    )
-    multiple_inits: bool = attrs.field(
-        default=True,
-        validator=attrs.validators.instance_of(bool),
-    )
-    multiple_params: bool = attrs.field(
-        default=True,
-        validator=attrs.validators.instance_of(bool),
     )
 
     @property

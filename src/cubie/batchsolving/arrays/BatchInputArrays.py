@@ -132,9 +132,7 @@ class InputArrays(BaseArrayManager):
 
     _sizes: Optional[BatchInputSizes] = attrs.field(
         factory=BatchInputSizes,
-        validator=val.optional(
-            val.instance_of(BatchInputSizes)
-        ),
+        validator=val.optional(val.instance_of(BatchInputSizes)),
     )
     host: InputArrayContainer = attrs.field(
         factory=InputArrayContainer.host_factory,
@@ -184,13 +182,6 @@ class InputArrays(BaseArrayManager):
         None
             This method updates internal references and enqueues allocations.
         """
-        # Optimize storage for single-row cases
-        config = solver_instance.compile_settings
-        if not config.multiple_inits and initial_values.shape[0] > 1:
-            initial_values = initial_values[0:1, :]
-        if not config.multiple_params and parameters.shape[0] > 1:
-            parameters = parameters[0:1, :]
-
         updates_dict = {
             "initial_values": initial_values,
             "parameters": parameters,
@@ -237,7 +228,8 @@ class InputArrays(BaseArrayManager):
     def from_solver(
         cls, solver_instance: "BatchSolverKernel"
     ) -> "InputArrays":
-        """Create an InputArrays instance from a solver.
+        """
+        Create an InputArrays instance from a solver.
 
         Creates an empty instance from a solver instance, importing the heights
         of the parameters, initial values, and driver arrays from the ODE system
@@ -305,10 +297,10 @@ class InputArrays(BaseArrayManager):
         chunk indices.
         """
         # This functionality was added without the device-code support to make
-        # it do anything, so it just wastes time. To restore it if useful,
-        # the singleintegratorrun function needs a toggle and to overwrite
-        # the initial states vector with its own final state on exit.
-        # This is requested in issue #76 on GitHub.
+        # it do anything, so it just wastes time. To restore it, if useful,
+        # The singleintegratorrun function needs a toggle and to overwrite
+        # the initial states vecotr with it's own final state on exit.
+        # This is requested in #76 https://github.com/ccam80/cubie/issues/76
 
         # stride_order = self.host.get_managed_array("initial_values").stride_order
         # slice_tuple = [slice(None)] * len(stride_order)

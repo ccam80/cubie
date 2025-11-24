@@ -484,9 +484,6 @@ class BatchSolverKernel(CUDAFactory):
         save_state_summaries = output_flags.state_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        multiple_inits = config.multiple_inits
-        multiple_params = config.multiple_params
-
         local_elements_per_run = config.local_memory_elements
         shared_elems_per_run = config.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
@@ -586,12 +583,21 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-            # Conditionally index based on compile-time flags
-            # When multiple_inits/multiple_params is False, use row 0
-            init_index = run_index if multiple_inits else 0
-            param_index = run_index if multiple_params else 0
-            rx_inits = inits[init_index, :]
-            rx_params = params[param_index, :]
+            # Runtime check for array shape to optimize single-value cases
+            # When array has only one row, broadcast to all runs via index 0
+            # Use constant memory for single-row arrays
+            multiple_inits = inits.shape[0] > 1
+            multiple_params = params.shape[0] > 1
+            if multiple_inits:
+                rx_inits = inits[run_index, :]
+            else:
+                c_inits = cuda.const.array_like(inits)
+                rx_inits = c_inits[0, :]
+            if multiple_params:
+                rx_params = params[run_index, :]
+            else:
+                c_params = cuda.const.array_like(params)
+                rx_params = c_params[0, :]
             rx_state = state_output[:, run_index * save_state, :]
             rx_observables = observables_output[
                 :, run_index * save_observables, :
