@@ -5,7 +5,6 @@ from typing import Callable, Optional
 
 import attrs
 
-from cubie._utils import gttype_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
     BaseStepConfig,
@@ -15,24 +14,8 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 
 @attrs.define
 class ExplicitStepConfig(BaseStepConfig):
-    """Configuration settings for explicit integration steps.
-
-    Parameters
-    ----------
-    dt
-        Fixed step size applied by the explicit integrator.
-    """
-    dt: float = attrs.field(
-            default=1e-3,
-            validator=gttype_validator(float, 0)
-    )
-
-    @property
-    def settings_dict(self) -> dict:
-        """Return configuration fields as a dictionary."""
-        settings_dict = super().settings_dict
-        settings_dict.update({'dt': self.dt})
-        return settings_dict
+    """Configuration settings for explicit ODE integration algorithms."""
+    pass
 
 
 class ODEExplicitStep(BaseAlgorithmStep):
@@ -101,11 +84,6 @@ class ODEExplicitStep(BaseAlgorithmStep):
     def is_implicit(self) -> bool:
         """Return ``False`` to indicate the algorithm is explicit."""
         return False
-
-    @property
-    def dt(self) -> float:
-        """Return the configured explicit step size."""
-        return self.compile_settings.dt
 
     @property
     def algorithm_shared_elements(self) -> int:

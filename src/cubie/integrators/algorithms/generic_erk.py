@@ -121,7 +121,6 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -144,9 +143,6 @@ class ERKStep(ODEExplicitStep):
             np.float64).
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives. Should
             match signature expected by the integration kernel.
@@ -187,11 +183,7 @@ class ERKStep(ODEExplicitStep):
         
         >>> from cubie.integrators.algorithms.generic_erk import ERKStep
         >>> import numpy as np
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
         'pi'
         
@@ -200,12 +192,7 @@ class ERKStep(ODEExplicitStep):
         >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
         ...     CLASSICAL_RK4_TABLEAU
         ... )
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ...     tableau=CLASSICAL_RK4_TABLEAU,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3,tableau=CLASSICAL_RK4_TABLEAU)
         >>> step.controller_defaults.step_controller["step_controller"]
         'fixed'
         """
@@ -220,8 +207,6 @@ class ERKStep(ODEExplicitStep):
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
         
         config = ERKStepConfig(**config_kwargs)
 

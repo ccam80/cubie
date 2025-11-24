@@ -33,8 +33,6 @@ class ImplicitStepConfig(BaseStepConfig):
         Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
-    dt
-        Optional fixed step size for fixed-step algorithms.
     krylov_tolerance
         Linear solver tolerance used by the Krylov iteration.
     max_linear_iters

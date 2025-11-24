@@ -62,7 +62,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -97,9 +96,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "gamma": tableau_value.gamma,
             "M": mass,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
         
@@ -181,7 +178,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         numba_precision = config.numba_precision
         n = config.n
         n_drivers = config.n_drivers
-        dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
 

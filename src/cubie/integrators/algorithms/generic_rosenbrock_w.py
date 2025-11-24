@@ -122,7 +122,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -148,9 +147,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives.
         observables_function
@@ -213,9 +209,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "gamma": tableau_value.gamma,
             "M": mass,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
 

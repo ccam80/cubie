@@ -30,7 +30,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -38,12 +37,9 @@ class ExplicitEulerStep(ODEExplicitStep):
     ) -> None:
         """Initialise the instrumented explicit Euler configuration."""
 
-        if dt is None:
-            dt = EE_DEFAULTS.step_controller["dt"]
         config = ExplicitStepConfig(
             precision=precision,
             n=n,
-            dt=dt,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,

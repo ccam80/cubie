@@ -529,6 +529,7 @@ class IVPLoop(CUDAFactory):
                     next_save = selp(do_save, next_save + dt_save, next_save)
 
                     if do_save:
+                        # from pdb import set_trace; set_trace()
                         save_state(
                             state_buffer,
                             observables_buffer,

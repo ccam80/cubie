@@ -75,7 +75,6 @@ class FIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -115,8 +114,6 @@ class FIRKStep(ODEImplicitStep):
             "gamma": 1.0,
             "M": mass,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
         
         config = FIRKStepConfig(**config_kwargs)
         
@@ -221,7 +218,6 @@ class FIRKStep(ODEImplicitStep):
         nonlinear_solver = solver_fn
         stage_count = self.stage_count
         all_stages_n = config.all_stages_n
-        
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive

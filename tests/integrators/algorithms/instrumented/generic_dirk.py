@@ -63,7 +63,6 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -103,9 +102,7 @@ class DIRKStep(ODEImplicitStep):
             "gamma": 1.0,
             "M": mass,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
         

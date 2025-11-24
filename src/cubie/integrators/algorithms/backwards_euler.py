@@ -29,7 +29,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: float,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -51,9 +50,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Fixed step size for fixed-step algorithms. When ``None`` the
-            controller default is used.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -79,9 +75,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
-        if dt is None:
-            dt = BE_DEFAULTS.step_controller['dt']
-
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
@@ -91,7 +84,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            dt=dt,
             preconditioner_order=preconditioner_order,
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,

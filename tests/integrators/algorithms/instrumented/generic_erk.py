@@ -62,7 +62,6 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -89,9 +88,6 @@ class ERKStep(ODEExplicitStep):
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
         config = ERKStepConfig(**config_kwargs)
         
         if tableau.has_error_estimate:

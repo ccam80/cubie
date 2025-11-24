@@ -35,7 +35,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -57,9 +56,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Optional fixed step size for fixed-step algorithms. When ``None``
-            the controller default is used.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function

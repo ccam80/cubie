@@ -26,7 +26,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -40,9 +39,6 @@ class ExplicitEulerStep(ODEExplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Fixed step size used by the explicit update. Defaults to the
-            controller value when ``None`` is supplied.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -53,11 +49,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
         """
-        if dt is None:
-            dt = EE_DEFAULTS.step_controller['dt']
-
         config = ExplicitStepConfig(
-            dt=dt,
             precision=precision,
             dxdt_function=dxdt_function,
             observables_function=observables_function,

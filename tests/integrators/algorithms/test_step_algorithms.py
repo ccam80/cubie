@@ -1425,12 +1425,6 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping set"
         assert callable(system.get_solver_helper)
-    elif properties is not None:
-        assert step_object.dt == pytest.approx(
-            solver_settings["dt"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
 
     if step_object.is_implicit:
         if algorithm == "rosenbrock":
@@ -1491,15 +1485,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
-    else:
-        new_dt = precision(solver_settings["dt"]) * precision(0.5)
-        recognised = step_object.update({"dt": new_dt})
-        assert "dt" in recognised, "dt recognised"
-        assert step_object.dt == pytest.approx(
-            new_dt,
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "dt update"
 
     # Test equality for a single step
     tolerances = {
@@ -1554,7 +1539,6 @@ def test_tableau_controller_defaults(step_class, tableau, expected_dict):
     step = step_class(
         precision=np.float32,
         n=3,
-        dt=None,
         tableau=tableau,
     )
     
