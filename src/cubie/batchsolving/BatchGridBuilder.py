@@ -534,6 +534,33 @@ class BatchGridBuilder:
             if k in self.states.names
         }
 
+        # Check if all values are single-element (no sweep needed)
+        all_single_params = all(
+            np.asarray(v).size == 1 for v in param_request.values()
+        ) if param_request else True
+        all_single_states = all(
+            np.asarray(v).size == 1 for v in state_request.values()
+        ) if state_request else True
+
+        # Fast path for single values - treat as 1D array without grid
+        if all_single_params and all_single_states:
+            # Build single-row arrays directly from values
+            params_array = np.copy(self.parameters.values_array)
+            for k, v in param_request.items():
+                idx = self.parameters.get_indices([k])[0]
+                params_array[idx] = np.asarray(v).item()
+            params_array = params_array[np.newaxis, :]
+            
+            initial_values_array = np.copy(self.states.values_array)
+            for k, v in state_request.items():
+                idx = self.states.get_indices([k])[0]
+                initial_values_array[idx] = np.asarray(v).item()
+            initial_values_array = initial_values_array[np.newaxis, :]
+            
+            return self._cast_to_precision(
+                initial_values_array, params_array
+            )
+
         params_array = generate_array(
             param_request, self.parameters, kind=kind
         )
