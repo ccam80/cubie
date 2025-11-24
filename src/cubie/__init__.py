@@ -9,9 +9,8 @@ from importlib.metadata import version
 # inefficient batch size.
 # These are not actionable for CuBIE users,
 # so they are filtered at import time.
-import warnings
-from numba.core.errors import NumbaPerformanceWarning
-warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
+import os
+os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
 from cubie.batchsolving import *        # noqa
 from cubie.integrators import *         # noqa

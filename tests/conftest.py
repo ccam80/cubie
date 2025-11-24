@@ -343,8 +343,9 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
-        "duration": precision(1.0),
-        "warmup": precision(0.0),
+        "duration": np.float64(1.0),
+        "warmup": np.float64(0.0),
+        "t0": np.float64(0.0),
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
@@ -389,7 +390,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     float_keys = {
         "duration",
         "warmup",
-        "dt"
+        "dt",
         "dt_min",
         "dt_max",
         "dt_save",

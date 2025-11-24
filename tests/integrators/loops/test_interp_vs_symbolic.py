@@ -26,8 +26,9 @@ from tests._utils import assert_integration_outputs, run_device_loop
 def time_driver_solver_settings(precision):
     settings = {
         "algorithm": "euler",
-        "duration": precision(1.0),
-        "warmup": precision(0.0),
+        "duration": 1.0,
+        "warmup": 0.0,
+        "t0": 0.0,
         "dt_min": precision(0.05),
         "dt_max": precision(0.05),
         "dt_save": precision(0.05),

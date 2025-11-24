@@ -264,10 +264,10 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        precision = self.precision
-        duration = precision(duration)
-        warmup = precision(warmup)
-        t0 = precision(t0)
+        # Time parameters always use float64 for accumulation accuracy
+        duration = np.float64(duration)
+        warmup = np.float64(warmup)
+        t0 = np.float64(t0)
 
         self._duration = duration
         self._warmup = warmup
@@ -336,8 +336,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = precision(0.0)
-                chunk_t0 = t0 + precision(i) * chunk_params.duration
+                chunk_warmup = np.float64(0.0)
+                chunk_t0 = t0 + np.float64(i) * chunk_params.duration
 
             self.kernel[
                 BLOCKSPERGRID,
@@ -496,18 +496,18 @@ class BatchSolverKernel(CUDAFactory):
         # no cover: start
         @cuda.jit(
             (
-                precision[:, :],
-                precision[:, :],
-                precision[:, :, :],
+                precision[:, ::1],
+                precision[:, ::1],
+                precision[:, :, ::1],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 int32[:, :, :],
-                int32[:],
-                precision,
-                precision,
-                precision,
+                int32[::1],
+                float64,
+                float64,
+                float64,
                 int32,
             ),
             **compile_kwargs,
@@ -523,9 +523,9 @@ class BatchSolverKernel(CUDAFactory):
             iteration_counters_output,
             status_codes_output,
             duration,
-            warmup=precision(0.0),
-            t0=precision(0.0),
-            n_runs=1,
+            warmup,
+            t0,
+            n_runs,
         ):
             """Execute the compiled single-run loop for each batch chunk.
 
@@ -591,10 +591,10 @@ class BatchSolverKernel(CUDAFactory):
                 :, run_index * save_observables, :
             ]
             rx_state_summaries = state_summaries_output[
-                :, run_index * save_observables, :
+                :, run_index * save_state_summaries, :
             ]
             rx_observables_summaries = observables_summaries_output[
-                :, run_index * save_state_summaries, :
+                :, run_index * save_observable_summaries, :
             ]
             rx_iteration_counters = iteration_counters_output[
                 run_index, :, :
@@ -849,11 +849,11 @@ class BatchSolverKernel(CUDAFactory):
     def duration(self) -> float:
         """Requested integration duration."""
 
-        return self.precision(self._duration)
+        return np.float64(self._duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        self._duration = self.precision(value)
+        self._duration = np.float64(value)
 
     @property
     def dt(self) -> Optional[float]:
@@ -865,31 +865,40 @@ class BatchSolverKernel(CUDAFactory):
     def warmup(self) -> float:
         """Configured warmup duration."""
 
-        return self.precision(self._warmup)
+        return np.float64(self._warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        self._warmup = self.precision(value)
+        self._warmup = np.float64(value)
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
 
-        return self.precision(self._t0)
+        return np.float64(self._t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        self._t0 = self.precision(value)
+        self._t0 = np.float64(value)
 
     @property
     def output_length(self) -> int:
-        """Number of saved trajectory samples in the main run."""
-
-        return int(np.ceil(self.duration / self.single_integrator.dt_save))
+        """Number of saved trajectory samples in the main run.
+        
+        Includes both initial state (at t=t0 or t=settling_time) and final
+        state (at t=t_end) for complete trajectory coverage.
+        """
+        return int(np.floor(self.duration / self.single_integrator.dt_save)) + 1
 
     @property
     def summaries_length(self) -> int:
-        """Number of summary intervals across the integration window."""
+        """Number of summary intervals across the integration window.
+        
+        Note: Summaries use ceil(duration/dt_summarise) WITHOUT the +1
+        because summary intervals represent aggregated metrics across time
+        windows, not point-in-time snapshots. Interval semantics differ
+        from save point semantics (see output_length).
+        """
 
         return int(
             np.ceil(self._duration / self.single_integrator.dt_summarise)
@@ -897,7 +906,13 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def warmup_length(self) -> int:
-        """Number of warmup save intervals completed before capturing output."""
+        """Number of warmup save intervals completed before capturing output.
+        
+        Note: Warmup uses ceil(warmup/dt_save) WITHOUT the +1 because warmup
+        saves are transient and discarded after settling. The final warmup
+        state becomes the initial state of the main run, so there is no need
+        to save both endpoints in the warmup phase.
+        """
 
         return int(np.ceil(self._warmup / self.single_integrator.dt_save))
 

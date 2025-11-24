@@ -7,6 +7,7 @@ consistent, ready-to-compile settings.
 """
 from typing import Callable, MutableMapping, Optional, Union
 
+import numpy as np
 from attrs import define, field, validators
 import numba
 from numpy import float32

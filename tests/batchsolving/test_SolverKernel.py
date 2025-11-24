@@ -38,7 +38,7 @@ def test_kernel_builds(solverkernel):
             {}),
         ("three_chamber",
          {"output_types": ["state", "observables", "time", "mean", "rms"],
-          'dt': 0.0025,
+          'dt': 0.001,
           'dt_save': 0.1,
           'dt_summarise': 0.3,
           "duration": 0.3}, {})

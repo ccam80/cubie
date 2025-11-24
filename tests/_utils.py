@@ -600,8 +600,9 @@ def run_device_loop(
     dt_save = loop.dt_save
     warmup = solver_config['warmup']
     duration = solver_config["duration"]
+    t0 = solver_config["t0"]
     total_time = warmup + duration
-    save_samples = int(np.ceil(precision(total_time) / precision(dt_save)))
+    save_samples = int(np.floor(duration / precision(dt_save))) + 1
 
     heights = OutputArrayHeights.from_output_fns(output_functions)
 
@@ -692,9 +693,9 @@ def run_device_loop(
             state_sum_arr,
             obs_sum_arr,
             counters_out_arr,
-            precision(duration),
-            precision(warmup),
-            precision(0.0),
+            duration,
+            warmup,
+            t0,
         )
 
     kernel[1, 1, 0, shared_bytes](
