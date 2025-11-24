@@ -332,10 +332,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             observable_count = proposed_observables.shape[0]
             driver_count = proposed_drivers.shape[0]
 
-
-            current_time = time_scalar
-            end_time = current_time + dt_scalar
-            
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
