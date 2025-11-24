@@ -259,11 +259,9 @@ class IVPLoop(CUDAFactory):
         ): # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
             
-            The loop terminates when save_idx >= n_output_samples, where
-            n_output_samples is the first dimension of state_output or
-            observables_output arrays. These arrays are sized using
-            ceil(duration/dt_save) + 1 to ensure both the initial state
-            (at t=t0 or t=settling_time) and final state (at t=t_end) are saved.
+            The loop terminates when the time of the next saved sample
+            exceeds the end time (t0 + settling_time + duration), or when
+            the maximum number of iterations is reached.
 
             Parameters
             ----------
@@ -308,9 +306,6 @@ class IVPLoop(CUDAFactory):
                                               dt_min)) + int32(2))
             max_steps = max_steps << 2
 
-            n_output_samples = max(state_output.shape[0],
-                                   observables_output.shape[0])
-
             shared_scratch[:] = precision(0.0)
 
             state_buffer = shared_scratch[state_shared_ind]
@@ -334,7 +329,6 @@ class IVPLoop(CUDAFactory):
             
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
-            # Non-adaptive algorithms map the error slice to length zero.
             error = shared_scratch[error_shared_ind]
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
@@ -425,7 +419,6 @@ class IVPLoop(CUDAFactory):
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             for _ in range(max_steps):
-                # If save_last is true, then
                 # Exit as soon as we've saved the final step
                 finished = next_save > t_end
                 if save_last:
@@ -444,9 +437,8 @@ class IVPLoop(CUDAFactory):
                 if not finished:
                     do_save = (t + dt[0]) >= next_save
                     dt_eff = selp(do_save, precision(next_save - t), dt[0])
-                    
-                    status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
-                    
+                    # from pdb import set_trace; set_trace()
+
                     # Fixed mode auto-accepts all steps; adaptive uses controller
                     if fixed_mode:
                         accept = True
@@ -499,7 +491,6 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] += int32(1)
                             elif not accept:
                                 counters_since_save[i] += int32(1)
-
                     t_proposal = t + dt_eff
                     t = selp(accept, t_proposal, t)
 
@@ -517,6 +508,8 @@ class IVPLoop(CUDAFactory):
                         new_obs = observables_proposal_buffer[i]
                         old_obs = observables_buffer[i]
                         observables_buffer[i] = selp(accept, new_obs, old_obs)
+
+                    # set_trace()
 
                     prev_step_accepted_flag = selp(
                         accept,

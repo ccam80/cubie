@@ -143,7 +143,7 @@ def run_reference_loop(
         next_save_time = np.float64(warmup + t0) + np.float64(dt_save)
         state_history = [state.copy()]
         observable_history.append(observables.copy())
-        time_history = [t]
+        time_history = [precision(t)]
         save_idx = 1
 
     end_time = np.float64(warmup + t0 + duration)
@@ -151,7 +151,7 @@ def run_reference_loop(
     status_flags = 0
 
 
-    while next_save_time < end_time:
+    while next_save_time <= end_time:
         dt = controller.dt
         do_save = False
         if t + dt >= next_save_time:

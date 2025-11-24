@@ -591,10 +591,10 @@ class BatchSolverKernel(CUDAFactory):
                 :, run_index * save_observables, :
             ]
             rx_state_summaries = state_summaries_output[
-                :, run_index * save_observables, :
+                :, run_index * save_state_summaries, :
             ]
             rx_observables_summaries = observables_summaries_output[
-                :, run_index * save_state_summaries, :
+                :, run_index * save_observable_summaries, :
             ]
             rx_iteration_counters = iteration_counters_output[
                 run_index, :, :
