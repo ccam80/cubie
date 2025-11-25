@@ -193,14 +193,15 @@ class GustafssonController(BaseAdaptiveStepController):
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
         gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma
-        unity_gain = precision(1.0)
+        typed_one = precision(1.0)
+        typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
-        deadband_disabled = (deadband_min == unity_gain) and (
-            deadband_max == unity_gain
+        deadband_disabled = (deadband_min == typed_one) and (
+                deadband_max == typed_one
         )
         numba_precision = self.compile_settings.numba_precision
-
+        n = int32(n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             [
@@ -251,17 +252,17 @@ class GustafssonController(BaseAdaptiveStepController):
             dt_prev = max(local_temp[0], precision(1e-16))
             err_prev = max(local_temp[1], precision(1e-16))
 
-            nrm2 = precision(0.0)
+            nrm2 = typed_zero
             for i in range(n):
                 error_i = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                ratio = tol / error_i
+                ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = precision(nrm2/n)
-            accept = nrm2 >= precision(1.0)
+            nrm2 = typed_one/(nrm2*n)
+            accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
             denom = precision(niters + 2 * max_newton_iters)
@@ -282,7 +283,7 @@ class GustafssonController(BaseAdaptiveStepController):
                     (gain >= deadband_min)
                     and (gain <= deadband_max)
                 )
-                gain = selp(within_deadband, unity_gain, gain)
+                gain = selp(within_deadband, typed_one, gain)
             dt_new_raw = current_dt * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 

@@ -131,12 +131,13 @@ class AdaptiveIController(BaseAdaptiveStepController):
             CUDA device function implementing the integral controller.
         """
         order_exponent = precision(1.0 / (2 * (1 + algorithm_order)))
-        unity_gain = precision(1.0)
+        typed_one = precision(1.0)
+        typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (
-            (deadband_min == unity_gain)
-            and (deadband_max == unity_gain)
+            (deadband_min == typed_one)
+            and (deadband_max == typed_one)
         )
         n = int32(n)
         numba_precision = self.compile_settings.numba_precision
@@ -191,15 +192,14 @@ class AdaptiveIController(BaseAdaptiveStepController):
             """
             nrm2 = precision(0.0)
             for i in range(n):
-                # BUG: This limits tol to 1e-12, inappropriate for 64-bit runs
-                error_i = max(abs(error[i]), precision(1e-12))
+                error_i = max(abs(error[i]), precision(1e-16))
                 tol = (
                     atol[i] + rtol[i] * max(abs(state[i]), abs(state_prev[i]))
                 )
                 nrm2 += (error_i * error_i) / (tol * tol)
 
-            nrm2 = precision(1/(nrm2 * n))
-            accept = nrm2 >= precision(1.0)
+            nrm2 = typed_one/(nrm2 * n)
+            accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
             gaintmp = safety * (nrm2 ** order_exponent)
@@ -209,7 +209,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
                     (gain >= deadband_min)
                     and (gain <= deadband_max)
                 )
-                gain = selp(within_deadband, unity_gain, gain)
+                gain = selp(within_deadband, typed_one, gain)
 
             # Update step from the current dt
             dt_new_raw = dt[0] * gain
