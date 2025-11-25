@@ -7,7 +7,7 @@ proper line-level debugging with Numba's lineinfo feature.
 from math import ceil
 
 import numpy as np
-from numba import cuda, int16, int32, float32, float64
+from numba import cuda, int16, int32, float32
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -20,6 +20,9 @@ precision = np.float32
 numba_precision = numba_from_dtype(precision)
 simsafe_precision = simsafe_dtype(precision)
 simsafe_int32 = simsafe_dtype(np.int32)
+
+# Typed constants for device code
+typed_zero = numba_precision(0.0)
 
 # Lorenz system constants
 constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
@@ -499,9 +502,9 @@ def update_summaries_inline(current_state, current_observables,
 def save_summaries_inline(buffer_state, buffer_obs, output_state,
                           output_obs, summarise_every):
     for idx in range(n_states):
-        mean_val = buffer_state[idx] / numba_precision(summarise_every)
+        mean_val = buffer_state[idx] / precision(summarise_every)
         output_state[idx] = mean_val
-        buffer_state[idx] = numba_precision(0.0)
+        buffer_state[idx] = typed_zero
 
 
 # =========================================================================
@@ -596,13 +599,13 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             persistent_local, state_output, observables_output,
             state_summaries_output, observable_summaries_output,
             iteration_counters_output, duration_arg, settling_time, t0_arg):
-    t = numba_precision(t0_arg)
-    t_end = numba_precision(settling_time + duration_arg)
+    t = precision(t0_arg)
+    t_end = precision(settling_time + duration_arg)
     max_steps = (int32(ceil(t_end / dt_min)) + int32(2))
     max_steps = max_steps << 2
 
     n_output_samples_local = state_output.shape[0]
-    shared_scratch[:] = numba_precision(0.0)
+    shared_scratch[:] = typed_zero
 
     state_buffer = shared_scratch[state_shared_start:state_shared_end]
     state_proposal = shared_scratch[proposed_state_start:proposed_state_end]
@@ -632,7 +635,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
     save_idx = int32(0)
     summary_idx = int32(0)
-    _next_save = numba_precision(dt_save)  # Available for adaptive stepping
+    _next_save = precision(dt_save)  # Available for adaptive stepping
 
     # Save initial state
     save_state_inline(state_buffer, obs_buffer, counters_since_save, t,
@@ -719,7 +722,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
 local_elements_per_run = local_elements
 shared_elems_per_run = shared_elements
-f32_per_element = 2 if (numba_precision == float64) else 1
+f32_per_element = 2 if (precision == np.float64) else 1
 
 
 @cuda.jit(**compile_kwargs)
