@@ -138,6 +138,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             (deadband_min == unity_gain)
             and (deadband_max == unity_gain)
         )
+        n = int32(n)
         numba_precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -190,13 +191,14 @@ class AdaptiveIController(BaseAdaptiveStepController):
             """
             nrm2 = precision(0.0)
             for i in range(n):
+                # BUG: This limits tol to 1e-12, inappropriate for 64-bit runs
                 error_i = max(abs(error[i]), precision(1e-12))
-                tol = atol[i] + rtol[i] * max(
-                    abs(state[i]), abs(state_prev[i])
+                tol = (
+                    atol[i] + rtol[i] * max(abs(state[i]), abs(state_prev[i]))
                 )
-                nrm2 += (tol * tol) / (error_i * error_i)
+                nrm2 += (error_i * error_i) / (tol * tol)
 
-            nrm2 = precision(nrm2/n)
+            nrm2 = precision(1/nrm2 * n)
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 

@@ -128,19 +128,20 @@ def run_reference_loop(
     observable_history = []
     time_history = []
     t = t0
-    drivers_initial = driver_evaluator(precision(t))
+    t32 = precision(t)
+    drivers_initial = driver_evaluator(t32)
     observables = evaluator.observables(
         state,
         params,
         drivers_initial,
-        precision(t),
+        t32,
     )
 
     if warmup > np.float64(0.0):
-        next_save_time = np.float64(warmup + t0)
+        next_save_time = warmup + t0
         save_idx = 0
     else:
-        next_save_time = np.float64(warmup + t0) + np.float64(dt_save)
+        next_save_time = warmup + t0 + np.float64(dt_save)
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]

@@ -399,7 +399,7 @@ class BatchSolverKernel(CUDAFactory):
         The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
         on CC7* hardware. Larger requests reduce per-thread L1 availability.
         """
-        while dynamic_sharedmem > 32768:
+        while dynamic_sharedmem >= 32768:
             if blocksize < 32:
                 warn(
                     "Block size has been reduced to less than 32 threads, "
