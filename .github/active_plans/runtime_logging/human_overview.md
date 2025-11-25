@@ -1,231 +1,186 @@
-# Runtime Logging Feature - Overview
+# Runtime Logging Feature Plan
 
 ## User Stories
 
-### Story 1: Kernel Execution Timing
-**As a** CuBIE user  
-**I want** to measure GPU kernel execution time using CUDA events  
-**So that** I can understand where time is spent during batch integration
+### US-1: CUDA Kernel Timing
+**As a** CuBIE user profiling GPU performance,
+**I want** to measure actual CUDA kernel execution time,
+**So that** I can understand how much time is spent on GPU computation vs. overhead.
 
 **Acceptance Criteria:**
-- Kernel launch timing starts before the kernel is launched
-- Kernel execution timing stops after the kernel completes
-- Timing uses `numba.cuda.event()` for accurate GPU measurement
-- Event data is recorded to the TimeLogger with category='runtime'
-- Timing works correctly in both single-chunk and multi-chunk scenarios
+- CUDAEvent wrapper class exists in cuda_simsafe.py with CUDASIM fallback
+- Each kernel launch records start/end events via numba.cuda.event() in CUDA mode
+- CUDASIM mode falls back to time.perf_counter() wall-clock timing
+- Event timing data is available through TimeLogger after solve() returns
+- Events log even when duration is 0
 
-### Story 2: Memory Transfer Timing
-**As a** CuBIE user  
-**I want** to measure memory transfer times between host and device  
-**So that** I can identify data movement bottlenecks
-
-**Acceptance Criteria:**
-- Host-to-device transfers are timed in `InputArrays.initialise()`
-- Device-to-host transfers are timed in `OutputArrays.finalise()`
-- Each transfer type (inits, params, drivers, state, observables, summaries, status) is timed separately
-- Transfer timing uses wall-clock time via `time.perf_counter()`
-- Events are registered with category='runtime'
-
-### Story 3: Outer Method Timing
-**As a** CuBIE user  
-**I want** to see total execution time for solve_ivp(), solve(), and run() methods  
-**So that** I can understand overall integration performance including all subevents
+### US-2: Memory Transfer Timing
+**As a** CuBIE user diagnosing data movement bottlenecks,
+**I want** consolidated timing for host-to-device and device-to-host transfers,
+**So that** I can identify if memory bandwidth limits my workload.
 
 **Acceptance Criteria:**
-- `solve_ivp()` has outer timing capturing the complete function execution
-- `Solver.solve()` has outer timing from method entry to return
-- `BatchSolverKernel.run()` has outer timing including all chunks
-- Outer times represent the sum total of all nested timing events
-- Summary can be printed with `print_summary(category='runtime')` after method returns
+- Single `h2d_transfer` event covers ALL host-to-device transfers
+- Single `d2h_transfer` event covers ALL device-to-host transfers
+- Events record start before ANY transfers and end after ALL transfers
+- Events log 0 duration when no arrays to transfer
 
-### Story 4: Integration with TimeLogger
-**As a** CuBIE user  
-**I want** runtime events to integrate seamlessly with existing TimeLogger infrastructure  
-**So that** I can view codegen, compile, and runtime timing in a unified report
+### US-3: Outer Solve Timing
+**As a** CuBIE user measuring end-to-end latency,
+**I want** wall-clock timing for solve_ivp, Solver.solve, and BatchSolverKernel.run,
+**So that** I can see total elapsed time including all suboperations.
 
 **Acceptance Criteria:**
-- Runtime events use the same `_default_timelogger` instance as compile/codegen
-- Events are registered before first use with category='runtime'
-- Event data is fetched and sent to timelogger before method returns
-- TimeLogger verbosity settings control runtime event output
-- `print_summary(category='runtime')` displays runtime timing after integration completes
+- `solve_ivp_total` event captures full solve_ivp() duration
+- `solver_solve_total` event captures full Solver.solve() duration  
+- `kernel_run_total` event captures full BatchSolverKernel.run() duration
+- Outer events use wall-clock timing (not CUDA events)
+- Events integrate with existing TimeLogger infrastructure
 
-## Executive Summary
+### US-4: Deferred Event Retrieval
+**As a** CuBIE developer maintaining GPU performance,
+**I want** CUDA event times collected only after stream synchronization,
+**So that** timing measurement doesn't impact kernel execution performance.
 
-This feature extends CuBIE's existing TimeLogger system to capture runtime performance metrics during batch integration. The implementation adds GPU kernel timing via CUDA events, memory transfer timing via wall-clock measurements, and outer method timing to provide complete execution visibility.
+**Acceptance Criteria:**
+- No stream synchronization occurs during kernel execution
+- CUDAEvent instances register with TimeLogger for later retrieval
+- `retrieve_cuda_events()` called by solve() after sync to collect all timings
+- Timing data available in TimeLogger.events after solve() completes
 
-The architecture follows the established pattern where events are registered in advance, timing decorators wrap key operations, and the global `_default_timelogger` instance collects all measurements. Runtime events use category='runtime' to distinguish them from existing 'compile' and 'codegen' categories.
+---
 
-## Key Technical Decisions
+## Overview
 
-### CUDA Event Timing for Kernels
-**Decision:** Use `numba.cuda.event()` with `event_elapsed_time()` for kernel timing  
-**Rationale:** 
-- CPU timing via `time.perf_counter()` cannot accurately measure asynchronous GPU operations
-- CUDA events provide precise GPU-side measurements in milliseconds
-- Events integrate with CUDA streams for async operation tracking
-- Numba provides direct access to CUDA event API
+This feature adds runtime timing instrumentation to CuBIE's batch solving infrastructure. The implementation builds on the existing TimeLogger and cuda_simsafe modules, adding CUDA event-based timing with proper CUDASIM fallback.
 
-**Trade-off:** Requires CUDA-specific code that won't work in CUDASIM mode; fallback to wall-clock timing in simulation.
-
-### Wall-Clock Timing for Memory Transfers
-**Decision:** Use `time.perf_counter()` for host-device memory transfer timing  
-**Rationale:**
-- Memory transfers are synchronous operations that block the stream
-- Wall-clock timing is sufficient and simpler than CUDA event pairs
-- Transfers already complete before timing stop is called
-
-**Alternative Considered:** CUDA events could also time transfers, but add unnecessary complexity for synchronous operations.
-
-### Event Registration Strategy
-**Decision:** Register runtime events during class initialization  
-**Rationale:**
-- Follows existing pattern used by CUDAFactory for compile events
-- Prevents registration errors during execution
-- Events are lightweight and registration is cheap
-
-**Trade-off:** Events exist even if never used; acceptable overhead given TimeLogger's no-op mode.
-
-### Timing Location Strategy
-**Decision:** Add timing instrumentation directly in run(), solve(), solve_ivp(), and array managers  
-**Rationale:**
-- Runtime methods are not compiled CUDA code - direct instrumentation is safe
-- Timing overhead is negligible compared to kernel execution and transfers
-- Simplifies implementation vs. callback-based approaches
-
-**Alternative Considered:** Decorator-based timing; rejected because it obscures event names and complicates conditional timing.
-
-## Data Flow Diagram
+### Architecture Diagram
 
 ```mermaid
 flowchart TD
-    A[solve_ivp/solve called] --> B[Start 'solve_ivp' or 'solve' event]
-    B --> C[BatchSolverKernel.run called]
-    C --> D[Start 'kernel_run' event]
-    D --> E[Loop over chunks]
-    E --> F[Start 'h2d_transfer' event]
-    F --> G[InputArrays.initialise]
-    G --> H[Stop 'h2d_transfer' event]
-    H --> I[Start 'kernel_execute' event]
-    I --> J[Create start CUDA event]
-    J --> K[Launch CUDA kernel]
-    K --> L[Create stop CUDA event]
-    L --> M[Synchronize stream]
-    M --> N[event_elapsed_time]
-    N --> O[Stop 'kernel_execute' event]
-    O --> P[Start 'd2h_transfer' event]
-    P --> Q[OutputArrays.finalise]
-    Q --> R[Stop 'd2h_transfer' event]
-    R --> S{More chunks?}
-    S -->|Yes| E
-    S -->|No| T[Stop 'kernel_run' event]
-    T --> U[Stop 'solve' event]
-    U --> V[print_summary category='runtime']
-    V --> W[Return results]
+    subgraph "Solver Layer"
+        solve_ivp["solve_ivp()"]
+        solve["Solver.solve()"]
+    end
+    
+    subgraph "Kernel Layer"
+        run["BatchSolverKernel.run()"]
+        kernel["integration_kernel"]
+    end
+    
+    subgraph "Array Managers"
+        input["InputArrays.initialise()"]
+        output["OutputArrays.finalise()"]
+    end
+    
+    subgraph "Timing Infrastructure"
+        TL["TimeLogger"]
+        CE["CUDAEvent"]
+        simsafe["cuda_simsafe.py"]
+    end
+    
+    solve_ivp -->|"start solve_ivp_total"| TL
+    solve_ivp --> solve
+    solve -->|"start solver_solve_total"| TL
+    solve --> run
+    run -->|"start kernel_run_total"| TL
+    run -->|"h2d_transfer"| input
+    input -->|"record_start/end"| CE
+    run --> kernel
+    kernel -->|"kernel_launch"| CE
+    run -->|"d2h_transfer"| output
+    output -->|"record_start/end"| CE
+    run -->|"stop kernel_run_total"| TL
+    
+    CE -->|"register"| TL
+    simsafe -->|"CUDA/CUDASIM"| CE
+    
+    solve -->|"sync_stream"| kernel
+    solve -->|"retrieve_cuda_events"| TL
+    solve -->|"stop solver_solve_total"| TL
+    solve_ivp -->|"stop solve_ivp_total"| TL
 ```
 
-## Component Interaction Diagram
+### Event Flow Sequence
 
 ```mermaid
-classDiagram
-    class TimeLogger {
-        +register_event(label, category, description)
-        +start_event(name, **metadata)
-        +stop_event(name, **metadata)
-        +print_summary(category)
-    }
+sequenceDiagram
+    participant User
+    participant solve_ivp
+    participant Solver
+    participant BatchSolverKernel
+    participant CUDAEvent
+    participant TimeLogger
+    participant Stream
     
-    class Solver {
-        +solve()
-        +set_verbosity()
-        -_register_runtime_events()
-    }
+    User->>solve_ivp: call()
+    solve_ivp->>TimeLogger: start_event("solve_ivp_total")
+    solve_ivp->>Solver: solve()
+    Solver->>TimeLogger: start_event("solver_solve_total")
+    Solver->>BatchSolverKernel: run()
+    BatchSolverKernel->>TimeLogger: start_event("kernel_run_total")
     
-    class BatchSolverKernel {
-        +run()
-        -_register_runtime_events()
-    }
+    Note over CUDAEvent: H2D Transfer
+    BatchSolverKernel->>CUDAEvent: create("h2d_transfer")
+    CUDAEvent->>TimeLogger: register_cuda_event()
+    CUDAEvent->>CUDAEvent: record_start()
+    BatchSolverKernel->>BatchSolverKernel: to_device(all arrays)
+    CUDAEvent->>CUDAEvent: record_end()
     
-    class InputArrays {
-        +initialise(indices)
-        -_time_transfer()
-    }
+    Note over CUDAEvent: Kernel Launch
+    BatchSolverKernel->>CUDAEvent: create("kernel_launch")
+    CUDAEvent->>TimeLogger: register_cuda_event()
+    CUDAEvent->>CUDAEvent: record_start()
+    BatchSolverKernel->>Stream: launch kernel
+    CUDAEvent->>CUDAEvent: record_end()
     
-    class OutputArrays {
-        +finalise(indices)
-        -_time_transfer()
-    }
+    Note over CUDAEvent: D2H Transfer  
+    BatchSolverKernel->>CUDAEvent: create("d2h_transfer")
+    CUDAEvent->>TimeLogger: register_cuda_event()
+    CUDAEvent->>CUDAEvent: record_start()
+    BatchSolverKernel->>BatchSolverKernel: from_device(all arrays)
+    CUDAEvent->>CUDAEvent: record_end()
     
-    TimeLogger <-- Solver : uses
-    TimeLogger <-- BatchSolverKernel : uses
-    TimeLogger <-- InputArrays : uses
-    TimeLogger <-- OutputArrays : uses
-    Solver --> BatchSolverKernel : creates
-    BatchSolverKernel --> InputArrays : uses
-    BatchSolverKernel --> OutputArrays : uses
+    BatchSolverKernel->>TimeLogger: stop_event("kernel_run_total")
+    BatchSolverKernel-->>Solver: return
+    
+    Solver->>Stream: sync_stream()
+    Solver->>TimeLogger: retrieve_cuda_events()
+    Note over TimeLogger: Calculate elapsed_time_ms() for all CUDAEvents
+    
+    Solver->>TimeLogger: stop_event("solver_solve_total")
+    Solver-->>solve_ivp: return SolveResult
+    solve_ivp->>TimeLogger: stop_event("solve_ivp_total")
+    solve_ivp-->>User: return SolveResult
 ```
 
-## Architecture Changes
+### Key Technical Decisions
 
-### TimeLogger Extension
-- No changes required to `TimeLogger` class itself
-- Category='runtime' already supported
-- Existing `_default_timelogger` instance will be used
+1. **CUDAEvent in cuda_simsafe.py**: The abstraction lives in the existing CUDASIM compatibility module, following established patterns for numba.cuda wrappers. This keeps solver/kernel code clean of conditional imports.
 
-### BatchSolverKernel Changes
-- Add event registration during `__init__`
-- Add timing instrumentation in `run()` method
-- Record CUDA event elapsed time to metadata
-- Print runtime summary after all chunks complete
+2. **Consolidated Transfer Events**: One event per transfer direction (h2d_transfer, d2h_transfer) simplifies analysis and reduces overhead vs. per-array events.
 
-### Solver Changes
-- Add event registration during `__init__`
-- Add timing instrumentation in `solve()` method
-- Ensure timing completes before returning `SolveResult`
+3. **Deferred Retrieval**: CUDA events are recorded asynchronously; elapsed_time_ms() blocks until both events complete. By deferring to after sync_stream(), we avoid mid-execution stalls.
 
-### solve_ivp Changes
-- Add timing at function entry and exit
-- Register event at module load time
-- Print runtime summary before return
+4. **Wall-clock Outer Events**: The outer timing (solve_ivp_total, solver_solve_total, kernel_run_total) uses existing TimeLogger start/stop events with time.perf_counter(), not CUDA events. This captures Python-side overhead.
 
-### Array Manager Changes
-- Add timing in `InputArrays.initialise()`
-- Add timing in `OutputArrays.finalise()`
-- Track individual array transfers separately
+5. **Zero-duration Logging**: Events log even when there are no arrays to transfer. This provides consistent event sequences for analysis tools.
 
-## Expected Impact
+### Trade-offs Considered
 
-### Minimal Code Changes
-- Event registration: ~5 lines per component
-- Timing instrumentation: 2 lines (start/stop) per timed section
-- No changes to CUDA device code
-- No changes to TimeLogger infrastructure
+| Option | Pros | Cons | Decision |
+|--------|------|------|----------|
+| Per-array transfer events | Fine-grained insight | High overhead, verbose output | Rejected |
+| Inline sync for timing | Simpler implementation | Massive performance hit | Rejected |
+| Separate timing module | Clean separation | Code fragmentation | Rejected - use cuda_simsafe |
+| Optional timing (compile flag) | Zero overhead when disabled | Complexity, testing burden | Deferred |
 
-### Performance Impact
-- CUDA event overhead: microseconds per kernel launch
-- Wall-clock timing overhead: nanoseconds per call
-- No impact when `verbosity=None` (no-op paths)
-- Negligible impact in default/verbose/debug modes
+### Impact on Existing Architecture
 
-### Testing Requirements
-- New tests for event registration
-- Tests for timing data collection
-- Tests for verbosity level behavior
-- Tests for CUDASIM fallback behavior
+- **TimeLogger**: Add `register_cuda_event()` and `retrieve_cuda_events()` methods
+- **cuda_simsafe.py**: Add CUDAEvent class with CUDASIM fallback
+- **BatchSolverKernel.run()**: Wrap transfers and kernel in CUDAEvent recording
+- **Solver.solve()**: Call `retrieve_cuda_events()` after sync, before return
+- **solve_ivp()**: Add outer timing wrapper
 
-## Dependencies
-
-### Internal
-- `src/cubie/time_logger.py` - TimeLogger infrastructure (existing)
-- `src/cubie/batchsolving/BatchSolverKernel.py` - Kernel execution
-- `src/cubie/batchsolving/solver.py` - High-level solver API
-- `src/cubie/batchsolving/arrays/` - Array transfer management
-
-### External
-- `numba.cuda` - CUDA event API for kernel timing
-- `time` - Standard library for wall-clock measurements
-
-### Feature Flags
-- Respects `time_logging_level` parameter in solve_ivp() and Solver()
-- Controlled by TimeLogger verbosity setting
-- No new configuration parameters required
+No changes to kernel compilation, memory management, or integrator logic required.

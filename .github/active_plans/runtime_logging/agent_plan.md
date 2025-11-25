@@ -2,438 +2,307 @@
 
 ## Overview
 
-This plan details the implementation of runtime logging for CuBIE's BatchSolverKernel and Solver classes. The system will instrument GPU kernel execution, memory transfers, and outer method timing using the existing TimeLogger infrastructure.
+This plan details the implementation of runtime logging for CuBIE's BatchSolverKernel and Solver classes. The system instruments GPU kernel execution, memory transfers, and outer method timing using the existing TimeLogger infrastructure with a new CUDAEvent abstraction in cuda_simsafe.py.
+
+**CRITICAL REQUIREMENTS FROM REVIEW:**
+1. Consolidated transfer events (ONE h2d_transfer, ONE d2h_transfer)
+2. NO stream synchronization during execution
+3. CUDAEvent abstraction in cuda_simsafe.py
+4. Deferred event retrieval after sync
+5. Always log events even if duration is 0
 
 ## Component Specifications
 
-### 1. Event Registration
+### 1. CUDAEvent Class (cuda_simsafe.py)
 
-#### Location: Multiple components during initialization
+**Location:** `src/cubie/cuda_simsafe.py`
 
-**Events to Register:**
-- `solve_ivp_execution` - Total time for solve_ivp() function
-- `solver_solve_execution` - Total time for Solver.solve() method
-- `kernel_run_execution` - Total time for BatchSolverKernel.run() method
-- `kernel_launch` - GPU kernel execution time (per chunk)
-- `h2d_transfer_initial_values` - Host-to-device transfer of initial values
-- `h2d_transfer_parameters` - Host-to-device transfer of parameters
-- `h2d_transfer_driver_coefficients` - Host-to-device transfer of driver coefficients
-- `d2h_transfer_state` - Device-to-host transfer of state outputs
-- `d2h_transfer_observables` - Device-to-host transfer of observable outputs
-- `d2h_transfer_summaries` - Device-to-host transfer of summary outputs
-- `d2h_transfer_status_codes` - Device-to-host transfer of status codes
-- `d2h_transfer_iteration_counters` - Device-to-host transfer of iteration counters
+**Purpose:** Abstract CUDA event timing with CUDASIM fallback
 
-**Registration Pattern:**
+**Expected Behavior:**
+- In CUDA mode: Uses `numba.cuda.event()` for GPU-accurate timing
+- In CUDASIM mode: Falls back to `time.perf_counter()` wall-clock timing
+- Self-registers with TimeLogger for deferred retrieval
+- Provides `record_start()` and `record_end()` methods
+- Provides `elapsed_time_ms()` for post-sync time calculation
+
+**Component Interactions:**
+- Imports: `numba.cuda`, `time`, `CUDA_SIMULATION` constant
+- Interacts with: TimeLogger (registers self for retrieval)
+- Used by: BatchSolverKernel.run(), InputArrays, OutputArrays
+
+**Data Structures:**
+
 ```python
-_default_timelogger.register_event(
-    label='kernel_launch',
-    category='runtime',
-    description='GPU kernel execution time per chunk'
-)
+class CUDAEvent:
+    """CUDA event wrapper with CUDASIM fallback.
+    
+    Attributes
+    ----------
+    name : str
+        Event label for TimeLogger
+    category : str
+        TimeLogger category ('runtime')
+    _start_event : cuda.Event or None
+        CUDA start event (None in CUDASIM)
+    _end_event : cuda.Event or None
+        CUDA end event (None in CUDASIM)
+    _start_time : float or None
+        Wall-clock start time (CUDASIM only)
+    _end_time : float or None
+        Wall-clock end time (CUDASIM only)
+    """
 ```
 
-**Registration Locations:**
-- `solve_ivp()`: Register at module level (module load time)
-- `Solver.__init__()`: Register solve events during initialization
-- `BatchSolverKernel.__init__()`: Register kernel and transfer events during initialization
+**Key Methods:**
+- `__init__(name, category, timelogger)`: Create event and register with TimeLogger
+- `record_start(stream=None)`: Record start timestamp/event
+- `record_end(stream=None)`: Record end timestamp/event
+- `elapsed_time_ms()`: Calculate elapsed time (blocks until events complete in CUDA mode)
 
-### 2. solve_ivp Function Timing
+### 2. TimeLogger Extensions
 
-#### File: src/cubie/batchsolving/solver.py
+**Location:** `src/cubie/time_logger.py`
 
-**Instrumentation Points:**
-- Start: Immediately after function entry, before Solver creation
-- Stop: Before return statement, after results are ready
+**New Methods Required:**
 
-**Behavior:**
-- Wrap entire function execution
-- Include Solver creation and solve() call
-- Call `print_summary(category='runtime')` before return if verbosity allows
+**`register_cuda_event(event: CUDAEvent)`**
+- Stores CUDAEvent instance in internal list
+- Called by CUDAEvent.__init__()
+- No-op when verbosity is None
 
-**Implementation Approach:**
+**`retrieve_cuda_events()`**
+- Iterates through registered CUDAEvents
+- Calls `elapsed_time_ms()` on each
+- Records duration to TimeLogger events
+- Called by Solver.solve() after sync_stream
+- Clears the registered events list after retrieval
+
+**Data Structures:**
 ```python
-def solve_ivp(...):
-    _default_timelogger.start_event('solve_ivp_execution')
-    try:
-        # ... existing function body ...
-        results = solver.solve(...)
-        return results
-    finally:
-        _default_timelogger.stop_event('solve_ivp_execution')
-        if _default_timelogger.verbosity == 'default':
-            _default_timelogger.print_summary(category='runtime')
+# Add to TimeLogger.__init__():
+self._cuda_events: list[CUDAEvent] = []
 ```
 
-### 3. Solver.solve() Method Timing
+### 3. Event Model
 
-#### File: src/cubie/batchsolving/solver.py
+**Events Using CUDAEvent (GPU timing):**
+- `kernel_launch_{chunk_idx}` - One per kernel launch per chunk
+- `h2d_transfer` - ONE event for ALL host-to-device transfers
+- `d2h_transfer` - ONE event for ALL device-to-host transfers
 
-**Instrumentation Points:**
-- Start: At method entry
-- Stop: Before return statement
+**Events Using Standard TimeLogger (wall-clock):**
+- `solve_ivp_total` - Full solve_ivp() duration
+- `solver_solve_total` - Full Solver.solve() duration
+- `kernel_run_total` - Full BatchSolverKernel.run() duration
 
-**Behavior:**
-- Captures complete solve execution including:
-  - Grid building
-  - Driver interpolator updates
-  - kernel.run() call
-  - Stream synchronization
-  - Result packaging
-- Call `print_summary(category='runtime')` in default verbosity before return
+**Registration:**
+All events registered with category='runtime'
+
+### 4. solve_ivp Function Timing
+
+**File:** `src/cubie/batchsolving/solver.py`
+
+**Expected Behavior:**
+- Register event at module level
+- Start timing at function entry
+- Stop timing before return
+- Uses standard TimeLogger (wall-clock, not CUDAEvent)
 
 **Integration Points:**
-- Must complete before `SolveResult.from_solver()` is called
-- Stream sync completes before stop timing
+- Calls Solver.solve() internally
+- Timing captures complete function including Solver creation
 
-### 4. BatchSolverKernel.run() Method Timing
+### 5. Solver.solve() Method Timing
 
-#### File: src/cubie/batchsolving/BatchSolverKernel.py
+**File:** `src/cubie/batchsolving/solver.py`
 
-**Instrumentation Points:**
-- Outer timing: Start at method entry, stop before method exit
-- Per-chunk kernel timing: Start before kernel launch, stop after stream sync
-- Memory transfer timing: Delegated to array managers
+**Expected Behavior:**
+- Register event in Solver.__init__()
+- Start timing at method entry
+- After sync_stream(), call `retrieve_cuda_events()` to collect GPU timings
+- Stop timing before return
+- Uses standard TimeLogger (wall-clock)
 
-**Behavior:**
-- `kernel_run_execution` event wraps entire run() method
-- `kernel_launch` event repeated for each chunk
-- CUDA events used for GPU kernel timing
-- Wall-clock timing used for outer timing
-
-**CUDA Event Usage:**
+**Critical Integration:**
 ```python
-# In CUDA mode (not CUDASIM)
-start_event = cuda.event()
-stop_event = cuda.event()
-
-start_event.record(stream)
-# kernel launch
-stop_event.record(stream)
-
-self.memory_manager.sync_stream(self)  # or stream.synchronize()
-elapsed_ms = cuda.event_elapsed_time(start_event, stop_event)
-
-_default_timelogger.stop_event(
-    'kernel_launch',
-    gpu_time_ms=elapsed_ms,
-    chunk_index=i
-)
+def solve(self, ...):
+    _default_timelogger.start_event('solver_solve_total')
+    # ... existing code ...
+    self.kernel.run(...)
+    self.memory_manager.sync_stream(self.kernel)
+    _default_timelogger.retrieve_cuda_events()  # NEW: collect GPU timings
+    result = SolveResult.from_solver(self, ...)
+    _default_timelogger.stop_event('solver_solve_total')
+    return result
 ```
 
-**CUDASIM Fallback:**
+### 6. BatchSolverKernel.run() Method Timing
+
+**File:** `src/cubie/batchsolving/BatchSolverKernel.py`
+
+**Expected Behavior:**
+- Register events in __init__()
+- Outer wall-clock timing with TimeLogger
+- Per-chunk CUDAEvent timing for kernel launches
+- Consolidated CUDAEvent for h2d transfers
+- Consolidated CUDAEvent for d2h transfers
+
+**Consolidated Transfer Pattern:**
+
 ```python
-# In CUDASIM mode
-_default_timelogger.start_event('kernel_launch')
-# kernel launch
-_default_timelogger.stop_event('kernel_launch', chunk_index=i)
-```
-
-**Chunking Considerations:**
-- Kernel launch timing occurs once per chunk
-- Transfer timing occurs once per chunk
-- Outer timing encompasses all chunks
-
-### 5. InputArrays Transfer Timing
-
-#### File: src/cubie/batchsolving/arrays/BatchInputArrays.py
-
-**Instrumentation Points:**
-- In `initialise(indices)` method
-- Time each array transfer separately
-
-**Arrays to Time:**
-- `initial_values` - Always transferred
-- `parameters` - Always transferred
-- `driver_coefficients` - Conditionally transferred (if not None)
-
-**Behavior:**
-- Start event before `copy_to_device()` or equivalent transfer
-- Stop event after transfer completes
-- Include array size in metadata for analysis
-- Respect chunking - only time the sliced transfer
-
-**Implementation Pattern:**
-```python
-def initialise(self, indices):
-    # Transfer initial_values
-    _default_timelogger.start_event('h2d_transfer_initial_values')
-    # ... perform transfer ...
-    _default_timelogger.stop_event(
-        'h2d_transfer_initial_values',
-        nbytes=self.host.initial_values.array.nbytes,
-        chunk_slice=str(indices)
-    )
+def run(self, ...):
+    _default_timelogger.start_event('kernel_run_total')
     
-    # Repeat for parameters and driver_coefficients
+    # Create ONE CUDAEvent for ALL h2d transfers
+    h2d_event = CUDAEvent('h2d_transfer', 'runtime', _default_timelogger)
+    h2d_event.record_start(stream)
+    
+    for i in range(self.chunks):
+        # All h2d transfers for this chunk
+        self.input_arrays.initialise(indices)
+    
+    h2d_event.record_end(stream)  # After ALL transfers
+    
+    # Per-chunk kernel launches
+    for i in range(self.chunks):
+        kernel_event = CUDAEvent(f'kernel_launch_{i}', 'runtime', ...)
+        kernel_event.record_start(stream)
+        self.kernel[...]  # Launch
+        kernel_event.record_end(stream)
+    
+    # Create ONE CUDAEvent for ALL d2h transfers
+    d2h_event = CUDAEvent('d2h_transfer', 'runtime', _default_timelogger)
+    d2h_event.record_start(stream)
+    
+    for i in range(self.chunks):
+        self.output_arrays.finalise(indices)
+    
+    d2h_event.record_end(stream)  # After ALL transfers
+    
+    _default_timelogger.stop_event('kernel_run_total')
 ```
 
-### 6. OutputArrays Transfer Timing
+**CRITICAL: No sync_stream() calls during this method!**
+The sync happens in Solver.solve() after run() returns.
 
-#### File: src/cubie/batchsolving/arrays/BatchOutputArrays.py
+### 7. InputArrays Transfer Integration
 
-**Instrumentation Points:**
-- In `finalise(indices)` method
-- Time each array transfer separately
+**File:** `src/cubie/batchsolving/arrays/BatchInputArrays.py`
 
-**Arrays to Time:**
-- `state` - If active
-- `observables` - If active
-- `state_summaries` - If active
-- `observable_summaries` - If active
-- `status_codes` - Always active
-- `iteration_counters` - If active
+**Expected Behavior:**
+- NO individual timing in initialise()
+- Transfers are covered by h2d_event created in BatchSolverKernel.run()
+- No changes needed to this file for timing
 
-**Behavior:**
-- Check if array is active before timing
-- Start event before device-to-host copy
-- Stop event after transfer completes
-- Include array size and active status in metadata
+### 8. OutputArrays Transfer Integration
 
-**Conditional Timing Pattern:**
-```python
-def finalise(self, indices):
-    if self.active_outputs.state:
-        _default_timelogger.start_event('d2h_transfer_state')
-        # ... perform transfer ...
-        _default_timelogger.stop_event(
-            'd2h_transfer_state',
-            nbytes=self.device.state.array.nbytes,
-            chunk_slice=str(indices)
-        )
-    # Repeat for other arrays
-```
+**File:** `src/cubie/batchsolving/arrays/BatchOutputArrays.py`
 
-### 7. BaseArrayManager Integration
-
-#### File: src/cubie/batchsolving/arrays/BaseArrayManager.py
-
-**Considerations:**
-- `initialise()` and `finalise()` are called from BaseArrayManager
-- Actual transfers may be implemented in subclasses or base class
-- Need to identify exact transfer locations in the inheritance chain
-
-**Investigation Required:**
-- Examine `copy_to_device()` and `copy_from_device()` methods
-- Determine if transfers are chunked or full-array
-- Understand memory_manager integration for async transfers
-
-## Data Structures
-
-### Event Metadata
-
-**Kernel Launch Event:**
-```python
-{
-    'gpu_time_ms': float,      # From cuda.event_elapsed_time()
-    'chunk_index': int,         # Which chunk (0 to N-1)
-    'numruns': int,            # Number of runs in this chunk
-}
-```
-
-**Memory Transfer Event:**
-```python
-{
-    'nbytes': int,             # Size of transferred data
-    'chunk_slice': str,        # String representation of indices
-    'is_chunked': bool,        # Whether array participates in chunking
-}
-```
-
-**Outer Timing Event:**
-```python
-{
-    'num_chunks': int,         # Total chunks executed
-    'total_runs': int,         # Total integration runs
-}
-```
+**Expected Behavior:**
+- NO individual timing in finalise()
+- Transfers are covered by d2h_event created in BatchSolverKernel.run()
+- No changes needed to this file for timing
 
 ## Edge Cases
 
 ### CUDASIM Mode
-- `numba.cuda.event` not available in simulator
-- Fallback to `time.perf_counter()` for kernel timing
-- Check `is_cudasim_enabled()` before using CUDA events
-- Test both code paths
+- CUDAEvent uses time.perf_counter() instead of cuda.event()
+- elapsed_time_ms() returns wall-clock delta * 1000
+- No stream parameter needed in CUDASIM
+- All functionality works identically
 
 ### Verbosity=None Mode
-- All start_event/stop_event calls become no-ops
+- TimeLogger methods are no-ops
+- CUDAEvent.register_cuda_event() is no-op
+- retrieve_cuda_events() is no-op
 - Zero overhead when timing disabled
-- No need for conditional checks before timing calls
 
-### Chunked Execution
-- Kernel launch timing repeated per chunk
-- Transfer timing repeated per chunk
-- Aggregate timing across chunks reported in outer events
-- TimeLogger automatically sums durations for repeated event names
+### Zero-Duration Events
+- Always record h2d_transfer even if no arrays to transfer
+- Always record d2h_transfer even if no arrays to transfer
+- Event with 0.0 duration is valid and logged
 
-### Empty Output Arrays
-- Check `active_outputs` flags before timing transfers
-- Skip timing for disabled output types
-- Status codes always active, so always timed
+### Multi-Chunk Execution
+- One h2d_transfer event spanning ALL chunks' h2d transfers
+- One kernel_launch_{i} event PER chunk
+- One d2h_transfer event spanning ALL chunks' d2h transfers
 
 ### Stream Synchronization
-- Must sync stream before reading CUDA event elapsed time
-- Sync already present in code after kernel launch
-- No additional syncs required for timing
-
-### Driver Coefficients
-- May be None for systems without drivers
-- Only time transfer if coefficients exist
-- Check for None before starting timing event
-
-## Testing Strategy
-
-### Unit Tests Required
-- Event registration verification
-- Timing data collection in each component
-- CUDASIM fallback behavior
-- Verbosity level handling (None, default, verbose, debug)
-- Chunked execution timing
-- Conditional array transfer timing
-
-### Integration Tests Required
-- Complete solve_ivp() timing chain
-- Multi-chunk kernel execution timing
-- TimeLogger category filtering
-- Summary printing with category='runtime'
-
-### Test Fixtures
-- Small test systems with known execution patterns
-- Mock CUDA events for deterministic testing (if possible)
-- Chunked and non-chunked execution scenarios
-
-### Expected Test Behavior
-- All events registered before use (no KeyError)
-- Timing events have matching start/stop pairs
-- Metadata includes expected keys
-- Summary output includes runtime category
-- No timing when verbosity=None
-
-## Integration Considerations
-
-### TimeLogger Compatibility
-- Use existing `_default_timelogger` instance
-- No changes to TimeLogger class required
-- Category='runtime' distinguishes from compile/codegen
-- `print_summary(category='runtime')` filters correctly
-
-### Existing Timing Infrastructure
-- Compile events already registered by CUDAFactory
-- Codegen events already registered by codegen modules
-- Runtime events follow same registration pattern
-- All three categories can be printed independently or together
-
-### Memory Manager Integration
-- Array managers already integrate with memory manager
-- Transfer timing doesn't affect memory management
-- Stream synchronization already handled correctly
-- No additional coordination required
-
-### Error Handling
-- TimeLogger already handles missing events gracefully
-- start_event returns early if event not registered
-- stop_event returns early if no active start
-- Timing errors don't affect solver correctness
+- NO sync during BatchSolverKernel.run()
+- Sync happens in Solver.solve() after run() returns
+- retrieve_cuda_events() called after sync
+- elapsed_time_ms() blocks until events complete (implicit sync per event)
 
 ## Dependencies Between Components
 
-### Registration Order
-1. Module-level registration for solve_ivp (import time)
-2. Solver.__init__() registration (instance creation)
-3. BatchSolverKernel.__init__() registration (kernel creation)
+### Component Creation Order
+1. TimeLogger (module-level singleton exists)
+2. CUDAEvent class (defined in cuda_simsafe.py)
+3. Solver.__init__() registers events
+4. BatchSolverKernel created by Solver
 
-### Execution Order
-1. solve_ivp() starts
-2. Solver.solve() starts
-3. BatchSolverKernel.run() starts
-4. For each chunk:
-   - InputArrays.initialise() transfers (timed individually)
-   - Kernel launch (CUDA event timing)
-   - OutputArrays.finalise() transfers (timed individually)
-5. BatchSolverKernel.run() stops
-6. Solver.solve() stops
-7. solve_ivp() stops and prints summary
-
-### Timing Hierarchy
-```
-solve_ivp_execution
-└── solver_solve_execution
-    └── kernel_run_execution
-        ├── h2d_transfer_* (per chunk)
-        ├── kernel_launch (per chunk)
-        └── d2h_transfer_* (per chunk)
-```
+### Execution Flow
+1. solve_ivp() → start_event('solve_ivp_total')
+2. Solver.solve() → start_event('solver_solve_total')
+3. BatchSolverKernel.run() → start_event('kernel_run_total')
+4. Create h2d_event, record_start
+5. For each chunk: initialise() (no timing here)
+6. h2d_event.record_end
+7. For each chunk: create kernel_event, record_start, launch, record_end
+8. Create d2h_event, record_start
+9. For each chunk: finalise() (no timing here)
+10. d2h_event.record_end
+11. stop_event('kernel_run_total')
+12. run() returns to solve()
+13. sync_stream()
+14. retrieve_cuda_events() → calculates all GPU timings
+15. stop_event('solver_solve_total')
+16. solve() returns to solve_ivp()
+17. stop_event('solve_ivp_total')
 
 ## File Modification Summary
 
-**Files to Modify:**
-1. `src/cubie/batchsolving/solver.py`
-   - Add module-level event registration for solve_ivp
-   - Add event registration in Solver.__init__()
-   - Add timing in solve_ivp() function
-   - Add timing in Solver.solve() method
-   - Add print_summary() calls
+**Files to Create/Modify:**
 
-2. `src/cubie/batchsolving/BatchSolverKernel.py`
-   - Add event registration in __init__()
-   - Add outer timing in run() method
-   - Add CUDA event timing for kernel launches
-   - Add CUDASIM fallback logic
+1. `src/cubie/cuda_simsafe.py`
+   - ADD CUDAEvent class
+   - Update __all__ list
 
-3. `src/cubie/batchsolving/arrays/BatchInputArrays.py`
-   - Add transfer timing in initialise() method
-   - Import _default_timelogger
+2. `src/cubie/time_logger.py`
+   - ADD `_cuda_events` list attribute
+   - ADD `register_cuda_event()` method
+   - ADD `retrieve_cuda_events()` method
 
-4. `src/cubie/batchsolving/arrays/BatchOutputArrays.py`
-   - Add transfer timing in finalise() method
-   - Import _default_timelogger
+3. `src/cubie/batchsolving/solver.py`
+   - ADD module-level event registration
+   - ADD timing in solve_ivp()
+   - ADD timing in Solver.solve()
+   - ADD retrieve_cuda_events() call after sync
 
-**Files to Review:**
-- `src/cubie/batchsolving/arrays/BaseArrayManager.py` - Understand transfer methods
+4. `src/cubie/batchsolving/BatchSolverKernel.py`
+   - ADD event registration in __init__()
+   - ADD outer timing in run()
+   - ADD consolidated CUDAEvent timing for transfers
+   - ADD per-chunk CUDAEvent timing for kernel launches
 
-**No Changes Required:**
-- `src/cubie/time_logger.py` - Already supports runtime category
-- `src/cubie/CUDAFactory.py` - Compile timing already implemented
+**Files NOT Modified:**
+- BatchInputArrays.py (no timing needed)
+- BatchOutputArrays.py (no timing needed)
+- BaseArrayManager.py (no timing needed)
 
-## Implementation Notes
+## Testing Considerations
 
-### Import Statements
-Add to files requiring timing:
-```python
-from cubie.time_logger import _default_timelogger
-from cubie.cuda_simsafe import is_cudasim_enabled
-from numba import cuda  # For CUDA event timing
-```
+### Key Test Scenarios
+- CUDAEvent in CUDA mode (requires GPU)
+- CUDAEvent in CUDASIM mode (fallback path)
+- TimeLogger verbosity=None (no-op)
+- TimeLogger verbosity='verbose' (prints inline)
+- Multi-chunk execution
+- Zero-duration events (no arrays transferred)
+- retrieve_cuda_events() after sync
 
-### CUDA Event Handling
-```python
-if not is_cudasim_enabled():
-    # Use CUDA events
-    start_evt = cuda.event()
-    stop_evt = cuda.event()
-    start_evt.record(stream)
-    # ... kernel launch ...
-    stop_evt.record(stream)
-    stream.synchronize()  # or self.memory_manager.sync_stream(self)
-    elapsed_ms = cuda.event_elapsed_time(start_evt, stop_evt)
-    _default_timelogger.stop_event('kernel_launch', gpu_time_ms=elapsed_ms)
-else:
-    # Fallback to wall-clock timing in CUDASIM
-    _default_timelogger.start_event('kernel_launch')
-    # ... kernel launch ...
-    _default_timelogger.stop_event('kernel_launch')
-```
-
-### Summary Printing Strategy
-Print runtime summary in the outermost function (solve_ivp or Solver.solve if called directly):
-- Check if verbosity is 'default'
-- Call `_default_timelogger.print_summary(category='runtime')`
-- Print after all runtime events complete
-- One summary per user-facing function call
-
-### Backward Compatibility
-- No breaking changes to public API
-- Timing is opt-in via verbosity parameter
-- Default behavior (verbosity='default') prints summary automatically
-- Existing code continues to work without modification
+### Test Fixtures Needed
+- Simple ODE system for quick solve
+- Verbosity level parameterization
+- CUDASIM marker for GPU-less tests
