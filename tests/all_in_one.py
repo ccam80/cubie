@@ -1185,7 +1185,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
 
     local_elements_per_run = local_elements
     shared_elems_per_run = shared_elements
-    f32_per_element = 2 if (numba_precision is float64) else 1
+    f32_per_element = 2 if (numba_precision == float64) else 1
     # run_stride_f32 available for 2D grid configuration
     _run_stride_f32 = int(f32_per_element * shared_elems_per_run)
 
@@ -1210,7 +1210,9 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
         if run_index >= n_runs_k:
             return
 
+        # Dynamic shared memory - size specified in kernel launch
         shared_memory = cuda.shared.array(0, dtype=float32)
+        # Local scratch uses float32 for compatibility
         local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
         c_coefficients = cuda.const.array_like(d_coefficients)
 
@@ -1272,14 +1274,15 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"State output shape: {state_output.shape}")
     print(f"Memory per run: ~{state_output.nbytes // n_runs} bytes")
 
-    # Kernel configuration
+    # Shared memory limit per SM for optimal occupancy (32 KB)
+    MAX_SHARED_MEMORY_PER_BLOCK = 32768
     blocksize = 256
     runs_per_block = blocksize
     dynamic_sharedmem = int(
         (f32_per_element * shared_elems_per_run) * 4 * runs_per_block)
 
-    # Limit shared memory
-    while dynamic_sharedmem > 32768:
+    # Limit shared memory to MAX_SHARED_MEMORY_PER_BLOCK
+    while dynamic_sharedmem > MAX_SHARED_MEMORY_PER_BLOCK:
         blocksize = blocksize // 2
         runs_per_block = blocksize
         dynamic_sharedmem = int(
@@ -1295,6 +1298,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print("\nLaunching kernel...")
 
     # Launch kernel with 1D configuration
+    # Parameters: kernel[grid_dim, block_dim, stream, shared_memory]
     integration_kernel[
         blocks_per_grid,
         blocksize,
