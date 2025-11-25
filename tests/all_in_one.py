@@ -801,38 +801,526 @@ def run_integration():
     return result
 
 
-def run_debug_integration():
+def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     """Execute integration with all device functions inlined.
 
-    This function is used after generated code has been pasted in.
-    It bypasses the normal CuBIE compilation path and uses the
-    inlined device functions for debugging.
+    This function bypasses the normal CuBIE compilation path and uses
+    inlined device functions for debugging with Numba's lineinfo.
 
-    Note
-    ----
-    This is intentionally a stub. Full implementation requires manually
-    constructing the integration loop with inlined device functions,
-    which is beyond the scope of this debugging utility. Users should
-    use this file's inlined functions with Numba's lineinfo feature
-    to trace execution through cuda-gdb or nsys profiling.
+    Parameters
+    ----------
+    n_runs : int
+        Number of parallel integrations to run. Default is 2**23.
+    rho_min : float
+        Minimum value of rho parameter. Default is 0.0.
+    rho_max : float
+        Maximum value of rho parameter. Default is 21.0.
 
     Returns
     -------
-    None
-        Prints debug information during execution.
+    tuple
+        (state_output, status_codes) arrays from the integration.
     """
-    if not GENERATED_CODE_AVAILABLE:
-        print("ERROR: Generated code not available.")
-        print("       Run run_integration() first, then paste generated code.")
-        return
+    from math import ceil
+    from numba import int16, int32, float32, float64
+    from numba import from_dtype as numba_from_dtype
+    from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
+    from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
     print("=" * 70)
     print("Debug Integration - All Functions Inlined")
     print("=" * 70)
-    print("\nNote: This function is a stub for future development.")
-    print("      For debugging, use the inlined device functions with")
-    print("      Numba's lineinfo feature via cuda-gdb or nsys profiling.")
+    print(f"\nRunning {n_runs:,} integrations with rho in [{rho_min}, {rho_max}]")
+
+    # ===================================================================
+    # COMPILE-TIME CONSTANTS
+    # ===================================================================
+    numba_precision = numba_from_dtype(precision)
+    simsafe_precision = simsafe_dtype(precision)
+    simsafe_int32 = simsafe_dtype(np.int32)
+
+    # System dimensions
+    n_states = 3
+    n_parameters = 1
+    n_observables = 0
+    n_drivers = 0
+    n_counters = 4
+
+    # Time parameters
+    duration = precision(solver_settings['duration'])
+    warmup = precision(solver_settings['warmup'])
+    dt_save = precision(solver_settings['dt_save'])
+    dt0 = precision(solver_settings['dt'])
+    dt_min = precision(solver_settings['dt_min'])
+    # dt_max available if adaptive stepping is needed
+    _dt_max = precision(solver_settings['dt_max'])
+
+    # Algorithm parameters (available for adaptive controllers)
+    _atol = precision(solver_settings['atol'])
+    _rtol = precision(solver_settings['rtol'])
+
+    # Output dimensions
+    n_output_samples = int(ceil(duration / dt_save)) + 1
+
+    # Lorenz constants (sigma=10, beta=8/3)
+    sigma = precision(LORENZ_SIGMA)
+    beta = precision(LORENZ_BETA)
+
+    # ===================================================================
+    # INLINED DEVICE FUNCTIONS
+    # ===================================================================
+
+    # --- dxdt function (Lorenz system) ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def dxdt_inline(state, parameters, drivers, observables, dxdt_out, t):
+        x = state[0]
+        y = state[1]
+        z = state[2]
+        rho = parameters[0]
+        dxdt_out[0] = sigma * (y - x)
+        dxdt_out[1] = x * (rho - z) - y
+        dxdt_out[2] = x * y - beta * z
+
+    # --- observables function (no-op for Lorenz) ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def observables_inline(state, parameters, drivers, observables, t):
+        pass
+
+    # --- save_state function ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def save_state_inline(
+        current_state,
+        current_observables,
+        current_counters,
+        current_step,
+        output_states_slice,
+        output_observables_slice,
+        output_counters_slice,
+    ):
+        for k in range(n_states):
+            output_states_slice[k] = current_state[k]
+        # Save time at the end
+        output_states_slice[n_states] = current_step
+        # Save counters
+        for i in range(n_counters):
+            output_counters_slice[i] = current_counters[i]
+
+    # --- update_summaries function (mean accumulation) ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def update_summaries_inline(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
+        # Accumulate sum for mean calculation
+        for idx in range(n_states):
+            state_summary_buffer[idx] += current_state[idx]
+
+    # --- save_summaries function ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def save_summaries_inline(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+        summarise_every,
+    ):
+        # Compute mean and save
+        for idx in range(n_states):
+            mean_val = buffer_state_summaries[idx] / numba_precision(
+                summarise_every)
+            output_state_summaries_window[idx] = mean_val
+            buffer_state_summaries[idx] = numba_precision(0.0)
+
+    # --- Explicit Euler step (simplified for debugging) ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def step_euler_inline(
+        state,
+        proposed_state,
+        parameters,
+        driver_coeffs,
+        drivers_buffer,
+        proposed_drivers,
+        observables,
+        proposed_observables,
+        error,
+        dt_scalar,
+        time_scalar,
+        first_step_flag,
+        accepted_flag,
+        shared,
+        persistent_local,
+        counters,
+    ):
+        dxdt_buffer = cuda.local.array(n_states, numba_precision)
+
+        # Evaluate derivative
+        dxdt_inline(
+            state, parameters, drivers_buffer, observables, dxdt_buffer,
+            time_scalar)
+
+        # Euler step: x_new = x + dt * dxdt
+        for idx in range(n_states):
+            proposed_state[idx] = state[idx] + dt_scalar * dxdt_buffer[idx]
+
+        # No error estimate for explicit Euler
+        for idx in range(n_states):
+            error[idx] = numba_precision(0.0)
+
+        counters[0] = int32(1)
+        counters[1] = int32(0)
+        return int32(0)
+
+    # --- Fixed step controller ---
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def step_controller_fixed_inline(
+        dt,
+        state,
+        state_prev,
+        error,
+        niters,
+        accept_out,
+        local_temp
+    ):
+        # Always accept for fixed step
+        accept_out[0] = int32(1)
+        return int32(0)
+
+    # ===================================================================
+    # INLINED INTEGRATION LOOP (from IVPLoop)
+    # ===================================================================
+
+    # Buffer layout constants
+    state_shared_start = 0
+    state_shared_end = n_states
+    proposed_state_start = state_shared_end
+    proposed_state_end = proposed_state_start + n_states
+    params_start = proposed_state_end
+    params_end = params_start + n_parameters
+    drivers_start = params_end
+    drivers_end = drivers_start + max(n_drivers, 1)
+    proposed_drivers_start = drivers_end
+    proposed_drivers_end = proposed_drivers_start + max(n_drivers, 1)
+    obs_start = proposed_drivers_end
+    obs_end = obs_start + max(n_observables, 1)
+    proposed_obs_start = obs_end
+    proposed_obs_end = proposed_obs_start + max(n_observables, 1)
+    error_start = proposed_obs_end
+    error_end = error_start + n_states
+    counters_start = error_end
+    counters_end = counters_start + n_counters
+    proposed_counters_start = counters_end
+    proposed_counters_end = proposed_counters_start + 2
+    state_summ_start = proposed_counters_end
+    state_summ_end = state_summ_start + n_states
+    obs_summ_start = state_summ_end
+    obs_summ_end = obs_summ_start + max(n_observables, 1)
+    scratch_start = obs_summ_end
+    shared_elements = scratch_start + 64  # Extra scratch space
+
+    # Local memory layout
+    local_dt_slice = slice(0, 1)
+    local_accept_slice = slice(1, 2)
+    local_controller_slice = slice(2, 4)
+    local_algo_slice = slice(4, 8)
+    local_elements = 8
+
+    steps_per_save = int32(ceil(dt_save / dt0))
+    saves_per_summary = int32(2)
+    # equality_breaker available for adaptive stepping boundary checks
+    _equality_breaker = precision(1e-7)
+    status_mask = int32(0xFFFF)
+    # fixed_mode flag for reference (using fixed step for simplicity)
+    _fixed_mode = True
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def loop_fn_inline(
+        initial_states,
+        parameters,
+        driver_coefficients,
+        shared_scratch,
+        persistent_local,
+        state_output,
+        observables_output,
+        state_summaries_output,
+        observable_summaries_output,
+        iteration_counters_output,
+        duration_arg,
+        settling_time,
+        t0_arg,
+    ):
+        t = numba_precision(t0_arg)
+        t_end = numba_precision(settling_time + duration_arg)
+        max_steps = (int32(ceil(t_end / dt_min)) + int32(2))
+        max_steps = max_steps << 2
+
+        n_output_samples_local = state_output.shape[0]
+        shared_scratch[:] = numba_precision(0.0)
+
+        # Buffer views
+        state_buffer = shared_scratch[state_shared_start:state_shared_end]
+        state_proposal = shared_scratch[proposed_state_start:proposed_state_end]
+        params_buffer = shared_scratch[params_start:params_end]
+        drivers_buffer = shared_scratch[drivers_start:drivers_end]
+        drivers_proposal = shared_scratch[proposed_drivers_start:
+                                          proposed_drivers_end]
+        obs_buffer = shared_scratch[obs_start:obs_end]
+        obs_proposal = shared_scratch[proposed_obs_start:proposed_obs_end]
+        error_buffer = shared_scratch[error_start:error_end]
+        counters_since_save = shared_scratch[counters_start:counters_end]
+        proposed_counters = shared_scratch[proposed_counters_start:
+                                           proposed_counters_end]
+        state_summ_buffer = shared_scratch[state_summ_start:state_summ_end]
+        obs_summ_buffer = shared_scratch[obs_summ_start:obs_summ_end]
+        remaining_scratch = shared_scratch[scratch_start:]
+
+        dt = persistent_local[local_dt_slice]
+        accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
+        _controller_temp = persistent_local[local_controller_slice]
+        algo_local = persistent_local[local_algo_slice]
+
+        first_step_flag = int16(1)
+        prev_step_accepted_flag = int16(1)
+
+        # Initialize
+        for k in range(n_states):
+            state_buffer[k] = initial_states[k]
+        for k in range(n_parameters):
+            params_buffer[k] = parameters[k]
+
+        save_idx = int32(0)
+        summary_idx = int32(0)
+        next_save = numba_precision(dt_save)
+
+        # Save initial state
+        save_state_inline(
+            state_buffer, obs_buffer, counters_since_save, t,
+            state_output[save_idx, :], observables_output[0, :],
+            iteration_counters_output[save_idx, :])
+        update_summaries_inline(
+            state_buffer, obs_buffer, state_summ_buffer, obs_summ_buffer,
+            save_idx)
+        save_idx += int32(1)
+
+        status = int32(0)
+        dt[0] = dt0
+        dt_eff = dt[0]
+        accept_step[0] = int32(0)
+
+        for i in range(n_counters):
+            counters_since_save[i] = int32(0)
+
+        step_counter = int32(0)
+        mask = activemask()
+
+        # Main integration loop
+        for _ in range(max_steps):
+            finished = save_idx >= n_output_samples_local
+            if all_sync(mask, finished):
+                return status
+
+            if not finished:
+                step_counter += 1
+                do_save = (step_counter % steps_per_save) == 0
+                if do_save:
+                    step_counter = int32(0)
+
+                step_status = step_euler_inline(
+                    state_buffer, state_proposal, params_buffer,
+                    driver_coefficients, drivers_buffer, drivers_proposal,
+                    obs_buffer, obs_proposal, error_buffer, dt_eff, t,
+                    first_step_flag, prev_step_accepted_flag,
+                    remaining_scratch, algo_local, proposed_counters)
+
+                first_step_flag = int16(0)
+                status |= step_status & status_mask
+
+                # Accept step
+                t_proposal = t + dt_eff
+                t = t_proposal
+
+                for i in range(n_states):
+                    state_buffer[i] = state_proposal[i]
+
+                prev_step_accepted_flag = int16(1)
+                next_save = selp(do_save, next_save + dt_save, next_save)
+
+                # Accumulate counters
+                for i in range(n_counters):
+                    if i < 2:
+                        counters_since_save[i] += proposed_counters[i]
+                    elif i == 2:
+                        counters_since_save[i] += int32(1)
+
+                if do_save:
+                    save_state_inline(
+                        state_buffer, obs_buffer, counters_since_save, t,
+                        state_output[save_idx, :], observables_output[0, :],
+                        iteration_counters_output[save_idx, :])
+                    update_summaries_inline(
+                        state_buffer, obs_buffer, state_summ_buffer,
+                        obs_summ_buffer, save_idx)
+
+                    if (save_idx + 1) % saves_per_summary == 0:
+                        save_summaries_inline(
+                            state_summ_buffer, obs_summ_buffer,
+                            state_summaries_output[summary_idx, :],
+                            observable_summaries_output[0, :],
+                            saves_per_summary)
+                        summary_idx += 1
+
+                    save_idx += 1
+                    for i in range(n_counters):
+                        counters_since_save[i] = int32(0)
+
+        if status == int32(0):
+            status = int32(32)
+        return status
+
+    # ===================================================================
+    # INLINED KERNEL (from BatchSolverKernel)
+    # ===================================================================
+
+    local_elements_per_run = local_elements
+    shared_elems_per_run = shared_elements
+    f32_per_element = 2 if (numba_precision is float64) else 1
+    # run_stride_f32 available for 2D grid configuration
+    _run_stride_f32 = int(f32_per_element * shared_elems_per_run)
+
+    @cuda.jit(**compile_kwargs)
+    def integration_kernel(
+        inits,
+        params,
+        d_coefficients,
+        state_output,
+        observables_output,
+        state_summaries_output,
+        observables_summaries_output,
+        iteration_counters_output,
+        status_codes_output,
+        duration_k,
+        warmup_k,
+        t0_k,
+        n_runs_k,
+    ):
+        # Use 1D grid for simpler indexing
+        run_index = cuda.grid(1)
+        if run_index >= n_runs_k:
+            return
+
+        shared_memory = cuda.shared.array(0, dtype=float32)
+        local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
+        c_coefficients = cuda.const.array_like(d_coefficients)
+
+        run_idx_low = 0  # Simplified for 1D grid
+        run_idx_high = f32_per_element * shared_elems_per_run
+        rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
+            simsafe_precision)
+
+        rx_inits = inits[run_index, :]
+        rx_params = params[run_index, :]
+        rx_state = state_output[:, run_index, :]
+        rx_observables = observables_output[:, 0, :]
+        rx_state_summaries = state_summaries_output[:, run_index, :]
+        rx_observables_summaries = observables_summaries_output[:, 0, :]
+        rx_iteration_counters = iteration_counters_output[run_index, :, :]
+
+        status = loop_fn_inline(
+            rx_inits, rx_params, c_coefficients, rx_shared_memory,
+            local_scratch, rx_state, rx_observables, rx_state_summaries,
+            rx_observables_summaries, rx_iteration_counters,
+            duration_k, warmup_k, t0_k)
+
+        status_codes_output[run_index] = status
+
+    # ===================================================================
+    # ALLOCATE ARRAYS AND RUN
+    # ===================================================================
+
+    print(f"\nAllocating arrays for {n_runs:,} runs...")
+
+    # Generate rho values
+    rho_values = np.linspace(rho_min, rho_max, n_runs, dtype=precision)
+
+    # Input arrays
+    inits = np.zeros((n_runs, n_states), dtype=precision)
+    inits[:, 0] = precision(INITIAL_X)
+    inits[:, 1] = precision(INITIAL_Y)
+    inits[:, 2] = precision(INITIAL_Z)
+
+    params = np.zeros((n_runs, n_parameters), dtype=precision)
+    params[:, 0] = rho_values
+
+    # Driver coefficients (empty for Lorenz)
+    d_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
+
+    # Output arrays
+    state_output = np.zeros(
+        (n_output_samples, n_runs, n_states + 1), dtype=precision)
+    observables_output = np.zeros((n_output_samples, 1, 1), dtype=precision)
+    n_summary_samples = int(ceil(n_output_samples / saves_per_summary))
+    state_summaries_output = np.zeros(
+        (n_summary_samples, n_runs, n_states), dtype=precision)
+    observable_summaries_output = np.zeros(
+        (n_summary_samples, 1, 1), dtype=precision)
+    iteration_counters_output = np.zeros(
+        (n_runs, n_output_samples, n_counters), dtype=np.int32)
+    status_codes_output = np.zeros(n_runs, dtype=np.int32)
+
+    print(f"State output shape: {state_output.shape}")
+    print(f"Memory per run: ~{state_output.nbytes // n_runs} bytes")
+
+    # Kernel configuration
+    blocksize = 256
+    runs_per_block = blocksize
+    dynamic_sharedmem = int(
+        (f32_per_element * shared_elems_per_run) * 4 * runs_per_block)
+
+    # Limit shared memory
+    while dynamic_sharedmem > 32768:
+        blocksize = blocksize // 2
+        runs_per_block = blocksize
+        dynamic_sharedmem = int(
+            (f32_per_element * shared_elems_per_run) * 4 * runs_per_block)
+
+    blocks_per_grid = int(ceil(n_runs / runs_per_block))
+
+    print("\nKernel configuration:")
+    print(f"  Block size: {blocksize}")
+    print(f"  Blocks per grid: {blocks_per_grid}")
+    print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
+
+    print("\nLaunching kernel...")
+
+    # Launch kernel with 1D configuration
+    integration_kernel[
+        blocks_per_grid,
+        blocksize,
+        0,
+        dynamic_sharedmem,
+    ](
+        inits, params, d_coefficients,
+        state_output, observables_output,
+        state_summaries_output, observable_summaries_output,
+        iteration_counters_output, status_codes_output,
+        duration, warmup, precision(0.0), n_runs,
+    )
+
+    cuda.synchronize()
+
+    print("\n" + "=" * 70)
+    print("Integration Complete")
     print("=" * 70)
+
+    # Report results
+    success_count = np.sum(status_codes_output == 0)
+    print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
+    print(f"Final state sample (run 0): {state_output[-1, 0, :n_states]}")
+    print(f"Final state sample (run -1): {state_output[-1, -1, :n_states]}")
+
+    return state_output, status_codes_output
 
 
 if __name__ == "__main__":
