@@ -29,12 +29,12 @@ def extend_expected_settings(settings, precision):
     # Note: ActiveOutputs are only set during solve(), not during build()
     # So they will be False until solve is called
     extended["ActiveOutputs"] = ActiveOutputs(
-        state=False,
+        state=True,
         observables=False, 
         state_summaries=False,
         observable_summaries=False,
         status_codes=False,
-        iteration_counters=False,
+        iteration_counters=True,
     )
     
     # Compute compile_flags based on output_types
