@@ -10,7 +10,7 @@ from typing import Callable, Optional, Set
 
 import attrs
 import numpy as np
-from numba import cuda, int16, int32, float64
+from numba import cuda, int16, int32, float64, int64
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -211,11 +211,11 @@ class IVPLoop(CUDAFactory):
         save_last = False
 
         # Loop sizes
-        n_states = shared_indices.n_states
-        n_parameters = shared_indices.n_parameters
-        n_observables = shared_indices.n_observables
-        n_drivers = shared_indices.n_drivers
-        n_counters = shared_indices.n_counters
+        n_states = int32(shared_indices.n_states)
+        n_parameters = int32(shared_indices.n_parameters)
+        n_observables = int32(shared_indices.n_observables)
+        n_drivers = int32(shared_indices.n_drivers)
+        n_counters = int32(shared_indices.n_counters)
         
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
@@ -298,13 +298,18 @@ class IVPLoop(CUDAFactory):
                 Status code aggregating errors and iteration counts.
             """
             t = float64(t0)
+            t_prec = precision(t)
             t_end = float64(settling_time + t0 + duration)
+            t_end_prec = precision(t_end)
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
-            max_steps = max(2**30,(int32(ceil(duration + settling_time)/
-                                              dt_min)) + int32(2))
-            max_steps = max_steps << 2
+            # 64-bits required to get any reasonable duration with small step
+            total_duration = duration + settling_time
+            max_steps = min(
+                    int64(2**62), (int64(ceil(total_duration/dt_min)) + 2)
+            )
+            max_steps = max_steps << 1
 
             shared_scratch[:] = precision(0.0)
 
@@ -336,7 +341,6 @@ class IVPLoop(CUDAFactory):
             first_step_flag = int16(1)
             prev_step_accepted_flag = int16(1)
 
-
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -348,7 +352,7 @@ class IVPLoop(CUDAFactory):
             # Seed initial observables from initial state.
             if driver_function is not None and n_drivers > 0:
                 driver_function(
-                    precision(t),
+                    t_prec,
                     driver_coefficients,
                     drivers_buffer,
                 )
@@ -358,7 +362,7 @@ class IVPLoop(CUDAFactory):
                     parameters_buffer,
                     drivers_buffer,
                     observables_buffer,
-                    precision(t),
+                    t_prec,
                 )
 
             save_idx = int32(0)
@@ -367,15 +371,16 @@ class IVPLoop(CUDAFactory):
             # Set next save for settling time, or save first value if
             # starting at t0
             next_save = settling_time + t0
-            if settling_time == float64(0.0):
+            if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 next_save += float64(dt_save)
+                next_save_prec = precision(next_save)
 
                 save_state(
                     state_buffer,
                     observables_buffer,
                     counters_since_save,
-                    precision(t),
+                    t_prec,
                     state_output[save_idx * save_state_bool, :],
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
@@ -404,7 +409,6 @@ class IVPLoop(CUDAFactory):
 
             status = int32(0)
             dt[0] = dt0
-            dt_eff = dt[0]
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
@@ -414,6 +418,10 @@ class IVPLoop(CUDAFactory):
                     proposed_counters[i] = int32(0)
 
             mask = activemask()
+            # ################ DEBUGGING ###############
+            # idx = cuda.grid(2)[1]
+            # if idx == 1:
+            #     from pdb import set_trace; set_trace()
 
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
@@ -422,11 +430,11 @@ class IVPLoop(CUDAFactory):
                 # Exit as soon as we've saved the final step
                 finished = next_save > t_end
                 if save_last:
-                    #If last save requested, predicated commit dt, finished,
+                    # If last save requested, predicated commit dt, finished,
                     # do_save
                     at_last_save = finished and t < t_end
                     finished = selp(at_last_save, False, True)
-                    dt[0] = selp(at_last_save, precision(t_end - t), dt[0])
+                    dt[0] = selp(at_last_save, t_end_prec - t_prec, dt[0])
 
                 # also exit loop if min step size limit hit - things are bad
                 finished |= (status & 0x8)
@@ -436,12 +444,10 @@ class IVPLoop(CUDAFactory):
 
                 if not finished:
                     do_save = (t + dt[0]) >= next_save
-                    dt_eff = selp(do_save, precision(next_save - t), dt[0])
-                    # from pdb import set_trace; set_trace()
+                    dt_eff = selp(do_save, next_save_prec - t_prec, dt[0])
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
-                    if fixed_mode:
-                        accept = True
+
 
                     step_status = step_function(
                         state_buffer,
@@ -454,7 +460,7 @@ class IVPLoop(CUDAFactory):
                         observables_proposal_buffer,
                         error,
                         dt_eff,
-                        precision(t),
+                        t_prec,
                         first_step_flag,
                         prev_step_accepted_flag,
                         remaining_shared_scratch,
@@ -469,11 +475,10 @@ class IVPLoop(CUDAFactory):
 
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if not fixed_mode:
-
                         status |= step_controller(
                             dt,
-                            state_buffer,
                             state_proposal_buffer,
+                            state_buffer,
                             error,
                             niters,
                             accept_step,
@@ -482,17 +487,25 @@ class IVPLoop(CUDAFactory):
 
                         accept = accept_step[0] != int32(0)
 
+                    else:
+                        accept = True
+
                     # Accumulate iteration counters if active
                     if save_counters_bool:
                         for i in range(n_counters):
                             if i < 2:
+                                # Write newton, krylov iterations from buffer
                                 counters_since_save[i] += proposed_counters[i]
                             elif i == 2:
+                                # Increment total steps counter
                                 counters_since_save[i] += int32(1)
                             elif not accept:
+                                # Increment rejected steps counter
                                 counters_since_save[i] += int32(1)
-                    t_proposal = t + dt_eff
+
+                    t_proposal = t + float64(dt_eff)
                     t = selp(accept, t_proposal, t)
+                    t_prec = precision(t)
 
                     for i in range(n_states):
                         newv = state_proposal_buffer[i]
@@ -509,8 +522,6 @@ class IVPLoop(CUDAFactory):
                         old_obs = observables_buffer[i]
                         observables_buffer[i] = selp(accept, new_obs, old_obs)
 
-                    # set_trace()
-
                     prev_step_accepted_flag = selp(
                         accept,
                         int16(1),
@@ -519,9 +530,10 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = selp(do_save, next_save + dt_save, next_save)
-
                     if do_save:
+                        next_save = selp(do_save, next_save + dt_save, next_save)
+                        next_save_prec = precision(next_save)
+
                         save_state(
                             state_buffer,
                             observables_buffer,

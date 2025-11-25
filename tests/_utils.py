@@ -739,7 +739,10 @@ def assert_integration_outputs(
     if isinstance(reference, dict):
         reference = LoopRunResult(**reference)
     flags = output_functions.compile_flags
-
+    if device.counters is None:
+        print("\nNo counters provided")
+    else:
+        print(device.counters)
     state_ref, time_ref = extract_state_and_time(
         reference.state, output_functions
     )
