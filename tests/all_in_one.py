@@ -13,7 +13,13 @@ Usage:
 Configuration:
     Edit the settings at the top of this file to adjust tolerances,
     step sizes, and integration parameters.
+
+Note:
+    Imports are placed near their usage (violating PEP8 E402) to
+    improve readability and make this file easier to navigate during
+    debugging sessions. This is intentional for this debug utility.
 """
+# ruff: noqa: E402
 
 import numpy as np
 
@@ -36,8 +42,9 @@ INITIAL_Z = 0.0
 
 # Solver settings dictionary (matches conftest.py patterns)
 solver_settings = {
-    # Algorithm selection
-    "algorithm": "dirk",
+    # Algorithm selection - use sdirk_2_2 which has embedded error estimate
+    # for adaptive stepping with PID controller
+    "algorithm": "sdirk_2_2",
 
     # Time parameters
     "duration": precision(1.0),
@@ -760,8 +767,23 @@ def run_integration():
 
     # Step 3: Run integration
     print("\n[3/4] Running integration...")
-    result = solver.solve(n_runs=1)
-    print(f"      Status: {'Success' if result.success else 'Failed'}")
+    # Prepare initial values and parameters for solve()
+    initial_values = {
+        'x': np.array([INITIAL_X], dtype=precision),
+        'y': np.array([INITIAL_Y], dtype=precision),
+        'z': np.array([INITIAL_Z], dtype=precision),
+    }
+    parameters = {
+        'rho': np.array([LORENZ_RHO], dtype=precision),
+    }
+    result = solver.solve(
+        initial_values=initial_values,
+        parameters=parameters,
+        duration=solver_settings['duration'],
+    )
+    has_data = result.time_domain_array is not None and len(
+        result.time_domain_array) > 0
+    print(f"      Status: {'Success' if has_data else 'No data returned'}")
 
     # Step 4: Instructions for generated code
     print("\n[4/4] Generated code location:")
@@ -820,6 +842,11 @@ if __name__ == "__main__":
         run_debug_integration()
     else:
         result = run_integration()
-        if result is not None and result.success:
-            print("\nIntegration completed successfully!")
-            print(f"Output shape: {result.state.shape}")
+        if result is not None:
+            has_data = result.time_domain_array is not None and len(
+                result.time_domain_array) > 0
+            if has_data:
+                print("\nIntegration completed successfully!")
+                state_array = result.as_numpy.get('time_domain_array')
+                if state_array is not None:
+                    print(f"State array shape: {state_array.shape}")
