@@ -50,16 +50,35 @@ dt_min = precision(1e-12)
 # SDIRK 2,2 tableau stage count (for buffer sizing)
 stage_count = SDIRK_2_2_TABLEAU.stage_count
 
-# Newton-Krylov parameters
+# Solver helper parameters (beta, gamma, mass matrix scaling)
+beta_solver = precision(1.0)
+gamma_solver = precision(1.0)
+preconditioner_order = 2
+
+# Linear solver (Krylov) parameters
 krylov_tolerance = precision(1e-6)
-newton_tolerance = precision(1e-6)
 max_linear_iters = 200
+
+# Newton-Krylov nonlinear solver parameters
+newton_tolerance = precision(1e-6)
 max_newton_iters = 100
 newton_damping = precision(0.85)
 max_backtracks = 8
-preconditioner_order = 2
-beta_solver = 1.0
-gamma_solver = 1.0
+
+# PID controller parameters
+algorithm_order = 2
+kp = precision(1.0 / 18.0)
+ki = precision(1.0 / 9.0)
+kd = precision(1.0 / 18.0)
+min_gain = precision(0.2)
+max_gain = precision(5.0)
+dt_min_ctrl = precision(1e-6)
+dt_max_ctrl = precision(1.0)
+deadband_min = precision(1.0)
+deadband_max = precision(1.2)
+safety = precision(0.9)
+atol = np.full(n_states, precision(1e-6), dtype=precision)
+rtol = np.full(n_states, precision(1e-6), dtype=precision)
 
 # Output dimensions
 n_output_samples = int(ceil(float(duration) / float(dt_save))) + 1
@@ -97,8 +116,7 @@ def observables_factory(constants, prec):
     return get_observables
 
 
-def neumann_preconditioner_factory(constants, prec, beta=1.0, gamma=1.0,
-                                   order=1):
+def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     """Auto-generated Neumann preconditioner."""
     n = 3
     beta_inv = 1.0 / beta
@@ -135,7 +153,7 @@ def neumann_preconditioner_factory(constants, prec, beta=1.0, gamma=1.0,
     return preconditioner
 
 
-def stage_residual_factory(constants, prec, beta=1.0, gamma=1.0, order=None):
+def stage_residual_factory(constants, prec, beta, gamma, order):
     """Auto-generated nonlinear residual for implicit updates."""
     sigma = prec(constants['sigma'])
     beta_const = prec(constants['beta'])
@@ -161,7 +179,7 @@ def stage_residual_factory(constants, prec, beta=1.0, gamma=1.0, order=None):
     return residual
 
 
-def linear_operator_factory(constants, prec, beta=1.0, gamma=1.0, order=None):
+def linear_operator_factory(constants, prec, beta, gamma, order):
     """Auto-generated linear operator."""
     sigma = prec(constants['sigma'])
     beta_const = prec(constants['beta'])
@@ -368,7 +386,7 @@ def dirk_step_inline_factory(
     observables_function,
     n,
     prec,
-    tableau=SDIRK_2_2_TABLEAU,
+    tableau,
 ):
     """Create inline DIRK step device function matching generic_dirk.py."""
     numba_precision = numba_from_dtype(prec)
@@ -735,7 +753,7 @@ def erk_step_inline_factory(
     observables_function,
     n,
     prec,
-    tableau=DORMAND_PRINCE_54_TABLEAU,
+    tableau,
 ):
     """Create inline ERK step device function matching generic_erk.py."""
     numba_precision = numba_from_dtype(prec)
@@ -1157,16 +1175,16 @@ def controller_PID_factory(
     atol,
     rtol,
     algorithm_order,
-    kp=1/18,
-    ki=1/9,
-    kd=1/18,
-    min_gain=0.2,
-    max_gain=5.0,
-    dt_min_ctrl=1e-6,
-    dt_max_ctrl=1.0,
-    deadband_min=1.0,
-    deadband_max=1.2,
-    safety=0.9,
+    kp,
+    ki,
+    kd,
+    min_gain,
+    max_gain,
+    dt_min_ctrl,
+    dt_max_ctrl,
+    deadband_min,
+    deadband_max,
+    safety,
 ):
     """Create PID controller device function matching adaptive_PID_controller.py."""
     numba_precision = numba_from_dtype(precision)
@@ -1262,42 +1280,86 @@ def controller_PID_factory(
 # BUILD DEVICE FUNCTIONS
 # =========================================================================
 
-# Build all device functions using factories
+# Build all device functions using factories with explicit arguments
 dxdt_fn = dxdt_factory(constants, precision)
 observables_function = observables_factory(constants, precision)
 preconditioner_fn = neumann_preconditioner_factory(
-    constants, precision, beta=beta_solver, gamma=gamma_solver,
-    order=preconditioner_order)
+    constants,
+    precision,
+    beta=float(beta_solver),
+    gamma=float(gamma_solver),
+    order=preconditioner_order,
+)
 residual_fn = stage_residual_factory(
-    constants, precision, beta=beta_solver, gamma=gamma_solver)
+    constants,
+    precision,
+    beta=float(beta_solver),
+    gamma=float(gamma_solver),
+    order=preconditioner_order,
+)
 operator_fn = linear_operator_factory(
-    constants, precision, beta=beta_solver, gamma=gamma_solver)
+    constants,
+    precision,
+    beta=float(beta_solver),
+    gamma=float(gamma_solver),
+    order=preconditioner_order,
+)
 
 linear_solver_fn = linear_solver_inline_factory(
-    operator_fn, n_states, preconditioner_fn,
-    float(krylov_tolerance), max_linear_iters, precision)
+    operator_fn,
+    n_states,
+    preconditioner_fn,
+    float(krylov_tolerance),
+    max_linear_iters,
+    precision,
+)
 
 newton_solver_fn = newton_krylov_inline_factory(
-    residual_fn, linear_solver_fn, n_states,
-    float(newton_tolerance), max_newton_iters,
-    float(newton_damping), max_backtracks, precision)
+    residual_fn,
+    linear_solver_fn,
+    n_states,
+    float(newton_tolerance),
+    max_newton_iters,
+    float(newton_damping),
+    max_backtracks,
+    precision,
+)
 
 dirk_step_fn = dirk_step_inline_factory(
-    newton_solver_fn, dxdt_fn, observables_function, n_states, precision,
-    tableau=SDIRK_2_2_TABLEAU,
+    newton_solver_fn,
+    dxdt_fn,
+    observables_function,
+    n_states,
+    precision,
+    SDIRK_2_2_TABLEAU,
 )
 
 # Optional: ERK step for explicit integration
 # erk_step_fn = erk_step_inline_factory(
-#     dxdt_fn, observables_function, n_states, precision,
-#     tableau=DORMAND_PRINCE_54_TABLEAU,
+#     dxdt_fn,
+#     observables_function,
+#     n_states,
+#     precision,
+#     DORMAND_PRINCE_54_TABLEAU,
 # )
 
 # Optional: PID controller for adaptive stepping
-# atol_arr = np.full(n_states, 1e-6, dtype=precision)
-# rtol_arr = np.full(n_states, 1e-6, dtype=precision)
 # controller_PID_fn = controller_PID_factory(
-#     precision, n_states, atol_arr, rtol_arr, algorithm_order=2,
+#     precision,
+#     n_states,
+#     atol,
+#     rtol,
+#     algorithm_order,
+#     float(kp),
+#     float(ki),
+#     float(kd),
+#     float(min_gain),
+#     float(max_gain),
+#     float(dt_min_ctrl),
+#     float(dt_max_ctrl),
+#     float(deadband_min),
+#     float(deadband_max),
+#     float(safety),
 # )
 
 
