@@ -14,7 +14,7 @@ from numba import cuda, int16, int32
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import PrecisionDType
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,
@@ -219,7 +219,8 @@ class IVPLoop(CUDAFactory):
         status_mask = int32(0xFFFF)
 
         equality_breaker = (
-            precision(1e-7) if precision is np.float32 else (precision(1e-14))
+            precision(1e-7) if config.precision is np.float32
+            else (precision(1e-14))
         )
 
         @cuda.jit(
@@ -230,9 +231,11 @@ class IVPLoop(CUDAFactory):
                     precision[:, :, ::1],
                     precision[::1],
                     precision[::1],
-                    precision[:, :, :],
-                    precision[:, :, :],
-                    precision[::1],
+                    precision[:, :],
+                    precision[:, :],
+                    precision[:, :],
+                    precision[:, :],
+                    precision[:,::1],
                     precision,
                     precision,
                     precision,
@@ -240,7 +243,7 @@ class IVPLoop(CUDAFactory):
             ],
             device=True,
             inline=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def loop_fn(
             initial_states,
@@ -262,19 +265,19 @@ class IVPLoop(CUDAFactory):
             Parameters
             ----------
             initial_states
-                Device array containing the initial state vector.
+                1d Device array containing the initial state vector.
             parameters
-                Device array containing static parameters.
+                1d Device array containing static parameters.
             driver_coefficients
-                Device array containing precomputed spline coefficients.
+                3d Device array containing precomputed spline coefficients.
             shared_scratch
-                Device array providing shared-memory work buffers.
+                1d Device array providing shared-memory work buffers.
             persistent_local
-                Device array providing persistent local memory buffers.
+                1d Device array providing persistent local memory buffers.
             state_output
-                Device array storing accepted state snapshots.
+                2d Device array storing accepted state snapshots.
             observables_output
-                Device array storing accepted observable snapshots.
+                2d Device array storing accepted observable snapshots.
             state_summaries_output
                 Device array storing aggregated state summaries.
             observable_summaries_output
@@ -434,7 +437,7 @@ class IVPLoop(CUDAFactory):
                         if do_save:
                             step_counter = int32(0)
                     else:
-                        do_save = (t + dt[0]  +equality_breaker) >= next_save
+                        do_save = (t + dt[0]  + equality_breaker) >= next_save
                         dt_eff = selp(do_save, next_save - t, dt[0])
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
@@ -579,6 +582,21 @@ class IVPLoop(CUDAFactory):
             None,  # duration - scalar
             None,  # settling_time - scalar
             None,  # t0 - scalar (optional)
+        )
+        loop_fn.critical_values = (
+            None,  # initial_states
+            None,  # parameters
+            None,  # driver_coefficients
+            None, # local persistent - not really used
+            None,  # persistent_local - arbitrary 32kb provided / float64
+            None, # state_output
+            None, # observables_output
+            None,  # state_summaries_output
+            None, # obs summ output
+            None,  # iteration_counters_output
+            self.dt_save + 0.01,  # duration - scalar
+            0.0,  # settling_time - scalar
+            0.0,  # t0 - scalar (optional)
         )
         return IVPLoopCache(loop_function=loop_fn)
 

@@ -80,15 +80,15 @@ def newton_krylov_solver_factory(
 
     # no cover: start
 
-    @cuda.jit([(precision[:],
-                precision[:],
-                precision[:],
+    @cuda.jit([(precision[::1],
+                precision[::1],
+                precision[::1],
                 precision,
                 precision,
                 precision,
-                precision[:],
-                precision[:],
-                int32[:])],
+                precision[::1],
+                precision[::1],
+                int32[::1])],
                 device=True,
                 inline=True)
     def newton_krylov_solver(

@@ -10,7 +10,8 @@ from numba import int32, int16
 
 import attrs
 
-from cubie.cuda_simsafe import is_cudasim_enabled
+from cubie.cuda_simsafe import is_cudasim_enabled, \
+    compile_kwargs
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -129,7 +130,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
-        self._lineinfo = profileCUDA
 
         precision = system.precision
         self._duration = precision(0.0)
@@ -476,6 +476,9 @@ class BatchSolverKernel(CUDAFactory):
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
+        if 'lineinfo' in compile_kwargs:
+            compile_kwargs['lineinfo'] = self.profileCUDA
+
         loopfunction = self.single_integrator.device_function
 
         output_flags = config.ActiveOutputs
@@ -495,21 +498,21 @@ class BatchSolverKernel(CUDAFactory):
         # no cover: start
         @cuda.jit(
             (
-                precision[:, :],
-                precision[:, :],
-                precision[:, :, :],
+                precision[:, ::1],
+                precision[:, ::1],
+                precision[:, :, ::1],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 int32[:, :, :],
-                int32[:],
+                int32[::1],
                 precision,
                 precision,
                 precision,
                 int32,
             ),
-            lineinfo=self._lineinfo,
+            **compile_kwargs,
         )
         def integration_kernel(
             inits,

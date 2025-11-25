@@ -620,6 +620,12 @@ class BatchGridBuilder:
             if isinstance(states, np.ndarray) and isinstance(params, np.ndarray):
                 state_sets = states.shape[0]
                 param_sets = params.shape[0]
+                states_given = states.shape[1]
+                params_given = params.shape[1]
+                if states_given != self.states.n:
+                    states = self._sanitise_arraylike(states, self.states)
+                if params_given != self.parameters.n:
+                    params = self._sanitise_arraylike(params, self.parameters)
                 if state_sets == param_sets:
                     return self._cast_to_precision(states, params)
                 elif state_sets == 1:

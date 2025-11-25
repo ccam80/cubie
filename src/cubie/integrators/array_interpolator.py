@@ -359,7 +359,7 @@ class ArrayInterpolator(CUDAFactory):
         @cuda.jit(
                 (numba_precision,
                 numba_precision[:,:,::1],
-                numba_precision[:]),
+                numba_precision[::1]),
                 device=True,
                 inline=True)
         def evaluate_all(

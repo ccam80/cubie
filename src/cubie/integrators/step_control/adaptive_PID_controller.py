@@ -12,8 +12,9 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
 from cubie.integrators.step_control.adaptive_PI_controller import (
-    PIStepControlConfig)
-from cubie.cuda_simsafe import selp
+    PIStepControlConfig,
+)
+from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -208,16 +209,28 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
-        deadband_disabled = (
-            (deadband_min == unity_gain)
-            and (deadband_max == unity_gain)
+        deadband_disabled = (deadband_min == unity_gain) and (
+            deadband_max == unity_gain
         )
+        numba_precision = self.compile_settings.numba_precision
 
+        # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
+            [
+                (
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    int32,
+                    int32[::1],
+                    numba_precision[::1],
+                )
+            ],
             device=True,
             inline=True,
             fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_PID(
             dt,
