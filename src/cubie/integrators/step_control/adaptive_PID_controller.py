@@ -213,6 +213,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             deadband_max == unity_gain
         )
         numba_precision = self.compile_settings.numba_precision
+        n = int32(n)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -274,8 +275,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                ratio = tol / error_i
-                nrm2 += ratio * ratio
+                nrm2 += (tol * tol) / (error_i * error_i)
 
             nrm2 = precision(nrm2/n)
             accept = nrm2 >= precision(1.0)

@@ -139,6 +139,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             and (deadband_max == unity_gain)
         )
         numba_precision = self.compile_settings.numba_precision
+        n = int32(n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
                 [(
