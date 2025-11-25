@@ -1667,7 +1667,21 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print("=" * 70)
 
     success_count = np.sum(status_codes_output == 0)
+    dt_min_exceeded_runs = np.sum(status_codes_output == 8)
+    max_steps_exceeded_runs = np.sum(status_codes_output == 32)
+    max_newton_backtracks_runs = np.sum(status_codes_output == 1)
+    max_newton_iters_runs = np.sum(status_codes_output == 2)
+    linear_max_iters_runs = np.sum(status_codes_output == 4)
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
+    print(f"\ndt_min exceeded runs: {dt_min_exceeded_runs:,}")
+    print(f"\nmax steps exceeded runs: {max_steps_exceeded_runs:,}")
+    print(f"\nmax newton backtracks runs: {max_newton_backtracks_runs:,}")
+    print(f"\nmax newton iters exceeded runs: {max_newton_iters_runs:,}")
+    print(f"\nlinear solver max iters exceeded runs: {linear_max_iters_runs:,}")
+
+    print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
+
+
     print(f"Final state sample (run 0): {state_output[-1, 0, :n_states]}")
     print(f"Final state sample (run -1): {state_output[-1, -1, :n_states]}")
 
