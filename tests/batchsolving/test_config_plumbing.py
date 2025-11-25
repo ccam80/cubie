@@ -34,7 +34,7 @@ def extend_expected_settings(settings, precision):
         state_summaries=False,
         observable_summaries=False,
         status_codes=False,
-        iteration_counters=True,
+        iteration_counters=False,
     )
     
     # Compute compile_flags based on output_types
