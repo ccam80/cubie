@@ -7,7 +7,7 @@ proper line-level debugging with Numba's lineinfo feature.
 from math import ceil
 
 import numpy as np
-from numba import cuda, int16, int32, float32
+from numba import cuda, int16, int32, int64, float32, float64
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -427,10 +427,6 @@ def dirk_step_inline_factory(
     solver_start = acc_end
     solver_end = acc_end + solver_shared_elements
 
-    # Compile-time fixed controller (always use dt_scalar for this test)
-    is_controller_fixed = False
-    dt_compile = None
-
     @cuda.jit(
         (
             numba_precision[::1],
@@ -510,13 +506,8 @@ def dirk_step_inline_factory(
         # ----------------------------------------------------------- #
         stage_increment = cuda.local.array(n, numba_precision)
 
-        # Use compile-time constant dt if fixed controller, else runtime dt
-        if is_controller_fixed:
-            dt_value = dt_compile
-        else:
-            dt_value = dt_scalar
         current_time = time_scalar
-        end_time = current_time + dt_value
+        end_time = current_time + dt_scalar
 
         stage_accumulator = shared[acc_start:acc_end]
         solver_scratch = shared[solver_start:solver_end]
@@ -547,14 +538,12 @@ def dirk_step_inline_factory(
         if first_same_as_last and multistage:
             if not first_step_flag:
                 mask = activemask()
-                all_threads_accepted = all_sync(
-                    mask, accepted_flag != int16(0)
-                )
+                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
 
-        stage_time = current_time + dt_value * stage_time_fractions[0]
+        stage_time = current_time + dt_scalar * stage_time_fractions[0]
         diagonal_coeff = diagonal_coeffs[0]
 
         for idx in range(n):
@@ -582,7 +571,7 @@ def dirk_step_inline_factory(
                     parameters,
                     proposed_drivers,
                     stage_time,
-                    dt_value,
+                    dt_scalar,
                     diagonal_coeffs[0],
                     stage_base,
                     solver_scratch,
@@ -641,7 +630,7 @@ def dirk_step_inline_factory(
             prev_idx = stage_idx - 1
             successor_range = stage_count - stage_idx
             stage_time = (
-                current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
             )
 
             # Fill accumulators with previous step's contributions
@@ -650,7 +639,7 @@ def dirk_step_inline_factory(
                 base = (successor_idx - 1) * n
                 for idx in range(n):
                     state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    contribution = state_coeff * stage_rhs[idx] * dt_value
+                    contribution = state_coeff * stage_rhs[idx] * dt_scalar
                     stage_accumulator[base + idx] += contribution
 
             if has_driver_function:
@@ -669,7 +658,7 @@ def dirk_step_inline_factory(
                     parameters,
                     proposed_drivers,
                     stage_time,
-                    dt_value,
+                    dt_scalar,
                     diagonal_coeffs[stage_idx],
                     stage_base,
                     solver_scratch,
@@ -716,11 +705,11 @@ def dirk_step_inline_factory(
 
         for idx in range(n):
             if accumulates_output:
-                proposed_state[idx] *= dt_value
+                proposed_state[idx] *= dt_scalar
                 proposed_state[idx] += state[idx]
             if has_error:
                 if accumulates_error:
-                    error[idx] *= dt_value
+                    error[idx] *= dt_scalar
                 else:
                     error[idx] = proposed_state[idx] - error[idx]
 
@@ -784,10 +773,6 @@ def erk_step_inline_factory(
     accumulates_error = tableau.accumulates_error
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
-
-    # Compile-time fixed controller (always use dt_scalar for this test)
-    is_controller_fixed = False
-    dt_compile = None
 
     @cuda.jit(
         (
@@ -855,19 +840,14 @@ def erk_step_inline_factory(
         #         shared memory, keeping lifetimes separate.
         # error: size n, global memory (adaptive runs only).
         #   Default behaviour:
-        #       - Accumulates error-weighted f(y_jn) during the loop.
+        #       - Accumulates error-weighted f(y_jn) during the
+        #       loop.
         #       - Cleared at loop entry so prior steps cannot leak in.
         # ----------------------------------------------------------- #
         stage_rhs = cuda.local.array(n, numba_precision)
 
-        # Use compile-time constant dt if fixed controller, else runtime dt
-        if is_controller_fixed:
-            dt_value = dt_compile
-        else:
-            dt_value = dt_scalar
-
         current_time = time_scalar
-        end_time = current_time + dt_value
+        end_time = current_time + dt_scalar
 
         stage_accumulator = shared[:accumulator_length]
         if multistage:
@@ -887,9 +867,7 @@ def erk_step_inline_factory(
         if first_same_as_last and multistage:
             if not first_step_flag:
                 mask = activemask()
-                all_threads_accepted = all_sync(
-                    mask, accepted_flag != int16(0)
-                )
+                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -950,16 +928,17 @@ def erk_step_inline_factory(
                     stage_accumulator[base + idx] += contribution
 
             stage_offset = (stage_idx - 1) * n
-            dt_stage = dt_value * stage_nodes[stage_idx]
+            dt_stage = dt_scalar * stage_nodes[stage_idx]
             stage_time = current_time + dt_stage
 
             # Convert accumulated gradients sum(f(y_nj) into a state y_j
             for idx in range(n):
-                stage_accumulator[stage_offset + idx] *= dt_value
+                stage_accumulator[stage_offset + idx] *= dt_scalar
                 stage_accumulator[stage_offset + idx] += state[idx]
 
             # Rename the slice for clarity
             stage_state = stage_accumulator[stage_offset:stage_offset + n]
+
 
             # get rhs for next stage
             stage_drivers = proposed_drivers
@@ -967,11 +946,11 @@ def erk_step_inline_factory(
                 pass  # driver_function would be called here
 
             observables_function(
-                stage_state,
-                parameters,
-                stage_drivers,
-                proposed_observables,
-                stage_time,
+                    stage_state,
+                    parameters,
+                    stage_drivers,
+                    proposed_observables,
+                    stage_time,
             )
 
             dxdt_fn(
@@ -1005,15 +984,15 @@ def erk_step_inline_factory(
 
             # Scale and shift f(Y_n) value if accumulated
             if accumulates_output:
-                proposed_state[idx] *= dt_value
+                proposed_state[idx] *= dt_scalar
                 proposed_state[idx] += state[idx]
 
             if has_error:
                 # Scale error if accumulated
                 if accumulates_error:
-                    error[idx] *= dt_value
+                    error[idx] *= dt_scalar
 
-                # Or form error from difference if captured from a-row
+                #Or form error from difference if captured from a-row
                 else:
                     error[idx] = proposed_state[idx] - error[idx]
 
@@ -1192,11 +1171,12 @@ def controller_PID_factory(
     expo1 = precision(kp / (2 * (algorithm_order + 1)))
     expo2 = precision(ki / (2 * (algorithm_order + 1)))
     expo3 = precision(kd / (2 * (algorithm_order + 1)))
-    unity_gain = precision(1.0)
+    typed_one = precision(1.0)
+    typed_zero = precision(0.0)
     deadband_min = precision(deadband_min)
     deadband_max = precision(deadband_max)
-    deadband_disabled = (deadband_min == unity_gain) and (
-        deadband_max == unity_gain
+    deadband_disabled = (deadband_min == typed_one) and (
+        deadband_max == typed_one
     )
     dt_min = precision(dt_min_ctrl)
     dt_max = precision(dt_max_ctrl)
@@ -1233,22 +1213,22 @@ def controller_PID_factory(
         """Proportional–integral–derivative accept/step controller."""
         err_prev = local_temp[0]
         err_prev_prev = local_temp[1]
-        nrm2 = precision(0.0)
+        nrm2 = typed_zero
 
         for i in range(n):
-            error_i = max(abs(error[i]), precision(1e-12))
+            error_i = max(abs(error[i]), precision(1e-16))
             tol = atol[i] + rtol[i] * max(
                 abs(state[i]), abs(state_prev[i])
             )
-            ratio = tol / error_i
+            ratio = error_i / tol
             nrm2 += ratio * ratio
 
-        nrm2 = precision(nrm2/n)
-        accept = nrm2 >= precision(1.0)
+        nrm2 = typed_one/(nrm2*n)
+        accept = nrm2 >= typed_one
         accept_out[0] = int32(1) if accept else int32(0)
-        err_prev_safe = err_prev if err_prev > precision(0.0) else nrm2
+        err_prev_safe = err_prev if err_prev > typed_zero else nrm2
         err_prev_prev_safe = (
-            err_prev_prev if err_prev_prev > precision(0.0) else err_prev_safe
+            err_prev_prev if err_prev_prev > typed_zero else err_prev_safe
         )
 
         gain_new = precision(
@@ -1257,13 +1237,13 @@ def controller_PID_factory(
             * (err_prev_safe ** (expo2))
             * (err_prev_prev_safe ** (expo3))
         )
-        gain = precision(clamp(gain_new, min_gain, max_gain))
+        gain = clamp(gain_new, min_gain, max_gain)
         if not deadband_disabled:
             within_deadband = (
                 (gain >= deadband_min)
                 and (gain <= deadband_max)
             )
-            gain = selp(within_deadband, unity_gain, gain)
+            gain = selp(within_deadband, typed_one, gain)
 
         dt_new_raw = dt[0] * gain
         dt[0] = clamp(dt_new_raw, dt_min, dt_max)
@@ -1406,129 +1386,301 @@ local_controller_slice = slice(2, 4)
 local_algo_slice = slice(4, 8)
 local_elements = 8
 
-steps_per_save = int32(ceil(float(dt_save) / float(dt0)))
 saves_per_summary = int32(2)
 status_mask = int32(0xFFFF)
+
+# Compile-time flags for loop behavior
+save_obs_bool = True
+save_state_bool = True
+summarise_obs_bool = True
+summarise_state_bool = True
+summarise = summarise_obs_bool or summarise_state_bool
+save_counters_bool = True
+fixed_mode = True
+save_last = False
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
 def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             persistent_local, state_output, observables_output,
             state_summaries_output, observable_summaries_output,
-            iteration_counters_output, duration_arg, settling_time, t0_arg):
-    t = precision(t0_arg)
-    t_end = precision(settling_time + duration_arg)
-    max_steps = (int32(ceil(t_end / dt_min)) + int32(2))
-    max_steps = max_steps << 2
+            iteration_counters_output, duration, settling_time, t0):
+    """Advance an integration using a compiled CUDA device loop.
 
-    n_output_samples_local = state_output.shape[0]
-    shared_scratch[:] = typed_zero
+    The loop terminates when the time of the next saved sample
+    exceeds the end time (t0 + settling_time + duration), or when
+    the maximum number of iterations is reached.
+    """
+    t = float64(t0)
+    t_prec = numba_precision(t)
+    t_end = float64(settling_time + t0 + duration)
+
+    # Cap max iterations - all internal steps at dt_min, plus a bonus
+    # end/start, plus one failure per successful step.
+    # 64-bits required to get any reasonable duration with small step
+    total_duration = duration + settling_time
+    max_steps = min(
+            int64(2**62), (int64(ceil(total_duration/dt_min)) + 2)
+    )
+    max_steps = max_steps << 1
+
+    shared_scratch[:] = numba_precision(0.0)
 
     state_buffer = shared_scratch[state_shared_start:state_shared_end]
-    state_proposal = shared_scratch[proposed_state_start:proposed_state_end]
-    params_buffer = shared_scratch[params_start:params_end]
+    state_proposal_buffer = shared_scratch[proposed_state_start:
+                                           proposed_state_end]
+    observables_buffer = shared_scratch[obs_start:obs_end]
+    observables_proposal_buffer = shared_scratch[proposed_obs_start:
+                                                 proposed_obs_end]
+    parameters_buffer = shared_scratch[params_start:params_end]
     drivers_buffer = shared_scratch[drivers_start:drivers_end]
-    drivers_proposal = shared_scratch[proposed_drivers_start:
-                                      proposed_drivers_end]
-    obs_buffer = shared_scratch[obs_start:obs_end]
-    obs_proposal = shared_scratch[proposed_obs_start:proposed_obs_end]
-    error_buffer = shared_scratch[error_start:error_end]
+    drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
+                                             proposed_drivers_end]
+    state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
+    observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
+    remaining_shared_scratch = shared_scratch[dirk_scratch_start:
+                                              dirk_scratch_end]
     counters_since_save = shared_scratch[counters_start:counters_end]
-    proposed_counters = shared_scratch[proposed_counters_start:
-                                       proposed_counters_end]
-    dirk_scratch = shared_scratch[dirk_scratch_start:dirk_scratch_end]
-    state_summ_buffer = shared_scratch[state_summ_start:state_summ_end]
-    obs_summ_buffer = shared_scratch[obs_summ_start:obs_summ_end]
 
-    dt_local = persistent_local[local_dt_slice]
+    if save_counters_bool:
+        # When enabled, use shared memory buffers
+        proposed_counters = shared_scratch[proposed_counters_start:
+                                           proposed_counters_end]
+    else:
+        # When disabled, use a dummy local "proposed_counters" buffer
+        proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+
+    dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
-    _controller_temp = persistent_local[local_controller_slice]
+    error = shared_scratch[error_start:error_end]
+    controller_temp = persistent_local[local_controller_slice]
     algo_local = persistent_local[local_algo_slice]
 
+    first_step_flag = int16(1)
+    prev_step_accepted_flag = int16(1)
+
+    # ----------------------------------------------------------------------- #
+    #                       Seed t=0 values                                   #
+    # ----------------------------------------------------------------------- #
     for k in range(n_states):
         state_buffer[k] = initial_states[k]
     for k in range(n_parameters):
-        params_buffer[k] = parameters[k]
+        parameters_buffer[k] = parameters[k]
+
+    # Seed initial observables from initial state.
+    # driver_function not used in this test (n_drivers = 0)
+    if n_observables > 0:
+        observables_function(
+            state_buffer,
+            parameters_buffer,
+            drivers_buffer,
+            observables_buffer,
+            t_prec,
+        )
 
     save_idx = int32(0)
     summary_idx = int32(0)
-    _next_save = precision(dt_save)  # Available for adaptive stepping
 
-    # Save initial state
-    save_state_inline(state_buffer, obs_buffer, counters_since_save, t,
-                      state_output[save_idx, :], observables_output[0, :],
-                      iteration_counters_output[save_idx, :])
-    update_summaries_inline(state_buffer, obs_buffer, state_summ_buffer,
-                            obs_summ_buffer, save_idx)
-    save_idx += int32(1)
+    # Set next save for settling time, or save first value if
+    # starting at t0
+    next_save = settling_time + t0
+    if settling_time == 0.0:
+        # Save initial state at t0, then advance to first interval save
+        next_save += float64(dt_save)
+
+        save_state_inline(
+            state_buffer,
+            observables_buffer,
+            counters_since_save,
+            t_prec,
+            state_output[save_idx * save_state_bool, :],
+            observables_output[save_idx * save_obs_bool, :],
+            iteration_counters_output[save_idx * save_counters_bool, :],
+        )
+        if summarise:
+            # Reset temp buffers to starting state - will be overwritten
+            save_summaries_inline(state_summary_buffer,
+                                  observable_summary_buffer,
+                                  state_summaries_output[
+                                      summary_idx * summarise_state_bool, :
+                                  ],
+                                  observable_summaries_output[
+                                      summary_idx * summarise_obs_bool, :
+                                  ],
+                                  saves_per_summary)
+
+            # Log first summary update
+            update_summaries_inline(
+                state_buffer,
+                observables_buffer,
+                state_summary_buffer,
+                observable_summary_buffer,
+                save_idx,
+            )
+        save_idx += int32(1)
 
     status = int32(0)
-    dt_local[0] = dt0
-    dt_eff = dt_local[0]
+    dt[0] = dt0
     accept_step[0] = int32(0)
 
+    # Initialize iteration counters
     for i in range(n_counters):
         counters_since_save[i] = int32(0)
+        if i < 2:
+            proposed_counters[i] = int32(0)
 
-    step_counter = int32(0)
     mask = activemask()
 
+    # ----------------------------------------------------------------------- #
+    #                        Main Loop                                        #
+    # ----------------------------------------------------------------------- #
     for _ in range(max_steps):
-        finished = save_idx >= n_output_samples_local
+        # Exit as soon as we've saved the final step
+        finished = next_save > t_end
+        if save_last:
+            # If last save requested, predicated commit dt, finished,
+            # do_save
+            at_last_save = finished and t < t_end
+            finished = selp(at_last_save, False, True)
+            dt[0] = selp(at_last_save, numba_precision(t_end - t),
+                         dt[0])
+
+        # also exit loop if min step size limit hit - things are bad
+        finished |= (status & 0x8)
+
         if all_sync(mask, finished):
             return status
 
         if not finished:
-            step_counter += 1
-            do_save = (step_counter % steps_per_save) == 0
-            if do_save:
-                step_counter = int32(0)
+            do_save = (t + dt[0]) >= next_save
+            dt_eff = selp(do_save, numba_precision(next_save - t), dt[0])
+
+            # Fixed mode auto-accepts all steps; adaptive uses controller
 
             step_status = dirk_step_fn(
-                state_buffer, state_proposal, params_buffer,
-                driver_coefficients, drivers_buffer, drivers_proposal,
-                obs_buffer, obs_proposal, error_buffer, dt_eff, t,
-                int16(0), int16(1), dirk_scratch, algo_local,
-                proposed_counters.view(simsafe_int32))
+                state_buffer,
+                state_proposal_buffer,
+                parameters_buffer,
+                driver_coefficients,
+                drivers_buffer,
+                drivers_proposal_buffer,
+                observables_buffer,
+                observables_proposal_buffer,
+                error,
+                dt_eff,
+                t_prec,
+                first_step_flag,
+                prev_step_accepted_flag,
+                remaining_shared_scratch,
+                algo_local,
+                proposed_counters,
+            )
 
+            first_step_flag = int16(0)
+
+            niters = (step_status >> 16) & status_mask
             status |= step_status & status_mask
 
+            # Adjust dt if step rejected - auto-accepts if fixed-step
+            if not fixed_mode:
+                status |= step_controller_fixed(
+                    dt,
+                    state_proposal_buffer,
+                    state_buffer,
+                    error,
+                    niters,
+                    accept_step,
+                    controller_temp,
+                )
+
+                accept = accept_step[0] != int32(0)
+
+            else:
+                accept = True
+
+            # Accumulate iteration counters if active
+            if save_counters_bool:
+                for i in range(n_counters):
+                    if i < 2:
+                        # Write newton, krylov iterations from buffer
+                        counters_since_save[i] += proposed_counters[i]
+                    elif i == 2:
+                        # Increment total steps counter
+                        counters_since_save[i] += int32(1)
+                    elif not accept:
+                        # Increment rejected steps counter
+                        counters_since_save[i] += int32(1)
+
             t_proposal = t + dt_eff
-            t = t_proposal
+            t = selp(accept, t_proposal, t)
+            t_prec = numba_precision(t)
 
             for i in range(n_states):
-                state_buffer[i] = state_proposal[i]
+                newv = state_proposal_buffer[i]
+                oldv = state_buffer[i]
+                state_buffer[i] = selp(accept, newv, oldv)
 
-            for i in range(n_counters):
-                if i < 2:
-                    counters_since_save[i] += proposed_counters.view(
-                        simsafe_int32)[i]
-                elif i == 2:
-                    counters_since_save[i] += int32(1)
+            for i in range(n_drivers):
+                new_drv = drivers_proposal_buffer[i]
+                old_drv = drivers_buffer[i]
+                drivers_buffer[i] = selp(accept, new_drv, old_drv)
 
+            for i in range(n_observables):
+                new_obs = observables_proposal_buffer[i]
+                old_obs = observables_buffer[i]
+                observables_buffer[i] = selp(accept, new_obs, old_obs)
+
+            prev_step_accepted_flag = selp(
+                accept,
+                int16(1),
+                int16(0),
+            )
+
+            # Predicated update of next_save; update if save is accepted.
+            do_save = accept and do_save
             if do_save:
-                save_state_inline(state_buffer, obs_buffer,
-                                  counters_since_save, t,
-                                  state_output[save_idx, :],
-                                  observables_output[0, :],
-                                  iteration_counters_output[save_idx, :])
-                update_summaries_inline(state_buffer, obs_buffer,
-                                        state_summ_buffer, obs_summ_buffer,
-                                        save_idx)
+                next_save = selp(do_save, next_save + dt_save, next_save)
 
-                if (save_idx + 1) % saves_per_summary == 0:
-                    save_summaries_inline(state_summ_buffer, obs_summ_buffer,
-                                          state_summaries_output[summary_idx,
-                                                                 :],
-                                          observable_summaries_output[0, :],
-                                          saves_per_summary)
-                    summary_idx += 1
+                save_state_inline(
+                    state_buffer,
+                    observables_buffer,
+                    counters_since_save,
+                    t_prec,
+                    state_output[save_idx * save_state_bool, :],
+                    observables_output[save_idx * save_obs_bool, :],
+                    iteration_counters_output[save_idx * save_counters_bool,
+                                              :],
+                )
+                if summarise:
+                    update_summaries_inline(
+                        state_buffer,
+                        observables_buffer,
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        save_idx)
 
+                    if (save_idx + 1) % saves_per_summary == 0:
+                        save_summaries_inline(
+                            state_summary_buffer,
+                            observable_summary_buffer,
+                            state_summaries_output[
+                                summary_idx * summarise_state_bool, :
+                            ],
+                            observable_summaries_output[
+                                summary_idx * summarise_obs_bool, :
+                            ],
+                            saves_per_summary,
+                        )
+                        summary_idx += 1
                 save_idx += 1
-                for i in range(n_counters):
-                    counters_since_save[i] = int32(0)
+
+                # Reset iteration counters after save
+                if save_counters_bool:
+                    for i in range(n_counters):
+                        counters_since_save[i] = int32(0)
 
     if status == int32(0):
+        # Max iterations exhausted without other error
         status = int32(32)
     return status
 
