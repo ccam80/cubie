@@ -35,11 +35,11 @@ n_drivers = 0
 n_counters = 4
 
 # Time parameters
-duration = precision(1.0)
+duration = precision(2e-7)
 warmup = precision(0.0)
-dt_save = precision(0.1)
+dt_save = precision(0.1e-7)
 dt0 = precision(0.01)
-dt_min = precision(1e-7)
+dt_min = precision(1e-12)
 
 # SDIRK 2,2 tableau (Alexander)
 SQRT2 = 2.0 ** 0.5
@@ -60,7 +60,7 @@ krylov_tolerance = precision(1e-6)
 newton_tolerance = precision(1e-6)
 max_linear_iters = 200
 max_newton_iters = 100
-newton_damping = precision(0.5)
+newton_damping = precision(0.85)
 max_backtracks = 8
 preconditioner_order = 2
 beta_solver = 1.0
@@ -208,7 +208,6 @@ def linear_solver_inline_factory(operator_apply, n, preconditioner,
                                  tolerance, max_iters, prec):
     """Create inline linear solver device function."""
     numba_prec = numba_from_dtype(prec)
-    typed_zero = numba_prec(0.0)
     tol_squared = tolerance * tolerance
 
     @cuda.jit(device=True, inline=True, **compile_kwargs)
