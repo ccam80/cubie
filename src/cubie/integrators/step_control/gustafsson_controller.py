@@ -197,6 +197,8 @@ class GustafssonController(BaseAdaptiveStepController):
         typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
         deadband_disabled = (deadband_min == typed_one) and (
                 deadband_max == typed_one
         )

@@ -208,25 +208,27 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         expo3 = precision(kd / (2 * (algorithm_order + 1)))
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
                 deadband_max == typed_one
         )
-        numba_precision = self.compile_settings.numba_precision
+        precision = self.compile_settings.numba_precision
         n = int32(n)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             [
                 (
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
                     int32,
                     int32[::1],
-                    numba_precision[::1],
+                    precision[::1],
                 )
             ],
             device=True,
@@ -293,7 +295,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 * (err_prev_safe ** (expo2))
                 * (err_prev_prev_safe ** (expo3))
             )
-            gain = precision(clamp(gain_new, min_gain, max_gain))
+            gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
                 within_deadband = (
                     (gain >= deadband_min)

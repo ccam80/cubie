@@ -300,7 +300,6 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = float64(settling_time + t0 + duration)
-            t_end_prec = precision(t_end)
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
@@ -374,7 +373,6 @@ class IVPLoop(CUDAFactory):
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 next_save += float64(dt_save)
-                next_save_prec = precision(next_save)
 
                 save_state(
                     state_buffer,
@@ -418,10 +416,6 @@ class IVPLoop(CUDAFactory):
                     proposed_counters[i] = int32(0)
 
             mask = activemask()
-            # ################ DEBUGGING ###############
-            # idx = cuda.grid(2)[1]
-            # if idx == 1:
-            #     from pdb import set_trace; set_trace()
 
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
@@ -434,7 +428,8 @@ class IVPLoop(CUDAFactory):
                     # do_save
                     at_last_save = finished and t < t_end
                     finished = selp(at_last_save, False, True)
-                    dt[0] = selp(at_last_save, t_end_prec - t_prec, dt[0])
+                    dt[0] = selp(at_last_save, precision(t_end - t),
+                                 dt[0])
 
                 # also exit loop if min step size limit hit - things are bad
                 finished |= (status & 0x8)
@@ -444,7 +439,7 @@ class IVPLoop(CUDAFactory):
 
                 if not finished:
                     do_save = (t + dt[0]) >= next_save
-                    dt_eff = selp(do_save, next_save_prec - t_prec, dt[0])
+                    dt_eff = selp(do_save, precision(next_save - t), dt[0])
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
 
@@ -503,7 +498,7 @@ class IVPLoop(CUDAFactory):
                                 # Increment rejected steps counter
                                 counters_since_save[i] += int32(1)
 
-                    t_proposal = t + float64(dt_eff)
+                    t_proposal = t + dt_eff
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
 
@@ -532,13 +527,12 @@ class IVPLoop(CUDAFactory):
                     do_save = accept and do_save
                     if do_save:
                         next_save = selp(do_save, next_save + dt_save, next_save)
-                        next_save_prec = precision(next_save)
 
                         save_state(
                             state_buffer,
                             observables_buffer,
                             counters_since_save,
-                            precision(t),
+                            t_prec,
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
                             iteration_counters_output[save_idx * save_counters_bool, :],

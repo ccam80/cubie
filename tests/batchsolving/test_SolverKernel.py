@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from numba import cuda
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -72,7 +73,7 @@ def test_run(
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
-
+    cuda.synchronize()
     state = solverkernel.state
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries

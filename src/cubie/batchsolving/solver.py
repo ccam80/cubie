@@ -8,6 +8,7 @@ GPU.
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
+from numba import cuda
 
 from cubie._utils import PrecisionDType
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
@@ -389,6 +390,9 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
+        #TODO: An extra context-wide sync required until arrays are on
+        # correct stream
+        cuda.synchronize()
         return SolveResult.from_solver(self, results_type=results_type)
 
     def update(

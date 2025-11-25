@@ -189,12 +189,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
         ki = precision(self.ki / ((algorithm_order + 1) * 2))
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
                 deadband_max == typed_one
         )
-        numba_precision = self.compile_settings.numba_precision
+        precision = self.compile_settings.numba_precision
         n = int32(n)
 
 
@@ -202,13 +204,13 @@ class AdaptivePIController(BaseAdaptiveStepController):
         @cuda.jit(
             [
                 (
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
                     int32,
                     int32[::1],
-                    numba_precision[::1],
+                    precision[::1],
                 )
             ],
             device=True,
@@ -244,7 +246,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 Non-zero when the step is rejected at the minimum size.
             """
             err_prev = local_temp[0]
-            nrm2 = precision(0.0)
+            nrm2 = typed_zero
             for i in range(n):
                 error_i = max(abs(error[i]), precision(1e-16))
                 tol = atol[i] + rtol[i] * max(
