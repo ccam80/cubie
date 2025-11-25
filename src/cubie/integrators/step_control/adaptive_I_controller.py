@@ -198,7 +198,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 )
                 nrm2 += (error_i * error_i) / (tol * tol)
 
-            nrm2 = precision(1/nrm2 * n)
+            nrm2 = precision(1/(nrm2 * n))
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
