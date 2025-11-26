@@ -334,8 +334,8 @@ class DIRKStep(ODEImplicitStep):
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
-        b_row = tableau.b_matches_a_row
-        b_hat_row = tableau.b_hat_matches_a_row
+        b_row = int32(tableau.b_matches_a_row)
+        b_hat_row = int32(tableau.b_hat_matches_a_row)
 
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)

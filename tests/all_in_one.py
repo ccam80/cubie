@@ -1367,7 +1367,7 @@ elif algorithm_type == 'dirk':
 
     linear_solver_fn = linear_solver_inline_factory(operator_fn, n_states,
                                                     preconditioner_fn,
-                                                    float(krylov_tolerance),
+                                                    krylov_tolerance,
                                                     max_linear_iters,
                                                     precision,
                                                     linear_correction_type)
@@ -1376,9 +1376,9 @@ elif algorithm_type == 'dirk':
         residual_fn,
         linear_solver_fn,
         n_states,
-        float(newton_tolerance),
+        newton_tolerance,
         max_newton_iters,
-        float(newton_damping),
+        newton_damping,
         max_backtracks,
         precision,
     )
@@ -1405,16 +1405,16 @@ elif controller_type == 'pid':
         atol,
         rtol,
         algorithm_order,
-        float(kp),
-        float(ki),
-        float(kd),
-        float(min_gain),
-        float(max_gain),
-        float(dt_min_ctrl),
-        float(dt_max_ctrl),
-        float(deadband_min),
-        float(deadband_max),
-        float(safety),
+        kp,
+        ki,
+        kd,
+        min_gain,
+        max_gain,
+        dt_min_ctrl,
+        dt_max_ctrl,
+        deadband_min,
+        deadband_max,
+        safety,
     )
 else:
     raise ValueError(f"Unknown controller type: '{controller_type}'. "
