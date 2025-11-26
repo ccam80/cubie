@@ -77,7 +77,9 @@ def newton_krylov_solver_factory(
     typed_one = precision(1.0)
     typed_damping = precision(damping)
     status_active = int32(-1)
-
+    n = int32(n)
+    max_iters = int32(max_iters)
+    max_backtracks = int32(max_backtracks)
     # no cover: start
 
     @cuda.jit([(precision[::1],

@@ -68,10 +68,11 @@ def linear_solver_factory(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
     preconditioned = 1 if preconditioner is not None else 0
-
+    n = int32(n)
+    max_iters = int32(max_iters)
     precision = from_dtype(precision)
     typed_zero = precision(0.0)
-    tol_squared = tolerance * tolerance
+    tol_squared = precision(tolerance * tolerance)
 
     # no cover: start
     @cuda.jit(

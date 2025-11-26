@@ -24,11 +24,11 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 
 # Algorithm configuration: 'erk' or 'dirk'
 # Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys
-algorithm_type = 'dirk'  # 'erk' or 'dirk'
-algorithm_tableau_name = 'sdirk_2_2'  # Registry key for the tableau
+algorithm_type = 'erk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
 
 # Controller configuration: 'fixed' or 'pid'
-controller_type = 'fixed'  # 'fixed' or 'pid'
+controller_type = 'pid'  # 'fixed' or 'pid'
 
 precision = np.float32
 numba_precision = numba_from_dtype(precision)
@@ -51,9 +51,9 @@ n_counters = 4
 # Time parameters
 duration = precision(2e-7)
 warmup = precision(0.0)
-dt_save = precision(0.1e-7)
-dt0 = precision(0.01)
-dt_min = precision(1e-12)
+dt_save = precision(1e-7)
+dt_max = precision(1e-6)
+dt_min = precision(1e-13)
 
 # Look up tableau from registry based on algorithm type
 if algorithm_type == 'erk':
@@ -85,7 +85,7 @@ preconditioner_order = 2
 # Linear solver (Krylov) parameters
 krylov_tolerance = precision(1e-6)
 max_linear_iters = 200
-
+linear_correction_type = "minimal_residual"
 # Newton-Krylov nonlinear solver parameters
 newton_tolerance = precision(1e-6)
 max_newton_iters = 100
@@ -99,8 +99,8 @@ ki = precision(1.0 / 9.0)
 kd = precision(1.0 / 18.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
-dt_min_ctrl = precision(1e-6)
-dt_max_ctrl = precision(1.0)
+dt_min_ctrl = dt_min
+dt_max_ctrl = dt_max
 deadband_min = precision(1.0)
 deadband_max = precision(1.2)
 safety = precision(0.9)
@@ -244,12 +244,21 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
 # INLINE LINEAR SOLVER FACTORY
 # =========================================================================
 
-def linear_solver_inline_factory(operator_apply, n, preconditioner,
-                                 tolerance, max_iters, prec):
-    """Create inline linear solver device function."""
-    numba_prec = numba_from_dtype(prec)
-    tol_squared = tolerance * tolerance
+def linear_solver_inline_factory(
+        operator_apply, n, preconditioner, tolerance, max_iters, prec, correction_type
+):
+    """Create inline linear solver device function.
 
+    Parameters
+    ----------
+    correction_type
+    """
+    numba_prec = numba_from_dtype(prec)
+    tol_squared = precision(tolerance * tolerance)
+    n = int32(n)
+    max_iters = int32(max_iters)
+    sd_flag = 1 if correction_type == "steepest_descent" else 0
+    mr_flag = 1 if correction_type == "minimal_residual" else 0
     @cuda.jit(device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
@@ -269,17 +278,42 @@ def linear_solver_inline_factory(operator_apply, n, preconditioner,
         iter_count = int32(0)
         for _ in range(max_iters):
             iter_count += int32(1)
-            preconditioner(state, parameters, drivers, base_state, t, h,
-                           a_ij, rhs, preconditioned_vec, temp)
+            preconditioner(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                rhs,
+                preconditioned_vec,
+                temp,
+            )
 
-            operator_apply(state, parameters, drivers, base_state, t, h,
-                           a_ij, preconditioned_vec, temp)
+            operator_apply(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                preconditioned_vec,
+                temp,
+            )
             numerator = typed_zero
             denominator = typed_zero
-            for i in range(n):
-                ti = temp[i]
-                numerator += ti * rhs[i]
-                denominator += ti * ti
+            if sd_flag:
+                for i in range(n):
+                    zi = preconditioned_vec[i]
+                    numerator += rhs[i] * zi
+                    denominator += temp[i] * zi
+            elif mr_flag:
+                for i in range(n):
+                    ti = temp[i]
+                    numerator += ti * rhs[i]
+                    denominator += ti * ti
 
             alpha = selp(denominator != typed_zero,
                          numerator / denominator, typed_zero)
@@ -311,6 +345,9 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                                  max_iters, damping, max_backtracks, prec):
     """Create inline Newton-Krylov solver device function."""
     numba_prec = numba_from_dtype(prec)
+    n = int32(n)
+    max_iters = int32(max_iters)
+    max_backtracks = int32(max_backtracks)
     tol_squared = numba_prec(tolerance * tolerance)
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
@@ -1325,14 +1362,12 @@ elif algorithm_type == 'dirk':
         order=preconditioner_order,
     )
 
-    linear_solver_fn = linear_solver_inline_factory(
-        operator_fn,
-        n_states,
-        preconditioner_fn,
-        float(krylov_tolerance),
-        max_linear_iters,
-        precision,
-    )
+    linear_solver_fn = linear_solver_inline_factory(operator_fn, n_states,
+                                                    preconditioner_fn,
+                                                    float(krylov_tolerance),
+                                                    max_linear_iters,
+                                                    precision,
+                                                    linear_correction_type)
 
     newton_solver_fn = newton_krylov_inline_factory(
         residual_fn,
@@ -1438,6 +1473,7 @@ summarise = summarise_obs_bool or summarise_state_bool
 save_counters_bool = True
 fixed_mode = (controller_type == 'fixed')
 save_last = False
+dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min*dt_max)
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -1868,11 +1904,11 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     max_newton_iters_runs = np.sum(status_codes_output == 2)
     linear_max_iters_runs = np.sum(status_codes_output == 4)
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
-    print(f"\ndt_min exceeded runs: {dt_min_exceeded_runs:,}")
-    print(f"\nmax steps exceeded runs: {max_steps_exceeded_runs:,}")
-    print(f"\nmax newton backtracks runs: {max_newton_backtracks_runs:,}")
-    print(f"\nmax newton iters exceeded runs: {max_newton_iters_runs:,}")
-    print(f"\nlinear solver max iters exceeded runs: {linear_max_iters_runs:,}")
+    print(f"dt_min exceeded runs: {dt_min_exceeded_runs:,}")
+    print(f"max steps exceeded runs: {max_steps_exceeded_runs:,}")
+    print(f"max newton backtracks runs: {max_newton_backtracks_runs:,}")
+    print(f"max newton iters exceeded runs: {max_newton_iters_runs:,}")
+    print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")
 
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
 
