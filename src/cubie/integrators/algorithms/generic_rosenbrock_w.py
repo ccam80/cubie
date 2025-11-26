@@ -432,7 +432,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_store = shared[stage_store_start:stage_store_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
-            final_stage_base = n * (stage_count - 1)
+            final_stage_base = n * (stage_count - int32(1))
             time_derivative = stage_store[
                 final_stage_base : final_stage_base + n
             ]
@@ -532,7 +532,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
             # --------------------------------------------------------------- #
-            for stage_idx in range(1, stage_count):
+            for stage_idx in range(int32(1), stage_count):
                 # Fill buffers with previous step's contributions
                 stage_gamma = gamma_stages[stage_idx]
                 stage_time = (
@@ -627,7 +627,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_increment = stage_slice
 
                 # Use previous stage's solution as a guess for this stage
-                previous_base = n * (stage_idx - 1)
+                previous_base = n * (stage_idx - int32(1))
                 for idx in range(n):
                     stage_increment[idx] = stage_store[previous_base + idx]
 

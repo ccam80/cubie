@@ -1,5 +1,5 @@
 """Adaptive proportional–integral controller implementations."""
-
+from math import sqrt
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
@@ -198,6 +198,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
+        root_n = precision(sqrt(n))
 
 
         # step sizes and norms can be approximate - fastmath is fine
@@ -255,7 +256,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = typed_one/(nrm2*n)
+            nrm2 = root_n/nrm2
             accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 

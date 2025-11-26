@@ -504,7 +504,8 @@ class FIRKStep(ODEImplicitStep):
                         stage_time,
                     )
 
-                    stage_rhs = stage_rhs_flat[stage_idx * n:(stage_idx + 1) * n]
+                    stage_rhs = stage_rhs_flat[stage_idx * n:(stage_idx +
+                                                              int32(1)) * n]
                     dxdt_fn(
                         stage_state,
                         parameters,

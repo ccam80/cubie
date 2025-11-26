@@ -404,22 +404,22 @@ class ERKStep(ODEExplicitStep):
             #            Stages 1-s: refresh observables and drivers       #
             # ----------------------------------------------------------- #
 
-            for stage_idx in range(1, stage_count):
+            for stage_idx in range(int32(1), stage_count):
 
                 # Stream last result into the accumulators
-                prev_idx = stage_idx - 1
+                prev_idx = stage_idx - int32(1)
                 successor_range = stage_count - stage_idx
 
                 for successor_offset in range(successor_range):
                     successor_idx = stage_idx + successor_offset
                     state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - 1) * n
+                    base = (successor_idx - int32(1)) * n
                     for idx in range(n):
                         increment = stage_rhs[idx]
                         contribution = state_coeff * increment
                         stage_accumulator[base + idx] += contribution
 
-                stage_offset = (stage_idx - 1) * n
+                stage_offset = (stage_idx - int32(1)) * n
                 dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 

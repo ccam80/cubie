@@ -4,7 +4,7 @@ All CUDA device functions are consolidated in this single file to enable
 proper line-level debugging with Numba's lineinfo feature.
 """
 # ruff: noqa: E402
-from math import ceil
+from math import ceil, floor, sqrt
 from typing import Optional
 
 import numpy as np
@@ -26,7 +26,7 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 
 # Default stride order matches memory manager: (time, run, variable)
 # Represented as indices: 0=time, 1=run, 2=variable
-DEFAULT_STRIDE_ORDER = (0, 1, 2)
+DEFAULT_STRIDE_ORDER = (0, 2, 1)
 
 
 def get_strides(
@@ -65,19 +65,6 @@ def get_strides(
     -----
     Only 3D arrays get custom stride optimization. Arrays with fewer
     dimensions use default strides.
-
-    Examples
-    --------
-    >>> # state_output: shape=(samples, runs, states), order=(time, run, var)
-    >>> strides = get_strides((100, 1024, 4), np.float32, (0, 1, 2), (0, 1, 2))
-    >>> strides is None  # same order, no custom strides needed
-    True
-
-    >>> # iteration_counters: shape=(runs, samples, counters),
-    >>> # order=(run, time, var) but want (time, run, var) memory layout
-    >>> strides = get_strides((1024, 100, 4), np.int32, (1, 0, 2), (0, 1, 2))
-    >>> strides is not None  # different order, custom strides returned
-    True
     """
     if len(shape) != 3:
         return None
@@ -113,6 +100,25 @@ algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
 # Controller configuration: 'fixed' or 'pid'
 controller_type = 'pid'  # 'fixed' or 'pid'
 
+# Look up tableau from registry based on algorithm type
+if algorithm_type == 'erk':
+    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'dirk':
+    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
+                     "Use 'erk' or 'dirk'.")
+
 precision = np.float32
 numba_precision = numba_from_dtype(precision)
 simsafe_precision = simsafe_dtype(precision)
@@ -136,26 +142,8 @@ duration = precision(2e-7)
 warmup = precision(0.0)
 dt_save = precision(1e-7)
 dt_max = precision(1e-6)
-dt_min = precision(1e-13)
+dt_min = precision(1e-12) #TODO: when 1e-15, infinite loop
 
-# Look up tableau from registry based on algorithm type
-if algorithm_type == 'erk':
-    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
-elif algorithm_type == 'dirk':
-    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
-else:
-    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
-                     "Use 'erk' or 'dirk'.")
 
 # Tableau stage count (for buffer sizing)
 stage_count = tableau.stage_count
@@ -173,13 +161,13 @@ linear_correction_type = "minimal_residual"
 newton_tolerance = precision(1e-6)
 max_newton_iters = 100
 newton_damping = precision(0.85)
-max_backtracks = 8
+max_backtracks = 15
 
 # PID controller parameters
 algorithm_order = 2
-kp = precision(1.0 / 18.0)
-ki = precision(1.0 / 9.0)
-kd = precision(1.0 / 18.0)
+kp = precision(1.0)
+ki = precision(0)
+kd = precision(0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
 dt_min_ctrl = dt_min
@@ -187,11 +175,11 @@ dt_max_ctrl = dt_max
 deadband_min = precision(1.0)
 deadband_max = precision(1.2)
 safety = precision(0.9)
-atol = np.full(n_states, precision(1e-6), dtype=precision)
-rtol = np.full(n_states, precision(1e-6), dtype=precision)
+atol = np.full(n_states, precision(1e-8), dtype=precision)
+rtol = np.full(n_states, precision(1e-8), dtype=precision)
 
 # Output dimensions
-n_output_samples = int(ceil(float(duration) / float(dt_save))) + 1
+n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
 
 # =========================================================================
 # AUTO-GENERATED DEVICE FUNCTION FACTORIES
@@ -228,9 +216,10 @@ def observables_factory(constants, prec):
 
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     """Auto-generated Neumann preconditioner."""
-    n = 3
-    beta_inv = 1.0 / beta
-    h_eff_factor = gamma * beta_inv
+    n = int32(3)
+    order = int32(order)
+    beta_inv = prec(1.0 / beta)
+    h_eff_factor = prec(gamma * beta_inv)
     sigma = prec(constants['sigma'])
     beta_const = prec(constants['beta'])
     numba_prec = numba_from_dtype(prec)
@@ -293,6 +282,7 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
     """Auto-generated linear operator."""
     sigma = prec(constants['sigma'])
     beta_const = prec(constants['beta'])
+    gamma = prec(gamma)
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit((numba_prec[::1], numba_prec[::1], numba_prec[::1],
@@ -924,6 +914,7 @@ def erk_step_inline_factory(
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
+    n_arraysize = n
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     accumulator_length = int32(max(stage_count - 1, 0) * n)
@@ -1025,7 +1016,7 @@ def erk_step_inline_factory(
         #       loop.
         #       - Cleared at loop entry so prior steps cannot leak in.
         # ----------------------------------------------------------- #
-        stage_rhs = cuda.local.array(n, numba_precision)
+        stage_rhs = cuda.local.array(n_arraysize, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -1084,7 +1075,7 @@ def erk_step_inline_factory(
                 proposed_state[idx] += solution_weights[0] * increment
             if has_error:
                 if accumulates_error:
-                    error[idx] += error_weights[0] * increment
+                    error[idx] = error[idx] + error_weights[0] * increment
 
         for idx in range(accumulator_length):
             stage_accumulator[idx] = typed_zero
@@ -1093,29 +1084,31 @@ def erk_step_inline_factory(
         #            Stages 1-s: refresh observables and drivers       #
         # ----------------------------------------------------------- #
 
-        for stage_idx in range(1, stage_count):
+        for stage_idx in range(int32(1), stage_count):
 
             # Stream last result into the accumulators
-            prev_idx = stage_idx - 1
+            prev_idx = stage_idx - int32(1)
             successor_range = stage_count - stage_idx
 
             for successor_offset in range(successor_range):
                 successor_idx = stage_idx + successor_offset
                 state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                base = (successor_idx - 1) * n
+                base = (successor_idx - int32(1)) * n
                 for idx in range(n):
                     increment = stage_rhs[idx]
                     contribution = state_coeff * increment
                     stage_accumulator[base + idx] += contribution
 
-            stage_offset = (stage_idx - 1) * n
+            stage_offset = (stage_idx - int32(1)) * n
             dt_stage = dt_scalar * stage_nodes[stage_idx]
             stage_time = current_time + dt_stage
 
             # Convert accumulated gradients sum(f(y_nj) into a state y_j
             for idx in range(n):
-                stage_accumulator[stage_offset + idx] *= dt_scalar
-                stage_accumulator[stage_offset + idx] += state[idx]
+                stage_idx = stage_offset + idx
+                stage_accumulator[stage_idx] = (
+                    stage_accumulator[stage_idx] * dt_scalar + state[stage_idx]
+                )
 
             # Rename the slice for clarity
             stage_state = stage_accumulator[stage_offset:stage_offset + n]
@@ -1376,7 +1369,7 @@ def controller_PID_factory(
     min_gain = precision(min_gain)
     max_gain = precision(max_gain)
     safety = precision(safety)
-
+    rootn = precision(sqrt(n))
     @cuda.jit(
         [
             (
@@ -1416,7 +1409,7 @@ def controller_PID_factory(
             ratio = error_i / tol
             nrm2 += ratio * ratio
 
-        nrm2 = typed_one/(nrm2*n)
+        nrm2 = rootn/nrm2
         accept = nrm2 >= typed_one
         accept_out[0] = int32(1) if accept else int32(0)
         err_prev_safe = err_prev if err_prev > typed_zero else nrm2
@@ -1552,37 +1545,41 @@ else:
 # =========================================================================
 
 # Buffer layout
-state_shared_start = 0
-state_shared_end = n_states
-proposed_state_start = state_shared_end
-proposed_state_end = proposed_state_start + n_states
+state_shared_start = int32(0)
+state_shared_end = int32(n_states)
+proposed_state_start = int32(state_shared_end)
+proposed_state_end = proposed_state_start + int32(n_states)
 params_start = proposed_state_end
-params_end = params_start + n_parameters
+params_end = params_start + int32(n_parameters)
 drivers_start = params_end
-drivers_end = drivers_start + max(n_drivers, 1)
+drivers_end = drivers_start + int32(n_drivers)
 proposed_drivers_start = drivers_end
-proposed_drivers_end = proposed_drivers_start + max(n_drivers, 1)
+proposed_drivers_end = proposed_drivers_start + int32(n_drivers)
 obs_start = proposed_drivers_end
-obs_end = obs_start + max(n_observables, 1)
+obs_end = obs_start + int32(n_observables)
 proposed_obs_start = obs_end
-proposed_obs_end = proposed_obs_start + max(n_observables, 1)
+proposed_obs_end = proposed_obs_start + int32(n_observables)
 error_start = proposed_obs_end
-error_end = error_start + n_states
+error_end = error_start + int32(n_states)
 counters_start = error_end
-counters_end = counters_start + n_counters
+counters_end = counters_start + int32(n_counters)
 proposed_counters_start = counters_end
-proposed_counters_end = proposed_counters_start + 2
-# DIRK needs accumulator + solver scratch
-accumulator_size = (stage_count - 1) * n_states
-solver_scratch_size = 2 * n_states
-dirk_scratch_start = proposed_counters_end
-dirk_scratch_end = dirk_scratch_start + accumulator_size + solver_scratch_size
-state_summ_start = dirk_scratch_end
-state_summ_end = state_summ_start + n_states
+proposed_counters_end = proposed_counters_start + int32(2)
+scratch_start = proposed_counters_end
+
+accumulator_size = int32((stage_count - 1) * n_states)
+if algorithm_type == 'dirk':
+    solver_scratch_size = int32(2 * n_states)
+    scratch_end = scratch_start + accumulator_size + solver_scratch_size
+else:
+    scratch_end = scratch_start + accumulator_size
+
+state_summ_start = scratch_end
+state_summ_end = state_summ_start + int32(n_states)
 obs_summ_start = state_summ_end
-obs_summ_end = obs_summ_start + max(n_observables, 1)
-scratch_start = obs_summ_end
-shared_elements = scratch_start + 64
+obs_summ_end = obs_summ_start + int32(n_observables)
+shared_elements = obs_summ_end
+
 
 local_dt_slice = slice(0, 1)
 local_accept_slice = slice(1, 2)
@@ -1664,8 +1661,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                                              proposed_drivers_end]
     state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
     observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
-    remaining_shared_scratch = shared_scratch[dirk_scratch_start:
-                                              dirk_scratch_end]
+    remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
     counters_since_save = shared_scratch[counters_start:counters_end]
 
     if save_counters_bool:
@@ -1883,7 +1879,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         observables_buffer,
                         state_summary_buffer,
                         observable_summary_buffer,
-                        save_idx)
+                        save_idx,
+                    )
 
                     if (save_idx + 1) % saves_per_summary == 0:
                         save_summaries_inline(
@@ -1918,7 +1915,12 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 local_elements_per_run = local_elements
 shared_elems_per_run = shared_elements
 f32_per_element = 2 if (precision == np.float64) else 1
-
+f32_pad_perrun = (
+    1 if shared_elems_per_run % 2 == 0 and f32_per_element == 1 else 0
+)
+run_stride_f32 = int(
+            (f32_per_element * shared_elems_per_run + f32_pad_perrun)
+        )
 
 @cuda.jit(**compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
@@ -1926,16 +1928,22 @@ def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_summaries_output, iteration_counters_output,
                        status_codes_output, duration_k, warmup_k, t0_k,
                        n_runs_k):
-    run_index = cuda.grid(1)
+    tx = int16(cuda.threadIdx.x)
+    ty = int16(cuda.threadIdx.y)
+    block_index = int32(cuda.blockIdx.x)
+    runs_per_block = cuda.blockDim.y
+    run_index = int32(runs_per_block * block_index + ty)
+
     if run_index >= n_runs_k:
-        return
+        return None
 
     shared_memory = cuda.shared.array(0, dtype=float32)
     local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
     c_coefficients = cuda.const.array_like(d_coefficients)
 
-    run_idx_low = 0
-    run_idx_high = f32_per_element * shared_elems_per_run
+    run_idx_low = ty * run_stride_f32
+    run_idx_high = (run_idx_low + f32_per_element * shared_elems_per_run
+    )
     rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
         simsafe_precision)
 
@@ -2092,4 +2100,4 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
 
 
 if __name__ == "__main__":
-    run_debug_integration()
+    run_debug_integration(n_runs=int32(2**23))

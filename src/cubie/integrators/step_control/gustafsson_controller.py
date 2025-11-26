@@ -1,5 +1,5 @@
 """Gustafsson predictive step controller."""
-
+from math import sqrt
 from typing import Callable, Optional, Union
 
 import numpy as np
@@ -204,6 +204,7 @@ class GustafssonController(BaseAdaptiveStepController):
         )
         numba_precision = self.compile_settings.numba_precision
         n = int32(n)
+        root_n = precision(sqrt(n))
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             [
@@ -263,7 +264,7 @@ class GustafssonController(BaseAdaptiveStepController):
                 ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = typed_one/(nrm2*n)
+            nrm2 = root_n/nrm2
             accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 

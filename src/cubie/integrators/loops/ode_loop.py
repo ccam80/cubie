@@ -349,13 +349,13 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if driver_function is not None and n_drivers > 0:
+            if driver_function is not None and n_drivers > int32(0):
                 driver_function(
                     t_prec,
                     driver_coefficients,
                     drivers_buffer,
                 )
-            if n_observables > 0:
+            if n_observables > int32():
                 observables_fn(
                     state_buffer,
                     parameters_buffer,
@@ -412,7 +412,7 @@ class IVPLoop(CUDAFactory):
             # Initialize iteration counters
             for i in range(n_counters):
                 counters_since_save[i] = int32(0)
-                if i < 2:
+                if i < int32(2):
                     proposed_counters[i] = int32(0)
 
             mask = activemask()
@@ -488,10 +488,10 @@ class IVPLoop(CUDAFactory):
                     # Accumulate iteration counters if active
                     if save_counters_bool:
                         for i in range(n_counters):
-                            if i < 2:
+                            if i < int32(2):
                                 # Write newton, krylov iterations from buffer
                                 counters_since_save[i] += proposed_counters[i]
-                            elif i == 2:
+                            elif i == int32(2):
                                 # Increment total steps counter
                                 counters_since_save[i] += int32(1)
                             elif not accept:
@@ -545,7 +545,8 @@ class IVPLoop(CUDAFactory):
                                 observable_summary_buffer,
                                 save_idx)
 
-                            if (save_idx + 1) % saves_per_summary == 0:
+                            if ((save_idx + int32(1)) % saves_per_summary ==
+                                    int32(0)):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
@@ -557,8 +558,8 @@ class IVPLoop(CUDAFactory):
                                     ],
                                     saves_per_summary,
                                 )
-                                summary_idx += 1
-                        save_idx += 1
+                                summary_idx += int32(1)
+                        save_idx += int32(1)
 
                         # Reset iteration counters after save
                         if save_counters_bool:

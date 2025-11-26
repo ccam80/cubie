@@ -1,5 +1,5 @@
 """Adaptive integral step controller."""
-
+from math import sqrt
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
@@ -143,6 +143,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
             and (deadband_max == typed_one)
         )
         n = int32(n)
+        root_n = precision(sqrt(n))
+
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -201,7 +203,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 )
                 nrm2 += (error_i * error_i) / (tol * tol)
 
-            nrm2 = typed_one/(nrm2 * n)
+            nrm2 = root_n/nrm2
             accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
