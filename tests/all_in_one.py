@@ -12,15 +12,23 @@ from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
-    SDIRK_2_2_TABLEAU,
+    DIRK_TABLEAU_REGISTRY,
 )
 from cubie.integrators.algorithms.generic_erk_tableaus import (
-    DORMAND_PRINCE_54_TABLEAU,
+    ERK_TABLEAU_REGISTRY,
 )
 
 # =========================================================================
 # CONFIGURATION
 # =========================================================================
+
+# Algorithm configuration: 'erk' or 'dirk'
+# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys
+algorithm_type = 'dirk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'sdirk_2_2'  # Registry key for the tableau
+
+# Controller configuration: 'fixed' or 'pid'
+controller_type = 'fixed'  # 'fixed' or 'pid'
 
 precision = np.float32
 numba_precision = numba_from_dtype(precision)
@@ -47,8 +55,16 @@ dt_save = precision(0.1e-7)
 dt0 = precision(0.01)
 dt_min = precision(1e-12)
 
-# SDIRK 2,2 tableau stage count (for buffer sizing)
-stage_count = SDIRK_2_2_TABLEAU.stage_count
+# Look up tableau from registry based on algorithm type
+if algorithm_type == 'erk':
+    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'dirk':
+    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+else:
+    raise ValueError(f"Unknown algorithm type: {algorithm_type}")
+
+# Tableau stage count (for buffer sizing)
+stage_count = tableau.stage_count
 
 # Solver helper parameters (beta, gamma, mass matrix scaling)
 beta_solver = precision(1.0)
@@ -1263,84 +1279,95 @@ def controller_PID_factory(
 # Build all device functions using factories with explicit arguments
 dxdt_fn = dxdt_factory(constants, precision)
 observables_function = observables_factory(constants, precision)
-preconditioner_fn = neumann_preconditioner_factory(
-    constants,
-    precision,
-    beta=float(beta_solver),
-    gamma=float(gamma_solver),
-    order=preconditioner_order,
-)
-residual_fn = stage_residual_factory(
-    constants,
-    precision,
-    beta=float(beta_solver),
-    gamma=float(gamma_solver),
-    order=preconditioner_order,
-)
-operator_fn = linear_operator_factory(
-    constants,
-    precision,
-    beta=float(beta_solver),
-    gamma=float(gamma_solver),
-    order=preconditioner_order,
-)
 
-linear_solver_fn = linear_solver_inline_factory(
-    operator_fn,
-    n_states,
-    preconditioner_fn,
-    float(krylov_tolerance),
-    max_linear_iters,
-    precision,
-)
+# Build step function based on algorithm type
+if algorithm_type == 'erk':
+    # ERK step for explicit integration
+    step_fn = erk_step_inline_factory(
+        dxdt_fn,
+        observables_function,
+        n_states,
+        precision,
+        tableau,
+    )
+elif algorithm_type == 'dirk':
+    # Build implicit solver components for DIRK
+    preconditioner_fn = neumann_preconditioner_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
+    residual_fn = stage_residual_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
+    operator_fn = linear_operator_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
 
-newton_solver_fn = newton_krylov_inline_factory(
-    residual_fn,
-    linear_solver_fn,
-    n_states,
-    float(newton_tolerance),
-    max_newton_iters,
-    float(newton_damping),
-    max_backtracks,
-    precision,
-)
+    linear_solver_fn = linear_solver_inline_factory(
+        operator_fn,
+        n_states,
+        preconditioner_fn,
+        float(krylov_tolerance),
+        max_linear_iters,
+        precision,
+    )
 
-dirk_step_fn = dirk_step_inline_factory(
-    newton_solver_fn,
-    dxdt_fn,
-    observables_function,
-    n_states,
-    precision,
-    SDIRK_2_2_TABLEAU,
-)
+    newton_solver_fn = newton_krylov_inline_factory(
+        residual_fn,
+        linear_solver_fn,
+        n_states,
+        float(newton_tolerance),
+        max_newton_iters,
+        float(newton_damping),
+        max_backtracks,
+        precision,
+    )
 
-# Optional: ERK step for explicit integration
-# erk_step_fn = erk_step_inline_factory(
-#     dxdt_fn,
-#     observables_function,
-#     n_states,
-#     precision,
-#     DORMAND_PRINCE_54_TABLEAU,
-# )
+    step_fn = dirk_step_inline_factory(
+        newton_solver_fn,
+        dxdt_fn,
+        observables_function,
+        n_states,
+        precision,
+        tableau,
+    )
+else:
+    raise ValueError(f"Unknown algorithm type: {algorithm_type}")
 
-# Optional: PID controller for adaptive stepping
-# controller_PID_fn = controller_PID_factory(
-#     precision,
-#     n_states,
-#     atol,
-#     rtol,
-#     algorithm_order,
-#     float(kp),
-#     float(ki),
-#     float(kd),
-#     float(min_gain),
-#     float(max_gain),
-#     float(dt_min_ctrl),
-#     float(dt_max_ctrl),
-#     float(deadband_min),
-#     float(deadband_max),
-#     float(safety),
-# )
+# Build controller function based on controller type
+if controller_type == 'fixed':
+    step_controller_fn = step_controller_fixed
+elif controller_type == 'pid':
+    step_controller_fn = controller_PID_factory(
+        precision,
+        n_states,
+        atol,
+        rtol,
+        algorithm_order,
+        float(kp),
+        float(ki),
+        float(kd),
+        float(min_gain),
+        float(max_gain),
+        float(dt_min_ctrl),
+        float(dt_max_ctrl),
+        float(deadband_min),
+        float(deadband_max),
+        float(safety),
+    )
+else:
+    raise ValueError(f"Unknown controller type: {controller_type}")
 
 
 # =========================================================================
@@ -1396,7 +1423,7 @@ summarise_obs_bool = True
 summarise_state_bool = True
 summarise = summarise_obs_bool or summarise_state_bool
 save_counters_bool = True
-fixed_mode = True
+fixed_mode = (controller_type == 'fixed')
 save_last = False
 
 
@@ -1557,7 +1584,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             # Fixed mode auto-accepts all steps; adaptive uses controller
 
-            step_status = dirk_step_fn(
+            step_status = step_fn(
                 state_buffer,
                 state_proposal_buffer,
                 parameters_buffer,
@@ -1583,7 +1610,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
             if not fixed_mode:
-                status |= step_controller_fixed(
+                status |= step_controller_fn(
                     dt,
                     state_proposal_buffer,
                     state_buffer,
@@ -1736,7 +1763,10 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     """Execute debug integration with 2^23 runs."""
     print("=" * 70)
-    print("Debug Integration - DIRK SDIRK_2_2 with Newton-Krylov")
+    algo_name = algorithm_type.upper()
+    ctrl_name = controller_type.upper()
+    print(f"Debug Integration - {algo_name} ({algorithm_tableau_name}) "
+          f"with {ctrl_name} controller")
     print("=" * 70)
     print(f"\nRunning {n_runs:,} integrations with rho in [{rho_min}, {rho_max}]")
 
