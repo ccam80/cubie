@@ -310,7 +310,8 @@ class DIRKStep(ODEImplicitStep):
         config = self.compile_settings
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        stage_count = tableau.stage_count
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
 
         # Compile-time toggles
         has_driver_function = driver_function is not None
@@ -338,7 +339,7 @@ class DIRKStep(ODEImplicitStep):
 
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
-        accumulator_length = max(stage_count - 1, 0) * n
+        accumulator_length = int32(max(stage_count - 1, 0) * n)
         solver_shared_elements = self.solver_shared_elements
 
         # Shared memory indices
@@ -479,7 +480,7 @@ class DIRKStep(ODEImplicitStep):
 
             else:
                 if can_reuse_accepted_start:
-                    for idx in range(drivers_buffer.shape[0]):
+                    for idx in range(int32(drivers_buffer.shape[0])):
                         # Use step-start driver values
                         proposed_drivers[idx] = drivers_buffer[idx]
 

@@ -93,6 +93,7 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         has_driver_function = driver_function is not None
         driver_function = driver_function
+        n = int32(n)
 
         # no cover: start
         @cuda.jit(

@@ -332,8 +332,10 @@ class FIRKStep(ODEImplicitStep):
         config = self.compile_settings
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        stage_count = self.stage_count
-        all_stages_n = config.all_stages_n
+        n = int32(n)
+        n_drivers = int32(n_drivers)
+        stage_count = int32(self.stage_count)
+        all_stages_n = int32(config.all_stages_n)
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive

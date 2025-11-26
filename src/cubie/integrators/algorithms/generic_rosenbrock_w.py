@@ -332,7 +332,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
 
-        stage_count = self.stage_count
+        n = int32(n)
+        stage_count = int32(self.stage_count)
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)

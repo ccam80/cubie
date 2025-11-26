@@ -259,6 +259,7 @@ def linear_solver_inline_factory(
     max_iters = int32(max_iters)
     sd_flag = 1 if correction_type == "steepest_descent" else 0
     mr_flag = 1 if correction_type == "minimal_residual" else 0
+
     @cuda.jit(device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
@@ -457,7 +458,8 @@ def dirk_step_inline_factory(
     typed_zero = numba_precision(0.0)
 
     # Extract tableau properties
-    stage_count = tableau.stage_count
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
 
     # Compile-time toggles
     has_driver_function = False  # No driver function in this test
@@ -482,7 +484,7 @@ def dirk_step_inline_factory(
 
     stage_implicit = tuple(coeff != numba_precision(0.0)
                            for coeff in diagonal_coeffs)
-    accumulator_length = max(stage_count - 1, 0) * n
+    accumulator_length = int32(max(stage_count - 1, 0) * n)
     solver_shared_elements = 2 * n  # delta + residual for Newton solver
 
     # Shared memory indices
@@ -812,8 +814,9 @@ def erk_step_inline_factory(
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
-    stage_count = tableau.stage_count
-    accumulator_length = max(stage_count - 1, 0) * n
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
+    accumulator_length = int32(max(stage_count - 1, 0) * n)
 
     # Compile-time toggles
     has_driver_function = False  # No driver function in this test

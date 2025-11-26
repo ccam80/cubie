@@ -232,8 +232,9 @@ class ERKStep(ODEExplicitStep):
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
-        stage_count = tableau.stage_count
-        accumulator_length = max(stage_count - 1, 0) * n
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
+        accumulator_length = int32(max(stage_count - 1, 0) * n)
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
