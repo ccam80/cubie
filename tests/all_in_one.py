@@ -57,11 +57,22 @@ dt_min = precision(1e-12)
 
 # Look up tableau from registry based on algorithm type
 if algorithm_type == 'erk':
+    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
+        )
     tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
 elif algorithm_type == 'dirk':
+    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
+        )
     tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
 else:
-    raise ValueError(f"Unknown algorithm type: {algorithm_type}")
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
+                     "Use 'erk' or 'dirk'.")
 
 # Tableau stage count (for buffer sizing)
 stage_count = tableau.stage_count
@@ -1343,7 +1354,8 @@ elif algorithm_type == 'dirk':
         tableau,
     )
 else:
-    raise ValueError(f"Unknown algorithm type: {algorithm_type}")
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
+                     "Use 'erk' or 'dirk'.")
 
 # Build controller function based on controller type
 if controller_type == 'fixed':
@@ -1367,7 +1379,8 @@ elif controller_type == 'pid':
         float(safety),
     )
 else:
-    raise ValueError(f"Unknown controller type: {controller_type}")
+    raise ValueError(f"Unknown controller type: '{controller_type}'. "
+                     "Use 'fixed' or 'pid'.")
 
 
 # =========================================================================
