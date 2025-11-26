@@ -354,8 +354,12 @@ class FIRKStep(ODEImplicitStep):
         # accumulates_output = 1
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
-        b_row = int32(tableau.b_matches_a_row)
-        b_hat_row = int32(tableau.b_hat_matches_a_row)
+        b_row = tableau.b_matches_a_row
+        b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
