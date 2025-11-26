@@ -232,6 +232,7 @@ class ERKStep(ODEExplicitStep):
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
+        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
@@ -335,7 +336,7 @@ class ERKStep(ODEExplicitStep):
             #       loop.
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
-            stage_rhs = cuda.local.array(n, numba_precision)
+            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
