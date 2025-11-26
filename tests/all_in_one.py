@@ -678,7 +678,7 @@ def dirk_step_inline_factory(
         stage_accumulator = shared[acc_start:acc_end]
         solver_scratch = shared[solver_start:solver_end]
         stage_rhs = solver_scratch[:n]
-        increment_cache = solver_scratch[n:2*n]
+        increment_cache = solver_scratch[n:int32(2)*n]
 
         #Alias stage base onto first stage accumulator - lifetimes disjoint
         if multistage:
@@ -774,14 +774,14 @@ def dirk_step_inline_factory(
             if accumulates_output:
                 # Standard accumulation
                 proposed_state[idx] += solution_weight * rhs_value
-            elif b_row == 0:
+            elif b_row == int32(0):
                 # Direct assignment when stage 0 matches b_row
                 proposed_state[idx] = stage_base[idx]
             if has_error:
                 if accumulates_error:
                     # Standard accumulation
                     error[idx] += error_weight * rhs_value
-                elif b_hat_row == 0:
+                elif b_hat_row == int32(0):
                     # Direct assignment for error
                     error[idx] = stage_base[idx]
 
@@ -792,8 +792,8 @@ def dirk_step_inline_factory(
         #            Stages 1-s: must refresh all qtys                    #
         # --------------------------------------------------------------- #
 
-        for stage_idx in range(1, stage_count):
-            prev_idx = stage_idx - 1
+        for stage_idx in range(int32(1), stage_count):
+            prev_idx = stage_idx - int32(1)
             successor_range = stage_count - stage_idx
             stage_time = (
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
@@ -802,7 +802,7 @@ def dirk_step_inline_factory(
             # Fill accumulators with previous step's contributions
             for successor_offset in range(successor_range):
                 successor_idx = stage_idx + successor_offset
-                base = (successor_idx - 1) * n
+                base = (successor_idx - int32(1)) * n
                 for idx in range(n):
                     state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
                     contribution = state_coeff * stage_rhs[idx] * dt_scalar
@@ -812,7 +812,8 @@ def dirk_step_inline_factory(
                 pass  # driver_function would be called here
 
             # Grab a view of the completed accumulator slice, add state
-            stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
+            stage_base = stage_accumulator[(stage_idx-int32(1)) * n:stage_idx
+                                                                  * n]
             for idx in range(n):
                 stage_base[idx] += state[idx]
 
