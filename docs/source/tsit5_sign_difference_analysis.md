@@ -174,15 +174,17 @@ CuBIE computes `d = b - b_hat` (the standard error coefficients).
 
 ### Mathematical Relationship
 
+**Key Definitions:**
+- `y^(5) = y_n + h * Σ b[j] * k[j]` — The 5th order solution (higher accuracy)
+- `y^(4) = y_n + h * Σ b_hat[j] * k[j]` — The 4th order embedded solution (lower accuracy)
+- `Y_7 = y_n + h * Σ a7[j] * k[j]` — The stage 7 evaluation point (where `k_7` is computed)
+
 | Convention | Error Weights | Formula |
 |------------|---------------|---------|
-| Standard (textbooks, CuBIE) | `d = b - b_hat` | `error = h * Σ d[j] * k[j]` |
-| Julia (OrdinaryDiffEq.jl) | `btilde = b - a7 = -b_hat` | `utilde = h * Σ btilde[j] * k[j]` |
+| Standard (textbooks, CuBIE) | `d = b - b_hat` | `error = h * Σ d[j] * k[j] = y^(5) - y^(4)` |
+| Julia (OrdinaryDiffEq.jl) | `btilde = b - a7 ≈ -b_hat` | `utilde = h * Σ btilde[j] * k[j]` |
 
-Since `btilde ≈ -b_hat`:
-```
-Julia's utilde ≈ -h * Σ b_hat[j] * k[j] = -(y^(4) - y_n) ≠ (y^(5) - y^(4))
-```
+Since `btilde ≈ -b_hat` (for stages 1-6), Julia's error estimate has opposite sign to the embedded solution's contribution.
 
 ### What Each Implementation Computes
 
@@ -192,22 +194,22 @@ Julia's utilde ≈ -h * Σ b_hat[j] * k[j] = -(y^(4) - y_n) ≠ (y^(5) - y^(4))
 3. Return `y^(5)` as the solution
 
 **Julia (alternative approach)**:
-1. Compute `Y_7 = y_n + h * Σ a7[j] * k[j]` (stage 7 point)
-2. Compute `utilde = h * Σ btilde[j] * k[j] = y^(5) - Y_7`
-3. Return `Y_7` as the solution (which is **not** `y^(5)`!)
+1. Compute `Y_7 = y_n + h * Σ_{j=1}^{6} a7[j] * k[j]` — the **stage 7 evaluation point** (note: `a7[7] = 0` for explicit methods)
+2. Compute `k_7 = f(Y_7, t + h)` — this is reused as `k_1` for the next step (FSAL property)
+3. Compute `utilde = h * Σ btilde[j] * k[j]`
+4. Return `Y_7` as the solution — **crucially, this is NOT `y^(5)`**
+
+The stage 7 evaluation point `Y_7` is where the 7th derivative is evaluated. It is related to but distinct from the 5th order solution `y^(5)`, which would require adding `h * b[7] * k[7]` to account for the 7th stage weight.
 
 ### Why Both Are Valid
 
-For step size control, what matters is the **magnitude** of the error, not its sign. Both approaches produce:
-
-```
-|error_CuBIE| ≈ |utilde_Julia|
-```
+For step size control, what matters is the **magnitude** of the error, not its sign. Both approaches provide valid error estimates:
 
 The reason Julia's approach works:
-- Since `a7 = b + b_hat`, we have `Y_7 = y_n + h*Σ(b+b_hat)*k = (y^(5) + y^(4))/2 + y_n`
-- Julia's `utilde = y^(5) - Y_7` measures how far the returned solution is from `y^(5)`
-- For small steps, `utilde` is proportional to the local truncation error
+- Julia defines `btilde = b - a7`, which equals `-b_hat` for stages 1-6 due to the property `a7 = b + b_hat`
+- Julia's `utilde = h * Σ btilde[j] * k[j]` captures how the returned solution differs from the higher-order estimate
+- The error magnitude is proportional to the local truncation error
+- For adaptive step size control, only the error magnitude matters, not its sign
 
 ## Conclusion
 
