@@ -481,6 +481,10 @@ def dirk_step_inline_factory(
     accumulates_error = tableau.accumulates_error
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
 
     stage_implicit = tuple(coeff != numba_precision(0.0)
                            for coeff in diagonal_coeffs)
@@ -840,6 +844,10 @@ def erk_step_inline_factory(
     accumulates_error = tableau.accumulates_error
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
 
     @cuda.jit(
         (
@@ -1051,14 +1059,13 @@ def erk_step_inline_factory(
 
             # Scale and shift f(Y_n) value if accumulated
             if accumulates_output:
-                proposed_state[idx] *= dt_scalar
-                proposed_state[idx] += state[idx]
-
+                proposed_state[idx] = (
+                        proposed_state[idx] * dt_scalar + state[idx]
+                )
             if has_error:
                 # Scale error if accumulated
                 if accumulates_error:
                     error[idx] *= dt_scalar
-
                 #Or form error from difference if captured from a-row
                 else:
                     error[idx] = proposed_state[idx] - error[idx]
