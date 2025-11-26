@@ -134,6 +134,10 @@ class ERKStep(ODEExplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         # no cover: start
         @cuda.jit(

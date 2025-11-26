@@ -19,7 +19,7 @@ The process consists of:
 
 from typing import Callable, Sequence, Union
 
-from numba import cuda
+from numba import cuda, int32
 from numpy.typing import ArrayLike
 
 from cubie.cuda_simsafe import compile_kwargs
@@ -218,13 +218,14 @@ def save_summary_factory(
     variables, applying the chained summary metrics to each variable's buffer
     and saving results to the appropriate output arrays.
     """
-    num_summarised_states = len(summarised_state_indices)
-    num_summarised_observables = len(summarised_observable_indices)
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
 
     save_functions = summary_metrics.save_functions(summaries_list)
 
-    total_buffer_size = buffer_sizes.per_variable
-    total_output_size = summary_metrics.summaries_output_height(summaries_list)
+    total_buffer_size = int32(buffer_sizes.per_variable)
+    total_output_size = int32(summary_metrics.summaries_output_height(
+        summaries_list))
 
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
     buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)

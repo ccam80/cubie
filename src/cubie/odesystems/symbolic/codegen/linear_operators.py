@@ -57,6 +57,8 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "    argument 'order' is ignored, included for compatibility with\n"
     "    preconditioner API.\n"
     '    """\n'
+    "    beta = precision(beta)\n"
+    "    gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit((precision[::1],\n"
     "               precision[::1],\n"
@@ -89,6 +91,8 @@ OPERATOR_APPLY_TEMPLATE = (
     "    argument 'order' is ignored, included for compatibility with\n"
     "    preconditioner API.\n"
     '    """\n'
+    "    beta = precision(beta)\n"
+    "    gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit((precision[::1],\n"
     "               precision[::1],\n"

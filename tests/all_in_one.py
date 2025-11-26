@@ -564,7 +564,8 @@ def dirk_step_inline_factory(
     typed_zero = numba_precision(0.0)
 
     # Extract tableau properties
-    stage_count = tableau.stage_count
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
 
     # Compile-time toggles
     has_driver_function = False  # No driver function in this test
@@ -586,10 +587,14 @@ def dirk_step_inline_factory(
     accumulates_error = tableau.accumulates_error
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
 
     stage_implicit = tuple(coeff != numba_precision(0.0)
                            for coeff in diagonal_coeffs)
-    accumulator_length = max(stage_count - 1, 0) * n
+    accumulator_length = int32(max(stage_count - 1, 0) * n)
     solver_shared_elements = 2 * n  # delta + residual for Newton solver
 
     # Shared memory indices
@@ -919,8 +924,9 @@ def erk_step_inline_factory(
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
-    stage_count = tableau.stage_count
-    accumulator_length = max(stage_count - 1, 0) * n
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
+    accumulator_length = int32(max(stage_count - 1, 0) * n)
 
     # Compile-time toggles
     has_driver_function = False  # No driver function in this test
@@ -944,6 +950,10 @@ def erk_step_inline_factory(
     accumulates_error = tableau.accumulates_error
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
 
     @cuda.jit(
         (
@@ -1155,14 +1165,13 @@ def erk_step_inline_factory(
 
             # Scale and shift f(Y_n) value if accumulated
             if accumulates_output:
-                proposed_state[idx] *= dt_scalar
-                proposed_state[idx] += state[idx]
-
+                proposed_state[idx] = (
+                        proposed_state[idx] * dt_scalar + state[idx]
+                )
             if has_error:
                 # Scale error if accumulated
                 if accumulates_error:
                     error[idx] *= dt_scalar
-
                 #Or form error from difference if captured from a-row
                 else:
                     error[idx] = proposed_state[idx] - error[idx]
@@ -1484,7 +1493,7 @@ elif algorithm_type == 'dirk':
 
     linear_solver_fn = linear_solver_inline_factory(operator_fn, n_states,
                                                     preconditioner_fn,
-                                                    float(krylov_tolerance),
+                                                    krylov_tolerance,
                                                     max_linear_iters,
                                                     precision,
                                                     linear_correction_type)
@@ -1493,9 +1502,9 @@ elif algorithm_type == 'dirk':
         residual_fn,
         linear_solver_fn,
         n_states,
-        float(newton_tolerance),
+        newton_tolerance,
         max_newton_iters,
-        float(newton_damping),
+        newton_damping,
         max_backtracks,
         precision,
     )
@@ -1522,16 +1531,16 @@ elif controller_type == 'pid':
         atol,
         rtol,
         algorithm_order,
-        float(kp),
-        float(ki),
-        float(kd),
-        float(min_gain),
-        float(max_gain),
-        float(dt_min_ctrl),
-        float(dt_max_ctrl),
-        float(deadband_min),
-        float(deadband_max),
-        float(safety),
+        kp,
+        ki,
+        kd,
+        min_gain,
+        max_gain,
+        dt_min_ctrl,
+        dt_max_ctrl,
+        deadband_min,
+        deadband_max,
+        safety,
     )
 else:
     raise ValueError(f"Unknown controller type: '{controller_type}'. "

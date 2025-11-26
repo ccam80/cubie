@@ -138,6 +138,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
         solver_shared_elements = self.solver_shared_elements
+        n = int32(n)
+
         @cuda.jit(
             (
                 numba_precision[::1],

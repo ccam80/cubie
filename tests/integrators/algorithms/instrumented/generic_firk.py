@@ -237,12 +237,16 @@ class FIRKStep(ODEImplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
-        solver_shared_elements = self.solver_shared_elements
-        stage_driver_total = stage_count * n_drivers
-        drivers_start = solver_shared_elements
+        solver_shared_elements = int32(self.solver_shared_elements)
+        stage_driver_total = int32(stage_count * n_drivers)
+        drivers_start = int32(solver_shared_elements)
         drivers_end = solver_shared_elements + stage_driver_total
         stages_start = drivers_end
         stages_end = stages_start + all_stages_n

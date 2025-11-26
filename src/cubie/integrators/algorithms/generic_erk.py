@@ -232,8 +232,9 @@ class ERKStep(ODEExplicitStep):
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
-        stage_count = tableau.stage_count
-        accumulator_length = max(stage_count - 1, 0) * n
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
+        accumulator_length = int32(max(stage_count - 1, 0) * n)
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
@@ -258,6 +259,10 @@ class ERKStep(ODEExplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         # no cover: start
         @cuda.jit(
@@ -474,14 +479,13 @@ class ERKStep(ODEExplicitStep):
 
                 # Scale and shift f(Y_n) value if accumulated
                 if accumulates_output:
-                    proposed_state[idx] *= dt_scalar
-                    proposed_state[idx] += state[idx]
-
+                    proposed_state[idx] = (
+                            proposed_state[idx] * dt_scalar + state[idx]
+                    )
                 if has_error:
                     # Scale error if accumulated
                     if accumulates_error:
                         error[idx] *= dt_scalar
-
                     #Or form error from difference if captured from a-row
                     else:
                         error[idx] = proposed_state[idx] - error[idx]

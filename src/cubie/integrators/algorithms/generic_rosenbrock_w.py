@@ -332,7 +332,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
 
-        stage_count = self.stage_count
+        n = int32(n)
+        stage_count = int32(self.stage_count)
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
@@ -340,7 +341,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
-        gamma = tableau.gamma
+        gamma = numba_precision(tableau.gamma)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
@@ -354,10 +355,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         stage_buffer_n = stage_count * n
-        cached_auxiliary_count = self.cached_auxiliary_count
-        stage_rhs_start = 0
+        cached_auxiliary_count = int32(self.cached_auxiliary_count)
+        stage_rhs_start = int32(0)
         stage_rhs_end = stage_rhs_start + n
         stage_store_start = stage_rhs_end
         stage_store_end = stage_store_start + stage_buffer_n
@@ -500,7 +505,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs[idx] = rhs_value * gamma
 
             # Create an unused reference for solver signature consistency.
-            base_state_placeholder = shared[0:0]
+            base_state_placeholder = shared[int32(0):int32(0)]
 
             # Use stored copy as the initial guess for the first stage.
             status_code |= linear_solver(
@@ -518,9 +523,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] += stage_increment[idx] * solution_weights[0]
+                    proposed_state[idx] += (stage_increment[idx] *
+                                            solution_weights[int32(0)])
                 if has_error and accumulates_error:
-                    error[idx] += stage_increment[idx] * error_weights[0]
+                    error[idx] += stage_increment[idx] * error_weights[
+                        int32(0)]
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
@@ -534,7 +541,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
                 stage_slice = stage_store[
-                    n * stage_idx : n * (stage_idx + 1)
+                    n * stage_idx : n * (stage_idx + int32(1))
                 ]
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
@@ -581,7 +588,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         error[idx] = stage_slice[idx]
 
                 # Overwrite the final accumulator slice with time-derivative
-                if stage_idx == stage_count - 1:
+                if stage_idx == stage_count - int32(1):
                     if has_driver_function:
                         driver_del_t(
                             current_time,
