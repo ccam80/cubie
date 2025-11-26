@@ -259,7 +259,21 @@ def linear_solver_inline_factory(
     max_iters = int32(max_iters)
     sd_flag = 1 if correction_type == "steepest_descent" else 0
     mr_flag = 1 if correction_type == "minimal_residual" else 0
-    @cuda.jit(device=True, inline=True, **compile_kwargs)
+
+    @cuda.jit(
+        [(numba_prec[::1],
+          numba_prec[::1],
+          numba_prec[::1],
+          numba_prec[::1],
+          numba_prec,
+          numba_prec,
+          numba_prec,
+          numba_prec[::1],
+          numba_prec[::1])],
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
         preconditioned_vec = cuda.local.array(n, numba_prec)
@@ -354,7 +368,17 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_damping = numba_prec(damping)
     status_active = int32(-1)
 
-    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    @cuda.jit([(numba_prec[::1],
+                numba_prec[::1],
+                numba_prec[::1],
+                numba_prec,
+                numba_prec,
+                numba_prec,
+                numba_prec[::1],
+                numba_prec[::1],
+                int32[::1])],
+              device=True,
+              inline=True)
     def newton_krylov_solver(stage_increment, parameters, drivers, t, h,
                              a_ij, base_state, shared_scratch, counters):
         delta = shared_scratch[:n]
@@ -1205,7 +1229,20 @@ def clamp(value, min_val, max_val):
     return max(min_val, min(value, max_val))
 
 
-@cuda.jit(device=True, inline=True, **compile_kwargs)
+@cuda.jit(
+    [(
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        int32,
+        int32[::1],
+        numba_precision[::1],
+    )],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
 def step_controller_fixed(dt, state, state_prev, error, niters, accept_out,
                           local_temp):
     accept_out[0] = int32(1)
@@ -1476,7 +1513,28 @@ save_last = False
 dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min*dt_max)
 
 
-@cuda.jit(device=True, inline=True, **compile_kwargs)
+@cuda.jit(
+    [
+        (
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, ::1],
+            float64,
+            float64,
+            float64,
+        )
+    ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
 def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             persistent_local, state_output, observables_output,
             state_summaries_output, observable_summaries_output,
