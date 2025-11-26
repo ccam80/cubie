@@ -852,6 +852,7 @@ def dirk_step_inline_factory(
                 stage_time,
             )
 
+            # Accumulate f(y_jn) terms or capture direct stage state
             solution_weight = solution_weights[stage_idx]
             error_weight = error_weights[stage_idx]
             for idx in range(n):
@@ -923,10 +924,10 @@ def erk_step_inline_factory(
     # Compile-time toggles
     has_driver_function = False  # No driver function in this test
     first_same_as_last = tableau.first_same_as_last
-    multistage = stage_count > 1
+    multistage = stage_count > int32(1)
     has_error = tableau.has_error_estimate
 
-    stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+    stage_rhs_coeffs = tableau.a_flat(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     stage_nodes = tableau.typed_vector(tableau.c, numba_precision)
 
@@ -1093,7 +1094,8 @@ def erk_step_inline_factory(
 
             for successor_offset in range(successor_range):
                 successor_idx = stage_idx + successor_offset
-                state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
+                state_coeff = stage_rhs_coeffs[
+                    successor_idx * stage_count + prev_idx]
                 base = (successor_idx - int32(1)) * n
                 for idx in range(n):
                     increment = stage_rhs[idx]
@@ -1106,9 +1108,9 @@ def erk_step_inline_factory(
 
             # Convert accumulated gradients sum(f(y_nj) into a state y_j
             for idx in range(n):
-                stage_idx = stage_offset + idx
-                stage_accumulator[stage_idx] = (
-                    stage_accumulator[stage_idx] * dt_scalar + state[stage_idx]
+                acc_idx = stage_offset + idx
+                stage_accumulator[acc_idx] = (
+                    stage_accumulator[acc_idx] * dt_scalar + state[idx]
                 )
 
             # Rename the slice for clarity
@@ -1193,15 +1195,16 @@ def erk_step_inline_factory(
 # =========================================================================
 # OUTPUT FUNCTIONS
 # =========================================================================
-
+n_states32 = int32(n_states)
+n_counters32 = int32(n_counters)
 @cuda.jit(device=True, inline=True, **compile_kwargs)
 def save_state_inline(current_state, current_observables, current_counters,
                       current_step, output_states_slice, output_obs_slice,
                       output_counters_slice):
-    for k in range(n_states):
+    for k in range(n_states32):
         output_states_slice[k] = current_state[k]
-    output_states_slice[n_states] = current_step
-    for i in range(n_counters):
+    output_states_slice[n_states32] = current_step
+    for i in range(n_counters32):
         output_counters_slice[i] = current_counters[i]
 
 
@@ -1273,8 +1276,8 @@ def update_summaries_inline(
     current_step,
 ):
     """Accumulate summary metrics from the current state sample."""
-    total_buffer_size = 1  # 1 slot for mean metric per variable
-    for idx in range(n_states):
+    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
+    for idx in range(n_states32):
         start = idx * total_buffer_size
         end = start + total_buffer_size
         chain_update_metrics(
@@ -1293,9 +1296,9 @@ def save_summaries_inline(
     summarise_every,
 ):
     """Export summary metrics from buffers to output windows."""
-    total_buffer_size = 1  # 1 slot for mean metric per variable
-    total_output_size = 1  # 1 output for mean metric per variable
-    for state_index in range(n_states):
+    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
+    total_output_size = int32(1)  # 1 output for mean metric per variable
+    for state_index in range(n_states32):
         buffer_start = state_index * total_buffer_size
         out_start = state_index * total_output_size
         chain_save_metrics(
@@ -1592,9 +1595,9 @@ saves_per_summary = int32(2)
 status_mask = int32(0xFFFF)
 
 # Compile-time flags for loop behavior
-save_obs_bool = True
+save_obs_bool = False
 save_state_bool = True
-summarise_obs_bool = True
+summarise_obs_bool = False
 summarise_state_bool = True
 summarise = summarise_obs_bool or summarise_state_bool
 save_counters_bool = True
@@ -1883,7 +1886,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         save_idx,
                     )
 
-                    if (save_idx + 1) % saves_per_summary == 0:
+                    if (save_idx + int32(1)) % saves_per_summary == int32(0):
                         save_summaries_inline(
                             state_summary_buffer,
                             observable_summary_buffer,
@@ -1895,8 +1898,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                             ],
                             saves_per_summary,
                         )
-                        summary_idx += 1
-                save_idx += 1
+                        summary_idx += int32(1)
+                save_idx += int32(1)
 
                 # Reset iteration counters after save
                 if save_counters_bool:
@@ -1917,24 +1920,39 @@ local_elements_per_run = local_elements
 shared_elems_per_run = shared_elements
 f32_per_element = 2 if (precision == np.float64) else 1
 f32_pad_perrun = (
-    1 if shared_elems_per_run % 2 == 0 and f32_per_element == 1 else 0
+    1 if (shared_elems_per_run % 2 == 0 and f32_per_element == 1) else 0
 )
-run_stride_f32 = int(
+run_stride_f32 = int32(
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
+numba_prec = numba_from_dtype(precision)
 
-@cuda.jit(**compile_kwargs)
+@cuda.jit((
+                numba_prec[:, ::1],
+                numba_prec[:, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                int32[:, :, :],
+                int32[::1],
+                float64,
+                float64,
+                float64,
+                int32,
+            ),
+        **compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_output, state_summaries_output,
                        observables_summaries_output, iteration_counters_output,
                        status_codes_output, duration_k, warmup_k, t0_k,
                        n_runs_k):
-    tx = int16(cuda.threadIdx.x)
-    ty = int16(cuda.threadIdx.y)
-    block_index = int32(cuda.blockIdx.x)
-    runs_per_block = cuda.blockDim.y
-    run_index = int32(runs_per_block * block_index + ty)
 
+    tx = cuda.threadIdx.x
+    block_index = int32(cuda.blockIdx.x)
+    runs_per_block = cuda.blockDim.x
+    run_index = int32(runs_per_block * block_index + tx)
     if run_index >= n_runs_k:
         return None
 
@@ -1942,7 +1960,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
     c_coefficients = cuda.const.array_like(d_coefficients)
 
-    run_idx_low = ty * run_stride_f32
+    run_idx_low = tx * run_stride_f32
     run_idx_high = (run_idx_low + f32_per_element * shared_elems_per_run
     )
     rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
@@ -2046,14 +2064,14 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     MAX_SHARED_MEMORY_PER_BLOCK = 32768
     blocksize = 256
     runs_per_block = blocksize
-    dynamic_sharedmem = int(
-        (f32_per_element * shared_elems_per_run) * 4 * runs_per_block)
+    dynamic_sharedmem = int32(
+        (f32_per_element * run_stride_f32) * 4 * runs_per_block)
 
     while dynamic_sharedmem > MAX_SHARED_MEMORY_PER_BLOCK:
         blocksize = blocksize // 2
         runs_per_block = blocksize
         dynamic_sharedmem = int(
-            (f32_per_element * shared_elems_per_run) * 4 * runs_per_block)
+            (f32_per_element * run_stride_f32) * 4 * runs_per_block)
 
     blocks_per_grid = int(ceil(n_runs / runs_per_block))
 

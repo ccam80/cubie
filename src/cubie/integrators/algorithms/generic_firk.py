@@ -340,7 +340,7 @@ class FIRKStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
@@ -473,7 +473,8 @@ class FIRKStep(ODEImplicitStep):
                 for idx in range(n):
                     value = state[idx]
                     for contrib_idx in range(stage_count):
-                        coeff = stage_rhs_coeffs[stage_idx][contrib_idx]
+                        flat_idx = stage_idx * stage_count + contrib_idx
+                        coeff = stage_rhs_coeffs[flat_idx]
                         if coeff != typed_zero:
                             value += (
                                 coeff * stage_increment[contrib_idx * n + idx]

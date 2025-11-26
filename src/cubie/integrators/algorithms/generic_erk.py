@@ -425,9 +425,10 @@ class ERKStep(ODEExplicitStep):
 
                 # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_scalar
-                    stage_accumulator[stage_offset + idx] += state[idx]
-
+                    acc_idx = stage_offset + idx
+                    stage_accumulator[acc_idx] = (
+                            stage_accumulator[acc_idx] * dt_scalar + state[idx]
+                    )
                 # Rename the slice for clarity
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
 

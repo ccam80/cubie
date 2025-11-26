@@ -355,7 +355,7 @@ class IVPLoop(CUDAFactory):
                     driver_coefficients,
                     drivers_buffer,
                 )
-            if n_observables > int32():
+            if n_observables > int32(0):
                 observables_fn(
                     state_buffer,
                     parameters_buffer,

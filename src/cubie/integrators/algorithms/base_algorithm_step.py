@@ -116,6 +116,14 @@ class ButcherTableau:
             )
         return tuple(typed_rows)
 
+    def a_flat(self, precision):
+        typed_rows = self.typed_rows(self.a, precision)
+        stage_count = self.stage_count
+        flat_list: list = []
+        for row in typed_rows:
+            flat_list.extend(row)
+        return tuple(precision(value) for value in flat_list)
+
     def typed_vector(
         self,
         vector: Sequence[float],

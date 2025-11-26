@@ -44,7 +44,14 @@ class RosenbrockTableau(ButcherTableau):
         """Return stage-specific gamma shifts typed to ``numba_precision``."""
 
         return self.typed_vector(self.gamma_stages, numba_precision)
-
+    
+    def C_flat(self, precision):
+        typed_rows = self.typed_rows(self.C, precision)
+        stage_count = self.stage_count
+        flat_list: list = []
+        for row in typed_rows:
+            flat_list.extend(row)
+        return tuple(precision(value) for value in flat_list)
 
 # --------------------------------------------------------------------------
 # ROS3P (Rang & Angermann 2005), constants and structure cross-checked with:
