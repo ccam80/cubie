@@ -5,6 +5,7 @@ proper line-level debugging with Numba's lineinfo feature.
 """
 # ruff: noqa: E402
 from math import ceil
+from typing import Optional
 
 import numpy as np
 from numba import cuda, int16, int32, int64, float32, float64
@@ -17,6 +18,88 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
+
+
+# =========================================================================
+# STRIDE ORDERING UTILITIES
+# =========================================================================
+
+# Default stride order matches memory manager: (time, run, variable)
+# Represented as indices: 0=time, 1=run, 2=variable
+DEFAULT_STRIDE_ORDER = (0, 1, 2)
+
+
+def get_strides(
+    shape: tuple,
+    dtype,
+    array_native_order: tuple = (0, 1, 2),
+    desired_order: tuple = DEFAULT_STRIDE_ORDER,
+) -> Optional[tuple]:
+    """Calculate memory strides for a given access pattern (stride order).
+
+    This function replicates the striding logic from MemoryManager.get_strides()
+    to allow all_in_one.py to allocate arrays with the same stride patterns
+    as the production batch solver.
+
+    Parameters
+    ----------
+    shape
+        Tuple describing the array shape.
+    dtype
+        NumPy dtype for the array elements.
+    array_native_order
+        Tuple of indices describing the logical dimension ordering for
+        the array's shape. For 3D arrays, indices represent:
+        0=time, 1=run, 2=variable. Defaults to (0, 1, 2).
+    desired_order
+        Tuple of indices describing the desired memory stride ordering.
+        The last index changes fastest (contiguous). Defaults to (0, 1, 2)
+        which matches cubie's default: time, run, variable.
+
+    Returns
+    -------
+    tuple or None
+        Stride tuple for the array, or None if no custom strides needed.
+
+    Notes
+    -----
+    Only 3D arrays get custom stride optimization. Arrays with fewer
+    dimensions use default strides.
+
+    Examples
+    --------
+    >>> # state_output: shape=(samples, runs, states), order=(time, run, var)
+    >>> strides = get_strides((100, 1024, 4), np.float32, (0, 1, 2), (0, 1, 2))
+    >>> strides is None  # same order, no custom strides needed
+    True
+
+    >>> # iteration_counters: shape=(runs, samples, counters),
+    >>> # order=(run, time, var) but want (time, run, var) memory layout
+    >>> strides = get_strides((1024, 100, 4), np.int32, (1, 0, 2), (0, 1, 2))
+    >>> strides is not None  # different order, custom strides returned
+    True
+    """
+    if len(shape) != 3:
+        return None
+
+    if array_native_order == desired_order:
+        return None
+
+    itemsize = np.dtype(dtype).itemsize
+
+    # Map index to size
+    dims = {idx: size for idx, size in zip(array_native_order, shape)}
+
+    strides = {}
+    current_stride = itemsize
+
+    # Iterate over the desired order reversed; the last dimension
+    # in the order changes fastest so it gets the smallest stride.
+    for idx in reversed(desired_order):
+        strides[idx] = current_stride
+        current_stride *= dims[idx]
+
+    return tuple(strides[dim] for dim in array_native_order)
 
 # =========================================================================
 # CONFIGURATION
@@ -1892,30 +1975,52 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     d_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
 
     # Create device arrays for inputs (BatchInputArrays pattern)
+    # 2D arrays don't need custom strides
     d_inits = cuda.to_device(inits)
     d_params = cuda.to_device(params)
     d_driver_coefficients = cuda.to_device(d_coefficients)
 
     # Create mapped arrays for outputs (BatchOutputArrays pattern)
+    # Using stride ordering to match production batch solver memory layout.
+    # Dimension indices: 0=time, 1=run, 2=variable
     n_summary_samples = int(ceil(n_output_samples / saves_per_summary))
-    state_output = cuda.mapped_array(
-        (n_output_samples, n_runs, n_states + 1), dtype=precision
-    )
-    observables_output = cuda.mapped_array(
-        (n_output_samples, 1, 1), dtype=precision
-    )
-    state_summaries_output = cuda.mapped_array(
-        (n_summary_samples, n_runs, n_states), dtype=precision
-    )
-    observable_summaries_output = cuda.mapped_array(
-        (n_summary_samples, 1, 1), dtype=precision
-    )
-    iteration_counters_output = cuda.mapped_array(
-        (n_runs, n_output_samples, n_counters), dtype=np.int32
-    )
-    status_codes_output = cuda.mapped_array(
-        (n_runs,), dtype=np.int32
-    )
+
+    # state_output: shape=(samples, runs, states+1), native order=(time, run, var)
+    state_shape = (n_output_samples, n_runs, n_states + 1)
+    state_strides = get_strides(state_shape, precision, (0, 1, 2))
+    state_output = cuda.mapped_array(state_shape, dtype=precision,
+                                     strides=state_strides)
+
+    # observables_output: shape=(samples, 1, 1), native order=(time, run, var)
+    obs_shape = (n_output_samples, 1, 1)
+    obs_strides = get_strides(obs_shape, precision, (0, 1, 2))
+    observables_output = cuda.mapped_array(obs_shape, dtype=precision,
+                                           strides=obs_strides)
+
+    # state_summaries_output: shape=(summaries, runs, states)
+    # native order=(time, run, var)
+    state_summ_shape = (n_summary_samples, n_runs, n_states)
+    state_summ_strides = get_strides(state_summ_shape, precision, (0, 1, 2))
+    state_summaries_output = cuda.mapped_array(state_summ_shape, dtype=precision,
+                                               strides=state_summ_strides)
+
+    # observable_summaries_output: shape=(summaries, 1, 1)
+    # native order=(time, run, var)
+    obs_summ_shape = (n_summary_samples, 1, 1)
+    obs_summ_strides = get_strides(obs_summ_shape, precision, (0, 1, 2))
+    observable_summaries_output = cuda.mapped_array(obs_summ_shape,
+                                                    dtype=precision,
+                                                    strides=obs_summ_strides)
+
+    # iteration_counters_output: shape=(runs, samples, counters)
+    # native order=(run, time, var) - different from default!
+    iter_shape = (n_runs, n_output_samples, n_counters)
+    iter_strides = get_strides(iter_shape, np.int32, (1, 0, 2))
+    iteration_counters_output = cuda.mapped_array(iter_shape, dtype=np.int32,
+                                                  strides=iter_strides)
+
+    # status_codes_output: 1D array, no custom strides needed
+    status_codes_output = cuda.mapped_array((n_runs,), dtype=np.int32)
 
     print(f"State output shape: {state_output.shape}")
 
