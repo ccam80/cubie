@@ -1,5 +1,4 @@
 """Adaptive proportional–integral–derivative controller implementations."""
-from math import sqrt
 from typing import Callable, Optional, Union
 
 import numpy as np
@@ -44,9 +43,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 1/18,
-        ki: float = 1/9,
-        kd: float = 1/18,
+        kp: float = 0.6,
+        ki: float = -0.2,
+        kd: float = 0.0,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
         deadband_min: float = 1.0,
@@ -206,6 +205,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         expo1 = precision(kp / (2 * (algorithm_order + 1)))
         expo2 = precision(ki / (2 * (algorithm_order + 1)))
         expo3 = precision(kd / (2 * (algorithm_order + 1)))
+        safety = precision(safety)
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
         min_gain = precision(min_gain)
@@ -217,7 +217,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
-        root_n = precision(sqrt(n))
+        inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             [
@@ -281,7 +281,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = root_n/nrm2
+            nrm2 = nrm2 * inv_n
             accept = nrm2 >= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > typed_zero else nrm2
@@ -291,9 +291,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
             gain_new = precision(
                 safety
-                * (nrm2 ** (expo1))
-                * (err_prev_safe ** (expo2))
-                * (err_prev_prev_safe ** (expo3))
+                * (nrm2 ** (-expo1))
+                * (err_prev_safe ** (-expo2))
+                * (err_prev_prev_safe ** (-expo3))
             )
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:

@@ -53,12 +53,13 @@ ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "step_controller": "pi",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
-        "kp": 0.6,
-        "kd": 0.4,
+        "kp": 0.7,
+        "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "min_gain": 0.1,
+        "max_gain": 5.0,
+        "safety": 0.9
     }
 )
 """Default step controller settings for adaptive ERK tableaus.
@@ -242,7 +243,7 @@ class ERKStep(ODEExplicitStep):
         multistage = stage_count > 1
         has_error = self.is_adaptive
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         stage_nodes = tableau.typed_vector(tableau.c, numba_precision)
 
@@ -405,33 +406,34 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
 
             for stage_idx in range(int32(1), stage_count):
-
                 # Stream last result into the accumulators
                 prev_idx = stage_idx - int32(1)
                 successor_range = stage_count - stage_idx
+                stage_offset = (stage_idx - int32(1)) * n
+                coeff_idx = stage_idx * stage_count + prev_idx
+                base = stage_offset
 
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - int32(1)) * n
+                for _ in range(successor_range):
+                    state_coeff = stage_rhs_coeffs[coeff_idx]
                     for idx in range(n):
                         increment = stage_rhs[idx]
                         contribution = state_coeff * increment
-                        stage_accumulator[base + idx] += contribution
+                        stage_accumulator[base] += contribution
+                        base += int32(1)
+                    coeff_idx += stage_count
 
-                stage_offset = (stage_idx - int32(1)) * n
+                base = stage_offset
                 dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
                 # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    acc_idx = stage_offset + idx
-                    stage_accumulator[acc_idx] = (
-                            stage_accumulator[acc_idx] * dt_scalar + state[idx]
-                    )
+                    stage_accumulator[base] = (stage_accumulator[base] *
+                                               dt_scalar + state[idx])
+                    base += int32(1)
+
                 # Rename the slice for clarity
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
-
 
                 # get rhs for next stage
                 stage_drivers = proposed_drivers

@@ -1,5 +1,4 @@
 """Adaptive proportional–integral controller implementations."""
-from math import sqrt
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
@@ -189,6 +188,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         ki = precision(self.ki / ((algorithm_order + 1) * 2))
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
+        safety = precision(safety)
         min_gain = precision(min_gain)
         max_gain = precision(max_gain)
         deadband_min = precision(self.deadband_min)
@@ -198,8 +198,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
-        root_n = precision(sqrt(n))
-
+        inv_n = precision(1.0 / n)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -256,14 +255,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = root_n/nrm2
-            accept = nrm2 >= typed_one
+            nrm2 = nrm2 * inv_n
+            accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
-            pgain = precision(nrm2 ** (kp))
+            pgain = precision(nrm2 ** (-kp))
             # Handle uninitialized err_prev by using current error as fallback
             err_source = err_prev if err_prev > typed_zero else nrm2
-            igain = precision(err_source ** (ki))
+            igain = precision(err_source ** (-ki))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
