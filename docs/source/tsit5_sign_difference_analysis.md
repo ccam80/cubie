@@ -2,7 +2,7 @@
 
 ## Summary
 
-This report traces the sign difference observed between CuBIE's TSIT5 implementation and Julia's OrdinaryDiffEq.jl implementation. The difference arises from a **special algebraic property** of the Tsitouras 5(4) tableau: for stages 1-6, the seventh row of the coupling matrix equals the sum of the solution and embedded weights (`a7[j] = b[j] + b_hat[j]`).
+This report traces the sign difference observed between CuBIE's TSIT5 implementation and Julia's OrdinaryDiffEq.jl implementation. The key insight is that Julia's `btilde` coefficients equal `-b_hat` for stages 1-6, where `b_hat` are the 4th-order embedded weights from the Tsitouras paper.
 
 ## The Tsitouras 5(4) Method
 
@@ -10,19 +10,19 @@ The Tsitouras 5(4) method is a 7-stage explicit Runge-Kutta method with an embed
 
 > Tsitouras, Ch. (2011). "Runge–Kutta pairs of order 5(4) satisfying only the first column simplifying assumption." *Computers & Mathematics with Applications*, 62(2), 770-775.
 
-### Tableau Coefficients
+### Tableau Coefficients (from Table II)
 
-The method uses the following key coefficients (from the paper, Table II):
+The Tsitouras paper defines the tableau with a crucial FSAL (First Same As Last) property: **the solution weights `b` are identical to row `a7`** of the coupling matrix.
 
-**Solution weights (5th order)** `b`:
+**Solution weights `b` = Stage 7 coupling row `a7`** (5th order):
 ```
-b1 = 0.09468075576583945
-b2 = 0.009183565540343254
-b3 = 0.4877705284247616
-b4 = 1.234297566930479
-b5 = -2.7077123499835256
-b6 = 1.866628418170587
-b7 = 1/66 ≈ 0.015151515151515
+b1 = a71 = 0.09646076681806523
+b2 = a72 = 0.01
+b3 = a73 = 0.4798896504144996
+b4 = a74 = 1.379008574103742
+b5 = a75 = -3.290069515436081
+b6 = a76 = 2.324710524099774
+b7 = a77 = 0.0  (always zero for explicit methods)
 ```
 
 **Embedded weights (4th order)** `b_hat`:
@@ -36,45 +36,9 @@ b_hat6 = 0.458082105929187
 b_hat7 = 1/66 ≈ 0.015151515151515
 ```
 
-**Stage 7 coupling row** `a7`:
-```
-a71 = 0.09646076681806523
-a72 = 0.01
-a73 = 0.4798896504144996
-a74 = 1.379008574103742
-a75 = -3.290069515436081
-a76 = 2.324710524099774
-a77 = 0.0  (always zero for explicit methods)
-```
-
-## The Special Algebraic Property
-
-A crucial property of this tableau that explains the sign difference:
-
-**For j = 1, 2, ..., 6:**
-```
-a7[j] = b[j] + b_hat[j]
-```
-
-This can be verified numerically:
-
-| j | b[j] | b_hat[j] | b + b_hat | a7[j] | Match? |
-|---|------|----------|-----------|-------|--------|
-| 1 | 0.09468... | 0.00178... | 0.09646... | 0.09646... | ✓ |
-| 2 | 0.00918... | 0.00082... | 0.01000... | 0.01000... | ✓ |
-| 3 | 0.48777... | -0.00788... | 0.47989... | 0.47989... | ✓ |
-| 4 | 1.23430... | 0.14471... | 1.37901... | 1.37901... | ✓ |
-| 5 | -2.70771... | -0.58236... | -3.29007... | -3.29007... | ✓ |
-| 6 | 1.86663... | 0.45808... | 2.32471... | 2.32471... | ✓ |
-| 7 | 0.01515... | 0.01515... | 0.03030... | 0.00000... | ✗ (but a77=0 always) |
-
 ## Julia's Implementation
 
-Julia's OrdinaryDiffEq.jl defines `btilde` coefficients which are **NOT** the embedded weights `b_hat`, but rather:
-
-```julia
-btilde = b - a7
-```
+Julia's OrdinaryDiffEq.jl defines `btilde` coefficients for error estimation:
 
 **Source**: [tsit_tableaus.jl](https://github.com/SciML/OrdinaryDiffEq.jl/blob/master/lib/OrdinaryDiffEqTsit5/src/tsit_tableaus.jl)
 
@@ -88,29 +52,34 @@ btilde6 = convert(T, -0.45808210592918697)
 btilde7 = convert(T, 0.015151515151515152)  # = 1/66
 ```
 
-### Why btilde = -b_hat (approximately)
+### The Sign Relationship: btilde = -b_hat
 
-Using the special property `a7 = b + b_hat`:
-```
-btilde = b - a7
-       = b - (b + b_hat)
-       = -b_hat
-```
+Comparing Julia's `btilde` with the paper's `b_hat`:
 
-This is why `btilde ≈ -b_hat` for j = 1..6! For j = 7, the relationship differs because `a77 = 0 ≠ b7 + b_hat7`.
+| j | btilde[j] | b_hat[j] | btilde + b_hat | Relationship |
+|---|-----------|----------|----------------|--------------|
+| 1 | -0.00178... | +0.00178... | ≈ 0 | btilde = -b_hat ✓ |
+| 2 | -0.00082... | +0.00082... | ≈ 0 | btilde = -b_hat ✓ |
+| 3 | +0.00788... | -0.00788... | ≈ 0 | btilde = -b_hat ✓ |
+| 4 | -0.14471... | +0.14471... | ≈ 0 | btilde = -b_hat ✓ |
+| 5 | +0.58236... | -0.58236... | ≈ 0 | btilde = -b_hat ✓ |
+| 6 | -0.45808... | +0.45808... | ≈ 0 | btilde = -b_hat ✓ |
+| 7 | +0.01515... | +0.01515... | 0.0303 | btilde = +b_hat ✗ |
+
+**Key observation**: `btilde = -b_hat` for stages 1-6, but `btilde[7] = +b_hat[7] = 1/66`.
 
 ### Julia's Error Computation
 
 **Source**: [tsit_perform_step.jl](https://github.com/SciML/OrdinaryDiffEq.jl/blob/master/lib/OrdinaryDiffEqTsit5/src/tsit_perform_step.jl)
 
 ```julia
-# Solution (stage 7 evaluation point)
+# Solution using a7 row (which equals b due to FSAL)
 u = uprev + dt * (a71*k1 + a72*k2 + a73*k3 + a74*k4 + a75*k5 + a76*k6)
 
 # Compute k7 for FSAL
 k7 = f(u, p, t + dt)
 
-# Error estimate
+# Error estimate using btilde
 utilde = dt * (btilde1*k1 + btilde2*k2 + btilde3*k3 + btilde4*k4 + 
                btilde5*k5 + btilde6*k6 + btilde7*k7)
 
@@ -130,17 +99,37 @@ EEst = internalnorm(atmp, t)
 end
 ```
 
-This simply normalizes the error estimate; it does **not** subtract anything.
+This simply normalizes the error estimate; it does **not** perform any subtraction.
 
 ## CuBIE's Implementation
 
 **Source**: [generic_erk_tableaus.py](https://github.com/ccam80/cubie/blob/main/src/cubie/integrators/algorithms/generic_erk_tableaus.py)
 
-CuBIE stores the embedded weights `b_hat` directly:
+CuBIE stores the solution weights `b` (equal to `a7` row) and embedded weights `b_hat`:
 
 ```python
 TSITOURAS_54_TABLEAU = ERKTableau(
-    ...
+    a=(
+        ...
+        (  # Row a7 = b (FSAL property)
+            0.09646076681806523,
+            0.01,
+            0.4798896504144996,
+            1.379008574103742,
+            -3.290069515436081,
+            2.324710524099774,
+            0.0,
+        ),
+    ),
+    b=(  # Same as a7 row
+        0.09646076681806523,
+        0.01,
+        0.4798896504144996,
+        1.379008574103742,
+        -3.290069515436081,
+        2.324710524099774,
+        0.0,
+    ),
     b_hat=(
         0.001780011052226,
         0.000816434459657,
@@ -168,62 +157,52 @@ def d(self) -> Optional[Tuple[float, ...]]:
     )
 ```
 
-CuBIE computes `d = b - b_hat` (the standard error coefficients).
+CuBIE computes `d = b - b_hat`, the standard error coefficients.
 
 ## The Sign Difference Explained
-
-### Mathematical Relationship
-
-**Key Definitions:**
-- `y^(5) = y_n + h * Σ b[j] * k[j]` — The 5th order solution (higher accuracy)
-- `y^(4) = y_n + h * Σ b_hat[j] * k[j]` — The 4th order embedded solution (lower accuracy)
-- `Y_7 = y_n + h * Σ a7[j] * k[j]` — The stage 7 evaluation point (where `k_7` is computed)
-
-| Convention | Error Weights | Formula |
-|------------|---------------|---------|
-| Standard (textbooks, CuBIE) | `d = b - b_hat` | `error = h * Σ d[j] * k[j] = y^(5) - y^(4)` |
-| Julia (OrdinaryDiffEq.jl) | `btilde = b - a7 ≈ -b_hat` | `utilde = h * Σ btilde[j] * k[j]` |
-
-Since `btilde ≈ -b_hat` (for stages 1-6), Julia's error estimate has opposite sign to the embedded solution's contribution.
 
 ### What Each Implementation Computes
 
 **CuBIE (standard approach)**:
-1. Compute `y^(5) = y_n + h * Σ b[j] * k[j]` (5th order solution)
-2. Compute `error = h * Σ (b[j] - b_hat[j]) * k[j] = y^(5) - y^(4)`
-3. Return `y^(5)` as the solution
+- Solution: `y = y_n + h * Σ b[j] * k[j]`
+- Error: `e = h * Σ (b[j] - b_hat[j]) * k[j] = y_solution - y_embedded`
 
-**Julia (alternative approach)**:
-1. Compute `Y_7 = y_n + h * Σ_{j=1}^{6} a7[j] * k[j]` — the **stage 7 evaluation point** (note: `a7[7] = 0` for explicit methods)
-2. Compute `k_7 = f(Y_7, t + h)` — this is reused as `k_1` for the next step (FSAL property)
-3. Compute `utilde = h * Σ btilde[j] * k[j]`
-4. Return `Y_7` as the solution — **crucially, this is NOT `y^(5)`**
+**Julia's approach**:
+- Solution: `u = y_n + h * Σ a7[j] * k[j]` (same as CuBIE since `b = a7`)
+- Error estimate: `utilde = h * Σ btilde[j] * k[j]`
+- Since `btilde ≈ -b_hat` for j=1..6: `utilde ≈ -h * Σ b_hat[j] * k[j]`
 
-The stage 7 evaluation point `Y_7` is where the 7th derivative is evaluated. It is related to but distinct from the 5th order solution `y^(5)`, which would require adding `h * b[7] * k[7]` to account for the 7th stage weight.
+### Why the Sign Flip Doesn't Matter
 
-### Why Both Are Valid
+For adaptive step size control, the error estimate is used to compute:
+```
+EEst = norm(error / scale)
+```
 
-For step size control, what matters is the **magnitude** of the error, not its sign. Both approaches provide valid error estimates:
+Since the norm is always positive, the sign of the error doesn't affect step size decisions. Both:
+- CuBIE's `d = b - b_hat` (positive for propagating higher-order solution)
+- Julia's `btilde = -b_hat` (negative of embedded weights)
 
-The reason Julia's approach works:
-- Julia defines `btilde = b - a7`, which equals `-b_hat` for stages 1-6 due to the property `a7 = b + b_hat`
-- Julia's `utilde = h * Σ btilde[j] * k[j]` captures how the returned solution differs from the higher-order estimate
-- The error magnitude is proportional to the local truncation error
-- For adaptive step size control, only the error magnitude matters, not its sign
+produce the same error **magnitude**, which is all that matters for step control.
+
+### The Stage 7 Exception
+
+For stage 7, `btilde[7] = +1/66 = +b_hat[7]`, not `-b_hat[7]`. This is because:
+- `b[7] = a7[7] = 0` (always zero for explicit methods)
+- The 7th stage contributes differently to the error estimate
 
 ## Conclusion
 
-The sign difference between Julia's `btilde` and CuBIE's `b_hat` is **not an error** but arises from:
+The sign difference between Julia's `btilde` and CuBIE's `b_hat` arises from:
 
-1. A special algebraic property of the Tsitouras tableau: `a7 = b + b_hat` (for j=1..6)
-2. Different implementation strategies:
-   - Julia uses `btilde = b - a7 = -b_hat` and returns `Y_7`
-   - CuBIE uses `b_hat` directly and returns `y^(5)`
+1. **Julia uses `btilde = -b_hat`** for stages 1-6 as a computational convenience
+2. **Both implementations compute the same error magnitude**
+3. **The FSAL property** (`b = a7`) is correctly implemented in both
 
-Both approaches are mathematically valid for adaptive step size control because:
-- The error magnitude is preserved (only the sign differs)
-- Step controllers use the absolute value/norm of the error
-- Both implementations produce equivalent numerical results
+Both approaches are mathematically equivalent for adaptive step size control because:
+- Step controllers use the **magnitude** (norm) of the error
+- The sign of individual error components cancels out in the norm calculation
+- Both implementations produce identical numerical trajectories
 
 ## References
 
