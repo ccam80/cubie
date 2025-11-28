@@ -19,6 +19,182 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
 
+# =========================================================================
+# CONFIGURATION - ALL CONFIGURABLE PARAMETERS AT TOP OF FILE
+# =========================================================================
+
+# -------------------------------------------------------------------------
+# Algorithm Configuration
+# -------------------------------------------------------------------------
+# Algorithm type: 'erk' (explicit Runge-Kutta) or 'dirk' (diagonally implicit)
+# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys for tableau names
+algorithm_type = 'erk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
+
+# Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
+controller_type = 'fixed'  # 'fixed' or 'pid'
+
+# -------------------------------------------------------------------------
+# Precision Configuration
+# -------------------------------------------------------------------------
+precision = np.float32
+
+# -------------------------------------------------------------------------
+# System Definition (Lorenz system)
+# -------------------------------------------------------------------------
+# Lorenz system constants
+constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
+
+# System dimensions
+n_states = 3
+n_parameters = 1
+n_observables = 0
+n_drivers = 0
+n_counters = 4
+
+# -------------------------------------------------------------------------
+# Time Parameters
+# -------------------------------------------------------------------------
+duration = precision(5e-4)
+warmup = precision(0.0)
+dt = precision(1e-3)
+dt_save = precision(5e-5)
+dt_max = precision(1e6)
+dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
+
+# -------------------------------------------------------------------------
+# Implicit Solver Parameters (DIRK only)
+# -------------------------------------------------------------------------
+# Solver helper parameters (beta, gamma, mass matrix scaling)
+beta_solver = precision(1.0)
+gamma_solver = precision(1.0)
+preconditioner_order = 2
+
+# Linear solver (Krylov) parameters
+krylov_tolerance = precision(1e-6)
+max_linear_iters = 200
+linear_correction_type = "minimal_residual"
+
+# Newton-Krylov nonlinear solver parameters
+newton_tolerance = precision(1e-6)
+max_newton_iters = 100
+newton_damping = precision(0.85)
+max_backtracks = 15
+
+# -------------------------------------------------------------------------
+# PID Controller Parameters (adaptive mode only)
+# -------------------------------------------------------------------------
+algorithm_order = 2
+kp = precision(0.7)
+ki = precision(-0.4)
+kd = precision(0)
+min_gain = precision(0.2)
+max_gain = precision(5.0)
+deadband_min = precision(1.0)
+deadband_max = precision(1.0)
+safety = precision(0.9)
+
+# -------------------------------------------------------------------------
+# Output Configuration
+# -------------------------------------------------------------------------
+# Compile-time flags for loop behavior
+save_obs_bool = False
+save_state_bool = True
+summarise_obs_bool = False
+summarise_state_bool = False
+save_counters_bool = False
+save_last = False
+
+# Saves per summary (for summary metric aggregation)
+saves_per_summary = int32(2)
+
+# -------------------------------------------------------------------------
+# Memory Location Configuration (for optimization experiments)
+# -------------------------------------------------------------------------
+# Toggle whether each internal array uses local or shared memory.
+# 'local' = cuda.local.array (per-thread registers/local memory)
+# 'shared' = cuda.shared.array (block-level shared memory)
+#
+# Note: These affect compile-time code generation. Changing these requires
+# recompilation of the affected device functions.
+
+# Linear solver arrays (used in Krylov iteration)
+linear_solver_preconditioned_vec_memory = 'local'  # 'local' or 'shared'
+linear_solver_temp_memory = 'local'  # 'local' or 'shared'
+
+# DIRK step arrays
+dirk_stage_increment_memory = 'local'  # 'local' or 'shared'
+dirk_stage_base_memory = 'shared'  # 'local' or 'shared' (shared aliases
+#                                    accumulator when multistage)
+
+# ERK step arrays
+erk_stage_rhs_memory = 'shared'  # 'local' or 'shared'
+erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
+
+# -------------------------------------------------------------------------
+# Kernel Launch Configuration
+# -------------------------------------------------------------------------
+# Maximum shared memory per block (hardware limit)
+MAX_SHARED_MEMORY_PER_BLOCK = 32768
+
+# =========================================================================
+# DERIVED CONFIGURATION (computed from above settings)
+# =========================================================================
+
+# Look up tableau from registry based on algorithm type
+if algorithm_type == 'erk':
+    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'dirk':
+    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
+                     "Use 'erk' or 'dirk'.")
+
+# Numba/simsafe type conversions
+numba_precision = numba_from_dtype(precision)
+simsafe_precision = simsafe_dtype(precision)
+simsafe_int32 = simsafe_dtype(np.int32)
+
+# Typed constants for device code
+typed_zero = numba_precision(0.0)
+
+# Tableau stage count (for buffer sizing)
+stage_count = tableau.stage_count
+
+# Controller-dependent derived values
+dt_min_ctrl = dt_min
+dt_max_ctrl = dt_max
+atol = np.full(n_states, precision(1e-8), dtype=precision)
+rtol = np.full(n_states, precision(1e-8), dtype=precision)
+
+# Output dimensions
+n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
+
+# Compile-time derived flags
+summarise = summarise_obs_bool or summarise_state_bool
+fixed_mode = (controller_type == 'fixed')
+dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min * dt_max)
+
+# Memory location flags as booleans for compile-time branching
+use_shared_linear_preconditioned_vec = (
+    linear_solver_preconditioned_vec_memory == 'shared'
+)
+use_shared_linear_temp = linear_solver_temp_memory == 'shared'
+use_shared_dirk_stage_increment = dirk_stage_increment_memory == 'shared'
+use_shared_dirk_stage_base = dirk_stage_base_memory == 'shared'
+use_shared_erk_stage_rhs = erk_stage_rhs_memory == 'shared'
+use_shared_erk_stage_accumulator = erk_stage_accumulator_memory == 'shared'
+
 
 # =========================================================================
 # STRIDE ORDERING UTILITIES
@@ -89,111 +265,6 @@ def get_strides(
 
     return tuple(strides[dim] for dim in array_native_order)
 
-# =========================================================================
-# CONFIGURATION
-# =========================================================================
-
-# Algorithm configuration: 'erk' or 'dirk'
-# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys
-algorithm_type = 'erk'  # 'erk' or 'dirk'
-algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
-
-# Controller configuration: 'fixed' or 'pid'
-controller_type = 'fixed'  # 'fixed' or 'pid'
-
-# Look up tableau from registry based on algorithm type
-if algorithm_type == 'erk':
-    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
-elif algorithm_type == 'dirk':
-    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
-else:
-    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
-                     "Use 'erk' or 'dirk'.")
-
-precision = np.float32
-numba_precision = numba_from_dtype(precision)
-simsafe_precision = simsafe_dtype(precision)
-simsafe_int32 = simsafe_dtype(np.int32)
-
-# Typed constants for device code
-typed_zero = numba_precision(0.0)
-
-# Lorenz system constants
-constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
-
-# System dimensions
-n_states = 3
-n_parameters = 1
-n_observables = 0
-n_drivers = 0
-n_counters = 4
-
-# Time parameters
-duration = precision(5e-4)
-warmup = precision(0.0)
-dt = precision(1e-3)
-dt_save = precision(5e-5)
-dt_max = precision(1e6)
-dt_min = precision(1e-12) #TODO: when 1e-15, infinite loop
-
-
-# Tableau stage count (for buffer sizing)
-stage_count = tableau.stage_count
-
-# Solver helper parameters (beta, gamma, mass matrix scaling)
-beta_solver = precision(1.0)
-gamma_solver = precision(1.0)
-preconditioner_order = 2
-
-# Linear solver (Krylov) parameters
-krylov_tolerance = precision(1e-6)
-max_linear_iters = 200
-linear_correction_type = "minimal_residual"
-# Newton-Krylov nonlinear solver parameters
-newton_tolerance = precision(1e-6)
-max_newton_iters = 100
-newton_damping = precision(0.85)
-max_backtracks = 15
-
-# PID controller parameters
-algorithm_order = 2
-kp = precision(0.7)
-ki = precision(-0.4)
-kd = precision(0)
-min_gain = precision(0.2)
-max_gain = precision(5.0)
-dt_min_ctrl = dt_min
-dt_max_ctrl = dt_max
-deadband_min = precision(1.0)
-deadband_max = precision(1.0)
-safety = precision(0.9)
-atol = np.full(n_states, precision(1e-8), dtype=precision)
-rtol = np.full(n_states, precision(1e-8), dtype=precision)
-
-# Output dimensions
-n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
-
-
-# Compile-time flags for loop behavior
-save_obs_bool = False
-save_state_bool = True
-summarise_obs_bool = False
-summarise_state_bool = False
-summarise = summarise_obs_bool or summarise_state_bool
-save_counters_bool = False
-fixed_mode = (controller_type == 'fixed')
-save_last = False
-dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min*dt_max)
 
 # =========================================================================
 # AUTO-GENERATED DEVICE FUNCTION FACTORIES
@@ -338,13 +409,40 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
 # =========================================================================
 
 def linear_solver_inline_factory(
-        operator_apply, n, preconditioner, tolerance, max_iters, prec, correction_type
+        operator_apply, n, preconditioner, tolerance, max_iters, prec,
+        correction_type, use_shared_preconditioned_vec=False,
+        use_shared_temp=False
 ):
     """Create inline linear solver device function.
 
     Parameters
     ----------
+    operator_apply
+        The linear operator function.
+    n
+        Number of state variables.
+    preconditioner
+        The preconditioner function.
+    tolerance
+        Convergence tolerance.
+    max_iters
+        Maximum iterations.
+    prec
+        Precision dtype.
     correction_type
+        Type of correction: 'steepest_descent' or 'minimal_residual'.
+    use_shared_preconditioned_vec
+        If True, use shared memory for preconditioned_vec array.
+    use_shared_temp
+        If True, use shared memory for temp array.
+
+    Notes
+    -----
+    Memory location flags are evaluated at compile time. The generated
+    device function will use the selected memory type for each array.
+    Currently only local memory is implemented; shared memory variants
+    would require changes to the function signature to receive shared
+    memory buffers.
     """
     numba_prec = numba_from_dtype(prec)
     tol_squared = precision(tolerance * tolerance)
@@ -353,20 +451,7 @@ def linear_solver_inline_factory(
     sd_flag = 1 if correction_type == "steepest_descent" else 0
     mr_flag = 1 if correction_type == "minimal_residual" else 0
 
-    @cuda.jit(
-        # [(numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec,
-        #   numba_prec,
-        #   numba_prec,
-        #   numba_prec[::1],
-        #   numba_prec[::1])],
-        device=True,
-        inline=True,
-        **compile_kwargs,
-    )
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
         preconditioned_vec = cuda.local.array(n, numba_prec)
@@ -571,8 +656,31 @@ def dirk_step_inline_factory(
     n,
     prec,
     tableau,
+    use_shared_stage_increment=False,
+    use_shared_stage_base=True,
 ):
-    """Create inline DIRK step device function matching generic_dirk.py."""
+    """Create inline DIRK step device function matching generic_dirk.py.
+
+    Parameters
+    ----------
+    nonlinear_solver
+        The Newton-Krylov solver function.
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The DIRK tableau.
+    use_shared_stage_increment
+        If True, use shared memory for stage_increment array.
+    use_shared_stage_base
+        If True, use shared memory for stage_base array (aliased to
+        accumulator when multistage).
+    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -616,25 +724,11 @@ def dirk_step_inline_factory(
     solver_start = acc_end
     solver_end = acc_end + solver_shared_elements
 
+    # Memory location flags captured at compile time
+    stage_increment_in_shared = use_shared_stage_increment
+    stage_base_in_shared = use_shared_stage_base
+
     @cuda.jit(
-        # (
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[:, :, ::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision,
-        #     numba_precision,
-        #     int16,
-        #     int16,
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     int32[::1],
-        # ),
         device=True,
         inline=True,
         **compile_kwargs,
@@ -667,6 +761,7 @@ def dirk_step_inline_factory(
         #       - stage_base: first slice (size n)
         #           - Holds the working state during the current stage.
         #           - New data lands only after the prior stage has finished.
+        #           - Memory location controlled by use_shared_stage_base.
         # solver_scratch: size solver_shared_elements, shared memory.
         #   Default behaviour:
         #       - Provides workspace for the Newton iteration helpers.
@@ -681,7 +776,8 @@ def dirk_step_inline_factory(
         #   Note:
         #       - Evaluation state is computed inline by operators and
         #         residuals; no dedicated buffer required.
-        # stage_increment: size n, per-thread local memory.
+        # stage_increment: size n.
+        #   Memory location controlled by use_shared_stage_increment.
         #   Default behaviour:
         #       - Starts as the Newton guess and finishes as the step.
         #       - Copied into increment_cache once the stage closes.
@@ -694,7 +790,11 @@ def dirk_step_inline_factory(
         #       - Refresh to the stage time before rhs or residual work.
         #       - Later stages reuse only the newest values, so no clashes.
         # ----------------------------------------------------------- #
-        stage_increment = cuda.local.array(n, numba_precision)
+        # Memory allocation based on configuration flags
+        if stage_increment_in_shared:
+            stage_increment = shared[solver_end:solver_end + n]
+        else:
+            stage_increment = cuda.local.array(n, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -704,9 +804,12 @@ def dirk_step_inline_factory(
         stage_rhs = solver_scratch[:n]
         increment_cache = solver_scratch[n:int32(2)*n]
 
-        #Alias stage base onto first stage accumulator - lifetimes disjoint
+        # Alias stage base onto first stage accumulator or allocate locally
         if multistage:
-            stage_base = stage_accumulator[:n]
+            if stage_base_in_shared:
+                stage_base = stage_accumulator[:n]
+            else:
+                stage_base = cuda.local.array(n, numba_precision)
         else:
             stage_base = cuda.local.array(n, numba_precision)
 
@@ -935,8 +1038,28 @@ def erk_step_inline_factory(
     n,
     prec,
     tableau,
+    use_shared_stage_rhs=True,
+    use_shared_stage_accumulator=False,
 ):
-    """Create inline ERK step device function matching generic_erk.py."""
+    """Create inline ERK step device function matching generic_erk.py.
+
+    Parameters
+    ----------
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The ERK tableau.
+    use_shared_stage_rhs
+        If True, use shared memory for stage_rhs array.
+    use_shared_stage_accumulator
+        If True, use shared memory for stage_accumulator array.
+    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -971,25 +1094,11 @@ def erk_step_inline_factory(
     if b_hat_row is not None:
         b_hat_row = int32(b_hat_row)
 
+    # Memory location flags captured at compile time
+    stage_rhs_in_shared = use_shared_stage_rhs
+    stage_accumulator_in_shared = use_shared_stage_accumulator
+
     @cuda.jit(
-        # (
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[:, :, ::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision,
-        #     numba_precision,
-        #     int16,
-        #     int16,
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     int32[::1],
-        # ),
         device=True,
         inline=True,
         **compile_kwargs
@@ -1014,7 +1123,8 @@ def erk_step_inline_factory(
     ):
         # ----------------------------------------------------------- #
         # Shared and local buffer guide:
-        # stage_accumulator: size (stage_count-1) * n, shared memory.
+        # stage_accumulator: size (stage_count-1) * n.
+        #   Memory location controlled by use_shared_stage_accumulator.
         #   Default behaviour:
         #       - Holds finished stage rhs * dt for later stage sums.
         #       - Slice k stores contributions streamed into stage k+1.
@@ -1030,7 +1140,8 @@ def erk_step_inline_factory(
         #   Default behaviour:
         #       - Refresh to the current stage time before rhs evaluation.
         #       - Later stages only read the newest values, so nothing lingers.
-        # stage_rhs: size n, per-thread local memory.
+        # stage_rhs: size n.
+        #   Memory location controlled by use_shared_stage_rhs.
         #   Default behaviour:
         #       - Holds the current stage rhs before scaling by dt.
         #   Reuse:
@@ -1038,17 +1149,23 @@ def erk_step_inline_factory(
         #         shared memory, keeping lifetimes separate.
         # error: size n, global memory (adaptive runs only).
         #   Default behaviour:
-        #       - Accumulates error-weighted f(y_jn) during the
-        #       loop.
+        #       - Accumulates error-weighted f(y_jn) during the loop.
         #       - Cleared at loop entry so prior steps cannot leak in.
         # ----------------------------------------------------------- #
-        stage_rhs = shared[:n]
+        # Memory allocation based on configuration flags
+        if stage_rhs_in_shared:
+            stage_rhs = shared[:n]
+        else:
+            stage_rhs = cuda.local.array(n, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
 
-        stage_accumulator = cuda.local.array(accumulator_length,
-                                             dtype=precision)
+        if stage_accumulator_in_shared:
+            stage_accumulator = shared[n:n + accumulator_length]
+        else:
+            stage_accumulator = cuda.local.array(accumulator_length,
+                                                 dtype=precision)
         if multistage:
             stage_cache = stage_rhs  # FSAL cache alias
 
@@ -1484,6 +1601,8 @@ if algorithm_type == 'erk':
         n_states,
         precision,
         tableau,
+        use_shared_stage_rhs=use_shared_erk_stage_rhs,
+        use_shared_stage_accumulator=use_shared_erk_stage_accumulator,
     )
 elif algorithm_type == 'dirk':
     # Build implicit solver components for DIRK
@@ -1509,12 +1628,16 @@ elif algorithm_type == 'dirk':
         order=preconditioner_order,
     )
 
-    linear_solver_fn = linear_solver_inline_factory(operator_fn, n_states,
-                                                    preconditioner_fn,
-                                                    krylov_tolerance,
-                                                    max_linear_iters,
-                                                    precision,
-                                                    linear_correction_type)
+    linear_solver_fn = linear_solver_inline_factory(
+        operator_fn, n_states,
+        preconditioner_fn,
+        krylov_tolerance,
+        max_linear_iters,
+        precision,
+        linear_correction_type,
+        use_shared_preconditioned_vec=use_shared_linear_preconditioned_vec,
+        use_shared_temp=use_shared_linear_temp,
+    )
 
     newton_solver_fn = newton_krylov_inline_factory(
         residual_fn,
@@ -1534,6 +1657,8 @@ elif algorithm_type == 'dirk':
         n_states,
         precision,
         tableau,
+        use_shared_stage_increment=use_shared_dirk_stage_increment,
+        use_shared_stage_base=use_shared_dirk_stage_base,
     )
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
@@ -1621,7 +1746,6 @@ local_controller_slice = slice(2, 4)
 local_algo_slice = slice(4, 8)
 local_elements = 8
 
-saves_per_summary = int32(2)
 status_mask = int32(0xFFFF)
 
 
@@ -2085,7 +2209,6 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"State output shape: {state_output.shape}")
 
     # Kernel configuration
-    MAX_SHARED_MEMORY_PER_BLOCK = 32768
     blocksize = 64
     runs_per_block = blocksize
     dynamic_sharedmem = int32(
