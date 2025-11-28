@@ -770,15 +770,20 @@ def dirk_step_inline_factory(
     accumulator_length = int32(max(stage_count - 1, 0) * n)
     solver_shared_elements = 2 * n  # delta + residual for Newton solver
 
-    # Shared memory indices
-    acc_start = 0
-    acc_end = accumulator_length
-    solver_start = acc_end
-    solver_end = acc_end + solver_shared_elements
-
     # Memory location flags captured at compile time from global scope
     stage_increment_in_shared = use_shared_dirk_stage_increment
     stage_base_in_shared = use_shared_dirk_stage_base
+    accumulator_in_shared = use_shared_dirk_accumulator
+    solver_scratch_in_shared = use_shared_dirk_solver_scratch
+
+    # Shared memory indices (only used when corresponding flag is True)
+    # Accumulator comes first if shared
+    acc_start = 0
+    acc_end = accumulator_length if accumulator_in_shared else 0
+    # Solver scratch follows accumulator if shared
+    solver_start = acc_end
+    solver_end = (acc_end + solver_shared_elements
+                  if solver_scratch_in_shared else acc_end)
 
     @cuda.jit(
         device=True,
@@ -851,14 +856,24 @@ def dirk_step_inline_factory(
         current_time = time_scalar
         end_time = current_time + dt_scalar
 
-        stage_accumulator = shared[acc_start:acc_end]
-        solver_scratch = shared[solver_start:solver_end]
+        # Allocate accumulator and solver scratch based on flags
+        if accumulator_in_shared:
+            stage_accumulator = shared[acc_start:acc_end]
+        else:
+            stage_accumulator = cuda.local.array(accumulator_length,
+                                                 numba_precision)
+
+        if solver_scratch_in_shared:
+            solver_scratch = shared[solver_start:solver_end]
+        else:
+            solver_scratch = cuda.local.array(solver_shared_elements,
+                                              numba_precision)
         stage_rhs = solver_scratch[:n]
         increment_cache = solver_scratch[n:int32(2)*n]
 
         # Alias stage base onto first stage accumulator or allocate locally
         if multistage:
-            if stage_base_in_shared:
+            if stage_base_in_shared and accumulator_in_shared:
                 stage_base = stage_accumulator[:n]
             else:
                 stage_base = cuda.local.array(n, numba_precision)
