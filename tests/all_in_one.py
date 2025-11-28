@@ -1739,7 +1739,7 @@ _shared_offset = int32(0)
 state_shared_start = _shared_offset if use_shared_loop_state else int32(0)
 state_shared_size = int32(n_states) if use_shared_loop_state else int32(0)
 state_shared_end = state_shared_start + state_shared_size
-_shared_offset = state_shared_end
+_shared_offset = max(_shared_offset, state_shared_end)
 
 # Proposed state buffer
 proposed_state_start = _shared_offset if use_shared_loop_state_proposal else int32(0)
