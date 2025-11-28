@@ -29,6 +29,7 @@ if CUDA_SIMULATION:
         """No-op syncwarp for CUDA simulator."""
         pass
 else:
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
     def syncwarp():
         """Warp synchronization on real GPU."""
         cuda.syncwarp()
@@ -153,10 +154,10 @@ n_drivers = 0
 n_counters = 4
 
 # Time parameters
-duration = precision(5e-4)
+duration = precision(2e-5)
 warmup = precision(0.0)
 dt = precision(1e-3)
-dt_save = precision(5e-5)
+dt_save = precision(1e-5)
 dt_max = precision(1e6)
 dt_min = precision(1e-12) #TODO: when 1e-15, infinite loop
 
@@ -182,8 +183,8 @@ max_backtracks = 15
 # PID controller parameters
 algorithm_order = 2
 kp = precision(0.7)
-ki = precision(-0.4)
-kd = precision(0)
+ki = precision(0.0)
+kd = precision(-0.4)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
 dt_min_ctrl = dt_min
@@ -1966,7 +1967,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     MAX_SHARED_MEMORY_PER_BLOCK = 32768
     # Compute ysize as the next power-of-two >= n_states that also divides
     # a warp-aligned block size. Start at 32 and double until it is >= n_states.
-    block_size = 32
+    block_size = 128
     while int(n_states) > block_size:
         block_size <<= 1
     ysize_val = 1

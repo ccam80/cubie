@@ -43,9 +43,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.6,
-        ki: float = -0.2,
-        kd: float = 0.0,
+        kp: float = 0.7,
+        ki: float = 0.0,
+        kd: float = -0.4,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
         deadband_min: float = 1.0,
@@ -281,7 +281,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
-            accept = nrm2 >= typed_one
+            accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > typed_zero else nrm2
             err_prev_prev_safe = (
