@@ -24,22 +24,14 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 # Simulation-safe syncwarp wrapper
 CUDA_SIMULATION = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
-
-def _syncwarp_impl():
-    """Return syncwarp implementation based on CUDA simulation state."""
-    if CUDA_SIMULATION:
-        def syncwarp_sim():
-            """No-op syncwarp for CUDA simulator."""
-            pass
-        return syncwarp_sim
-    else:
-        def syncwarp_real():
-            """Warp synchronization on real GPU."""
-            cuda.syncwarp()
-        return syncwarp_real
-
-
-syncwarp = _syncwarp_impl()
+if CUDA_SIMULATION:
+    def syncwarp():
+        """No-op syncwarp for CUDA simulator."""
+        pass
+else:
+    def syncwarp():
+        """Warp synchronization on real GPU."""
+        cuda.syncwarp()
 
 
 # =========================================================================
@@ -1543,10 +1535,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     )
     max_steps = max_steps << 1
 
-    # Initialize shared memory - thread 0 sets all elements, others wait
-    if ty == 0:
-        for i in range(len(shared_scratch)):
-            shared_scratch[i] = numba_precision(0.0)
+    # Initialize shared memory - all threads initialize strided elements
+    n_shared = len(shared_scratch)
+    for i in range(ty, n_shared, n_states):
+        shared_scratch[i] = numba_precision(0.0)
     syncwarp()
 
     state_buffer = shared_scratch[state_shared_start:state_shared_end]
