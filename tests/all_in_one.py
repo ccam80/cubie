@@ -118,6 +118,20 @@ saves_per_summary = int32(2)
 # Note: These affect compile-time code generation. Changing these requires
 # recompilation of the affected device functions.
 
+# Loop buffers (main integration loop)
+loop_state_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_state_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_parameters_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observables_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observables_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_error_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_counters_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_state_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_scratch_buffer_memory = 'shared'  # 'local' or 'shared'
+
 # Linear solver arrays (used in Krylov iteration)
 linear_solver_preconditioned_vec_memory = 'local'  # 'local' or 'shared'
 linear_solver_temp_memory = 'local'  # 'local' or 'shared'
@@ -186,12 +200,35 @@ fixed_mode = (controller_type == 'fixed')
 dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min * dt_max)
 
 # Memory location flags as booleans for compile-time branching
+# Loop buffer flags
+use_shared_loop_state = loop_state_buffer_memory == 'shared'
+use_shared_loop_state_proposal = loop_state_proposal_buffer_memory == 'shared'
+use_shared_loop_parameters = loop_parameters_buffer_memory == 'shared'
+use_shared_loop_drivers = loop_drivers_buffer_memory == 'shared'
+use_shared_loop_drivers_proposal = loop_drivers_proposal_buffer_memory == 'shared'
+use_shared_loop_observables = loop_observables_buffer_memory == 'shared'
+use_shared_loop_observables_proposal = (
+    loop_observables_proposal_buffer_memory == 'shared'
+)
+use_shared_loop_error = loop_error_buffer_memory == 'shared'
+use_shared_loop_counters = loop_counters_buffer_memory == 'shared'
+use_shared_loop_state_summary = loop_state_summary_buffer_memory == 'shared'
+use_shared_loop_observable_summary = (
+    loop_observable_summary_buffer_memory == 'shared'
+)
+use_shared_loop_scratch = loop_scratch_buffer_memory == 'shared'
+
+# Linear solver flags
 use_shared_linear_preconditioned_vec = (
     linear_solver_preconditioned_vec_memory == 'shared'
 )
 use_shared_linear_temp = linear_solver_temp_memory == 'shared'
+
+# DIRK step flags
 use_shared_dirk_stage_increment = dirk_stage_increment_memory == 'shared'
 use_shared_dirk_stage_base = dirk_stage_base_memory == 'shared'
+
+# ERK step flags
 use_shared_erk_stage_rhs = erk_stage_rhs_memory == 'shared'
 use_shared_erk_stage_accumulator = erk_stage_accumulator_memory == 'shared'
 
@@ -277,8 +314,8 @@ def dxdt_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def dxdt(state, parameters, drivers, observables, out, t):
         out[2] = -beta * state[2] + state[0] * state[1]
@@ -293,8 +330,8 @@ def observables_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
         pass
@@ -313,9 +350,9 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def preconditioner(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out, jvp):
@@ -349,9 +386,9 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec, numba_prec, numba_prec, numba_prec[::1],
-            #    numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec, numba_prec, numba_prec, numba_prec[::1],
+               numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
         _cse0 = a_ij * u[1]
@@ -376,9 +413,9 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out):
@@ -547,15 +584,15 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     status_active = int32(-1)
 
     @cuda.jit(
-            # [(numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     int32[::1])],
+            [(numba_prec[::1],
+                numba_prec[::1],
+                numba_prec[::1],
+                numba_prec,
+                numba_prec,
+                numba_prec,
+                numba_prec[::1],
+                numba_prec[::1],
+                int32[::1])],
               device=True,
               inline=True,
               **compile_kwargs
@@ -1455,15 +1492,15 @@ def clamp(value, min_val, max_val):
 
 
 @cuda.jit(
-    # [(
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     int32,
-    #     int32[::1],
-    #     numba_precision[::1],
-    # )],
+    [(
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        int32,
+        int32[::1],
+        numba_precision[::1],
+    )],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1513,17 +1550,17 @@ def controller_PID_factory(
     n = int32(n)
     inv_n = precision(1.0 / n)
     @cuda.jit(
-        # [
-        #     (
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         int32,
-        #         int32[::1],
-        #         numba_precision[::1],
-        #     )
-        # ],
+        [
+            (
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32,
+                int32[::1],
+                numba_precision[::1],
+            )
+        ],
         device=True,
         inline=True,
         # fastmath=True,
@@ -1694,50 +1731,104 @@ else:
 # INTEGRATION LOOP
 # =========================================================================
 
-# Buffer layout
-state_shared_start = int32(0)
-state_shared_end = int32(n_states)
-proposed_state_start = int32(state_shared_end)
-proposed_state_end = proposed_state_start + int32(n_states)
-params_start = proposed_state_end
-params_end = params_start + int32(n_parameters)
-drivers_start = params_end
-drivers_end = drivers_start + int32(n_drivers)
-proposed_drivers_start = drivers_end
-proposed_drivers_end = proposed_drivers_start + int32(n_drivers)
-obs_start = proposed_drivers_end
-obs_end = obs_start + int32(n_observables)
-proposed_obs_start = obs_end
-proposed_obs_end = proposed_obs_start + int32(n_observables)
-error_start = proposed_obs_end
-error_end = error_start + int32(n_states)
-counters_start = error_end
-counters_end = counters_start + (int32(n_counters) if save_counters_bool
-                                 else int32(0))
-proposed_counters_start = counters_end
-proposed_counters_end = proposed_counters_start + (
-    int32(2) if save_counters_bool else int32(0)
-)
-scratch_start = proposed_counters_end
+# Buffer layout - dynamic based on memory location configuration
+# Each buffer is only allocated in shared memory if its flag is True
+_shared_offset = int32(0)
 
+# State buffer
+state_shared_start = _shared_offset if use_shared_loop_state else int32(0)
+state_shared_size = int32(n_states) if use_shared_loop_state else int32(0)
+state_shared_end = state_shared_start + state_shared_size
+_shared_offset = state_shared_end
+
+# Proposed state buffer
+proposed_state_start = _shared_offset if use_shared_loop_state_proposal else int32(0)
+proposed_state_size = int32(n_states) if use_shared_loop_state_proposal else int32(0)
+proposed_state_end = proposed_state_start + proposed_state_size
+_shared_offset = max(_shared_offset, proposed_state_end)
+
+# Parameters buffer
+params_start = _shared_offset if use_shared_loop_parameters else int32(0)
+params_size = int32(n_parameters) if use_shared_loop_parameters else int32(0)
+params_end = params_start + params_size
+_shared_offset = max(_shared_offset, params_end)
+
+# Drivers buffer
+drivers_start = _shared_offset if use_shared_loop_drivers else int32(0)
+drivers_size = int32(n_drivers) if use_shared_loop_drivers else int32(0)
+drivers_end = drivers_start + drivers_size
+_shared_offset = max(_shared_offset, drivers_end)
+
+# Proposed drivers buffer
+proposed_drivers_start = _shared_offset if use_shared_loop_drivers_proposal else int32(0)
+proposed_drivers_size = int32(n_drivers) if use_shared_loop_drivers_proposal else int32(0)
+proposed_drivers_end = proposed_drivers_start + proposed_drivers_size
+_shared_offset = max(_shared_offset, proposed_drivers_end)
+
+# Observables buffer
+obs_start = _shared_offset if use_shared_loop_observables else int32(0)
+obs_size = int32(n_observables) if use_shared_loop_observables else int32(0)
+obs_end = obs_start + obs_size
+_shared_offset = max(_shared_offset, obs_end)
+
+# Proposed observables buffer
+proposed_obs_start = _shared_offset if use_shared_loop_observables_proposal else int32(0)
+proposed_obs_size = int32(n_observables) if use_shared_loop_observables_proposal else int32(0)
+proposed_obs_end = proposed_obs_start + proposed_obs_size
+_shared_offset = max(_shared_offset, proposed_obs_end)
+
+# Error buffer
+error_start = _shared_offset if use_shared_loop_error else int32(0)
+error_size = int32(n_states) if use_shared_loop_error else int32(0)
+error_end = error_start + error_size
+_shared_offset = max(_shared_offset, error_end)
+
+# Counters buffer
+counters_start = _shared_offset if use_shared_loop_counters else int32(0)
+counters_size = (int32(n_counters) if save_counters_bool and
+                 use_shared_loop_counters else int32(0))
+counters_end = counters_start + counters_size
+_shared_offset = max(_shared_offset, counters_end)
+
+# Proposed counters (always 2 elements when counters enabled)
+proposed_counters_start = _shared_offset if use_shared_loop_counters else int32(0)
+proposed_counters_size = (int32(2) if save_counters_bool and
+                          use_shared_loop_counters else int32(0))
+proposed_counters_end = proposed_counters_start + proposed_counters_size
+_shared_offset = max(_shared_offset, proposed_counters_end)
+
+# Scratch buffer for step algorithms
+scratch_start = _shared_offset if use_shared_loop_scratch else int32(0)
 accumulator_size = int32((stage_count - 1) * n_states)
 if algorithm_type == 'dirk':
     solver_scratch_size = int32(2 * n_states)
-    scratch_end = scratch_start + accumulator_size + solver_scratch_size
+    scratch_size = (accumulator_size + solver_scratch_size
+                    if use_shared_loop_scratch else int32(0))
+    local_scratch_size = int32(accumulator_size + solver_scratch_size)
 else:
-    # scratch_end = scratch_start + accumulator_size
-    scratch_end = scratch_start + int32(n_states) + 1 #This isn't good,
-    # but a 1 is needed to aboid writing off the end of it. Let's say...
-    # alignment.
-state_summ_start = scratch_end
-state_summ_end = state_summ_start + (
-    int32(n_states) if summarise_state_bool else int32(0)
-)
-obs_summ_start = state_summ_end
-obs_summ_end = obs_summ_start + (
-    int32(n_observables if summarise_obs_bool else int32(0))
-)
-shared_elements = obs_summ_end
+    # ERK needs space for stage_rhs + alignment
+    scratch_size = (int32(n_states) + 1
+                    if use_shared_loop_scratch else int32(0))
+    local_scratch_size = int32(n_states + 1)
+scratch_end = scratch_start + scratch_size
+_shared_offset = max(_shared_offset, scratch_end)
+
+# State summary buffer
+state_summ_start = _shared_offset if use_shared_loop_state_summary else int32(0)
+state_summ_size = (int32(n_states) if summarise_state_bool and
+                   use_shared_loop_state_summary else int32(0))
+state_summ_end = state_summ_start + state_summ_size
+_shared_offset = max(_shared_offset, state_summ_end)
+
+# Observable summary buffer
+obs_summ_start = _shared_offset if use_shared_loop_observable_summary else int32(0)
+obs_summ_size = (int32(n_observables) if summarise_obs_bool and
+                 use_shared_loop_observable_summary else int32(0))
+obs_summ_end = obs_summ_start + obs_summ_size
+_shared_offset = max(_shared_offset, obs_summ_end)
+
+# Total shared memory elements required
+shared_elements = _shared_offset
 
 
 local_dt_slice = slice(0, 1)
@@ -1751,23 +1842,23 @@ status_mask = int32(0xFFFF)
 
 
 @cuda.jit(
-    # [
-    #     (
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :, ::1],
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, ::1],
-    #         float64,
-    #         float64,
-    #         float64,
-    #     )
-    # ],
+    [
+        (
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, ::1],
+            float64,
+            float64,
+            float64,
+        )
+    ],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1797,32 +1888,90 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
     shared_scratch[:] = numba_precision(0.0)
 
-    state_buffer = shared_scratch[state_shared_start:state_shared_end]
-    state_proposal_buffer = shared_scratch[proposed_state_start:
-                                           proposed_state_end]
-    observables_buffer = shared_scratch[obs_start:obs_end]
-    observables_proposal_buffer = shared_scratch[proposed_obs_start:
-                                                 proposed_obs_end]
-    parameters_buffer = shared_scratch[params_start:params_end]
-    drivers_buffer = shared_scratch[drivers_start:drivers_end]
-    drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
-                                             proposed_drivers_end]
-    state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
-    observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
-    remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
-    counters_since_save = shared_scratch[counters_start:counters_end]
+    # Allocate buffers based on memory location configuration
+    # Each buffer uses shared memory if its flag is True, otherwise local
+    if use_shared_loop_state:
+        state_buffer = shared_scratch[state_shared_start:state_shared_end]
+    else:
+        state_buffer = cuda.local.array(n_states, numba_precision)
 
-    if save_counters_bool:
-        # When enabled, use shared memory buffers
+    if use_shared_loop_state_proposal:
+        state_proposal_buffer = shared_scratch[proposed_state_start:
+                                               proposed_state_end]
+    else:
+        state_proposal_buffer = cuda.local.array(n_states, numba_precision)
+
+    if use_shared_loop_observables:
+        observables_buffer = shared_scratch[obs_start:obs_end]
+    else:
+        observables_buffer = cuda.local.array(max(n_observables, 1),
+                                              numba_precision)
+
+    if use_shared_loop_observables_proposal:
+        observables_proposal_buffer = shared_scratch[proposed_obs_start:
+                                                     proposed_obs_end]
+    else:
+        observables_proposal_buffer = cuda.local.array(max(n_observables, 1),
+                                                       numba_precision)
+
+    if use_shared_loop_parameters:
+        parameters_buffer = shared_scratch[params_start:params_end]
+    else:
+        parameters_buffer = cuda.local.array(n_parameters, numba_precision)
+
+    if use_shared_loop_drivers:
+        drivers_buffer = shared_scratch[drivers_start:drivers_end]
+    else:
+        drivers_buffer = cuda.local.array(max(n_drivers, 1), numba_precision)
+
+    if use_shared_loop_drivers_proposal:
+        drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
+                                                 proposed_drivers_end]
+    else:
+        drivers_proposal_buffer = cuda.local.array(max(n_drivers, 1),
+                                                   numba_precision)
+
+    if use_shared_loop_state_summary:
+        state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
+    else:
+        state_summary_buffer = cuda.local.array(max(n_states, 1),
+                                                numba_precision)
+
+    if use_shared_loop_observable_summary:
+        observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
+    else:
+        observable_summary_buffer = cuda.local.array(max(n_observables, 1),
+                                                     numba_precision)
+
+    if use_shared_loop_scratch:
+        remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
+    else:
+        # Local scratch sized for the algorithm (computed at module level)
+        remaining_shared_scratch = cuda.local.array(local_scratch_size,
+                                                    numba_precision)
+
+    if use_shared_loop_counters:
+        counters_since_save = shared_scratch[counters_start:counters_end]
+    else:
+        counters_since_save = cuda.local.array(max(n_counters, 1),
+                                               simsafe_int32)
+
+    if save_counters_bool and use_shared_loop_counters:
+        # When enabled and shared, use shared memory buffers
         proposed_counters = shared_scratch[proposed_counters_start:
                                            proposed_counters_end]
     else:
-        # When disabled, use a dummy local "proposed_counters" buffer
+        # When disabled or local, use a local "proposed_counters" buffer
         proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
 
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
-    error = shared_scratch[error_start:error_end]
+
+    if use_shared_loop_error:
+        error = shared_scratch[error_start:error_end]
+    else:
+        error = cuda.local.array(n_states, numba_precision)
+
     controller_temp = persistent_local[local_controller_slice]
     algo_local = persistent_local[local_algo_slice]
 
@@ -2072,21 +2221,21 @@ run_stride_f32 = int32(
 numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
-        # [(
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, :, ::1],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         int32[:, :, :],
-        #         int32[::1],
-        #         float64,
-        #         float64,
-        #         float64,
-        #         int32,
-        #     )],
+        [(
+                numba_prec[:, ::1],
+                numba_prec[:, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                int32[:, :, :],
+                int32[::1],
+                float64,
+                float64,
+                float64,
+                int32,
+            )],
         **compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_output, state_summaries_output,
