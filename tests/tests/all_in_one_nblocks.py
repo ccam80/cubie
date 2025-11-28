@@ -6,6 +6,7 @@ proper line-level debugging with Numba's lineinfo feature.
 # ruff: noqa: E402
 from math import ceil, floor
 from typing import Optional
+import os
 
 import numpy as np
 from numba import cuda, int16, int32, int64, float32, float64
@@ -18,6 +19,27 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
+
+
+# Simulation-safe syncwarp wrapper
+CUDA_SIMULATION = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
+
+
+def _syncwarp_impl():
+    """Return syncwarp implementation based on CUDA simulation state."""
+    if CUDA_SIMULATION:
+        def syncwarp_sim():
+            """No-op syncwarp for CUDA simulator."""
+            pass
+        return syncwarp_sim
+    else:
+        def syncwarp_real():
+            """Warp synchronization on real GPU."""
+            cuda.syncwarp()
+        return syncwarp_real
+
+
+syncwarp = _syncwarp_impl()
 
 
 # =========================================================================
@@ -265,7 +287,7 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
                 jvp[0] = j_00 * out[0] + j_01 * out[1]
                 jvp[1] = j_10 * out[0] + j_11 * out[1] + j_12 * out[2]
                 jvp[2] = j_20 * out[0] + j_21 * out[1] + j_22 * out[2]
-            cuda.syncwarp()
+            syncwarp()
             out[ty] = v[ty] + h_eff * jvp[ty]
         out[ty] = numba_prec(beta_inv) * out[ty]
     return preconditioner
@@ -338,7 +360,7 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
             j[2, 2] = -beta_const
         # gamma_val = numba_prec(gamma) #TODO: Get rid of these from codegen
         # beta_val = numba_prec(beta)
-        cuda.syncwarp()
+        syncwarp()
         out[ty] = (-a_ij * gamma * h * (j[ty, 0] * v[0] + j[ty,1] * v[1] +
                                         j[ty,2] * v[2]) + beta * m[ty] * v[ty])
     return operator_apply
@@ -690,7 +712,7 @@ def dirk_step_inline_factory(
             error[ty] = typed_zero
         # FSAL increment cache reused if tableau supports it; otherwise stale zeros
         stage_increment[ty] = increment_cache[ty]
-        cuda.syncwarp()
+        syncwarp()
 
         first_step = first_step_flag != int16(0)
         prev_state_accepted = accepted_flag != int16(0)
@@ -710,7 +732,7 @@ def dirk_step_inline_factory(
         stage_base[ty] = state[ty]
         if accumulates_output:
             proposed_state[ty] = typed_zero
-        cuda.syncwarp()
+        syncwarp()
 
         if not use_cached_rhs:
             if can_reuse_accepted_start:
@@ -736,7 +758,7 @@ def dirk_step_inline_factory(
                 )
                 # Implicit increment application per-thread
                 stage_base[ty] += diagonal_coeff * stage_increment[ty]
-            cuda.syncwarp()
+            syncwarp()
 
             # Observables and dxdt only need one thread to write full vector
             if ty == 0:
@@ -755,7 +777,7 @@ def dirk_step_inline_factory(
                     stage_rhs,
                     stage_time,
                 )
-            cuda.syncwarp()
+            syncwarp()
         # else: cached rhs already in stage_rhs slice
 
         solution_weight = solution_weights[0]
@@ -771,11 +793,11 @@ def dirk_step_inline_factory(
                 error[ty] += error_weight * rhs_value
             elif b_hat_row == int32(0):
                 error[ty] = stage_base[ty]
-        cuda.syncwarp()
+        syncwarp()
         # Zero accumulator slices strided by variable index
         for acc_offset in range(0, accumulator_length, n):
             stage_accumulator[acc_offset + ty] = typed_zero
-        cuda.syncwarp()
+        syncwarp()
 
         # --------- Successor Stages (1..s) ---------
         for stage_idx in range(int32(1), stage_count):
@@ -791,12 +813,12 @@ def dirk_step_inline_factory(
                 state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
                 contribution = state_coeff * stage_rhs[ty] * dt_scalar
                 stage_accumulator[base + ty] += contribution
-            cuda.syncwarp()
+            syncwarp()
 
             # Stage base view and add original state
             stage_base = stage_accumulator[(stage_idx-int32(1))*n:stage_idx*n]
             stage_base[ty] += state[ty]
-            cuda.syncwarp()
+            syncwarp()
 
             diagonal_coeff = diagonal_coeffs[stage_idx]
             if stage_implicit[stage_idx]:
@@ -812,7 +834,7 @@ def dirk_step_inline_factory(
                     counters,
                 )
                 stage_base[ty] += diagonal_coeff * stage_increment[ty]
-            cuda.syncwarp()
+            syncwarp()
 
             if ty == 0:
                 observables_function(
@@ -830,7 +852,7 @@ def dirk_step_inline_factory(
                     stage_rhs,
                     stage_time,
                 )
-            cuda.syncwarp()
+            syncwarp()
 
             solution_weight = solution_weights[stage_idx]
             error_weight = error_weights[stage_idx]
@@ -844,7 +866,7 @@ def dirk_step_inline_factory(
                     error[ty] += error_weight * increment
                 elif b_hat_row == stage_idx:
                     error[ty] = stage_base[ty]
-            cuda.syncwarp()
+            syncwarp()
 
         # --------- Final combination ---------
         if accumulates_output:
@@ -855,7 +877,7 @@ def dirk_step_inline_factory(
             else:
                 error[ty] = proposed_state[ty] - error[ty]
         increment_cache[ty] = stage_increment[ty]
-        cuda.syncwarp()
+        syncwarp()
         return status_code
     return step
 
@@ -958,7 +980,7 @@ def erk_step_inline_factory(
             proposed_state[ty] = typed_zero
         if has_error and accumulates_error:
             error[ty] = typed_zero
-        cuda.syncwarp()
+        syncwarp()
 
         # Stage 0 cache reuse check
         use_cached_rhs = False
@@ -980,7 +1002,7 @@ def erk_step_inline_factory(
                 stage_rhs,
                 current_time,
             )
-        cuda.syncwarp()
+        syncwarp()
 
         # Accumulate stage 0
         increment0 = stage_rhs[ty]
@@ -988,12 +1010,12 @@ def erk_step_inline_factory(
             proposed_state[ty] += solution_weights[0] * increment0
         if has_error and accumulates_error:
             error[ty] += error_weights[0] * increment0
-        cuda.syncwarp()
+        syncwarp()
 
         # Zero accumulator (strided)
         for offset in range(ty, accumulator_length, n):
             stage_accumulator[offset] = typed_zero
-        cuda.syncwarp()
+        syncwarp()
 
         # Successor stages
         for prev_idx in range(stages_except_first):
@@ -1005,11 +1027,11 @@ def erk_step_inline_factory(
                 coeff = matrix_col[successor_idx+int32(1)]
                 row_offset = successor_idx * n
                 stage_accumulator[row_offset + ty] += coeff * stage_rhs[ty]
-            cuda.syncwarp()
+            syncwarp()
             # Form stage state per-thread
             base = stage_offset + ty
             stage_accumulator[base] = stage_accumulator[base] * dt_scalar + state[ty]
-            cuda.syncwarp()
+            syncwarp()
             # Observables and rhs for next stage
             stage_state = stage_accumulator[stage_offset:stage_offset + n]
             stage_time = current_time + dt_scalar * stage_nodes[stage_idx]
@@ -1029,19 +1051,19 @@ def erk_step_inline_factory(
                     stage_rhs,
                     stage_time,
                 )
-            cuda.syncwarp()
+            syncwarp()
             increment = stage_rhs[ty]
             if accumulates_output:
                 proposed_state[ty] += solution_weights[stage_idx] * increment
             if has_error and accumulates_error:
                 error[ty] += error_weights[stage_idx] * increment
-            cuda.syncwarp()
+            syncwarp()
         # Direct state/error capture for b_row / b_hat_row
         if b_row is not None:
             proposed_state[ty] = stage_accumulator[(b_row-1)*n + ty]
         if b_hat_row is not None:
             error[ty] = stage_accumulator[(b_hat_row-1)*n + ty]
-        cuda.syncwarp()
+        syncwarp()
         # Final scaling per-thread
         if accumulates_output:
             proposed_state[ty] = proposed_state[ty] * dt_scalar + state[ty]
@@ -1052,7 +1074,7 @@ def erk_step_inline_factory(
                 error[ty] = proposed_state[ty] - error[ty]
         if first_same_as_last and multistage:
             stage_cache[ty] = stage_rhs[ty]
-        cuda.syncwarp()
+        syncwarp()
         return int32(0)
     return step
 
@@ -1069,9 +1091,9 @@ def save_state_inline(current_state, current_observables, current_counters,
     output_states_slice[ty] = current_state[ty]
     if ty == 0:
         output_states_slice[n_states32] = current_step
-    if ty < n_counters32:
+    if save_counters_bool and ty < n_counters32:
         output_counters_slice[ty] = current_counters[ty]
-    cuda.syncwarp()
+    syncwarp()
 
 
 # =========================================================================
@@ -1152,7 +1174,7 @@ def update_summaries_inline(
         state_summary_buffer[start:end],
         current_step,
     )
-    cuda.syncwarp()
+    syncwarp()
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -1173,7 +1195,7 @@ def save_summaries_inline(
         output_state[out_start:out_start + total_output_size],
         summarise_every,
     )
-    cuda.syncwarp()
+    syncwarp()
 
 
 # =========================================================================
@@ -1521,7 +1543,11 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     )
     max_steps = max_steps << 1
 
-    shared_scratch[::ty] = numba_precision(0.0)
+    # Initialize shared memory - thread 0 sets all elements, others wait
+    if ty == 0:
+        for i in range(len(shared_scratch)):
+            shared_scratch[i] = numba_precision(0.0)
+    syncwarp()
 
     state_buffer = shared_scratch[state_shared_start:state_shared_end]
     state_proposal_buffer = shared_scratch[proposed_state_start:
@@ -1562,7 +1588,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     if ty==0:
         for k in range(n_parameters):
             parameters_buffer[k] = parameters[k]
-    cuda.syncwarp()
+    syncwarp()
     # Seed initial observables from initial state.
     # driver_function not used in this test (n_drivers = 0)
     if n_observables > 0 and ty == 0:
@@ -1580,7 +1606,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     # Set next save for settling time, or save first value if
     # starting at t0
     next_save = settling_time + t0
-    cuda.syncwarp()
+    syncwarp()
     if settling_time == 0.0:
         # Save initial state at t0, then advance to first interval save
         next_save += float64(dt_save)
@@ -1617,14 +1643,18 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         save_idx += int32(1)
 
     status = int32(0)
-    dt[0] = dt0
-    accept_step[0] = int32(0)
+    # Initialize shared scalars and counters from thread 0 only
+    if ty == 0:
+        dt[0] = dt0
+        accept_step[0] = int32(0)
 
-    # Initialize iteration counters
-    for i in range(n_counters):
-        counters_since_save[i] = int32(0)
-        if i < 2:
-            proposed_counters[i] = int32(0)
+        # Initialize iteration counters (only if saving counters)
+        if save_counters_bool:
+            for i in range(n_counters):
+                counters_since_save[i] = int32(0)
+                if i < 2:
+                    proposed_counters[i] = int32(0)
+    syncwarp()
 
     mask = activemask()
 
@@ -1694,7 +1724,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             else:
                 accept = True
-            cuda.syncwarp()
+            syncwarp()
             # Accumulate iteration counters if active
             if save_counters_bool and ty==0:
                 for i in range(n_counters):
@@ -1707,11 +1737,11 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                     elif not accept:
                         # Increment rejected steps counter
                         counters_since_save[i] += int32(1)
-            cuda.syncwarp()
+            syncwarp()
             t_proposal = t + dt_eff
             t = selp(accept, t_proposal, t)
             t_prec = numba_precision(t)
-            cuda.syncwarp()
+            syncwarp()
 
             newv = state_proposal_buffer[ty]
             oldv = state_buffer[ty]
@@ -1776,7 +1806,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 if save_counters_bool and ty==0:
                     for i in range(n_counters):
                         counters_since_save[i] = int32(0)
-                cuda.syncwarp()
+                syncwarp()
 
     if status == int32(0):
         # Max iterations exhausted without other error
@@ -1827,7 +1857,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     block_index = int32(cuda.blockIdx.x)
     runs_per_block = cuda.blockDim.x
     run_index = int32(runs_per_block * block_index + tx)
-    if run_index >= n_runs_k or ty > n_states:
+    if run_index >= n_runs_k or ty >= n_states:
         return None
 
     shared_memory = cuda.shared.array(0, dtype=float32)
@@ -1853,7 +1883,8 @@ def integration_kernel(inits, params, d_coefficients, state_output,
                      rx_state_summaries, rx_observables_summaries,
                      rx_iteration_counters, duration_k, warmup_k, t0_k)
 
-    status_codes_output[run_index] = status
+    if ty == 0:
+        status_codes_output[run_index] = status
 
 
 # =========================================================================
