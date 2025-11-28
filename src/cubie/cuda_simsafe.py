@@ -27,7 +27,7 @@ compile_kwargs: dict[str, bool] = (
                    'nsz': True,
                    'contract': True,
                    'arcp': True,
-              }
+              },
         }
 )
 

@@ -116,7 +116,25 @@ class ButcherTableau:
             )
         return tuple(typed_rows)
 
+    def typed_columns(
+            self,
+            rows: Sequence[Sequence[float]],
+            numba_precision: type,
+    ) -> Tuple[Tuple[float, ...], ...]:
+        """Transpose and convert tableau rows to the requested precision.
+
+        Pad rows to the configured stage count, convert each entry using
+        ``numba_precision``, and return the data in column-major order.
+        """
+        typed_rows = self.typed_rows(rows, numba_precision)
+        stage_count = self.stage_count
+        return tuple(
+            tuple(row[col_idx] for row in typed_rows)
+            for col_idx in range(stage_count)
+        )
+
     def a_flat(self, precision):
+        """Return a flattened (1d) row-major version of the `a` matrix."""
         typed_rows = self.typed_rows(self.a, precision)
         stage_count = self.stage_count
         flat_list: list = []

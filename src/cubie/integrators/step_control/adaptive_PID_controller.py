@@ -233,7 +233,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             ],
             device=True,
             inline=True,
-            fastmath=True,
             **compile_kwargs,
         )
         def controller_PID(
