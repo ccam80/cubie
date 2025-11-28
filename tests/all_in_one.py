@@ -872,8 +872,9 @@ def dirk_step_inline_factory(
         increment_cache = solver_scratch[n:int32(2)*n]
 
         # Alias stage base onto first stage accumulator or allocate locally
+        # stage_base can alias accumulator whether it's in shared or local memory
         if multistage:
-            if stage_base_in_shared and accumulator_in_shared:
+            if stage_base_in_shared:
                 stage_base = stage_accumulator[:n]
             else:
                 stage_base = cuda.local.array(n, numba_precision)
@@ -1877,7 +1878,8 @@ if algorithm_type == 'dirk':
     local_scratch_size = dirk_scratch_size
 else:
     scratch_size = erk_scratch_size if use_shared_loop_scratch else int32(0)
-    local_scratch_size = int32((stage_count - 1) * n_states + n_states)
+    # ERK local scratch: accumulator + stage_rhs space
+    local_scratch_size = accumulator_size + int32(n_states)
 scratch_end = scratch_start + scratch_size
 shared_pointer = scratch_end
 
@@ -1906,9 +1908,9 @@ local_algo_slice = slice(4, 8)
 base_local_elements = 8
 
 # Add space for ERK stage_cache if it's not aliased to shared memory
+# Reuse existing use_shared_erk_stage_cache flag
 if algorithm_type == 'erk':
-    stage_cache_needs_local = not (use_shared_erk_stage_rhs or
-                                   use_shared_erk_stage_accumulator)
+    stage_cache_needs_local = not use_shared_erk_stage_cache
     stage_cache_local_size = n_states if stage_cache_needs_local else 0
 else:
     stage_cache_local_size = 0
