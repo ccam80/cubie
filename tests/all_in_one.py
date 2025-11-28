@@ -19,6 +19,236 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
 
+# =========================================================================
+# CONFIGURATION - ALL CONFIGURABLE PARAMETERS AT TOP OF FILE
+# =========================================================================
+
+# -------------------------------------------------------------------------
+# Algorithm Configuration
+# -------------------------------------------------------------------------
+# Algorithm type: 'erk' (explicit Runge-Kutta) or 'dirk' (diagonally implicit)
+# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys for tableau names
+algorithm_type = 'erk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
+
+# Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
+controller_type = 'fixed'  # 'fixed' or 'pid'
+
+# -------------------------------------------------------------------------
+# Precision Configuration
+# -------------------------------------------------------------------------
+precision = np.float32
+
+# -------------------------------------------------------------------------
+# System Definition (Lorenz system)
+# -------------------------------------------------------------------------
+# Lorenz system constants
+constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
+
+# System dimensions
+n_states = 3
+n_parameters = 1
+n_observables = 0
+n_drivers = 0
+n_counters = 4
+
+# -------------------------------------------------------------------------
+# Time Parameters
+# -------------------------------------------------------------------------
+duration = precision(5e-4)
+warmup = precision(0.0)
+dt = precision(1e-3)
+dt_save = precision(5e-5)
+dt_max = precision(1e6)
+dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
+
+# -------------------------------------------------------------------------
+# Implicit Solver Parameters (DIRK only)
+# -------------------------------------------------------------------------
+# Solver helper parameters (beta, gamma, mass matrix scaling)
+beta_solver = precision(1.0)
+gamma_solver = precision(1.0)
+preconditioner_order = 2
+
+# Linear solver (Krylov) parameters
+krylov_tolerance = precision(1e-6)
+max_linear_iters = 200
+linear_correction_type = "minimal_residual"
+
+# Newton-Krylov nonlinear solver parameters
+newton_tolerance = precision(1e-6)
+max_newton_iters = 100
+newton_damping = precision(0.85)
+max_backtracks = 15
+
+# -------------------------------------------------------------------------
+# PID Controller Parameters (adaptive mode only)
+# -------------------------------------------------------------------------
+algorithm_order = 2
+kp = precision(0.7)
+ki = precision(-0.4)
+kd = precision(0)
+min_gain = precision(0.2)
+max_gain = precision(5.0)
+deadband_min = precision(1.0)
+deadband_max = precision(1.0)
+safety = precision(0.9)
+
+# Tolerances for adaptive step control
+atol_value = precision(1e-8)
+rtol_value = precision(1e-8)
+
+# -------------------------------------------------------------------------
+# Output Configuration
+# -------------------------------------------------------------------------
+# Compile-time flags for loop behavior
+save_obs_bool = False
+save_state_bool = True
+summarise_obs_bool = False
+summarise_state_bool = False
+save_counters_bool = False
+save_last = False
+
+# Saves per summary (for summary metric aggregation)
+saves_per_summary = int32(2)
+
+# -------------------------------------------------------------------------
+# Memory Location Configuration (for optimization experiments)
+# -------------------------------------------------------------------------
+# Toggle whether each internal array uses local or shared memory.
+# 'local' = cuda.local.array (per-thread registers/local memory)
+# 'shared' = cuda.shared.array (block-level shared memory)
+#
+# Note: These affect compile-time code generation. Changing these requires
+# recompilation of the affected device functions.
+
+# Loop buffers (main integration loop)
+loop_state_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_state_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_parameters_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observables_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observables_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_error_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_counters_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_state_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_scratch_buffer_memory = 'shared'  # 'local' or 'shared'
+
+# Linear solver arrays (used in Krylov iteration)
+linear_solver_preconditioned_vec_memory = 'local'  # 'local' or 'shared'
+linear_solver_temp_memory = 'local'  # 'local' or 'shared'
+
+# DIRK step arrays
+dirk_stage_increment_memory = 'local'  # 'local' or 'shared'
+dirk_stage_base_memory = 'shared'  # 'local' or 'shared' (shared aliases
+#                                    accumulator when multistage)
+dirk_accumulator_memory = 'shared'  # 'local' or 'shared'
+dirk_solver_scratch_memory = 'shared'  # 'local' or 'shared'
+
+# ERK step arrays
+erk_stage_rhs_memory = 'shared'  # 'local' or 'shared'
+erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
+# Note: stage_cache aliases onto stage_rhs if shared, else onto accumulator
+# if shared, else goes into persistent_local
+
+# -------------------------------------------------------------------------
+# Kernel Launch Configuration
+# -------------------------------------------------------------------------
+# Maximum shared memory per block (hardware limit)
+MAX_SHARED_MEMORY_PER_BLOCK = 32768
+
+# Block size for kernel launch
+blocksize = 64
+
+# =========================================================================
+# DERIVED CONFIGURATION (computed from above settings)
+# =========================================================================
+
+# Look up tableau from registry based on algorithm type
+if algorithm_type == 'erk':
+    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'dirk':
+    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
+                     "Use 'erk' or 'dirk'.")
+
+# Numba/simsafe type conversions
+numba_precision = numba_from_dtype(precision)
+simsafe_precision = simsafe_dtype(precision)
+simsafe_int32 = simsafe_dtype(np.int32)
+
+# Typed constants for device code
+typed_zero = numba_precision(0.0)
+
+# Tableau stage count (for buffer sizing)
+stage_count = tableau.stage_count
+
+# Controller-dependent derived values
+dt_min_ctrl = dt_min
+dt_max_ctrl = dt_max
+atol = np.full(n_states, atol_value, dtype=precision)
+rtol = np.full(n_states, rtol_value, dtype=precision)
+
+# Output dimensions
+n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
+
+# Compile-time derived flags
+summarise = summarise_obs_bool or summarise_state_bool
+fixed_mode = (controller_type == 'fixed')
+dt0 = dt if fixed_mode else np.sqrt(dt_min * dt_max)
+
+# Memory location flags as booleans for compile-time branching
+# Loop buffer flags
+use_shared_loop_state = loop_state_buffer_memory == 'shared'
+use_shared_loop_state_proposal = loop_state_proposal_buffer_memory == 'shared'
+use_shared_loop_parameters = loop_parameters_buffer_memory == 'shared'
+use_shared_loop_drivers = loop_drivers_buffer_memory == 'shared'
+use_shared_loop_drivers_proposal = loop_drivers_proposal_buffer_memory == 'shared'
+use_shared_loop_observables = loop_observables_buffer_memory == 'shared'
+use_shared_loop_observables_proposal = (
+    loop_observables_proposal_buffer_memory == 'shared'
+)
+use_shared_loop_error = loop_error_buffer_memory == 'shared'
+use_shared_loop_counters = loop_counters_buffer_memory == 'shared'
+use_shared_loop_state_summary = loop_state_summary_buffer_memory == 'shared'
+use_shared_loop_observable_summary = (
+    loop_observable_summary_buffer_memory == 'shared'
+)
+use_shared_loop_scratch = loop_scratch_buffer_memory == 'shared'
+
+# Linear solver flags
+use_shared_linear_preconditioned_vec = (
+    linear_solver_preconditioned_vec_memory == 'shared'
+)
+use_shared_linear_temp = linear_solver_temp_memory == 'shared'
+
+# DIRK step flags
+use_shared_dirk_stage_increment = dirk_stage_increment_memory == 'shared'
+use_shared_dirk_stage_base = dirk_stage_base_memory == 'shared'
+use_shared_dirk_accumulator = dirk_accumulator_memory == 'shared'
+use_shared_dirk_solver_scratch = dirk_solver_scratch_memory == 'shared'
+
+# ERK step flags
+use_shared_erk_stage_rhs = erk_stage_rhs_memory == 'shared'
+use_shared_erk_stage_accumulator = erk_stage_accumulator_memory == 'shared'
+# ERK stage_cache: aliases stage_rhs if shared, else accumulator if shared,
+# else requires persistent_local storage
+use_shared_erk_stage_cache = (use_shared_erk_stage_rhs or
+                              use_shared_erk_stage_accumulator)
+
 
 # =========================================================================
 # STRIDE ORDERING UTILITIES
@@ -89,111 +319,6 @@ def get_strides(
 
     return tuple(strides[dim] for dim in array_native_order)
 
-# =========================================================================
-# CONFIGURATION
-# =========================================================================
-
-# Algorithm configuration: 'erk' or 'dirk'
-# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys
-algorithm_type = 'erk'  # 'erk' or 'dirk'
-algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
-
-# Controller configuration: 'fixed' or 'pid'
-controller_type = 'fixed'  # 'fixed' or 'pid'
-
-# Look up tableau from registry based on algorithm type
-if algorithm_type == 'erk':
-    if algorithm_tableau_name not in ERK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown ERK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(ERK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = ERK_TABLEAU_REGISTRY[algorithm_tableau_name]
-elif algorithm_type == 'dirk':
-    if algorithm_tableau_name not in DIRK_TABLEAU_REGISTRY:
-        raise ValueError(
-            f"Unknown DIRK tableau: '{algorithm_tableau_name}'. "
-            f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
-        )
-    tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
-else:
-    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
-                     "Use 'erk' or 'dirk'.")
-
-precision = np.float32
-numba_precision = numba_from_dtype(precision)
-simsafe_precision = simsafe_dtype(precision)
-simsafe_int32 = simsafe_dtype(np.int32)
-
-# Typed constants for device code
-typed_zero = numba_precision(0.0)
-
-# Lorenz system constants
-constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
-
-# System dimensions
-n_states = 3
-n_parameters = 1
-n_observables = 0
-n_drivers = 0
-n_counters = 4
-
-# Time parameters
-duration = precision(5e-4)
-warmup = precision(0.0)
-dt = precision(1e-3)
-dt_save = precision(5e-5)
-dt_max = precision(1e6)
-dt_min = precision(1e-12) #TODO: when 1e-15, infinite loop
-
-
-# Tableau stage count (for buffer sizing)
-stage_count = tableau.stage_count
-
-# Solver helper parameters (beta, gamma, mass matrix scaling)
-beta_solver = precision(1.0)
-gamma_solver = precision(1.0)
-preconditioner_order = 2
-
-# Linear solver (Krylov) parameters
-krylov_tolerance = precision(1e-6)
-max_linear_iters = 200
-linear_correction_type = "minimal_residual"
-# Newton-Krylov nonlinear solver parameters
-newton_tolerance = precision(1e-6)
-max_newton_iters = 100
-newton_damping = precision(0.85)
-max_backtracks = 15
-
-# PID controller parameters
-algorithm_order = 2
-kp = precision(0.7)
-ki = precision(-0.4)
-kd = precision(0)
-min_gain = precision(0.2)
-max_gain = precision(5.0)
-dt_min_ctrl = dt_min
-dt_max_ctrl = dt_max
-deadband_min = precision(1.0)
-deadband_max = precision(1.0)
-safety = precision(0.9)
-atol = np.full(n_states, precision(1e-8), dtype=precision)
-rtol = np.full(n_states, precision(1e-8), dtype=precision)
-
-# Output dimensions
-n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
-
-
-# Compile-time flags for loop behavior
-save_obs_bool = False
-save_state_bool = True
-summarise_obs_bool = False
-summarise_state_bool = False
-summarise = summarise_obs_bool or summarise_state_bool
-save_counters_bool = False
-fixed_mode = (controller_type == 'fixed')
-save_last = False
-dt0 = precision(0.001) if fixed_mode else np.sqrt(dt_min*dt_max)
 
 # =========================================================================
 # AUTO-GENERATED DEVICE FUNCTION FACTORIES
@@ -206,8 +331,8 @@ def dxdt_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def dxdt(state, parameters, drivers, observables, out, t):
         out[2] = -beta * state[2] + state[0] * state[1]
@@ -222,8 +347,8 @@ def observables_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
         pass
@@ -242,9 +367,9 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def preconditioner(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out, jvp):
@@ -278,9 +403,9 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec, numba_prec, numba_prec, numba_prec[::1],
-            #    numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec, numba_prec, numba_prec, numba_prec[::1],
+               numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
         _cse0 = a_ij * u[1]
@@ -305,9 +430,9 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out):
@@ -338,13 +463,35 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
 # =========================================================================
 
 def linear_solver_inline_factory(
-        operator_apply, n, preconditioner, tolerance, max_iters, prec, correction_type
+        operator_apply, n, preconditioner, tolerance, max_iters, prec,
+        correction_type
 ):
     """Create inline linear solver device function.
 
     Parameters
     ----------
+    operator_apply
+        The linear operator function.
+    n
+        Number of state variables.
+    preconditioner
+        The preconditioner function.
+    tolerance
+        Convergence tolerance.
+    max_iters
+        Maximum iterations.
+    prec
+        Precision dtype.
     correction_type
+        Type of correction: 'steepest_descent' or 'minimal_residual'.
+
+    Notes
+    -----
+    Memory location flags are read from global scope at compile time.
+    The generated device function will use the selected memory type for
+    each array. Currently only local memory is implemented; shared memory
+    variants would require changes to the function signature to receive
+    shared memory buffers.
     """
     numba_prec = numba_from_dtype(prec)
     tol_squared = precision(tolerance * tolerance)
@@ -354,19 +501,10 @@ def linear_solver_inline_factory(
     mr_flag = 1 if correction_type == "minimal_residual" else 0
 
     @cuda.jit(
-        # [(numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec[::1],
-        #   numba_prec,
-        #   numba_prec,
-        #   numba_prec,
-        #   numba_prec[::1],
-        #   numba_prec[::1])],
-        device=True,
-        inline=True,
-        **compile_kwargs,
-    )
+        (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+         numba_prec[::1], numba_prec, numba_prec, numba_prec,
+         numba_prec[::1], numba_prec[::1]),
+        device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
         preconditioned_vec = cuda.local.array(n, numba_prec)
@@ -462,15 +600,15 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     status_active = int32(-1)
 
     @cuda.jit(
-            # [(numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     int32[::1])],
+            [(numba_prec[::1],
+                numba_prec[::1],
+                numba_prec[::1],
+                numba_prec,
+                numba_prec,
+                numba_prec,
+                numba_prec[::1],
+                numba_prec[::1],
+                int32[::1])],
               device=True,
               inline=True,
               **compile_kwargs
@@ -572,7 +710,29 @@ def dirk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline DIRK step device function matching generic_dirk.py."""
+    """Create inline DIRK step device function matching generic_dirk.py.
+
+    Parameters
+    ----------
+    nonlinear_solver
+        The Newton-Krylov solver function.
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The DIRK tableau.
+
+    Notes
+    -----
+    Memory location flags are read from global scope:
+    - use_shared_dirk_stage_increment
+    - use_shared_dirk_stage_base
+    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -610,31 +770,22 @@ def dirk_step_inline_factory(
     accumulator_length = int32(max(stage_count - 1, 0) * n)
     solver_shared_elements = 2 * n  # delta + residual for Newton solver
 
-    # Shared memory indices
+    # Memory location flags captured at compile time from global scope
+    stage_increment_in_shared = use_shared_dirk_stage_increment
+    stage_base_in_shared = use_shared_dirk_stage_base
+    accumulator_in_shared = use_shared_dirk_accumulator
+    solver_scratch_in_shared = use_shared_dirk_solver_scratch
+
+    # Shared memory indices (only used when corresponding flag is True)
+    # Accumulator comes first if shared
     acc_start = 0
-    acc_end = accumulator_length
+    acc_end = accumulator_length if accumulator_in_shared else 0
+    # Solver scratch follows accumulator if shared
     solver_start = acc_end
-    solver_end = acc_end + solver_shared_elements
+    solver_end = (acc_end + solver_shared_elements
+                  if solver_scratch_in_shared else acc_end)
 
     @cuda.jit(
-        # (
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[:, :, ::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision,
-        #     numba_precision,
-        #     int16,
-        #     int16,
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     int32[::1],
-        # ),
         device=True,
         inline=True,
         **compile_kwargs,
@@ -667,6 +818,7 @@ def dirk_step_inline_factory(
         #       - stage_base: first slice (size n)
         #           - Holds the working state during the current stage.
         #           - New data lands only after the prior stage has finished.
+        #           - Memory location controlled by use_shared_stage_base.
         # solver_scratch: size solver_shared_elements, shared memory.
         #   Default behaviour:
         #       - Provides workspace for the Newton iteration helpers.
@@ -681,7 +833,8 @@ def dirk_step_inline_factory(
         #   Note:
         #       - Evaluation state is computed inline by operators and
         #         residuals; no dedicated buffer required.
-        # stage_increment: size n, per-thread local memory.
+        # stage_increment: size n.
+        #   Memory location controlled by use_shared_stage_increment.
         #   Default behaviour:
         #       - Starts as the Newton guess and finishes as the step.
         #       - Copied into increment_cache once the stage closes.
@@ -694,19 +847,37 @@ def dirk_step_inline_factory(
         #       - Refresh to the stage time before rhs or residual work.
         #       - Later stages reuse only the newest values, so no clashes.
         # ----------------------------------------------------------- #
-        stage_increment = cuda.local.array(n, numba_precision)
+        # Memory allocation based on configuration flags
+        if stage_increment_in_shared:
+            stage_increment = shared[solver_end:solver_end + n]
+        else:
+            stage_increment = cuda.local.array(n, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
 
-        stage_accumulator = shared[acc_start:acc_end]
-        solver_scratch = shared[solver_start:solver_end]
+        # Allocate accumulator and solver scratch based on flags
+        if accumulator_in_shared:
+            stage_accumulator = shared[acc_start:acc_end]
+        else:
+            stage_accumulator = cuda.local.array(accumulator_length,
+                                                 numba_precision)
+
+        if solver_scratch_in_shared:
+            solver_scratch = shared[solver_start:solver_end]
+        else:
+            solver_scratch = cuda.local.array(solver_shared_elements,
+                                              numba_precision)
         stage_rhs = solver_scratch[:n]
         increment_cache = solver_scratch[n:int32(2)*n]
 
-        #Alias stage base onto first stage accumulator - lifetimes disjoint
+        # Alias stage base onto first stage accumulator or allocate locally
+        # stage_base can alias accumulator whether it's in shared or local memory
         if multistage:
-            stage_base = stage_accumulator[:n]
+            if stage_base_in_shared:
+                stage_base = stage_accumulator[:n]
+            else:
+                stage_base = cuda.local.array(n, numba_precision)
         else:
             stage_base = cuda.local.array(n, numba_precision)
 
@@ -936,7 +1107,27 @@ def erk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline ERK step device function matching generic_erk.py."""
+    """Create inline ERK step device function matching generic_erk.py.
+
+    Parameters
+    ----------
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The ERK tableau.
+
+    Notes
+    -----
+    Memory location flags are read from global scope:
+    - use_shared_erk_stage_rhs
+    - use_shared_erk_stage_accumulator
+    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -971,25 +1162,17 @@ def erk_step_inline_factory(
     if b_hat_row is not None:
         b_hat_row = int32(b_hat_row)
 
+    # Memory location flags captured at compile time from global scope
+    stage_rhs_in_shared = use_shared_erk_stage_rhs
+    stage_accumulator_in_shared = use_shared_erk_stage_accumulator
+    # stage_cache aliasing: prefers stage_rhs if shared, else accumulator
+    # if shared, else needs persistent_local
+    stage_cache_in_shared = stage_rhs_in_shared or stage_accumulator_in_shared
+    stage_cache_aliases_rhs = stage_rhs_in_shared
+    stage_cache_aliases_accumulator = (not stage_rhs_in_shared and
+                                       stage_accumulator_in_shared)
+
     @cuda.jit(
-        # (
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[:, :, ::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     numba_precision,
-        #     numba_precision,
-        #     int16,
-        #     int16,
-        #     numba_precision[::1],
-        #     numba_precision[::1],
-        #     int32[::1],
-        # ),
         device=True,
         inline=True,
         **compile_kwargs
@@ -1014,7 +1197,8 @@ def erk_step_inline_factory(
     ):
         # ----------------------------------------------------------- #
         # Shared and local buffer guide:
-        # stage_accumulator: size (stage_count-1) * n, shared memory.
+        # stage_accumulator: size (stage_count-1) * n.
+        #   Memory location controlled by use_shared_stage_accumulator.
         #   Default behaviour:
         #       - Holds finished stage rhs * dt for later stage sums.
         #       - Slice k stores contributions streamed into stage k+1.
@@ -1030,7 +1214,8 @@ def erk_step_inline_factory(
         #   Default behaviour:
         #       - Refresh to the current stage time before rhs evaluation.
         #       - Later stages only read the newest values, so nothing lingers.
-        # stage_rhs: size n, per-thread local memory.
+        # stage_rhs: size n.
+        #   Memory location controlled by use_shared_stage_rhs.
         #   Default behaviour:
         #       - Holds the current stage rhs before scaling by dt.
         #   Reuse:
@@ -1038,19 +1223,35 @@ def erk_step_inline_factory(
         #         shared memory, keeping lifetimes separate.
         # error: size n, global memory (adaptive runs only).
         #   Default behaviour:
-        #       - Accumulates error-weighted f(y_jn) during the
-        #       loop.
+        #       - Accumulates error-weighted f(y_jn) during the loop.
         #       - Cleared at loop entry so prior steps cannot leak in.
         # ----------------------------------------------------------- #
-        stage_rhs = shared[:n]
+        # Memory allocation based on configuration flags
+        if stage_rhs_in_shared:
+            stage_rhs = shared[:n]
+        else:
+            stage_rhs = cuda.local.array(n, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
 
-        stage_accumulator = cuda.local.array(accumulator_length,
-                                             dtype=precision)
+        if stage_accumulator_in_shared:
+            stage_accumulator = shared[n:n + accumulator_length]
+        else:
+            stage_accumulator = cuda.local.array(accumulator_length,
+                                                 dtype=precision)
+
+        # stage_cache for FSAL: alias onto stage_rhs if shared, else
+        # accumulator if shared (bottom n_states), else use persistent_local
+        # persistent_local layout: [algo (4 elements), stage_cache (n elements)]
         if multistage:
-            stage_cache = stage_rhs  # FSAL cache alias
+            if stage_cache_aliases_rhs:
+                stage_cache = stage_rhs
+            elif stage_cache_aliases_accumulator:
+                stage_cache = stage_accumulator[:n]
+            else:
+                # Neither shared - use persistent_local storage after algo
+                stage_cache = persistent_local[int32(4):int32(4) + n]
 
         for idx in range(n):
             if accumulates_output:
@@ -1338,15 +1539,15 @@ def clamp(value, min_val, max_val):
 
 
 @cuda.jit(
-    # [(
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     int32,
-    #     int32[::1],
-    #     numba_precision[::1],
-    # )],
+    [(
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        int32,
+        int32[::1],
+        numba_precision[::1],
+    )],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1396,17 +1597,17 @@ def controller_PID_factory(
     n = int32(n)
     inv_n = precision(1.0 / n)
     @cuda.jit(
-        # [
-        #     (
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         int32,
-        #         int32[::1],
-        #         numba_precision[::1],
-        #     )
-        # ],
+        [
+            (
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32,
+                int32[::1],
+                numba_precision[::1],
+            )
+        ],
         device=True,
         inline=True,
         # fastmath=True,
@@ -1509,12 +1710,14 @@ elif algorithm_type == 'dirk':
         order=preconditioner_order,
     )
 
-    linear_solver_fn = linear_solver_inline_factory(operator_fn, n_states,
-                                                    preconditioner_fn,
-                                                    krylov_tolerance,
-                                                    max_linear_iters,
-                                                    precision,
-                                                    linear_correction_type)
+    linear_solver_fn = linear_solver_inline_factory(
+        operator_fn, n_states,
+        preconditioner_fn,
+        krylov_tolerance,
+        max_linear_iters,
+        precision,
+        linear_correction_type,
+    )
 
     newton_solver_fn = newton_krylov_inline_factory(
         residual_fn,
@@ -1569,81 +1772,175 @@ else:
 # INTEGRATION LOOP
 # =========================================================================
 
-# Buffer layout
-state_shared_start = int32(0)
-state_shared_end = int32(n_states)
-proposed_state_start = int32(state_shared_end)
-proposed_state_end = proposed_state_start + int32(n_states)
-params_start = proposed_state_end
-params_end = params_start + int32(n_parameters)
-drivers_start = params_end
-drivers_end = drivers_start + int32(n_drivers)
-proposed_drivers_start = drivers_end
-proposed_drivers_end = proposed_drivers_start + int32(n_drivers)
-obs_start = proposed_drivers_end
-obs_end = obs_start + int32(n_observables)
-proposed_obs_start = obs_end
-proposed_obs_end = proposed_obs_start + int32(n_observables)
-error_start = proposed_obs_end
-error_end = error_start + int32(n_states)
-counters_start = error_end
-counters_end = counters_start + (int32(n_counters) if save_counters_bool
-                                 else int32(0))
-proposed_counters_start = counters_end
-proposed_counters_end = proposed_counters_start + (
-    int32(2) if save_counters_bool else int32(0)
-)
-scratch_start = proposed_counters_end
+# Buffer layout - dynamic based on memory location configuration
+# Pattern: x_size defines element count, x_start/x_end define shared offsets.
+# Buffers only advance shared_pointer when their flag is True.
 
+# Buffer sizes (unconditional)
+state_buffer_size = int32(n_states)
+proposed_state_size = int32(n_states)
+params_size = int32(n_parameters)
+drivers_size = int32(n_drivers)
+proposed_drivers_size = int32(n_drivers)
+obs_size = int32(n_observables)
+proposed_obs_size = int32(n_observables)
+error_size = int32(n_states)
+counters_size = int32(n_counters) if save_counters_bool else int32(0)
+proposed_counters_size = int32(2) if save_counters_bool else int32(0)
+state_summ_size = int32(n_states) if summarise_state_bool else int32(0)
+obs_summ_size = int32(n_observables) if summarise_obs_bool else int32(0)
+
+# Scratch sizes depend on algorithm type
 accumulator_size = int32((stage_count - 1) * n_states)
 if algorithm_type == 'dirk':
     solver_scratch_size = int32(2 * n_states)
-    scratch_end = scratch_start + accumulator_size + solver_scratch_size
+    dirk_scratch_size = accumulator_size + solver_scratch_size
+    erk_scratch_size = int32(0)
 else:
-    # scratch_end = scratch_start + accumulator_size
-    scratch_end = scratch_start + int32(n_states) + 1 #This isn't good,
-    # but a 1 is needed to aboid writing off the end of it. Let's say...
-    # alignment.
-state_summ_start = scratch_end
-state_summ_end = state_summ_start + (
-    int32(n_states) if summarise_state_bool else int32(0)
-)
-obs_summ_start = state_summ_end
-obs_summ_end = obs_summ_start + (
-    int32(n_observables if summarise_obs_bool else int32(0))
-)
-shared_elements = obs_summ_end
+    solver_scratch_size = int32(0)
+    dirk_scratch_size = int32(0)
+    # ERK: stage_rhs if shared, accumulator if shared
+    erk_stage_rhs_size = int32(n_states) if use_shared_erk_stage_rhs else int32(0)
+    erk_accumulator_shared_size = (accumulator_size
+                                   if use_shared_erk_stage_accumulator
+                                   else int32(0))
+    erk_scratch_size = erk_stage_rhs_size + erk_accumulator_shared_size
+
+# Shared memory pointer (advances for each shared buffer)
+shared_pointer = int32(0)
+
+# State buffer
+state_shared_start = shared_pointer
+state_shared_end = (state_shared_start + state_buffer_size
+                    if use_shared_loop_state else state_shared_start)
+shared_pointer = state_shared_end
+
+# Proposed state buffer
+proposed_state_start = shared_pointer
+proposed_state_end = (proposed_state_start + proposed_state_size
+                      if use_shared_loop_state_proposal else proposed_state_start)
+shared_pointer = proposed_state_end
+
+# Parameters buffer
+params_start = shared_pointer
+params_end = (params_start + params_size
+              if use_shared_loop_parameters else params_start)
+shared_pointer = params_end
+
+# Drivers buffer
+drivers_start = shared_pointer
+drivers_end = (drivers_start + drivers_size
+               if use_shared_loop_drivers else drivers_start)
+shared_pointer = drivers_end
+
+# Proposed drivers buffer
+proposed_drivers_start = shared_pointer
+proposed_drivers_end = (proposed_drivers_start + proposed_drivers_size
+                        if use_shared_loop_drivers_proposal
+                        else proposed_drivers_start)
+shared_pointer = proposed_drivers_end
+
+# Observables buffer
+obs_start = shared_pointer
+obs_end = (obs_start + obs_size
+           if use_shared_loop_observables else obs_start)
+shared_pointer = obs_end
+
+# Proposed observables buffer
+proposed_obs_start = shared_pointer
+proposed_obs_end = (proposed_obs_start + proposed_obs_size
+                    if use_shared_loop_observables_proposal
+                    else proposed_obs_start)
+shared_pointer = proposed_obs_end
+
+# Error buffer
+error_start = shared_pointer
+error_end = (error_start + error_size
+             if use_shared_loop_error else error_start)
+shared_pointer = error_end
+
+# Counters buffer
+counters_start = shared_pointer
+counters_end = (counters_start + counters_size
+                if use_shared_loop_counters else counters_start)
+shared_pointer = counters_end
+
+# Proposed counters buffer
+proposed_counters_start = shared_pointer
+proposed_counters_end = (proposed_counters_start + proposed_counters_size
+                         if use_shared_loop_counters else proposed_counters_start)
+shared_pointer = proposed_counters_end
+
+# Scratch buffer for step algorithms
+scratch_start = shared_pointer
+if algorithm_type == 'dirk':
+    scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
+    local_scratch_size = dirk_scratch_size
+else:
+    scratch_size = erk_scratch_size if use_shared_loop_scratch else int32(0)
+    # ERK local scratch: accumulator_size + n_states
+    local_scratch_size = accumulator_size + int32(n_states)
+scratch_end = scratch_start + scratch_size
+shared_pointer = scratch_end
+
+# State summary buffer
+state_summ_start = shared_pointer
+state_summ_end = (state_summ_start + state_summ_size
+                  if use_shared_loop_state_summary else state_summ_start)
+shared_pointer = state_summ_end
+
+# Observable summary buffer
+obs_summ_start = shared_pointer
+obs_summ_end = (obs_summ_start + obs_summ_size
+                if use_shared_loop_observable_summary else obs_summ_start)
+shared_pointer = obs_summ_end
+
+# Total shared memory elements required
+shared_elements = shared_pointer
 
 
 local_dt_slice = slice(0, 1)
 local_accept_slice = slice(1, 2)
 local_controller_slice = slice(2, 4)
 local_algo_slice = slice(4, 8)
-local_elements = 8
+# Persistent local storage for step function includes algo (4 elements)
+# plus stage_cache if needed for ERK (n_states elements)
+base_local_elements = 8
 
-saves_per_summary = int32(2)
+# Add space for ERK stage_cache if it's not aliased to shared memory
+# Uses previously computed use_shared_erk_stage_cache flag
+if algorithm_type == 'erk':
+    stage_cache_needs_local = not use_shared_erk_stage_cache
+    stage_cache_local_size = n_states if stage_cache_needs_local else 0
+else:
+    stage_cache_local_size = 0
+
+local_elements = base_local_elements + stage_cache_local_size
+# Slice for step function persistent_local: algo + stage_cache
+local_step_slice = slice(4, 8 + stage_cache_local_size)
+
 status_mask = int32(0xFFFF)
 
 
 
 @cuda.jit(
-    # [
-    #     (
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :, ::1],
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, ::1],
-    #         float64,
-    #         float64,
-    #         float64,
-    #     )
-    # ],
+    [
+        (
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, ::1],
+            float64,
+            float64,
+            float64,
+        )
+    ],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1673,34 +1970,92 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
     shared_scratch[:] = numba_precision(0.0)
 
-    state_buffer = shared_scratch[state_shared_start:state_shared_end]
-    state_proposal_buffer = shared_scratch[proposed_state_start:
-                                           proposed_state_end]
-    observables_buffer = shared_scratch[obs_start:obs_end]
-    observables_proposal_buffer = shared_scratch[proposed_obs_start:
-                                                 proposed_obs_end]
-    parameters_buffer = shared_scratch[params_start:params_end]
-    drivers_buffer = shared_scratch[drivers_start:drivers_end]
-    drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
-                                             proposed_drivers_end]
-    state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
-    observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
-    remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
-    counters_since_save = shared_scratch[counters_start:counters_end]
+    # Allocate buffers based on memory location configuration
+    # Each buffer uses shared memory if its flag is True, otherwise local
+    if use_shared_loop_state:
+        state_buffer = shared_scratch[state_shared_start:state_shared_end]
+    else:
+        state_buffer = cuda.local.array(n_states, numba_precision)
 
-    if save_counters_bool:
-        # When enabled, use shared memory buffers
+    if use_shared_loop_state_proposal:
+        state_proposal_buffer = shared_scratch[proposed_state_start:
+                                               proposed_state_end]
+    else:
+        state_proposal_buffer = cuda.local.array(n_states, numba_precision)
+
+    if use_shared_loop_observables:
+        observables_buffer = shared_scratch[obs_start:obs_end]
+    else:
+        observables_buffer = cuda.local.array(max(n_observables, 1),
+                                              numba_precision)
+
+    if use_shared_loop_observables_proposal:
+        observables_proposal_buffer = shared_scratch[proposed_obs_start:
+                                                     proposed_obs_end]
+    else:
+        observables_proposal_buffer = cuda.local.array(max(n_observables, 1),
+                                                       numba_precision)
+
+    if use_shared_loop_parameters:
+        parameters_buffer = shared_scratch[params_start:params_end]
+    else:
+        parameters_buffer = cuda.local.array(n_parameters, numba_precision)
+
+    if use_shared_loop_drivers:
+        drivers_buffer = shared_scratch[drivers_start:drivers_end]
+    else:
+        drivers_buffer = cuda.local.array(max(n_drivers, 1), numba_precision)
+
+    if use_shared_loop_drivers_proposal:
+        drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
+                                                 proposed_drivers_end]
+    else:
+        drivers_proposal_buffer = cuda.local.array(max(n_drivers, 1),
+                                                   numba_precision)
+
+    if use_shared_loop_state_summary:
+        state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
+    else:
+        state_summary_buffer = cuda.local.array(max(n_states, 1),
+                                                numba_precision)
+
+    if use_shared_loop_observable_summary:
+        observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
+    else:
+        observable_summary_buffer = cuda.local.array(max(n_observables, 1),
+                                                     numba_precision)
+
+    if use_shared_loop_scratch:
+        remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
+    else:
+        # Local scratch sized for the algorithm (computed at module level)
+        remaining_shared_scratch = cuda.local.array(local_scratch_size,
+                                                    numba_precision)
+
+    if use_shared_loop_counters:
+        counters_since_save = shared_scratch[counters_start:counters_end]
+    else:
+        counters_since_save = cuda.local.array(max(n_counters, 1),
+                                               simsafe_int32)
+
+    if save_counters_bool and use_shared_loop_counters:
+        # When enabled and shared, use shared memory buffers
         proposed_counters = shared_scratch[proposed_counters_start:
                                            proposed_counters_end]
     else:
-        # When disabled, use a dummy local "proposed_counters" buffer
+        # When disabled or local, use a local "proposed_counters" buffer
         proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
 
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
-    error = shared_scratch[error_start:error_end]
+
+    if use_shared_loop_error:
+        error = shared_scratch[error_start:error_end]
+    else:
+        error = cuda.local.array(n_states, numba_precision)
+
     controller_temp = persistent_local[local_controller_slice]
-    algo_local = persistent_local[local_algo_slice]
+    step_persistent_local = persistent_local[local_step_slice]
 
     first_step_flag = int16(1)
     prev_step_accepted_flag = int16(1)
@@ -1818,7 +2173,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 first_step_flag,
                 prev_step_accepted_flag,
                 remaining_shared_scratch,
-                algo_local,
+                step_persistent_local,
                 proposed_counters,
             )
 
@@ -1948,21 +2303,21 @@ run_stride_f32 = int32(
 numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
-        # [(
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, :, ::1],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         int32[:, :, :],
-        #         int32[::1],
-        #         float64,
-        #         float64,
-        #         float64,
-        #         int32,
-        #     )],
+        [(
+                numba_prec[:, ::1],
+                numba_prec[:, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                int32[:, :, :],
+                int32[::1],
+                float64,
+                float64,
+                float64,
+                int32,
+            )],
         **compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_output, state_summaries_output,
@@ -2084,29 +2439,29 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
 
     print(f"State output shape: {state_output.shape}")
 
-    # Kernel configuration
-    MAX_SHARED_MEMORY_PER_BLOCK = 32768
-    blocksize = 64
-    runs_per_block = blocksize
+    # Kernel configuration - use global blocksize from config
+    current_blocksize = blocksize
+    runs_per_block = current_blocksize
     dynamic_sharedmem = int32(
         (f32_per_element * run_stride_f32) * 4 * runs_per_block)
 
     while dynamic_sharedmem > MAX_SHARED_MEMORY_PER_BLOCK:
-        blocksize = blocksize // 2
-        runs_per_block = blocksize
+        current_blocksize = current_blocksize // 2
+        runs_per_block = current_blocksize
         dynamic_sharedmem = int(
             (f32_per_element * run_stride_f32) * 4 * runs_per_block)
 
     blocks_per_grid = int(ceil(n_runs / runs_per_block))
 
     print("\nKernel configuration:")
-    print(f"  Block size: {blocksize}")
+    print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
 
     print("\nLaunching kernel...")
 
-    integration_kernel[blocks_per_grid, blocksize, 0, dynamic_sharedmem](
+    integration_kernel[blocks_per_grid, current_blocksize, 0,
+                       dynamic_sharedmem](
         d_inits, d_params, d_driver_coefficients, state_output,
         observables_output, state_summaries_output,
         observable_summaries_output, iteration_counters_output,
