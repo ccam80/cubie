@@ -1,5 +1,4 @@
 """Adaptive proportional–integral–derivative controller implementations."""
-
 from typing import Callable, Optional, Union
 
 import numpy as np
@@ -44,9 +43,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 1/18,
-        ki: float = 1/9,
-        kd: float = 1/18,
+        kp: float = 0.7,
+        ki: float = 0.0,
+        kd: float = -0.4,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
         deadband_min: float = 1.0,
@@ -206,30 +205,34 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         expo1 = precision(kp / (2 * (algorithm_order + 1)))
         expo2 = precision(ki / (2 * (algorithm_order + 1)))
         expo3 = precision(kd / (2 * (algorithm_order + 1)))
-        unity_gain = precision(1.0)
+        safety = precision(safety)
+        typed_one = precision(1.0)
+        typed_zero = precision(0.0)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
-        deadband_disabled = (deadband_min == unity_gain) and (
-            deadband_max == unity_gain
+        deadband_disabled = (deadband_min == typed_one) and (
+                deadband_max == typed_one
         )
-        numba_precision = self.compile_settings.numba_precision
-
+        precision = self.compile_settings.numba_precision
+        n = int32(n)
+        inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             [
                 (
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
                     int32,
                     int32[::1],
-                    numba_precision[::1],
+                    precision[::1],
                 )
             ],
             device=True,
             inline=True,
-            fastmath=True,
             **compile_kwargs,
         )
         def controller_PID(
@@ -267,37 +270,37 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             """
             err_prev = local_temp[0]
             err_prev_prev = local_temp[1]
-            nrm2 = precision(0.0)
+            nrm2 = typed_zero
 
             for i in range(n):
-                error_i = max(abs(error[i]), precision(1e-12))
+                error_i = max(abs(error[i]), precision(1e-16))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                ratio = tol / error_i
+                ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = precision(nrm2/n)
-            accept = nrm2 >= precision(1.0)
+            nrm2 = nrm2 * inv_n
+            accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
-            err_prev_safe = err_prev if err_prev > precision(0.0) else nrm2
+            err_prev_safe = err_prev if err_prev > typed_zero else nrm2
             err_prev_prev_safe = (
-                err_prev_prev if err_prev_prev > precision(0.0) else err_prev_safe
+                err_prev_prev if err_prev_prev > typed_zero else err_prev_safe
             )
 
             gain_new = precision(
                 safety
-                * (nrm2 ** (expo1))
-                * (err_prev_safe ** (expo2))
-                * (err_prev_prev_safe ** (expo3))
+                * (nrm2 ** (-expo1))
+                * (err_prev_safe ** (-expo2))
+                * (err_prev_prev_safe ** (-expo3))
             )
-            gain = precision(clamp(gain_new, min_gain, max_gain))
+            gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
                 within_deadband = (
                     (gain >= deadband_min)
                     and (gain <= deadband_max)
                 )
-                gain = selp(within_deadband, unity_gain, gain)
+                gain = selp(within_deadband, typed_one, gain)
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)

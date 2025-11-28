@@ -47,7 +47,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -144,7 +143,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the Crank–Nicolson step."""
@@ -309,9 +307,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 time_scalar,
             )
 
-            fixed_dt = dt if dt is not None else dt_scalar
-            half_dt = fixed_dt * numba_precision(0.5)
-            end_time = time_scalar + fixed_dt
+            half_dt = dt_scalar * numba_precision(0.5)
+            end_time = time_scalar + dt_scalar
 
             for idx in range(n):
                 base_state[idx] = state[idx] + half_dt * dxdt_buffer[idx]
@@ -330,7 +327,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 end_time,
-                fixed_dt,
+                dt_scalar,
                 stage_coefficient,
                 base_state,
                 solver_scratch,
@@ -367,7 +364,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 end_time,
-                fixed_dt,
+                dt_scalar,
                 be_coefficient,
                 state,
                 solver_scratch,

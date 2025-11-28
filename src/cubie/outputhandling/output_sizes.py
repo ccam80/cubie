@@ -13,12 +13,10 @@ if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     from cubie.outputhandling.output_functions import OutputFunctions
     from cubie.odesystems.baseODE import BaseODE
-    from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 from abc import ABC
 
 import attrs
-from numpy import ceil
 
 from cubie._utils import ensure_nonzero_size
 
@@ -355,55 +353,6 @@ class SingleRunOutputSizes(ArraySizingClass):
         heights = solver_instance.output_array_heights
         output_samples = solver_instance.output_length
         summarise_samples = solver_instance.summaries_length
-
-        state = (output_samples, heights.state)
-        observables = (output_samples, heights.observables)
-        state_summaries = (summarise_samples, heights.state_summaries)
-        observable_summaries = (
-            summarise_samples,
-            heights.observable_summaries,
-        )
-        obj = cls(
-            state,
-            observables,
-            state_summaries,
-            observable_summaries,
-        )
-
-        return obj
-
-    @classmethod
-    def from_output_fns_and_run_settings(
-        cls,
-        output_fns: "OutputFunctions",
-        run_settings: "IntegratorRunSettings",
-    ) -> "SingleRunOutputSizes":
-        """Derive shapes directly from configuration objects.
-
-        Parameters
-        ----------
-        output_fns
-            Output function factory describing saved variables.
-        run_settings
-            Integration run settings providing durations and save cadences.
-
-        Returns
-        -------
-        SingleRunOutputSizes
-            Array shapes for one simulation run.
-
-        Notes
-        -----
-        Primarily used by tests; production code prefers
-        :meth:`from_solver` to remain aligned with solver metadata.
-        """
-        heights = OutputArrayHeights.from_output_fns(output_fns)
-        output_samples = int(
-            ceil(run_settings.duration / run_settings.dt_save)
-        )
-        summarise_samples = int(
-            ceil(run_settings.duration / run_settings.dt_summarise)
-        )
 
         state = (output_samples, heights.state)
         observables = (output_samples, heights.observables)

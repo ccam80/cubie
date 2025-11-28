@@ -49,7 +49,6 @@ def erk_step_settings(erk_step_settings_override):
     settings = {
         "precision": np.float64,
         "n": 2,
-        "dt": 1e-3,
     }
     if erk_step_settings_override:
         settings.update(erk_step_settings_override)

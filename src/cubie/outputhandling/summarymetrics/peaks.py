@@ -5,7 +5,7 @@ This module implements a summary metric that detects and records the timing
 of local maxima (peaks) in variable values during integration.
 """
 
-from numba import cuda
+from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -138,7 +138,7 @@ class Peaks(SummaryMetric):
             Copies peak indices from ``buffer[3:]`` to the output array then
             clears the storage for the next summary interval.
             """
-            n_peaks = customisable_variable
+            n_peaks = int32(customisable_variable)
             for p in range(n_peaks):
                 output_array[p] = buffer[3 + p]
                 buffer[3 + p] = precision(0.0)

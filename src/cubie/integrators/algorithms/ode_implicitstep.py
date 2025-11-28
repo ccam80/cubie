@@ -33,8 +33,6 @@ class ImplicitStepConfig(BaseStepConfig):
         Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
-    dt
-        Optional fixed step size for fixed-step algorithms.
     krylov_tolerance
         Linear solver tolerance used by the Krylov iteration.
     max_linear_iters
@@ -173,7 +171,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
-        dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
         n_drivers = config.n_drivers
@@ -185,7 +182,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             driver_function,
             numba_precision,
             n,
-            dt,
             n_drivers,
         )
 
@@ -198,7 +194,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
@@ -217,8 +212,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Numba precision for compiled device buffers.
         n
             Dimension of the state vector.
-        dt
-            Fixed step size provided for fixed-step operation.
         n_drivers
             Number of driver signals provided to the system.
 

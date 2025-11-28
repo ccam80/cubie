@@ -53,12 +53,13 @@ ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "step_controller": "pi",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
-        "kp": 0.6,
-        "kd": 0.4,
+        "kp": 0.7,
+        "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "min_gain": 0.1,
+        "max_gain": 5.0,
+        "safety": 0.9
     }
 )
 """Default step controller settings for adaptive ERK tableaus.
@@ -121,7 +122,6 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -144,9 +144,6 @@ class ERKStep(ODEExplicitStep):
             np.float64).
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives. Should
             match signature expected by the integration kernel.
@@ -187,11 +184,7 @@ class ERKStep(ODEExplicitStep):
         
         >>> from cubie.integrators.algorithms.generic_erk import ERKStep
         >>> import numpy as np
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
         'pi'
         
@@ -200,12 +193,7 @@ class ERKStep(ODEExplicitStep):
         >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
         ...     CLASSICAL_RK4_TABLEAU
         ... )
-        >>> step = ERKStep(
-        ...     precision=np.float32,
-        ...     n=3,
-        ...     dt=None,
-        ...     tableau=CLASSICAL_RK4_TABLEAU,
-        ... )
+        >>> step = ERKStep(precision=np.float32,n=3,tableau=CLASSICAL_RK4_TABLEAU)
         >>> step.controller_defaults.step_controller["step_controller"]
         'fixed'
         """
@@ -220,8 +208,6 @@ class ERKStep(ODEExplicitStep):
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
         
         config = ERKStepConfig(**config_kwargs)
 
@@ -239,36 +225,33 @@ class ERKStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
 
         typed_zero = numba_precision(0.0)
-        stage_count = tableau.stage_count
-        accumulator_length = max(stage_count - 1, 0) * n
+        n_arraysize = n
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
+        stages_except_first = stage_count - int32(1)
+        accumulator_length = (tableau.stage_count - 1) * n_arraysize
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         stage_nodes = tableau.typed_vector(tableau.c, numba_precision)
 
         if has_error:
-            embedded_weights = tableau.typed_vector(tableau.b_hat, numba_precision)
             error_weights = tableau.error_weights(numba_precision)
         else:
-            embedded_weights = tuple(typed_zero for _ in range(stage_count))
             error_weights = tuple(typed_zero for _ in range(stage_count))
 
         # Last-step caching optimization (issue #163):
@@ -276,8 +259,13 @@ class ERKStep(ODEExplicitStep):
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
+
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         # no cover: start
         @cuda.jit(
@@ -350,20 +338,16 @@ class ERKStep(ODEExplicitStep):
             #       loop.
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
-            stage_rhs = cuda.local.array(n, numba_precision)
-
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
+            stage_rhs = shared[:n]
 
             current_time = time_scalar
-            end_time = current_time + dt_value
+            end_time = current_time + dt_scalar
 
-            stage_accumulator = shared[:accumulator_length]
+            stage_accumulator = cuda.local.array(
+                accumulator_length, dtype=precision
+            )
             if multistage:
-                stage_cache = stage_accumulator[:n]
+                stage_cache = stage_rhs  # FSAL cache alias
 
             for idx in range(n):
                 if accumulates_output:
@@ -379,7 +363,9 @@ class ERKStep(ODEExplicitStep):
             if first_same_as_last and multistage:
                 if not first_step_flag:
                     mask = activemask()
-                    all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                    all_threads_accepted = all_sync(
+                            mask,
+                            accepted_flag != int16(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False
@@ -415,7 +401,7 @@ class ERKStep(ODEExplicitStep):
                     proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
                     if accumulates_error:
-                        error[idx] += error_weights[0] * increment
+                        error[idx] = error[idx] + error_weights[0] * increment
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -423,34 +409,30 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stages 1-s: refresh observables and drivers       #
             # ----------------------------------------------------------- #
+            for prev_idx in range(stages_except_first):
+                stage_offset = prev_idx * n
+                stage_idx = prev_idx + int32(1)
+                matrix_col = stage_rhs_coeffs[prev_idx]
 
-            for stage_idx in range(1, stage_count):
-
-                # Stream last result into the accumulators
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
-
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - 1) * n
+                for successor_idx in range(stages_except_first):
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
                     for idx in range(n):
                         increment = stage_rhs[idx]
-                        contribution = state_coeff * increment
-                        stage_accumulator[base + idx] += contribution
+                        stage_accumulator[row_offset + idx] += (
+                            coeff * increment
+                        )
 
-                stage_offset = (stage_idx - 1) * n
-                dt_stage = dt_value * stage_nodes[stage_idx]
+                base = stage_offset
+                dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
                 # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_value
-                    stage_accumulator[stage_offset + idx] += state[idx]
-
-                # Rename the slice for clarity
-                stage_state = stage_accumulator[stage_offset:stage_offset + n]
-
+                    stage_accumulator[base] = (
+                        stage_accumulator[base] * dt_scalar + state[idx]
+                    )
+                    base += int32(1)
 
                 # get rhs for next stage
                 stage_drivers = proposed_drivers
@@ -462,15 +444,15 @@ class ERKStep(ODEExplicitStep):
                     )
 
                 observables_function(
-                        stage_state,
-                        parameters,
-                        stage_drivers,
-                        proposed_observables,
-                        stage_time,
+                    stage_accumulator[stage_offset : stage_offset + n],
+                    parameters,
+                    stage_drivers,
+                    proposed_observables,
+                    stage_time,
                 )
 
                 dxdt_fn(
-                    stage_state,
+                    stage_accumulator[stage_offset : stage_offset + n],
                     parameters,
                     stage_drivers,
                     proposed_observables,
@@ -485,30 +467,32 @@ class ERKStep(ODEExplicitStep):
                     if accumulates_output:
                         increment = stage_rhs[idx]
                         proposed_state[idx] += solution_weight * increment
-                    elif b_row == stage_idx:
-                        proposed_state[idx] = stage_state[idx]
 
                     if has_error:
                         if accumulates_error:
                             increment = stage_rhs[idx]
                             error[idx] += error_weight * increment
-                        elif b_hat_row == stage_idx:
-                            error[idx] = stage_state[idx]
 
+            if b_row is not None:
+                for idx in range(n):
+                    proposed_state[idx] = stage_accumulator[
+                        (b_row - 1) * n + idx
+                    ]
+            if b_hat_row is not None:
+                for idx in range(n):
+                    error[idx] = stage_accumulator[(b_hat_row - 1) * n + idx]
             # ----------------------------------------------------------- #
             for idx in range(n):
-
                 # Scale and shift f(Y_n) value if accumulated
                 if accumulates_output:
-                    proposed_state[idx] *= dt_value
-                    proposed_state[idx] += state[idx]
-
+                    proposed_state[idx] = (
+                        proposed_state[idx] * dt_scalar + state[idx]
+                    )
                 if has_error:
                     # Scale error if accumulated
                     if accumulates_error:
-                        error[idx] *= dt_value
-
-                    #Or form error from difference if captured from a-row
+                        error[idx] *= dt_scalar
+                    # Or form error from difference if captured from a-row
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
@@ -520,11 +504,11 @@ class ERKStep(ODEExplicitStep):
                 )
 
             observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
+                    proposed_state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    end_time,
             )
 
             if first_same_as_last:

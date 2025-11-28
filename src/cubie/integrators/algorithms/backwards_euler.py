@@ -29,7 +29,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: float,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -51,9 +50,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Fixed step size for fixed-step algorithms. When ``None`` the
-            controller default is used.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -79,9 +75,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
-        if dt is None:
-            dt = BE_DEFAULTS.step_controller['dt']
-
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
@@ -91,7 +84,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            dt=dt,
             preconditioner_order=preconditioner_order,
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
@@ -115,7 +107,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for a backward Euler step.
@@ -134,8 +125,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        dt
-            Fixed step size supplied for fixed-step execution.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------
@@ -147,6 +138,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
         solver_shared_elements = self.solver_shared_elements
+        n = int32(n)
+
         @cuda.jit(
             (
                 numba_precision[::1],
@@ -230,7 +223,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = solver_scratch[i]
 
-            next_time = time_scalar + dt
+            next_time = time_scalar + dt_scalar
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -243,7 +236,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 next_time,
-                dt,
+                dt_scalar,
                 a_ij,
                 state,
                 solver_scratch,

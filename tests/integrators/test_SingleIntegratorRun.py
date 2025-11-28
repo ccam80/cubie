@@ -414,11 +414,6 @@ def test_update_routes_to_children(
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
-    assert algo_settings["dt"] == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
-    )
 
     assert float(system.constants.values_array[0]) == pytest.approx(
         new_constant,

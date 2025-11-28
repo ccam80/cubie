@@ -83,8 +83,8 @@ class CPUAdaptiveController:
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new)
         )
-        nrm2 = np.sum((scale * scale) / (error * error))
-        norm = nrm2 / len(error)
+        nrm2 = np.sum((error * error) / (scale * scale))
+        norm = 1 / (nrm2 * len(error))
         return self.precision(norm)
 
     def propose_dt(

@@ -122,7 +122,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -148,9 +147,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives.
         observables_function
@@ -213,9 +209,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "gamma": tableau_value.gamma,
             "M": mass,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
 
@@ -307,7 +301,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_del_t = config.driver_del_t
         numba_precision = config.numba_precision
         n = config.n
-        dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
 
@@ -319,7 +312,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             driver_del_t,
             numba_precision,
             n,
-            dt,
             config.n_drivers,
         )
 
@@ -332,7 +324,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_del_t: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
@@ -340,20 +331,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = self.compile_settings
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
 
-        stage_count = self.stage_count
+        n = int32(n)
+        stage_count = int32(self.stage_count)
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
-        a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
-        C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
+        a_coeffs = tableau.a_flat(numba_precision)
+        C_coeffs = tableau.C_flat(numba_precision)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
-        gamma = tableau.gamma
+        gamma = numba_precision(tableau.gamma)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
@@ -367,10 +355,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         stage_buffer_n = stage_count * n
-        cached_auxiliary_count = self.cached_auxiliary_count
-        stage_rhs_start = 0
+        cached_auxiliary_count = int32(self.cached_auxiliary_count)
+        stage_rhs_start = int32(0)
         stage_rhs_end = stage_rhs_start + n
         stage_store_start = stage_rhs_end
         stage_store_end = stage_store_start + stage_buffer_n
@@ -433,25 +425,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #   - Provides Jacobian helper data prepared before the loop.
             # ----------------------------------------------------------- #
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
-            
             current_time = time_scalar
-            end_time = current_time + dt_value
+            end_time = current_time + dt_scalar
 
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
             stage_store = shared[stage_store_start:stage_store_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
-            final_stage_base = n * (stage_count - 1)
+            final_stage_base = n * (stage_count - int32(1))
             time_derivative = stage_store[
                 final_stage_base : final_stage_base + n
             ]
 
-            inv_dt = numba_precision(1.0) / dt_value
+            inv_dt = numba_precision(1.0) / dt_scalar
 
             prepare_jacobian(
                 state,
@@ -489,12 +475,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
-                time_derivative[idx] *= dt_value
+                time_derivative[idx] *= dt_scalar
                 if has_error:
                     error[idx] = typed_zero
 
             status_code = int32(0)
-            stage_time = current_time + dt_value * stage_time_fractions[0]
+            stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #
             #            Stage 0: uses starting values                        #
@@ -514,12 +500,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 f_value = stage_rhs[idx]
                 rhs_value = (
                         (f_value + gamma_stages[0] * time_derivative[idx])
-                        * dt_value
+                        * dt_scalar
                 )
                 stage_rhs[idx] = rhs_value * gamma
 
             # Create an unused reference for solver signature consistency.
-            base_state_placeholder = shared[0:0]
+            base_state_placeholder = shared[int32(0):int32(0)]
 
             # Use stored copy as the initial guess for the first stage.
             status_code |= linear_solver(
@@ -529,7 +515,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 base_state_placeholder,
                 cached_auxiliaries,
                 stage_time,
-                dt_value,
+                dt_scalar,
                 numba_precision(1.0),
                 stage_rhs,
                 stage_increment,
@@ -537,28 +523,32 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] += stage_increment[idx] * solution_weights[0]
+                    proposed_state[idx] += (stage_increment[idx] *
+                                            solution_weights[int32(0)])
                 if has_error and accumulates_error:
-                    error[idx] += stage_increment[idx] * error_weights[0]
+                    error[idx] += stage_increment[idx] * error_weights[
+                        int32(0)]
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
             # --------------------------------------------------------------- #
-            for stage_idx in range(1, stage_count):
+            for stage_idx in range(int32(1), stage_count):
                 # Fill buffers with previous step's contributions
                 stage_gamma = gamma_stages[stage_idx]
                 stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
                 stage_slice = stage_store[
-                    n * stage_idx : n * (stage_idx + 1)
+                    n * stage_idx : n * (stage_idx + int32(1))
                 ]
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
                 for predecessor_offset in range(stage_idx):
-                    a_coeff = a_coeffs[stage_idx][predecessor_offset]
+                    a_coeff = a_coeffs[
+                        stage_idx * stage_count + predecessor_offset
+                    ]
                     base_idx = predecessor_offset * n
                     for idx in range(n):
                         prior_val = stage_store[base_idx + idx]
@@ -600,7 +590,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         error[idx] = stage_slice[idx]
 
                 # Overwrite the final accumulator slice with time-derivative
-                if stage_idx == stage_count - 1:
+                if stage_idx == stage_count - int32(1):
                     if has_driver_function:
                         driver_del_t(
                             current_time,
@@ -617,14 +607,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         current_time,
                     )
                     for idx in range(n):
-                        time_derivative[idx] *= dt_value
+                        time_derivative[idx] *= dt_scalar
 
                 # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
                     correction = numba_precision(0.0)
                     # stage_store access pattern n-strided - OK in shared mem
                     for predecessor_offset in range(stage_idx):
-                        c_coeff = C_coeffs[stage_idx][predecessor_offset]
+                        c_coeff = C_coeffs[
+                            stage_idx * stage_count + predecessor_offset
+                        ]
                         prior_idx = predecessor_offset * n + idx
                         prior_val = stage_store[prior_idx]
                         correction += c_coeff * prior_val
@@ -632,14 +624,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
                     rhs_value = f_stage_val + correction * inv_dt + deriv_val
-                    stage_rhs[idx] = rhs_value * dt_value * gamma
+                    stage_rhs[idx] = rhs_value * dt_scalar * gamma
 
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_slice
 
                 # Use previous stage's solution as a guess for this stage
-                previous_base = n * (stage_idx - 1)
+                previous_base = n * (stage_idx - int32(1))
                 for idx in range(n):
                     stage_increment[idx] = stage_store[previous_base + idx]
 
@@ -650,7 +642,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     base_state_placeholder,
                     cached_auxiliaries,
                     stage_time,
-                    dt_value,
+                    dt_scalar,
                     numba_precision(1.0),
                     stage_rhs,
                     stage_increment,

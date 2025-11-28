@@ -179,7 +179,7 @@ class ActiveOutputs:
         )
         self.iteration_counters = (
             output_arrays.host.iteration_counters.array is not None
-            and output_arrays.host.iteration_counters.array.size > 1
+            and output_arrays.host.iteration_counters.array.size > 4
         )
 
 

@@ -40,6 +40,8 @@ RESIDUAL_TEMPLATE = (
     "    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).\n"
     "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
+    "    beta = precision(beta)\n"
+    "    gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit((precision[::1],\n"
     "               precision[::1],\n"
@@ -65,6 +67,8 @@ N_STAGE_RESIDUAL_TEMPLATE = (
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
+    "    beta = precision(beta)\n"
+    "    gamma = precision(gamma)\n"
     "{const_lines}"
     "{metadata_lines}"
     "    @cuda.jit((precision[::1],\n"
