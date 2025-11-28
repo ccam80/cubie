@@ -1149,6 +1149,12 @@ def erk_step_inline_factory(
     # Memory location flags captured at compile time from global scope
     stage_rhs_in_shared = use_shared_erk_stage_rhs
     stage_accumulator_in_shared = use_shared_erk_stage_accumulator
+    # stage_cache aliasing: prefers stage_rhs if shared, else accumulator
+    # if shared, else needs persistent_local
+    stage_cache_in_shared = stage_rhs_in_shared or stage_accumulator_in_shared
+    stage_cache_aliases_rhs = stage_rhs_in_shared
+    stage_cache_aliases_accumulator = (not stage_rhs_in_shared and
+                                       stage_accumulator_in_shared)
 
     @cuda.jit(
         device=True,
@@ -1218,8 +1224,18 @@ def erk_step_inline_factory(
         else:
             stage_accumulator = cuda.local.array(accumulator_length,
                                                  dtype=precision)
+
+        # stage_cache for FSAL: alias onto stage_rhs if shared, else
+        # accumulator if shared (bottom n_states), else use persistent_local
+        # persistent_local layout: [algo (4 elements), stage_cache (n elements)]
         if multistage:
-            stage_cache = stage_rhs  # FSAL cache alias
+            if stage_cache_aliases_rhs:
+                stage_cache = stage_rhs
+            elif stage_cache_aliases_accumulator:
+                stage_cache = stage_accumulator[:n]
+            else:
+                # Neither shared - use persistent_local storage after algo
+                stage_cache = persistent_local[int32(4):int32(4) + n]
 
         for idx in range(n):
             if accumulates_output:
@@ -1870,7 +1886,21 @@ local_dt_slice = slice(0, 1)
 local_accept_slice = slice(1, 2)
 local_controller_slice = slice(2, 4)
 local_algo_slice = slice(4, 8)
-local_elements = 8
+# Persistent local storage for step function includes algo (4 elements)
+# plus stage_cache if needed for ERK (n_states elements)
+base_local_elements = 8
+
+# Add space for ERK stage_cache if it's not aliased to shared memory
+if algorithm_type == 'erk':
+    stage_cache_needs_local = not (use_shared_erk_stage_rhs or
+                                   use_shared_erk_stage_accumulator)
+    stage_cache_local_size = n_states if stage_cache_needs_local else 0
+else:
+    stage_cache_local_size = 0
+
+local_elements = base_local_elements + stage_cache_local_size
+# Slice for step function persistent_local: algo + stage_cache
+local_step_slice = slice(4, 8 + stage_cache_local_size)
 
 status_mask = int32(0xFFFF)
 
@@ -2008,7 +2038,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         error = cuda.local.array(n_states, numba_precision)
 
     controller_temp = persistent_local[local_controller_slice]
-    algo_local = persistent_local[local_algo_slice]
+    step_persistent_local = persistent_local[local_step_slice]
 
     first_step_flag = int16(1)
     prev_step_accepted_flag = int16(1)
@@ -2126,7 +2156,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 first_step_flag,
                 prev_step_accepted_flag,
                 remaining_shared_scratch,
-                algo_local,
+                step_persistent_local,
                 proposed_counters,
             )
 
