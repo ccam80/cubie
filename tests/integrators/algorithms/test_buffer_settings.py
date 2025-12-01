@@ -1,8 +1,11 @@
-"""Tests for ERKBufferSettings and DIRKBufferSettings classes."""
+"""Tests for ERKBufferSettings, DIRKBufferSettings, FIRKBufferSettings,
+and RosenbrockBufferSettings classes."""
 import pytest
-from cubie.integrators.algorithms.buffer_settings import (
-    ERKBufferSettings,
-    DIRKBufferSettings,
+from cubie.integrators.algorithms.generic_erk import ERKBufferSettings
+from cubie.integrators.algorithms.generic_dirk import DIRKBufferSettings
+from cubie.integrators.algorithms.generic_firk import FIRKBufferSettings
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    RosenbrockBufferSettings,
 )
 
 
@@ -148,3 +151,135 @@ class TestDIRKBufferSettings:
         )
         # accumulator ((4-1)*3=9) + solver (2*3=6) + increment (3) = 18
         assert settings.shared_memory_elements == 18
+
+
+class TestFIRKBufferSettings:
+    """Tests for FIRKBufferSettings initialization and properties."""
+
+    def test_default_locations(self):
+        """Default locations should match expected values."""
+        settings = FIRKBufferSettings(n=3, stage_count=4)
+
+        assert settings.solver_scratch_location == 'shared'
+        assert settings.stage_increment_location == 'shared'
+        assert settings.stage_driver_stack_location == 'shared'
+        assert settings.stage_state_location == 'local'
+
+    def test_boolean_flags(self):
+        """Boolean properties should reflect location settings."""
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            solver_scratch_location='local',
+        )
+
+        assert settings.use_shared_solver_scratch is False
+        assert settings.use_shared_stage_increment is True
+
+    def test_all_stages_n(self):
+        """all_stages_n should be stage_count * n."""
+        settings = FIRKBufferSettings(n=3, stage_count=4)
+        assert settings.all_stages_n == 12
+
+    def test_solver_scratch_elements(self):
+        """Solver scratch should be 2 * all_stages_n."""
+        settings = FIRKBufferSettings(n=3, stage_count=4)
+        # 2 * (4 * 3) = 24
+        assert settings.solver_scratch_elements == 24
+
+    def test_stage_driver_stack_elements(self):
+        """Stage driver stack should be stage_count * n_drivers."""
+        settings = FIRKBufferSettings(n=3, stage_count=4, n_drivers=2)
+        # 4 * 2 = 8
+        assert settings.stage_driver_stack_elements == 8
+
+    def test_shared_memory_elements(self):
+        """Shared memory should sum sizes of shared buffers."""
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            n_drivers=2,
+            solver_scratch_location='shared',
+            stage_increment_location='shared',
+            stage_driver_stack_location='shared',
+            stage_state_location='shared',
+        )
+        # solver (2*12=24) + increment (12) + drivers (8) + state (3) = 47
+        assert settings.shared_memory_elements == 47
+
+    def test_local_memory_elements(self):
+        """Local memory should sum sizes of local buffers."""
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            n_drivers=2,
+            solver_scratch_location='local',
+            stage_increment_location='local',
+            stage_driver_stack_location='local',
+            stage_state_location='local',
+        )
+        # solver (24) + increment (12) + drivers (8) + state (3) = 47
+        assert settings.local_memory_elements == 47
+
+
+class TestRosenbrockBufferSettings:
+    """Tests for RosenbrockBufferSettings initialization and properties."""
+
+    def test_default_locations(self):
+        """Default locations should be shared for all buffers."""
+        settings = RosenbrockBufferSettings(n=3, stage_count=4)
+
+        assert settings.stage_rhs_location == 'shared'
+        assert settings.stage_store_location == 'shared'
+        assert settings.cached_auxiliaries_location == 'shared'
+
+    def test_boolean_flags(self):
+        """Boolean properties should reflect location settings."""
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            stage_rhs_location='local',
+        )
+
+        assert settings.use_shared_stage_rhs is False
+        assert settings.use_shared_stage_store is True
+
+    def test_stage_store_elements(self):
+        """stage_store_elements should be stage_count * n."""
+        settings = RosenbrockBufferSettings(n=3, stage_count=4)
+        assert settings.stage_store_elements == 12
+
+    def test_shared_memory_elements(self):
+        """Shared memory should sum sizes of shared buffers."""
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='shared',
+            cached_auxiliaries_location='shared',
+        )
+        # rhs (3) + store (12) + aux (10) = 25
+        assert settings.shared_memory_elements == 25
+
+    def test_local_memory_elements(self):
+        """Local memory should sum sizes of local buffers."""
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='local',
+            stage_store_location='local',
+            cached_auxiliaries_location='local',
+        )
+        # rhs (3) + store (12) + aux (10) = 25
+        assert settings.local_memory_elements == 25
+
+    def test_invalid_location_raises(self):
+        """Invalid location string should raise ValueError."""
+        with pytest.raises(ValueError):
+            RosenbrockBufferSettings(
+                n=3,
+                stage_count=4,
+                stage_rhs_location='invalid'
+            )

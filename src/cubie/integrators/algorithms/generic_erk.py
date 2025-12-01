@@ -30,9 +30,10 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 from numba import cuda, int16, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -46,6 +47,118 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERKTableau,
 )
+
+
+@attrs.define
+class ERKBufferSettings:
+    """Configuration for ERK step buffer sizes and memory locations.
+
+    Controls whether stage_rhs and stage_accumulator buffers use shared
+    or local memory. Also manages stage_cache aliasing logic for FSAL
+    optimization.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    stage_count : int
+        Number of RK stages.
+    stage_rhs_location : str
+        Memory location for stage RHS buffer: 'local' or 'shared'.
+    stage_accumulator_location : str
+        Memory location for stage accumulator buffer: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    stage_rhs_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    stage_accumulator_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_stage_rhs(self) -> bool:
+        """Return True if stage_rhs buffer uses shared memory."""
+        return self.stage_rhs_location == 'shared'
+
+    @property
+    def use_shared_stage_accumulator(self) -> bool:
+        """Return True if stage_accumulator buffer uses shared memory."""
+        return self.stage_accumulator_location == 'shared'
+
+    @property
+    def use_shared_stage_cache(self) -> bool:
+        """Return True if stage_cache should use shared memory.
+
+        stage_cache is shared if either stage_rhs or stage_accumulator
+        is shared (it aliases onto one of them).
+        """
+        return self.use_shared_stage_rhs or self.use_shared_stage_accumulator
+
+    @property
+    def stage_cache_aliases_rhs(self) -> bool:
+        """Return True if stage_cache aliases stage_rhs.
+
+        stage_cache aliases stage_rhs when stage_rhs is in shared memory.
+        """
+        return self.use_shared_stage_rhs
+
+    @property
+    def stage_cache_aliases_accumulator(self) -> bool:
+        """Return True if stage_cache aliases stage_accumulator.
+
+        stage_cache aliases accumulator when stage_rhs is local but
+        accumulator is shared.
+        """
+        return (not self.use_shared_stage_rhs
+                and self.use_shared_stage_accumulator)
+
+    @property
+    def accumulator_length(self) -> int:
+        """Return the length of the stage accumulator buffer."""
+        return max(self.stage_count - 1, 0) * self.n
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required.
+
+        Includes stage_rhs (n) if shared, and accumulator if shared.
+        """
+        total = 0
+        if self.use_shared_stage_rhs:
+            total += self.n
+        if self.use_shared_stage_accumulator:
+            total += self.accumulator_length
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required.
+
+        Includes stage_rhs (n) if local, accumulator if local,
+        plus persistent_local for stage_cache if not aliased.
+        """
+        total = 0
+        if not self.use_shared_stage_rhs:
+            total += self.n
+        if not self.use_shared_stage_accumulator:
+            total += self.accumulator_length
+        # stage_cache needs persistent local if neither is shared
+        if not self.use_shared_stage_cache:
+            total += self.n
+        return total
+
+    @property
+    def persistent_local_elements(self) -> int:
+        """Return persistent local elements for stage_cache.
+
+        Returns n if stage_cache cannot alias onto shared buffers.
+        """
+        if self.use_shared_stage_cache:
+            return 0
+        return self.n
 
 
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(

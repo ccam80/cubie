@@ -28,10 +28,11 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -48,6 +49,119 @@ from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory,
 )
+
+
+@attrs.define
+class FIRKBufferSettings:
+    """Configuration for FIRK step buffer sizes and memory locations.
+
+    Controls memory locations for solver_scratch, stage_increment,
+    stage_driver_stack, and stage_state buffers used during FIRK
+    integration steps.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    stage_count : int
+        Number of RK stages.
+    n_drivers : int
+        Number of driver variables.
+    solver_scratch_location : str
+        Memory location for Newton solver scratch: 'local' or 'shared'.
+    stage_increment_location : str
+        Memory location for stage increment buffer: 'local' or 'shared'.
+    stage_driver_stack_location : str
+        Memory location for stage driver stack: 'local' or 'shared'.
+    stage_state_location : str
+        Memory location for stage state buffer: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
+    solver_scratch_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    stage_increment_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    stage_driver_stack_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    stage_state_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_solver_scratch(self) -> bool:
+        """Return True if solver_scratch buffer uses shared memory."""
+        return self.solver_scratch_location == 'shared'
+
+    @property
+    def use_shared_stage_increment(self) -> bool:
+        """Return True if stage_increment buffer uses shared memory."""
+        return self.stage_increment_location == 'shared'
+
+    @property
+    def use_shared_stage_driver_stack(self) -> bool:
+        """Return True if stage_driver_stack buffer uses shared memory."""
+        return self.stage_driver_stack_location == 'shared'
+
+    @property
+    def use_shared_stage_state(self) -> bool:
+        """Return True if stage_state buffer uses shared memory."""
+        return self.stage_state_location == 'shared'
+
+    @property
+    def all_stages_n(self) -> int:
+        """Return the flattened dimension covering all stage increments."""
+        return self.stage_count * self.n
+
+    @property
+    def solver_scratch_elements(self) -> int:
+        """Return solver scratch elements (2 * all_stages_n)."""
+        return 2 * self.all_stages_n
+
+    @property
+    def stage_driver_stack_elements(self) -> int:
+        """Return stage driver stack elements (stage_count * n_drivers)."""
+        return self.stage_count * self.n_drivers
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required.
+
+        Includes solver_scratch, stage_increment, and stage_driver_stack
+        if configured for shared memory.
+        """
+        total = 0
+        if self.use_shared_solver_scratch:
+            total += self.solver_scratch_elements
+        if self.use_shared_stage_increment:
+            total += self.all_stages_n
+        if self.use_shared_stage_driver_stack:
+            total += self.stage_driver_stack_elements
+        if self.use_shared_stage_state:
+            total += self.n
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required.
+
+        Includes buffers configured with location='local'.
+        """
+        total = 0
+        if not self.use_shared_solver_scratch:
+            total += self.solver_scratch_elements
+        if not self.use_shared_stage_increment:
+            total += self.all_stages_n
+        if not self.use_shared_stage_driver_stack:
+            total += self.stage_driver_stack_elements
+        if not self.use_shared_stage_state:
+            total += self.n
+        return total
 
 
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(

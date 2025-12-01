@@ -34,10 +34,11 @@ https://doi.org/10.1023/A:1021900219772
 from typing import Callable, Optional, Tuple
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -51,6 +52,96 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+
+
+@attrs.define
+class RosenbrockBufferSettings:
+    """Configuration for Rosenbrock step buffer sizes and memory locations.
+
+    Controls memory locations for stage_rhs, stage_store, and
+    cached_auxiliaries buffers used during Rosenbrock integration steps.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    stage_count : int
+        Number of RK stages.
+    cached_auxiliary_count : int
+        Number of cached auxiliary entries for Jacobian helpers.
+    stage_rhs_location : str
+        Memory location for stage RHS buffer: 'local' or 'shared'.
+    stage_store_location : str
+        Memory location for stage store buffer: 'local' or 'shared'.
+    cached_auxiliaries_location : str
+        Memory location for cached auxiliaries: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    cached_auxiliary_count: int = attrs.field(
+        default=0, validator=getype_validator(int, 0)
+    )
+    stage_rhs_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    stage_store_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    cached_auxiliaries_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_stage_rhs(self) -> bool:
+        """Return True if stage_rhs buffer uses shared memory."""
+        return self.stage_rhs_location == 'shared'
+
+    @property
+    def use_shared_stage_store(self) -> bool:
+        """Return True if stage_store buffer uses shared memory."""
+        return self.stage_store_location == 'shared'
+
+    @property
+    def use_shared_cached_auxiliaries(self) -> bool:
+        """Return True if cached_auxiliaries buffer uses shared memory."""
+        return self.cached_auxiliaries_location == 'shared'
+
+    @property
+    def stage_store_elements(self) -> int:
+        """Return stage store elements (stage_count * n)."""
+        return self.stage_count * self.n
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required.
+
+        Includes stage_rhs, stage_store, and cached_auxiliaries
+        if configured for shared memory.
+        """
+        total = 0
+        if self.use_shared_stage_rhs:
+            total += self.n
+        if self.use_shared_stage_store:
+            total += self.stage_store_elements
+        if self.use_shared_cached_auxiliaries:
+            total += self.cached_auxiliary_count
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required.
+
+        Includes buffers configured with location='local'.
+        """
+        total = 0
+        if not self.use_shared_stage_rhs:
+            total += self.n
+        if not self.use_shared_stage_store:
+            total += self.stage_store_elements
+        if not self.use_shared_cached_auxiliaries:
+            total += self.cached_auxiliary_count
+        return total
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(

@@ -5,20 +5,19 @@ from typing import Any, Mapping, Optional, Tuple, Type
 from cubie._utils import split_applicable_settings
 
 from .base_algorithm_step import BaseAlgorithmStep, BaseStepConfig, ButcherTableau
-from .buffer_settings import DIRKBufferSettings, ERKBufferSettings
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
 from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
 from .backwards_euler import BackwardsEulerStep
 from .backwards_euler_predict_correct import BackwardsEulerPCStep
 from .crank_nicolson import CrankNicolsonStep
 from .explicit_euler import ExplicitEulerStep
-from .generic_dirk import DIRKStep
+from .generic_dirk import DIRKStep, DIRKBufferSettings
 from .generic_dirk_tableaus import DIRK_TABLEAU_REGISTRY, DIRKTableau
-from .generic_firk import FIRKStep
+from .generic_firk import FIRKStep, FIRKBufferSettings
 from .generic_firk_tableaus import FIRK_TABLEAU_REGISTRY, FIRKTableau
-from .generic_erk import ERKStep, ERKTableau
+from .generic_erk import ERKStep, ERKTableau, ERKBufferSettings
 from .generic_erk_tableaus import ERK_TABLEAU_REGISTRY
-from .generic_rosenbrock_w import GenericRosenbrockWStep
+from .generic_rosenbrock_w import GenericRosenbrockWStep, RosenbrockBufferSettings
 from .generic_rosenbrockw_tableaus import ROSENBROCK_TABLEAUS, RosenbrockTableau
 
 
@@ -43,6 +42,8 @@ __all__ = [
     "ERK_TABLEAU_REGISTRY",
     "ERKBufferSettings",
     "DIRKBufferSettings",
+    "FIRKBufferSettings",
+    "RosenbrockBufferSettings",
 ]
 
 _ALGORITHM_REGISTRY = {

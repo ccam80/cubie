@@ -29,10 +29,11 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -50,6 +51,127 @@ from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory,
 )
+
+
+@attrs.define
+class DIRKBufferSettings:
+    """Configuration for DIRK step buffer sizes and memory locations.
+
+    Controls memory locations for stage_increment, stage_base, accumulator,
+    and solver_scratch buffers used during DIRK integration steps.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    stage_count : int
+        Number of RK stages.
+    stage_increment_location : str
+        Memory location for stage increment buffer: 'local' or 'shared'.
+    stage_base_location : str
+        Memory location for stage base buffer: 'local' or 'shared'.
+    accumulator_location : str
+        Memory location for stage accumulator buffer: 'local' or 'shared'.
+    solver_scratch_location : str
+        Memory location for Newton solver scratch: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    stage_increment_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    stage_base_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    accumulator_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    solver_scratch_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_stage_increment(self) -> bool:
+        """Return True if stage_increment buffer uses shared memory."""
+        return self.stage_increment_location == 'shared'
+
+    @property
+    def use_shared_stage_base(self) -> bool:
+        """Return True if stage_base buffer uses shared memory."""
+        return self.stage_base_location == 'shared'
+
+    @property
+    def use_shared_accumulator(self) -> bool:
+        """Return True if accumulator buffer uses shared memory."""
+        return self.accumulator_location == 'shared'
+
+    @property
+    def use_shared_solver_scratch(self) -> bool:
+        """Return True if solver_scratch buffer uses shared memory."""
+        return self.solver_scratch_location == 'shared'
+
+    @property
+    def accumulator_length(self) -> int:
+        """Return the length of the stage accumulator buffer."""
+        return max(self.stage_count - 1, 0) * self.n
+
+    @property
+    def solver_scratch_elements(self) -> int:
+        """Return the number of solver scratch elements (2 * n)."""
+        return 2 * self.n
+
+    @property
+    def multistage(self) -> bool:
+        """Return True if method has multiple stages."""
+        return self.stage_count > 1
+
+    @property
+    def stage_base_aliases_accumulator(self) -> bool:
+        """Return True if stage_base can alias first slice of accumulator.
+
+        Only valid when multistage and accumulator is in shared memory.
+        """
+        return self.multistage and self.use_shared_accumulator
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required.
+
+        Includes accumulator, solver_scratch, and stage_increment if shared.
+        stage_base aliases accumulator when multistage, so not counted
+        separately.
+        """
+        total = 0
+        if self.use_shared_accumulator:
+            total += self.accumulator_length
+        if self.use_shared_solver_scratch:
+            total += self.solver_scratch_elements
+        if self.use_shared_stage_increment:
+            total += self.n
+        # stage_base aliases accumulator when multistage; only add if
+        # single-stage and shared
+        if not self.multistage and self.use_shared_stage_base:
+            total += self.n
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required.
+
+        Includes buffers configured with location='local'.
+        """
+        total = 0
+        if not self.use_shared_accumulator:
+            total += self.accumulator_length
+        if not self.use_shared_solver_scratch:
+            total += self.solver_scratch_elements
+        if not self.use_shared_stage_increment:
+            total += self.n
+        # stage_base needs local storage when single-stage and local
+        if not self.multistage and not self.use_shared_stage_base:
+            total += self.n
+        return total
 
 
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
