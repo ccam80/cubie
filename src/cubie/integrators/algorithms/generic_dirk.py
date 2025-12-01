@@ -569,6 +569,9 @@ class DIRKStep(ODEImplicitStep):
                     # Accumulator at index i is for stage i+1
                     # At prev_idx, current stage is prev_idx+1, so stream to
                     # accumulators with index >= prev_idx
+
+                    # This guard can be removed, adding a "dead write"
+                    # Do if the compiler needs help unrolling
                     if successor_idx >= prev_idx:
                         coeff = matrix_col[successor_idx + int32(1)]
                         row_offset = successor_idx * n
