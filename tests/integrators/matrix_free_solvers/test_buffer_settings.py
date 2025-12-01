@@ -1,6 +1,6 @@
 """Tests for LinearSolverBufferSettings class."""
 import pytest
-from cubie.integrators.matrix_free_solvers.buffer_settings import (
+from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolverBufferSettings,
     LinearSolverLocalSizes,
     LinearSolverSliceIndices,

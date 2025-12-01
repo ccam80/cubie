@@ -1,6 +1,6 @@
 """Tests for LoopBufferSettings class."""
 import pytest
-from cubie.integrators.loops.buffer_settings import (
+from cubie.integrators.loops.ode_loop import (
     LoopBufferSettings,
     LoopSharedIndicesFromSettings,
     LoopLocalSizes,

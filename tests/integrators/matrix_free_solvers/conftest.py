@@ -221,6 +221,8 @@ def solver_kernel(precision):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
+            # Allocate shared memory for solver buffers
+            shared = cuda.shared.array(2 * n, precision)
             flag[0] = solver(
                 state,
                 parameters,
@@ -231,6 +233,7 @@ def solver_kernel(precision):
                 precision(1.0),
                 rhs,
                 x,
+                shared,
             )
 
         return kernel
