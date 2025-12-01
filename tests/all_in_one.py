@@ -56,11 +56,11 @@ n_counters = 4
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(1e-4)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(5e-5)
+dt_save = precision(1.0)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -87,8 +87,8 @@ max_backtracks = 15
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
 algorithm_order = 2
-kp = precision(0.7)
-ki = precision(-0.4)
+kp = precision(6/5)
+ki = precision(0.0)
 kd = precision(0.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
@@ -1999,7 +1999,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     exceeds the end time (t0 + settling_time + duration), or when
     the maximum number of iterations is reached.
     """
-    t = numba_precision (t0)
+    t = float64(t0)
     t_prec = numba_precision(t)
     t_end = numba_precision(settling_time + t0 + duration)
 
@@ -2221,7 +2221,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 step_persistent_local,
                 proposed_counters,
             )
-
             first_step_flag = int16(0)
 
             niters = (step_status >> 16) & status_mask
