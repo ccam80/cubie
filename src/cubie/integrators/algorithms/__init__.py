@@ -5,6 +5,7 @@ from typing import Any, Mapping, Optional, Tuple, Type
 from cubie._utils import split_applicable_settings
 
 from .base_algorithm_step import BaseAlgorithmStep, BaseStepConfig, ButcherTableau
+from .buffer_settings import DIRKBufferSettings, ERKBufferSettings
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
 from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
 from .backwards_euler import BackwardsEulerStep
@@ -40,6 +41,8 @@ __all__ = [
     "FIRK_TABLEAU_REGISTRY",
     "ERKTableau",
     "ERK_TABLEAU_REGISTRY",
+    "ERKBufferSettings",
+    "DIRKBufferSettings",
 ]
 
 _ALGORITHM_REGISTRY = {
