@@ -274,7 +274,8 @@ class LoopBufferSettings:
             total += self.n_error
         if self.use_shared_counters:
             total += self.n_counters
-            total += (2 if self.n_counters > 0 else 0)  # proposed_counters
+            if self.n_counters > 0:
+                total += 2  # proposed_counters (newton, krylov iters)
         if self.use_shared_state_summary:
             total += self.state_summary_buffer_height
         if self.use_shared_observable_summary:
@@ -396,8 +397,10 @@ class LoopBufferSettings:
         if self.use_shared_counters:
             counters_slice = slice(ptr, ptr + self.n_counters)
             ptr += self.n_counters
-            proposed_counters_slice = slice(ptr, ptr + 2)
-            ptr += 2
+            # proposed_counters: 2 elements (newton, krylov iters from step)
+            proposed_counters_len = 2 if self.n_counters > 0 else 0
+            proposed_counters_slice = slice(ptr, ptr + proposed_counters_len)
+            ptr += proposed_counters_len
         else:
             counters_slice = slice(0, 0)
             proposed_counters_slice = slice(0, 0)
