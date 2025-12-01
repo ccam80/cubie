@@ -298,7 +298,8 @@ class MemoryManager:
         default=Factory(list), validator=val.instance_of(list)
     )
     _stride_order: tuple[str, str, str] = attrs.field(
-        default=("time", "run", "variable"), validator=val.instance_of(tuple)
+        default=("time", "variable", "run"), validator=val.instance_of(
+                    tuple)
     )
     _queued_allocations: Dict[str, Dict] = attrs.field(
         default=Factory(dict), validator=val.instance_of(dict)
