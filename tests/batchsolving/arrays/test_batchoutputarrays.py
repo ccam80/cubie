@@ -25,7 +25,7 @@ def output_test_settings(output_test_overrides):
     settings = {
         "num_runs": 5,
         "dtype": np.float32,
-        "memory": "mapped",
+        "memory": "device",
         "stream_group": "default",
         "memory_proportion": None,
     }
@@ -125,7 +125,7 @@ class TestOutputArrayContainer:
     def test_device_factory(self):
         """Test device factory method"""
         container = OutputArrayContainer.device_factory()
-        assert container.state.memory_type == "mapped"
+        assert container.state.memory_type == "device"
 
 
 class TestActiveOutputs:
@@ -210,7 +210,7 @@ class TestOutputArrays:
         for _, managed in output_arrays_manager.host.iter_managed_arrays():
             assert managed.memory_type == "host"
         for _, managed in output_arrays_manager.device.iter_managed_arrays():
-            assert managed.memory_type == "mapped"
+            assert managed.memory_type == "device"
 
     def test_from_solver_factory(self, solver):
         """Test creating OutputArrays from solver"""
