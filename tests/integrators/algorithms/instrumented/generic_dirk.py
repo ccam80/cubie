@@ -465,12 +465,17 @@ class DIRKStep(ODEImplicitStep):
                 matrix_col = stage_rhs_coeffs[prev_idx]
 
                 # Stream previous stage's RHS into accumulators for successors
+                # Only stream to current stage and later (not already-processed)
                 for successor_idx in range(stages_except_first):
-                    coeff = matrix_col[successor_idx + int32(1)]
-                    row_offset = successor_idx * n
-                    for idx in range(n):
-                        contribution = coeff * stage_rhs[idx] * dt_scalar
-                        stage_accumulator[row_offset + idx] += contribution
+                    # Accumulator at index i is for stage i+1
+                    # At prev_idx, current stage is prev_idx+1, so stream to
+                    # accumulators with index >= prev_idx
+                    if successor_idx >= prev_idx:
+                        coeff = matrix_col[successor_idx + int32(1)]
+                        row_offset = successor_idx * n
+                        for idx in range(n):
+                            contribution = coeff * stage_rhs[idx] * dt_scalar
+                            stage_accumulator[row_offset + idx] += contribution
 
                 stage_time = (
                     current_time

@@ -472,14 +472,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_slice[idx] = state[idx]
 
                 # Accumulate contributions from predecessor stages
-                for predecessor_idx in range(stage_idx):
+                # Loop over all stages for static loop bounds (better unrolling)
+                for predecessor_idx in range(stages_except_first):
                     a_col = a_coeffs[predecessor_idx]
                     a_coeff = a_col[stage_idx]
-                    base_idx = predecessor_idx * n
-                    for idx in range(n):
-                        stage_slice[idx] += (
-                            a_coeff * stage_store[base_idx + idx]
-                        )
+                    # Only accumulate valid predecessors
+                    if predecessor_idx < stage_idx:
+                        base_idx = predecessor_idx * n
+                        for idx in range(n):
+                            stage_slice[idx] += (
+                                a_coeff * stage_store[base_idx + idx]
+                            )
 
                 if has_driver_function:
                     driver_function(
@@ -550,11 +553,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 for idx in range(n):
                     correction = typed_zero
-                    for predecessor_idx in range(stage_idx):
+                    # Loop over all stages for static loop bounds
+                    for predecessor_idx in range(stages_except_first):
                         c_col = C_coeffs[predecessor_idx]
                         c_coeff = c_col[stage_idx]
-                        base = predecessor_idx * n
-                        correction += (c_coeff * stage_store[base + idx])
+                        # Only accumulate valid predecessors
+                        if predecessor_idx < stage_idx:
+                            base = predecessor_idx * n
+                            correction += (c_coeff * stage_store[base + idx])
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
                     rhs_value = f_stage_val + correction * inv_dt + deriv_val

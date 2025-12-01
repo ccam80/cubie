@@ -548,13 +548,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_slice[idx] = state[idx]
 
                 # Accumulate contributions from predecessor stages
-                for predecessor_idx in range(stage_idx):
+                # Loop over all stages for static loop bounds (better unrolling)
+                # Zero coefficients from strict lower triangular structure
+                for predecessor_idx in range(stages_except_first):
                     a_col = a_coeffs[predecessor_idx]
                     a_coeff = a_col[stage_idx]
-                    base_idx = predecessor_idx * n
-                    for idx in range(n):
-                        prior_val = stage_store[base_idx + idx]
-                        stage_slice[idx] += a_coeff * prior_val
+                    # Only accumulate valid predecessors (coefficient will be
+                    # zero for predecessor_idx >= stage_idx due to strict
+                    # lower triangular structure)
+                    if predecessor_idx < stage_idx:
+                        base_idx = predecessor_idx * n
+                        for idx in range(n):
+                            prior_val = stage_store[base_idx + idx]
+                            stage_slice[idx] += a_coeff * prior_val
 
                 # Get t + c_i * dt parts
                 if has_driver_function:
@@ -612,12 +618,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 # Add C_ij*K_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
                     correction = numba_precision(0.0)
-                    for predecessor_idx in range(stage_idx):
+                    # Loop over all stages for static loop bounds
+                    for predecessor_idx in range(stages_except_first):
                         c_col = C_coeffs[predecessor_idx]
                         c_coeff = c_col[stage_idx]
-                        prior_idx = predecessor_idx * n + idx
-                        prior_val = stage_store[prior_idx]
-                        correction += c_coeff * prior_val
+                        # Only accumulate valid predecessors
+                        if predecessor_idx < stage_idx:
+                            prior_idx = predecessor_idx * n + idx
+                            prior_val = stage_store[prior_idx]
+                            correction += c_coeff * prior_val
 
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
