@@ -391,7 +391,7 @@ class OutputArrays(BaseArrayManager):
 
     def finalise(self, host_indices: ChunkIndices) -> None:
         """
-        Copy device arrays to host array slices using async transfers.
+        Copy device arrays to host array slices.
 
         Parameters
         ----------
@@ -406,16 +406,12 @@ class OutputArrays(BaseArrayManager):
         Notes
         -----
         This method queues async transfers from device arrays to host
-        arrays. Each device array is copied to a fresh buffer then
-        assigned to the host slice. The stream is synchronized after
-        all transfers are queued.
+        arrays using the solver's registered stream.
         """
-        stream = self._memory_manager.get_stream(self)
-        pending_copies = []
+        from_ = []
+        to_ = []
 
         for array_name, slot in self.host.iter_managed_arrays():
-            if not getattr(self.active_outputs, array_name):
-                continue
             device_array = self.device.get_array(array_name)
             host_array = slot.array
             stride_order = slot.stride_order
@@ -425,17 +421,12 @@ class OutputArrays(BaseArrayManager):
                 slice_tuple = slice_variable_dimension(
                     host_indices, chunk_index, len(stride_order)
                 )
-                pending_copies.append(
-                    (device_array, host_array, slice_tuple)
-                )
+                to_.append(host_array[slice_tuple])
             else:
-                pending_copies.append((device_array, host_array, Ellipsis))
+                to_.append(host_array)
+            from_.append(device_array)
 
-        for device_array, host_array, target_slice in pending_copies:
-            copied = device_array.copy_to_host(stream=stream)
-            host_array[target_slice] = copied
-
-        self._memory_manager.sync_stream(self)
+        self.from_device(from_, to_)
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """
