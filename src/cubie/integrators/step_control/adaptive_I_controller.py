@@ -200,7 +200,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 tol = (
                     atol[i] + rtol[i] * max(abs(state[i]), abs(state_prev[i]))
                 )
-                nrm2 += (error_i * error_i) / (tol * tol)
+                ratio = error_i / tol
+                nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
             accept = nrm2 <= typed_one
