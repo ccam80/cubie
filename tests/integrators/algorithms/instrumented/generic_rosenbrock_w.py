@@ -215,8 +215,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
-        a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
-        C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
+        a_coeffs = tableau.a_flat(numba_precision)
+        C_coeffs = tableau.C_flat(numba_precision)
         gamma = numba_precision(tableau.gamma)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -470,7 +470,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
                 for predecessor_idx in range(stage_idx):
-                    coeff = a_coeffs[stage_idx][predecessor_idx]
+                    coeff = a_coeffs[stage_idx * stage_count + predecessor_idx]
                     base_idx = predecessor_idx * n
                     for idx in range(n):
                         stage_slice[idx] += (
@@ -547,7 +547,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     correction = typed_zero
                     for predecessor_idx in range(stage_idx):
-                        c_coeff = C_coeffs[stage_idx][predecessor_idx]
+                        c_coeff = C_coeffs[
+                            stage_idx * stage_count + predecessor_idx
+                        ]
                         base = predecessor_idx * n
                         correction += (c_coeff * stage_store[base + idx])
                     f_stage_val = stage_rhs[idx]
