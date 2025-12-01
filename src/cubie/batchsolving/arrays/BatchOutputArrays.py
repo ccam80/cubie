@@ -92,10 +92,10 @@ class OutputArrayContainer(ArrayContainer):
         Returns
         -------
         OutputArrayContainer
-            A new container configured for mapped memory.
+            A new container configured for device memory.
         """
         container = cls()
-        container.set_memory_type("mapped")
+        container.set_memory_type("device")
         return container
 
 
@@ -242,7 +242,7 @@ class OutputArrays(BaseArrayManager):
         """
         super().__attrs_post_init__()
         self.host.set_memory_type("host")
-        self.device.set_memory_type("mapped")
+        self.device.set_memory_type("device")
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
         """
@@ -391,7 +391,7 @@ class OutputArrays(BaseArrayManager):
 
     def finalise(self, host_indices: ChunkIndices) -> None:
         """
-        Copy mapped arrays to host array slices.
+        Copy device arrays to host array slices.
 
         Parameters
         ----------
@@ -405,27 +405,28 @@ class OutputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method copies mapped device arrays over the specified slice
-        of host arrays. The copy operation may trigger CUDA runtime
-        synchronization.
+        This method queues async transfers from device arrays to host
+        arrays using the solver's registered stream.
         """
+        from_ = []
+        to_ = []
+
         for array_name, slot in self.host.iter_managed_arrays():
-            array = slot.array
             device_array = self.device.get_array(array_name)
-            if getattr(self.active_outputs, array_name):
-                stride_order = slot.stride_order
-                if self._chunk_axis in stride_order:
-                    chunk_index = stride_order.index(self._chunk_axis)
-                    slice_tuple = slice_variable_dimension(
-                            host_indices, chunk_index, len(stride_order)
-                    )
-                    target_slice = slice_tuple
-                else:
-                    target_slice = Ellipsis
-                array[target_slice] = device_array.copy()
-                # I'm not sure that we can stream a Mapped transfer,
-                # as transfer is managed by the CUDA runtime. If we just
-                # overwrite, that might jog the cuda runtime to synchronize.
+            host_array = slot.array
+            stride_order = slot.stride_order
+
+            if self._chunk_axis in stride_order:
+                chunk_index = stride_order.index(self._chunk_axis)
+                slice_tuple = slice_variable_dimension(
+                    host_indices, chunk_index, len(stride_order)
+                )
+                to_.append(host_array[slice_tuple])
+            else:
+                to_.append(host_array)
+            from_.append(device_array)
+
+        self.from_device(from_, to_)
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """
