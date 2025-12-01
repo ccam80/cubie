@@ -7,14 +7,12 @@ consistent, ready-to-compile settings.
 """
 from typing import Callable, MutableMapping, Optional, Union
 
-import numpy as np
 from attrs import define, field, validators
 import numba
 from numpy import float32
 
 from cubie._utils import (
     PrecisionDType,
-    getype_validator,
     gttype_validator,
     is_device_validator,
     precision_converter,
@@ -135,6 +133,10 @@ class LoopLocalIndices:
 class LoopSharedIndices:
     """Slice container describing shared-memory buffer layouts.
 
+    This class holds slices for partitioning shared memory among loop
+    buffers. Size information should come from BufferSettings, not from
+    the slices themselves.
+
     Attributes
     ----------
     state
@@ -250,128 +252,10 @@ class LoopSharedIndices:
 
         self.local_end = self.scratch.stop
 
-    @classmethod
-    def from_sizes(cls,
-                   n_states: int,
-                   n_observables: int,
-                   n_parameters: int,
-                   n_drivers: int,
-                   state_summaries_buffer_height: int,
-                   observable_summaries_buffer_height: int,
-                   n_error: int = 0,
-                   save_counters: bool = False,
-                   ) -> "LoopSharedIndices":
-        """Build index slices from component sizes.
-
-        Parameters
-        ----------
-        n_states
-            Number of state elements.
-        n_observables
-            Number of observable elements.
-        n_parameters
-            Number of parameter elements.
-        n_drivers
-            Number of driver elements.
-        state_summaries_buffer_height
-            Number of state summary buffer elements.
-        observable_summaries_buffer_height
-            Number of observable summary buffer elements.
-        save_counters
-            Whether to allocate space for iteration counters.
-
-        Returns
-        -------
-        LoopSharedIndices
-            Layout sized to cover the requested shared-memory partitions.
-        """
-
-        state_start_idx = 0
-        state_proposal_start_idx = state_start_idx + n_states
-        observables_start_index = state_proposal_start_idx + n_states
-        observables_proposal_start_idx = (
-            observables_start_index + n_observables
-        )
-        parameters_start_index = (
-            observables_proposal_start_idx + n_observables
-        )
-        drivers_start_index = parameters_start_index + n_parameters
-        drivers_proposal_start_idx = drivers_start_index + n_drivers
-        state_summ_start_index = drivers_proposal_start_idx + n_drivers
-        obs_summ_start_index = (
-            state_summ_start_index + state_summaries_buffer_height
-        )
-        error_start_index = (
-            obs_summ_start_index + observable_summaries_buffer_height
-        )
-        error_stop_index = error_start_index + n_error
-        
-        # Add counters if enabled
-        # counters_since_save has 4 elements: newton, krylov, steps, rejections
-        # proposed_counters has 2 elements: newton, krylov (from step function)
-        counters_since_save_size = 4 if save_counters else 0
-        proposed_counters_size = 2 if save_counters else 0
-        counters_start_index = error_stop_index
-        counters_stop_index = counters_start_index + counters_since_save_size
-        proposed_counters_start_index = counters_stop_index
-        proposed_counters_stop_index = proposed_counters_start_index + proposed_counters_size
-        
-        final_stop_index = proposed_counters_stop_index
-
-        return cls(
-            state=slice(state_start_idx, state_proposal_start_idx),
-            proposed_state=slice(state_proposal_start_idx, observables_start_index),
-            observables=slice(
-                observables_start_index, observables_proposal_start_idx
-            ),
-            proposed_observables=slice(
-                observables_proposal_start_idx, parameters_start_index
-            ),
-            parameters=slice(parameters_start_index, drivers_start_index),
-            drivers=slice(drivers_start_index, drivers_proposal_start_idx),
-            proposed_drivers=slice(
-                drivers_proposal_start_idx, state_summ_start_index
-            ),
-            state_summaries=slice(state_summ_start_index, obs_summ_start_index),
-            observable_summaries=slice(obs_summ_start_index, error_start_index),
-            error=slice(error_start_index, error_stop_index),
-            counters=slice(counters_start_index, counters_stop_index),
-            proposed_counters=slice(proposed_counters_start_index, proposed_counters_stop_index),
-            local_end=final_stop_index,
-            scratch=slice(final_stop_index, None),
-            all=slice(None),
-        )
-
-
     @property
     def loop_shared_elements(self) -> int:
         """Return the number of shared memory elements."""
         return int(self.local_end or 0)
-
-    @property
-    def n_states(self) -> int:
-        """Return the number of states."""
-        return int(self.state.stop - self.state.start)
-
-    @property
-    def n_parameters(self) -> int:
-        """Return the number of parameters."""
-        return int(self.parameters.stop - self.parameters.start)
-
-    @property
-    def n_drivers(self) -> int:
-        """Return the number of drivers."""
-        return int(self.drivers.stop - self.drivers.start)
-
-    @property
-    def n_observables(self) -> int:
-        """Return the number of observables."""
-        return int(self.observables.stop - self.observables.start)
-
-    @property
-    def n_counters(self) -> int:
-        """Return the number of counter elements (4 if enabled, 0 if not)."""
-        return int(self.counters.stop - self.counters.start)
 
 
 @define

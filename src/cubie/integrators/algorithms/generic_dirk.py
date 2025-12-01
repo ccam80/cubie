@@ -34,6 +34,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -54,7 +55,54 @@ from cubie.integrators.matrix_free_solvers import (
 
 
 @attrs.define
-class DIRKBufferSettings:
+class DIRKLocalSizes(LocalSizes):
+    """Local array sizes for DIRK buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    stage_increment : int
+        Stage increment buffer size.
+    stage_base : int
+        Stage base buffer size.
+    accumulator : int
+        Stage accumulator buffer size.
+    solver_scratch : int
+        Solver scratch buffer size.
+    """
+
+    stage_increment: int = attrs.field(validator=getype_validator(int, 0))
+    stage_base: int = attrs.field(validator=getype_validator(int, 0))
+    accumulator: int = attrs.field(validator=getype_validator(int, 0))
+    solver_scratch: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class DIRKSliceIndices(SliceIndices):
+    """Slice container for DIRK shared memory buffer layouts.
+
+    Attributes
+    ----------
+    stage_increment : slice
+        Slice covering the stage increment buffer (empty if local).
+    stage_base : slice
+        Slice covering the stage base buffer (may alias accumulator).
+    accumulator : slice
+        Slice covering the stage accumulator buffer.
+    solver_scratch : slice
+        Slice covering the solver scratch buffer.
+    local_end : int
+        Offset of the end of algorithm-managed shared memory.
+    """
+
+    stage_increment: slice = attrs.field()
+    stage_base: slice = attrs.field()
+    accumulator: slice = attrs.field()
+    solver_scratch: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class DIRKBufferSettings(BufferSettings):
     """Configuration for DIRK step buffer sizes and memory locations.
 
     Controls memory locations for stage_increment, stage_base, accumulator,
@@ -172,6 +220,72 @@ class DIRKBufferSettings:
         if not self.multistage and not self.use_shared_stage_base:
             total += self.n
         return total
+
+    @property
+    def local_sizes(self) -> DIRKLocalSizes:
+        """Return DIRKLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        # stage_base size depends on whether it aliases accumulator
+        if self.multistage:
+            stage_base_size = 0  # Aliases accumulator when multistage
+        else:
+            stage_base_size = self.n
+        return DIRKLocalSizes(
+            stage_increment=self.n,
+            stage_base=stage_base_size,
+            accumulator=self.accumulator_length,
+            solver_scratch=self.solver_scratch_elements,
+        )
+
+    @property
+    def shared_indices(self) -> DIRKSliceIndices:
+        """Return DIRKSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_accumulator:
+            accumulator_slice = slice(ptr, ptr + self.accumulator_length)
+            ptr += self.accumulator_length
+        else:
+            accumulator_slice = slice(0, 0)
+
+        if self.use_shared_solver_scratch:
+            solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
+            ptr += self.solver_scratch_elements
+        else:
+            solver_scratch_slice = slice(0, 0)
+
+        if self.use_shared_stage_increment:
+            stage_increment_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_increment_slice = slice(0, 0)
+
+        # stage_base aliases accumulator when multistage
+        if self.stage_base_aliases_accumulator:
+            stage_base_slice = slice(
+                accumulator_slice.start,
+                accumulator_slice.start + self.n
+            )
+        elif self.use_shared_stage_base and not self.multistage:
+            stage_base_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_base_slice = slice(0, 0)
+
+        return DIRKSliceIndices(
+            stage_increment=stage_increment_slice,
+            stage_base=stage_base_slice,
+            accumulator=accumulator_slice,
+            solver_scratch=solver_scratch_slice,
+            local_end=ptr,
+        )
 
 
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(

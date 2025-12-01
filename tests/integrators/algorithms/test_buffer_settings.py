@@ -1,11 +1,25 @@
 """Tests for ERKBufferSettings, DIRKBufferSettings, FIRKBufferSettings,
 and RosenbrockBufferSettings classes."""
 import pytest
-from cubie.integrators.algorithms.generic_erk import ERKBufferSettings
-from cubie.integrators.algorithms.generic_dirk import DIRKBufferSettings
-from cubie.integrators.algorithms.generic_firk import FIRKBufferSettings
+from cubie.integrators.algorithms.generic_erk import (
+    ERKBufferSettings,
+    ERKLocalSizes,
+    ERKSliceIndices,
+)
+from cubie.integrators.algorithms.generic_dirk import (
+    DIRKBufferSettings,
+    DIRKLocalSizes,
+    DIRKSliceIndices,
+)
+from cubie.integrators.algorithms.generic_firk import (
+    FIRKBufferSettings,
+    FIRKLocalSizes,
+    FIRKSliceIndices,
+)
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     RosenbrockBufferSettings,
+    RosenbrockLocalSizes,
+    RosenbrockSliceIndices,
 )
 
 
@@ -89,6 +103,36 @@ class TestERKBufferSettings:
         # rhs (3) + accumulator ((4-1)*3=9) = 12
         assert settings.shared_memory_elements == 12
 
+    def test_local_sizes_property(self):
+        """local_sizes property should return ERKLocalSizes instance."""
+        settings = ERKBufferSettings(n=3, stage_count=4)
+        sizes = settings.local_sizes
+
+        assert isinstance(sizes, ERKLocalSizes)
+        assert sizes.stage_rhs == 3
+        assert sizes.stage_accumulator == 9  # (4-1)*3
+
+    def test_local_sizes_nonzero(self):
+        """nonzero method should return 1 for zero-size attributes."""
+        sizes = ERKLocalSizes(stage_rhs=0, stage_accumulator=0, stage_cache=0)
+        assert sizes.nonzero('stage_rhs') == 1
+        assert sizes.nonzero('stage_accumulator') == 1
+
+    def test_shared_indices_property(self):
+        """shared_indices property should return ERKSliceIndices instance."""
+        settings = ERKBufferSettings(
+            n=3,
+            stage_count=4,
+            stage_rhs_location='shared',
+            stage_accumulator_location='shared',
+        )
+        indices = settings.shared_indices
+
+        assert isinstance(indices, ERKSliceIndices)
+        assert indices.stage_rhs == slice(0, 3)
+        assert indices.stage_accumulator == slice(3, 12)
+        assert indices.local_end == 12
+
 
 class TestDIRKBufferSettings:
     """Tests for DIRKBufferSettings initialization and properties."""
@@ -151,6 +195,33 @@ class TestDIRKBufferSettings:
         )
         # accumulator ((4-1)*3=9) + solver (2*3=6) + increment (3) = 18
         assert settings.shared_memory_elements == 18
+
+    def test_local_sizes_property(self):
+        """local_sizes property should return DIRKLocalSizes instance."""
+        settings = DIRKBufferSettings(n=3, stage_count=4)
+        sizes = settings.local_sizes
+
+        assert isinstance(sizes, DIRKLocalSizes)
+        assert sizes.stage_increment == 3
+        assert sizes.accumulator == 9  # (4-1)*3
+        assert sizes.solver_scratch == 6  # 2*3
+
+    def test_shared_indices_property(self):
+        """shared_indices property should return DIRKSliceIndices instance."""
+        settings = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='shared',
+            solver_scratch_location='shared',
+            stage_increment_location='shared',
+        )
+        indices = settings.shared_indices
+
+        assert isinstance(indices, DIRKSliceIndices)
+        assert indices.accumulator == slice(0, 9)
+        assert indices.solver_scratch == slice(9, 15)
+        assert indices.stage_increment == slice(15, 18)
+        assert indices.local_end == 18
 
 
 class TestFIRKBufferSettings:
@@ -221,6 +292,37 @@ class TestFIRKBufferSettings:
         # solver (24) + increment (12) + drivers (8) + state (3) = 47
         assert settings.local_memory_elements == 47
 
+    def test_local_sizes_property(self):
+        """local_sizes property should return FIRKLocalSizes instance."""
+        settings = FIRKBufferSettings(n=3, stage_count=4, n_drivers=2)
+        sizes = settings.local_sizes
+
+        assert isinstance(sizes, FIRKLocalSizes)
+        assert sizes.solver_scratch == 24  # 2*4*3
+        assert sizes.stage_increment == 12  # 4*3
+        assert sizes.stage_driver_stack == 8  # 4*2
+        assert sizes.stage_state == 3
+
+    def test_shared_indices_property(self):
+        """shared_indices property should return FIRKSliceIndices instance."""
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            n_drivers=2,
+            solver_scratch_location='shared',
+            stage_increment_location='shared',
+            stage_driver_stack_location='shared',
+            stage_state_location='shared',
+        )
+        indices = settings.shared_indices
+
+        assert isinstance(indices, FIRKSliceIndices)
+        assert indices.solver_scratch == slice(0, 24)
+        assert indices.stage_increment == slice(24, 36)
+        assert indices.stage_driver_stack == slice(36, 44)
+        assert indices.stage_state == slice(44, 47)
+        assert indices.local_end == 47
+
 
 class TestRosenbrockBufferSettings:
     """Tests for RosenbrockBufferSettings initialization and properties."""
@@ -274,6 +376,38 @@ class TestRosenbrockBufferSettings:
         )
         # rhs (3) + store (12) + aux (10) = 25
         assert settings.local_memory_elements == 25
+
+    def test_local_sizes_property(self):
+        """local_sizes property should return RosenbrockLocalSizes instance."""
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+        )
+        sizes = settings.local_sizes
+
+        assert isinstance(sizes, RosenbrockLocalSizes)
+        assert sizes.stage_rhs == 3
+        assert sizes.stage_store == 12  # 4*3
+        assert sizes.cached_auxiliaries == 10
+
+    def test_shared_indices_property(self):
+        """shared_indices property should return RosenbrockSliceIndices."""
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='shared',
+            cached_auxiliaries_location='shared',
+        )
+        indices = settings.shared_indices
+
+        assert isinstance(indices, RosenbrockSliceIndices)
+        assert indices.stage_rhs == slice(0, 3)
+        assert indices.stage_store == slice(3, 15)
+        assert indices.cached_auxiliaries == slice(15, 25)
+        assert indices.local_end == 25
 
     def test_invalid_location_raises(self):
         """Invalid location string should raise ValueError."""

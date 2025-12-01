@@ -9,10 +9,46 @@ import attrs
 from attrs import validators
 
 from cubie._utils import getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 
 
 @attrs.define
-class LinearSolverBufferSettings:
+class LinearSolverLocalSizes(LocalSizes):
+    """Local array sizes for linear solver buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    preconditioned_vec : int
+        Preconditioned vector buffer size.
+    temp : int
+        Temporary vector buffer size.
+    """
+
+    preconditioned_vec: int = attrs.field(validator=getype_validator(int, 0))
+    temp: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class LinearSolverSliceIndices(SliceIndices):
+    """Slice container for linear solver shared memory buffer layouts.
+
+    Attributes
+    ----------
+    preconditioned_vec : slice
+        Slice covering the preconditioned vector buffer (empty if local).
+    temp : slice
+        Slice covering the temporary vector buffer.
+    local_end : int
+        Offset of the end of solver-managed shared memory.
+    """
+
+    preconditioned_vec: slice = attrs.field()
+    temp: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class LinearSolverBufferSettings(BufferSettings):
     """Configuration for linear solver buffer sizes and memory locations.
 
     Controls whether preconditioned_vec and temp buffers use shared or
@@ -65,3 +101,42 @@ class LinearSolverBufferSettings:
         if not self.use_shared_temp:
             total += self.n
         return total
+
+    @property
+    def local_sizes(self) -> LinearSolverLocalSizes:
+        """Return LinearSolverLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return LinearSolverLocalSizes(
+            preconditioned_vec=self.n,
+            temp=self.n,
+        )
+
+    @property
+    def shared_indices(self) -> LinearSolverSliceIndices:
+        """Return LinearSolverSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_preconditioned_vec:
+            preconditioned_vec_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            preconditioned_vec_slice = slice(0, 0)
+
+        if self.use_shared_temp:
+            temp_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            temp_slice = slice(0, 0)
+
+        return LinearSolverSliceIndices(
+            preconditioned_vec=preconditioned_vec_slice,
+            temp=temp_slice,
+            local_end=ptr,
+        )

@@ -10,10 +10,142 @@ import attrs
 from attrs import validators
 
 from cubie._utils import getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 
 
 @attrs.define
-class LoopBufferSettings:
+class LoopLocalSizes(LocalSizes):
+    """Local array sizes for loop buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    state : int
+        State buffer size.
+    proposed_state : int
+        Proposed state buffer size.
+    parameters : int
+        Parameters buffer size.
+    drivers : int
+        Drivers buffer size.
+    proposed_drivers : int
+        Proposed drivers buffer size.
+    observables : int
+        Observables buffer size.
+    proposed_observables : int
+        Proposed observables buffer size.
+    error : int
+        Error buffer size.
+    counters : int
+        Counters buffer size.
+    proposed_counters : int
+        Proposed counters buffer size.
+    state_summary : int
+        State summary buffer size.
+    observable_summary : int
+        Observable summary buffer size.
+    """
+
+    state: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_state: int = attrs.field(validator=getype_validator(int, 0))
+    parameters: int = attrs.field(validator=getype_validator(int, 0))
+    drivers: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_drivers: int = attrs.field(validator=getype_validator(int, 0))
+    observables: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_observables: int = attrs.field(validator=getype_validator(int, 0))
+    error: int = attrs.field(validator=getype_validator(int, 0))
+    counters: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_counters: int = attrs.field(validator=getype_validator(int, 0))
+    state_summary: int = attrs.field(validator=getype_validator(int, 0))
+    observable_summary: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class LoopSliceIndices(SliceIndices):
+    """Slice container for shared memory buffer layouts.
+
+    Attributes
+    ----------
+    state : slice
+        Slice covering the primary state buffer (empty if local).
+    proposed_state : slice
+        Slice covering the proposed state buffer.
+    observables : slice
+        Slice covering observable work buffers.
+    proposed_observables : slice
+        Slice covering the proposed observable buffer.
+    parameters : slice
+        Slice covering parameter storage.
+    drivers : slice
+        Slice covering driver storage.
+    proposed_drivers : slice
+        Slice covering the proposed driver storage.
+    state_summaries : slice
+        Slice covering aggregated state summaries.
+    observable_summaries : slice
+        Slice covering aggregated observable summaries.
+    error : slice
+        Slice covering the shared error buffer.
+    counters : slice
+        Slice covering the iteration counters buffer.
+    proposed_counters : slice
+        Slice covering the proposed iteration counters buffer.
+    local_end : int
+        Offset of the end of loop-managed shared memory.
+    scratch : slice
+        Slice covering any remaining shared-memory scratch space.
+    all : slice
+        Slice that spans the full shared-memory buffer.
+    """
+
+    state: slice = attrs.field()
+    proposed_state: slice = attrs.field()
+    observables: slice = attrs.field()
+    proposed_observables: slice = attrs.field()
+    parameters: slice = attrs.field()
+    drivers: slice = attrs.field()
+    proposed_drivers: slice = attrs.field()
+    state_summaries: slice = attrs.field()
+    observable_summaries: slice = attrs.field()
+    error: slice = attrs.field()
+    counters: slice = attrs.field()
+    proposed_counters: slice = attrs.field()
+    local_end: int = attrs.field()
+    scratch: slice = attrs.field()
+    all: slice = attrs.field()
+
+    @property
+    def loop_shared_elements(self) -> int:
+        """Return the number of shared memory elements used by loop."""
+        return self.local_end
+
+    @property
+    def n_states(self) -> int:
+        """Return the number of states (from state slice width)."""
+        return self.state.stop - self.state.start
+
+    @property
+    def n_parameters(self) -> int:
+        """Return the number of parameters (from parameters slice width)."""
+        return self.parameters.stop - self.parameters.start
+
+    @property
+    def n_drivers(self) -> int:
+        """Return the number of drivers (from drivers slice width)."""
+        return self.drivers.stop - self.drivers.start
+
+    @property
+    def n_observables(self) -> int:
+        """Return the number of observables (from observables slice width)."""
+        return self.observables.stop - self.observables.start
+
+    @property
+    def n_counters(self) -> int:
+        """Return the number of counter elements (from counters slice)."""
+        return self.counters.stop - self.counters.start
+
+
+@attrs.define
+class LoopBufferSettings(BufferSettings):
     """Configuration for loop buffer sizes and memory locations.
 
     Each buffer has a size attribute (number of elements) and a location
@@ -324,15 +456,20 @@ class LoopBufferSettings:
         """Alias for local_memory_elements for naming consistency."""
         return self.local_memory_elements
 
-    def calculate_shared_indices(self) -> "LoopSharedIndicesFromSettings":
+    def calculate_shared_indices(self) -> "LoopSliceIndices":
         """Generate shared memory index slices based on location settings.
 
         Only buffers with location='shared' receive non-empty slices.
         Local buffers get zero-length slices (slice(0, 0)).
 
+        The order matches the original LoopSharedIndices.from_sizes layout:
+        state, proposed_state, observables, proposed_observables, parameters,
+        drivers, proposed_drivers, state_summaries, observable_summaries,
+        error, counters, proposed_counters.
+
         Returns
         -------
-        LoopSharedIndicesFromSettings
+        LoopSliceIndices
             Object containing slice objects for each buffer.
         """
         ptr = 0
@@ -350,6 +487,20 @@ class LoopBufferSettings:
             ptr += self.n_states
         else:
             proposed_state_slice = slice(0, 0)
+
+        # Observables buffer (order matches from_sizes)
+        if self.use_shared_observables:
+            observables_slice = slice(ptr, ptr + self.n_observables)
+            ptr += self.n_observables
+        else:
+            observables_slice = slice(0, 0)
+
+        # Proposed observables buffer
+        if self.use_shared_observables_proposal:
+            proposed_observables_slice = slice(ptr, ptr + self.n_observables)
+            ptr += self.n_observables
+        else:
+            proposed_observables_slice = slice(0, 0)
 
         # Parameters buffer
         if self.use_shared_parameters:
@@ -372,19 +523,23 @@ class LoopBufferSettings:
         else:
             proposed_drivers_slice = slice(0, 0)
 
-        # Observables buffer
-        if self.use_shared_observables:
-            observables_slice = slice(ptr, ptr + self.n_observables)
-            ptr += self.n_observables
+        # State summary buffer
+        if self.use_shared_state_summary:
+            state_summaries_slice = slice(
+                ptr, ptr + self.state_summary_buffer_height
+            )
+            ptr += self.state_summary_buffer_height
         else:
-            observables_slice = slice(0, 0)
+            state_summaries_slice = slice(0, 0)
 
-        # Proposed observables buffer
-        if self.use_shared_observables_proposal:
-            proposed_observables_slice = slice(ptr, ptr + self.n_observables)
-            ptr += self.n_observables
+        # Observable summary buffer
+        if self.use_shared_observable_summary:
+            observable_summaries_slice = slice(
+                ptr, ptr + self.observable_summary_buffer_height
+            )
+            ptr += self.observable_summary_buffer_height
         else:
-            proposed_observables_slice = slice(0, 0)
+            observable_summaries_slice = slice(0, 0)
 
         # Error buffer
         if self.use_shared_error:
@@ -405,28 +560,10 @@ class LoopBufferSettings:
             counters_slice = slice(0, 0)
             proposed_counters_slice = slice(0, 0)
 
-        # State summary buffer
-        if self.use_shared_state_summary:
-            state_summaries_slice = slice(
-                ptr, ptr + self.state_summary_buffer_height
-            )
-            ptr += self.state_summary_buffer_height
-        else:
-            state_summaries_slice = slice(0, 0)
-
-        # Observable summary buffer
-        if self.use_shared_observable_summary:
-            observable_summaries_slice = slice(
-                ptr, ptr + self.observable_summary_buffer_height
-            )
-            ptr += self.observable_summary_buffer_height
-        else:
-            observable_summaries_slice = slice(0, 0)
-
         local_end = ptr
         scratch_slice = slice(ptr, None)
 
-        return LoopSharedIndicesFromSettings(
+        return LoopSliceIndices(
             state=state_slice,
             proposed_state=proposed_state_slice,
             observables=observables_slice,
@@ -444,90 +581,37 @@ class LoopBufferSettings:
             all=slice(None),
         )
 
+    @property
+    def local_sizes(self) -> LoopLocalSizes:
+        """Return LoopLocalSizes instance with buffer sizes.
 
-@attrs.define
-class LoopSharedIndicesFromSettings:
-    """Slice container for shared memory buffer layouts from BufferSettings.
-
-    This class mirrors the structure of LoopSharedIndices but is generated
-    dynamically from LoopBufferSettings based on memory location choices.
-
-    Attributes
-    ----------
-    state : slice
-        Slice covering the primary state buffer (empty if local).
-    proposed_state : slice
-        Slice covering the proposed state buffer.
-    observables : slice
-        Slice covering observable work buffers.
-    proposed_observables : slice
-        Slice covering the proposed observable buffer.
-    parameters : slice
-        Slice covering parameter storage.
-    drivers : slice
-        Slice covering driver storage.
-    proposed_drivers : slice
-        Slice covering the proposed driver storage.
-    state_summaries : slice
-        Slice covering aggregated state summaries.
-    observable_summaries : slice
-        Slice covering aggregated observable summaries.
-    error : slice
-        Slice covering the shared error buffer.
-    counters : slice
-        Slice covering the iteration counters buffer.
-    proposed_counters : slice
-        Slice covering the proposed iteration counters buffer.
-    local_end : int
-        Offset of the end of loop-managed shared memory.
-    scratch : slice
-        Slice covering any remaining shared-memory scratch space.
-    all : slice
-        Slice that spans the full shared-memory buffer.
-    """
-
-    state: slice = attrs.field()
-    proposed_state: slice = attrs.field()
-    observables: slice = attrs.field()
-    proposed_observables: slice = attrs.field()
-    parameters: slice = attrs.field()
-    drivers: slice = attrs.field()
-    proposed_drivers: slice = attrs.field()
-    state_summaries: slice = attrs.field()
-    observable_summaries: slice = attrs.field()
-    error: slice = attrs.field()
-    counters: slice = attrs.field()
-    proposed_counters: slice = attrs.field()
-    local_end: int = attrs.field()
-    scratch: slice = attrs.field()
-    all: slice = attrs.field()
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return LoopLocalSizes(
+            state=self.n_states,
+            proposed_state=self.n_states,
+            parameters=self.n_parameters,
+            drivers=self.n_drivers,
+            proposed_drivers=self.n_drivers,
+            observables=self.n_observables,
+            proposed_observables=self.n_observables,
+            error=self.n_error,
+            counters=self.n_counters,
+            proposed_counters=2 if self.n_counters > 0 else 0,
+            state_summary=self.state_summary_buffer_height,
+            observable_summary=self.observable_summary_buffer_height,
+        )
 
     @property
-    def loop_shared_elements(self) -> int:
-        """Return the number of shared memory elements used by loop."""
-        return self.local_end
+    def shared_indices(self) -> LoopSliceIndices:
+        """Return LoopSliceIndices instance with shared memory layout.
 
-    @property
-    def n_states(self) -> int:
-        """Return the number of states (from state slice width)."""
-        return self.state.stop - self.state.start
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        return self.calculate_shared_indices()
 
-    @property
-    def n_parameters(self) -> int:
-        """Return the number of parameters (from parameters slice width)."""
-        return self.parameters.stop - self.parameters.start
 
-    @property
-    def n_drivers(self) -> int:
-        """Return the number of drivers (from drivers slice width)."""
-        return self.drivers.stop - self.drivers.start
-
-    @property
-    def n_observables(self) -> int:
-        """Return the number of observables (from observables slice width)."""
-        return self.observables.stop - self.observables.start
-
-    @property
-    def n_counters(self) -> int:
-        """Return the number of counter elements (from counters slice)."""
-        return self.counters.stop - self.counters.start
+# Alias for backwards compatibility
+LoopSharedIndicesFromSettings = LoopSliceIndices

@@ -3,6 +3,8 @@ import pytest
 from cubie.integrators.loops.buffer_settings import (
     LoopBufferSettings,
     LoopSharedIndicesFromSettings,
+    LoopLocalSizes,
+    LoopSliceIndices,
 )
 
 
@@ -163,10 +165,14 @@ class TestLoopBufferSettingsIndices:
         )
         indices = settings.calculate_shared_indices()
 
-        # State: 0-3, proposed: 3-6, params: 6-8, etc.
+        # Order: state, proposed, observables, proposed_obs, params, etc.
+        # State: 0-3, proposed: 3-6, observables: 6-8, proposed_obs: 8-10,
+        # params: 10-12
         assert indices.state == slice(0, 3)
         assert indices.proposed_state == slice(3, 6)
-        assert indices.parameters == slice(6, 8)
+        assert indices.observables == slice(6, 8)
+        assert indices.proposed_observables == slice(8, 10)
+        assert indices.parameters == slice(10, 12)
 
     def test_shared_indices_mixed_locations(self):
         """Mixed locations should give zero-length slices for local."""
@@ -262,3 +268,107 @@ class TestLoopSharedIndicesFromSettings:
             all=slice(None),
         )
         assert indices.loop_shared_elements == 17
+
+
+class TestLoopLocalSizes:
+    """Tests for LoopLocalSizes and nonzero method."""
+
+    def test_local_sizes_property(self):
+        """local_sizes property should return LoopLocalSizes instance."""
+        settings = LoopBufferSettings(
+            n_states=3,
+            n_parameters=2,
+            n_drivers=1,
+            n_observables=2,
+            n_error=3,
+            n_counters=4,
+        )
+        sizes = settings.local_sizes
+
+        assert isinstance(sizes, LoopLocalSizes)
+        assert sizes.state == 3
+        assert sizes.proposed_state == 3
+        assert sizes.parameters == 2
+        assert sizes.drivers == 1
+        assert sizes.observables == 2
+        assert sizes.error == 3
+        assert sizes.counters == 4
+        assert sizes.proposed_counters == 2  # 2 when counters > 0
+
+    def test_nonzero_returns_one_for_zero_size(self):
+        """nonzero method should return 1 for zero-size attributes."""
+        sizes = LoopLocalSizes(
+            state=0,
+            proposed_state=0,
+            parameters=0,
+            drivers=0,
+            proposed_drivers=0,
+            observables=0,
+            proposed_observables=0,
+            error=0,
+            counters=0,
+            proposed_counters=0,
+            state_summary=0,
+            observable_summary=0,
+        )
+
+        assert sizes.nonzero('state') == 1
+        assert sizes.nonzero('parameters') == 1
+        assert sizes.nonzero('error') == 1
+
+    def test_nonzero_returns_value_for_nonzero_size(self):
+        """nonzero method should return actual value for nonzero sizes."""
+        sizes = LoopLocalSizes(
+            state=5,
+            proposed_state=5,
+            parameters=3,
+            drivers=2,
+            proposed_drivers=2,
+            observables=4,
+            proposed_observables=4,
+            error=5,
+            counters=4,
+            proposed_counters=2,
+            state_summary=0,
+            observable_summary=0,
+        )
+
+        assert sizes.nonzero('state') == 5
+        assert sizes.nonzero('parameters') == 3
+        assert sizes.nonzero('error') == 5
+
+
+class TestLoopSliceIndices:
+    """Tests for shared_indices property."""
+
+    def test_shared_indices_property(self):
+        """shared_indices property should return LoopSliceIndices instance."""
+        settings = LoopBufferSettings(
+            n_states=3,
+            n_parameters=2,
+            state_buffer_location='shared',
+            parameters_location='shared',
+        )
+        indices = settings.shared_indices
+
+        assert isinstance(indices, LoopSliceIndices)
+        assert indices.state == slice(0, 3)
+        assert indices.parameters == slice(3, 5)
+
+    def test_shared_indices_matches_calculate_shared_indices(self):
+        """shared_indices should return same result as calculate_shared_indices."""
+        settings = LoopBufferSettings(
+            n_states=3,
+            n_parameters=2,
+            n_drivers=1,
+            state_buffer_location='shared',
+            parameters_location='shared',
+            drivers_location='shared',
+        )
+        calculated = settings.calculate_shared_indices()
+        property_result = settings.shared_indices
+
+        assert calculated.state == property_result.state
+        assert calculated.parameters == property_result.parameters
+        assert calculated.drivers == property_result.drivers
+        assert calculated.local_end == property_result.local_end

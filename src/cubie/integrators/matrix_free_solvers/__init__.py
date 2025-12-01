@@ -6,7 +6,11 @@ solvers that are consumed by modules in :mod:`cubie.integrators`.
 
 from enum import IntEnum
 
-from .buffer_settings import LinearSolverBufferSettings
+from .buffer_settings import (
+    LinearSolverBufferSettings,
+    LinearSolverLocalSizes,
+    LinearSolverSliceIndices,
+)
 from .linear_solver import linear_solver_factory, linear_solver_cached_factory
 from .newton_krylov import newton_krylov_solver_factory
 
@@ -30,4 +34,6 @@ __all__ = [
     "newton_krylov_solver_factory",
     "SolverRetCodes",
     "LinearSolverBufferSettings",
+    "LinearSolverLocalSizes",
+    "LinearSolverSliceIndices",
 ]

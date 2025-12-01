@@ -33,6 +33,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -52,7 +53,54 @@ from cubie.integrators.matrix_free_solvers import (
 
 
 @attrs.define
-class FIRKBufferSettings:
+class FIRKLocalSizes(LocalSizes):
+    """Local array sizes for FIRK buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    solver_scratch : int
+        Solver scratch buffer size.
+    stage_increment : int
+        Stage increment buffer size.
+    stage_driver_stack : int
+        Stage driver stack buffer size.
+    stage_state : int
+        Stage state buffer size.
+    """
+
+    solver_scratch: int = attrs.field(validator=getype_validator(int, 0))
+    stage_increment: int = attrs.field(validator=getype_validator(int, 0))
+    stage_driver_stack: int = attrs.field(validator=getype_validator(int, 0))
+    stage_state: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class FIRKSliceIndices(SliceIndices):
+    """Slice container for FIRK shared memory buffer layouts.
+
+    Attributes
+    ----------
+    solver_scratch : slice
+        Slice covering the solver scratch buffer (empty if local).
+    stage_increment : slice
+        Slice covering the stage increment buffer.
+    stage_driver_stack : slice
+        Slice covering the stage driver stack buffer.
+    stage_state : slice
+        Slice covering the stage state buffer.
+    local_end : int
+        Offset of the end of algorithm-managed shared memory.
+    """
+
+    solver_scratch: slice = attrs.field()
+    stage_increment: slice = attrs.field()
+    stage_driver_stack: slice = attrs.field()
+    stage_state: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class FIRKBufferSettings(BufferSettings):
     """Configuration for FIRK step buffer sizes and memory locations.
 
     Controls memory locations for solver_scratch, stage_increment,
@@ -162,6 +210,63 @@ class FIRKBufferSettings:
         if not self.use_shared_stage_state:
             total += self.n
         return total
+
+    @property
+    def local_sizes(self) -> FIRKLocalSizes:
+        """Return FIRKLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return FIRKLocalSizes(
+            solver_scratch=self.solver_scratch_elements,
+            stage_increment=self.all_stages_n,
+            stage_driver_stack=self.stage_driver_stack_elements,
+            stage_state=self.n,
+        )
+
+    @property
+    def shared_indices(self) -> FIRKSliceIndices:
+        """Return FIRKSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_solver_scratch:
+            solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
+            ptr += self.solver_scratch_elements
+        else:
+            solver_scratch_slice = slice(0, 0)
+
+        if self.use_shared_stage_increment:
+            stage_increment_slice = slice(ptr, ptr + self.all_stages_n)
+            ptr += self.all_stages_n
+        else:
+            stage_increment_slice = slice(0, 0)
+
+        if self.use_shared_stage_driver_stack:
+            stage_driver_stack_slice = slice(
+                ptr, ptr + self.stage_driver_stack_elements
+            )
+            ptr += self.stage_driver_stack_elements
+        else:
+            stage_driver_stack_slice = slice(0, 0)
+
+        if self.use_shared_stage_state:
+            stage_state_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_state_slice = slice(0, 0)
+
+        return FIRKSliceIndices(
+            solver_scratch=solver_scratch_slice,
+            stage_increment=stage_increment_slice,
+            stage_driver_stack=stage_driver_stack_slice,
+            stage_state=stage_state_slice,
+            local_end=ptr,
+        )
 
 
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(

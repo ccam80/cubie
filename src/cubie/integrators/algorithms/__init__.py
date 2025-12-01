@@ -11,13 +11,34 @@ from .backwards_euler import BackwardsEulerStep
 from .backwards_euler_predict_correct import BackwardsEulerPCStep
 from .crank_nicolson import CrankNicolsonStep
 from .explicit_euler import ExplicitEulerStep
-from .generic_dirk import DIRKStep, DIRKBufferSettings
+from .generic_dirk import (
+    DIRKStep,
+    DIRKBufferSettings,
+    DIRKLocalSizes,
+    DIRKSliceIndices,
+)
 from .generic_dirk_tableaus import DIRK_TABLEAU_REGISTRY, DIRKTableau
-from .generic_firk import FIRKStep, FIRKBufferSettings
+from .generic_firk import (
+    FIRKStep,
+    FIRKBufferSettings,
+    FIRKLocalSizes,
+    FIRKSliceIndices,
+)
 from .generic_firk_tableaus import FIRK_TABLEAU_REGISTRY, FIRKTableau
-from .generic_erk import ERKStep, ERKTableau, ERKBufferSettings
+from .generic_erk import (
+    ERKStep,
+    ERKTableau,
+    ERKBufferSettings,
+    ERKLocalSizes,
+    ERKSliceIndices,
+)
 from .generic_erk_tableaus import ERK_TABLEAU_REGISTRY
-from .generic_rosenbrock_w import GenericRosenbrockWStep, RosenbrockBufferSettings
+from .generic_rosenbrock_w import (
+    GenericRosenbrockWStep,
+    RosenbrockBufferSettings,
+    RosenbrockLocalSizes,
+    RosenbrockSliceIndices,
+)
 from .generic_rosenbrockw_tableaus import ROSENBROCK_TABLEAUS, RosenbrockTableau
 
 
@@ -41,9 +62,17 @@ __all__ = [
     "ERKTableau",
     "ERK_TABLEAU_REGISTRY",
     "ERKBufferSettings",
+    "ERKLocalSizes",
+    "ERKSliceIndices",
     "DIRKBufferSettings",
+    "DIRKLocalSizes",
+    "DIRKSliceIndices",
     "FIRKBufferSettings",
+    "FIRKLocalSizes",
+    "FIRKSliceIndices",
     "RosenbrockBufferSettings",
+    "RosenbrockLocalSizes",
+    "RosenbrockSliceIndices",
 ]
 
 _ALGORITHM_REGISTRY = {

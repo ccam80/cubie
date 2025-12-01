@@ -39,6 +39,7 @@ import numpy as np
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -55,7 +56,48 @@ from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 
 @attrs.define
-class RosenbrockBufferSettings:
+class RosenbrockLocalSizes(LocalSizes):
+    """Local array sizes for Rosenbrock buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    stage_rhs : int
+        Stage RHS buffer size.
+    stage_store : int
+        Stage store buffer size.
+    cached_auxiliaries : int
+        Cached auxiliaries buffer size.
+    """
+
+    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
+    stage_store: int = attrs.field(validator=getype_validator(int, 0))
+    cached_auxiliaries: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class RosenbrockSliceIndices(SliceIndices):
+    """Slice container for Rosenbrock shared memory buffer layouts.
+
+    Attributes
+    ----------
+    stage_rhs : slice
+        Slice covering the stage RHS buffer (empty if local).
+    stage_store : slice
+        Slice covering the stage store buffer.
+    cached_auxiliaries : slice
+        Slice covering the cached auxiliaries buffer.
+    local_end : int
+        Offset of the end of algorithm-managed shared memory.
+    """
+
+    stage_rhs: slice = attrs.field()
+    stage_store: slice = attrs.field()
+    cached_auxiliaries: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class RosenbrockBufferSettings(BufferSettings):
     """Configuration for Rosenbrock step buffer sizes and memory locations.
 
     Controls memory locations for stage_rhs, stage_store, and
@@ -142,6 +184,55 @@ class RosenbrockBufferSettings:
         if not self.use_shared_cached_auxiliaries:
             total += self.cached_auxiliary_count
         return total
+
+    @property
+    def local_sizes(self) -> RosenbrockLocalSizes:
+        """Return RosenbrockLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return RosenbrockLocalSizes(
+            stage_rhs=self.n,
+            stage_store=self.stage_store_elements,
+            cached_auxiliaries=self.cached_auxiliary_count,
+        )
+
+    @property
+    def shared_indices(self) -> RosenbrockSliceIndices:
+        """Return RosenbrockSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_stage_rhs:
+            stage_rhs_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_rhs_slice = slice(0, 0)
+
+        if self.use_shared_stage_store:
+            stage_store_slice = slice(ptr, ptr + self.stage_store_elements)
+            ptr += self.stage_store_elements
+        else:
+            stage_store_slice = slice(0, 0)
+
+        if self.use_shared_cached_auxiliaries:
+            cached_auxiliaries_slice = slice(
+                ptr, ptr + self.cached_auxiliary_count
+            )
+            ptr += self.cached_auxiliary_count
+        else:
+            cached_auxiliaries_slice = slice(0, 0)
+
+        return RosenbrockSliceIndices(
+            stage_rhs=stage_rhs_slice,
+            stage_store=stage_store_slice,
+            cached_auxiliaries=cached_auxiliaries_slice,
+            local_end=ptr,
+        )
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(

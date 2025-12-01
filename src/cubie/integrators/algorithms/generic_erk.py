@@ -34,6 +34,7 @@ from attrs import validators
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -50,7 +51,48 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 
 
 @attrs.define
-class ERKBufferSettings:
+class ERKLocalSizes(LocalSizes):
+    """Local array sizes for ERK buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    stage_rhs : int
+        Stage RHS buffer size.
+    stage_accumulator : int
+        Stage accumulator buffer size.
+    stage_cache : int
+        Stage cache buffer size (for FSAL optimization).
+    """
+
+    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
+    stage_accumulator: int = attrs.field(validator=getype_validator(int, 0))
+    stage_cache: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class ERKSliceIndices(SliceIndices):
+    """Slice container for ERK shared memory buffer layouts.
+
+    Attributes
+    ----------
+    stage_rhs : slice
+        Slice covering the stage RHS buffer (empty if local).
+    stage_accumulator : slice
+        Slice covering the stage accumulator buffer (empty if local).
+    stage_cache : slice
+        Slice covering the stage cache buffer (aliases rhs or accumulator).
+    local_end : int
+        Offset of the end of algorithm-managed shared memory.
+    """
+
+    stage_rhs: slice = attrs.field()
+    stage_accumulator: slice = attrs.field()
+    stage_cache: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class ERKBufferSettings(BufferSettings):
     """Configuration for ERK step buffer sizes and memory locations.
 
     Controls whether stage_rhs and stage_accumulator buffers use shared
@@ -159,6 +201,58 @@ class ERKBufferSettings:
         if self.use_shared_stage_cache:
             return 0
         return self.n
+
+    @property
+    def local_sizes(self) -> ERKLocalSizes:
+        """Return ERKLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return ERKLocalSizes(
+            stage_rhs=self.n,
+            stage_accumulator=self.accumulator_length,
+            stage_cache=self.n if not self.use_shared_stage_cache else 0,
+        )
+
+    @property
+    def shared_indices(self) -> ERKSliceIndices:
+        """Return ERKSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_stage_rhs:
+            stage_rhs_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_rhs_slice = slice(0, 0)
+
+        if self.use_shared_stage_accumulator:
+            stage_accumulator_slice = slice(ptr, ptr + self.accumulator_length)
+            ptr += self.accumulator_length
+        else:
+            stage_accumulator_slice = slice(0, 0)
+
+        # stage_cache aliases rhs or accumulator when either is in shared
+        if self.stage_cache_aliases_rhs:
+            stage_cache_slice = stage_rhs_slice
+        elif self.stage_cache_aliases_accumulator:
+            stage_cache_slice = slice(
+                stage_accumulator_slice.start,
+                stage_accumulator_slice.start + self.n
+            )
+        else:
+            stage_cache_slice = slice(0, 0)
+
+        return ERKSliceIndices(
+            stage_rhs=stage_rhs_slice,
+            stage_accumulator=stage_accumulator_slice,
+            stage_cache=stage_cache_slice,
+            local_end=ptr,
+        )
 
 
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
