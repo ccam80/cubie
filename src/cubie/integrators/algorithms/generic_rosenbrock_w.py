@@ -334,12 +334,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         n = int32(n)
         stage_count = int32(self.stage_count)
+        stages_except_first = stage_count - int32(1)
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
-        a_coeffs = tableau.a_flat(numba_precision)
-        C_coeffs = tableau.C_flat(numba_precision)
+        a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+        C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
         gamma = numba_precision(tableau.gamma)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -532,24 +533,25 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
             # --------------------------------------------------------------- #
-            for stage_idx in range(int32(1), stage_count):
+            for prev_idx in range(stages_except_first):
+                stage_idx = prev_idx + int32(1)
+                stage_offset = stage_idx * n
                 # Fill buffers with previous step's contributions
                 stage_gamma = gamma_stages[stage_idx]
                 stage_time = (
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
-                stage_slice = stage_store[
-                    n * stage_idx : n * (stage_idx + int32(1))
-                ]
+                # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * K_j))
+                stage_slice = stage_store[stage_offset:stage_offset + n]
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
-                for predecessor_offset in range(stage_idx):
-                    a_coeff = a_coeffs[
-                        stage_idx * stage_count + predecessor_offset
-                    ]
-                    base_idx = predecessor_offset * n
+
+                # Accumulate contributions from predecessor stages
+                for predecessor_idx in range(stage_idx):
+                    a_col = a_coeffs[predecessor_idx]
+                    a_coeff = a_col[stage_idx]
+                    base_idx = predecessor_idx * n
                     for idx in range(n):
                         prior_val = stage_store[base_idx + idx]
                         stage_slice[idx] += a_coeff * prior_val
@@ -580,8 +582,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 # Capture precalculated outputs here, before overwrite
-                # i.e. sum[i<j](a_ij * y_nj)
-                # if not accumulates output, b_row never == stage_idx.
                 if b_row == stage_idx:
                     for idx in range(n):
                         proposed_state[idx] = stage_slice[idx]
@@ -609,15 +609,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     for idx in range(n):
                         time_derivative[idx] *= dt_scalar
 
-                # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
+                # Add C_ij*K_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
                     correction = numba_precision(0.0)
-                    # stage_store access pattern n-strided - OK in shared mem
-                    for predecessor_offset in range(stage_idx):
-                        c_coeff = C_coeffs[
-                            stage_idx * stage_count + predecessor_offset
-                        ]
-                        prior_idx = predecessor_offset * n + idx
+                    for predecessor_idx in range(stage_idx):
+                        c_col = C_coeffs[predecessor_idx]
+                        c_coeff = c_col[stage_idx]
+                        prior_idx = predecessor_idx * n + idx
                         prior_val = stage_store[prior_idx]
                         correction += c_coeff * prior_val
 
@@ -626,12 +624,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     rhs_value = f_stage_val + correction * inv_dt + deriv_val
                     stage_rhs[idx] = rhs_value * dt_scalar * gamma
 
-
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_slice
 
                 # Use previous stage's solution as a guess for this stage
-                previous_base = n * (stage_idx - int32(1))
+                previous_base = prev_idx * n
                 for idx in range(n):
                     stage_increment[idx] = stage_store[previous_base + idx]
 

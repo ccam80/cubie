@@ -191,6 +191,7 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         nonlinear_solver = solver_fn
         stage_count = tableau.stage_count
+        stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
         has_driver_function = driver_function is not None
@@ -199,7 +200,7 @@ class DIRKStep(ODEImplicitStep):
         first_same_as_last = self.first_same_as_last
         can_reuse_accepted_start = self.can_reuse_accepted_start
 
-        stage_rhs_coeffs = tableau.a_flat(numba_precision)
+        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
@@ -458,24 +459,23 @@ class DIRKStep(ODEImplicitStep):
             #            Stages 1-s: must refresh obs/drivers                 #
             # --------------------------------------------------------------- #
 
-            for stage_idx in range(1, stage_count):
-                prev_idx = stage_idx - int32(1)
-                successor_range = stage_count - stage_idx
+            for prev_idx in range(stages_except_first):
+                stage_offset = prev_idx * n
+                stage_idx = prev_idx + int32(1)
+                matrix_col = stage_rhs_coeffs[prev_idx]
+
+                # Stream previous stage's RHS into accumulators for successors
+                for successor_idx in range(stages_except_first):
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
+                    for idx in range(n):
+                        contribution = coeff * stage_rhs[idx] * dt_scalar
+                        stage_accumulator[row_offset + idx] += contribution
+
                 stage_time = (
                     current_time
                     + dt_scalar * stage_time_fractions[stage_idx]
                 )
-
-                # Fill accumulators with previous step's contributions
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    base = (successor_idx - int32(1)) * n
-                    state_coeff = stage_rhs_coeffs[
-                        successor_idx * stage_count + prev_idx
-                    ]
-                    for idx in range(n):
-                        contribution = state_coeff * stage_rhs[idx] * dt_scalar
-                        stage_accumulator[base + idx] += contribution
 
                 if has_driver_function:
                     driver_function(
@@ -487,9 +487,8 @@ class DIRKStep(ODEImplicitStep):
                 for driver_idx in range(proposed_drivers_out.shape[1]):
                     proposed_drivers_out[stage_idx, driver_idx] = proposed_drivers[driver_idx]
 
-                # Just grab a view of the completed accumulator slice
-                stage_base = stage_accumulator[(stage_idx-int32(1)) *
-                                               n:stage_idx * n]
+                # Convert accumulator slice to state by adding y_n
+                stage_base = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
                     stage_base[idx] += state[idx]
 
