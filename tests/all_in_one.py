@@ -56,11 +56,12 @@ n_counters = 4
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(2e-5)
+duration = precision(1e-4)
 warmup = precision(0.0)
-dt = precision(1e-3)
-dt_save = precision(1e-5)
-dt_max = precision(1.0)
+dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
+# runs
+dt_save = precision(5e-5)
+dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
 # -------------------------------------------------------------------------
@@ -124,17 +125,21 @@ saves_per_summary = int32(2)
 # recompilation of the affected device functions.
 
 # Loop buffers (main integration loop)
-loop_state_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_state_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_parameters_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_state_buffer_memory = 'local'  # 'local' or 'shared'
+# TODO: add togglable mem locations to prod code
+loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
+loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
 loop_drivers_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
 loop_observables_buffer_memory = 'shared'  # 'local' or 'shared'
 loop_observables_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_error_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_counters_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_state_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_error_buffer_memory = 'local'  # 'local' or 'shared'
+loop_counters_buffer_memory = 'local'  # 'local' or 'shared'
+loop_state_summary_buffer_memory = 'local'  # 'local' or 'shared'
 loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+
+# This one doesn't really make sense - it'lls be shared(0) if algo doesn't
+# request shared
 loop_scratch_buffer_memory = 'shared'  # 'local' or 'shared'
 
 # Linear solver arrays (used in Krylov iteration)
@@ -149,7 +154,7 @@ dirk_accumulator_memory = 'shared'  # 'local' or 'shared'
 dirk_solver_scratch_memory = 'shared'  # 'local' or 'shared'
 
 # ERK step arrays
-erk_stage_rhs_memory = 'shared'  # 'local' or 'shared'
+erk_stage_rhs_memory = 'local'  # 'local' or 'shared'
 erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
 # Note: stage_cache aliases onto stage_rhs if shared, else onto accumulator
 # if shared, else goes into persistent_local
@@ -161,7 +166,7 @@ erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
 MAX_SHARED_MEMORY_PER_BLOCK = 32768
 
 # Block size for kernel launch
-blocksize = 64
+blocksize = 96
 
 # =========================================================================
 # DERIVED CONFIGURATION (computed from above settings)
@@ -332,8 +337,8 @@ def dxdt_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def dxdt(state, parameters, drivers, observables, out, t):
         out[2] = -beta * state[2] + state[0] * state[1]
@@ -348,8 +353,8 @@ def observables_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
         pass
@@ -368,9 +373,9 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def preconditioner(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out, jvp):
@@ -404,9 +409,9 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec, numba_prec, numba_prec, numba_prec[::1],
-            #    numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec, numba_prec, numba_prec, numba_prec[::1],
+               numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
         _cse0 = a_ij * u[1]
@@ -431,9 +436,9 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1]),
+            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+               numba_prec[::1], numba_prec, numba_prec, numba_prec,
+               numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out):
@@ -502,9 +507,9 @@ def linear_solver_inline_factory(
     mr_flag = 1 if correction_type == "minimal_residual" else 0
 
     @cuda.jit(
-        # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-        #  numba_prec[::1], numba_prec, numba_prec, numba_prec,
-        #  numba_prec[::1], numba_prec[::1]),
+        (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+         numba_prec[::1], numba_prec, numba_prec, numba_prec,
+         numba_prec[::1], numba_prec[::1]),
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
@@ -601,15 +606,15 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     status_active = int32(-1)
 
     @cuda.jit(
-            # [(numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec,
-            #     numba_prec[::1],
-            #     numba_prec[::1],
-            #     int32[::1])],
+            [(numba_prec[::1],
+                numba_prec[::1],
+                numba_prec[::1],
+                numba_prec,
+                numba_prec,
+                numba_prec,
+                numba_prec[::1],
+                numba_prec[::1],
+                int32[::1])],
               device=True,
               inline=True,
               **compile_kwargs
@@ -787,6 +792,24 @@ def dirk_step_inline_factory(
                   if solver_scratch_in_shared else acc_end)
 
     @cuda.jit(
+        [(
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision,
+            numba_precision,
+            int16,
+            int16,
+            numba_precision[::1],
+            numba_precision[::1],
+            int32[::1],
+        )],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -1175,6 +1198,24 @@ def erk_step_inline_factory(
                                        stage_accumulator_in_shared)
 
     @cuda.jit(
+        [(
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision,
+            numba_precision,
+            int16,
+            int16,
+            numba_precision[::1],
+            numba_precision[::1],
+            int32[::1],
+        )],
         device=True,
         inline=True,
         **compile_kwargs
@@ -1232,7 +1273,7 @@ def erk_step_inline_factory(
         if stage_rhs_in_shared:
             stage_rhs = shared[:n]
         else:
-            stage_rhs = cuda.local.array(n, numba_precision)
+            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -1433,8 +1474,8 @@ def save_state_inline(current_state, current_observables, current_counters,
 # =========================================================================
 
 @cuda.jit(
-    # ["float32, float32[::1], int32, int32",
-    #  "float64, float64[::1], int32, int32"],
+    ["float32, float32[::1], int32, int32",
+     "float64, float64[::1], int32, int32"],
     device=True,
     inline=True,
     **compile_kwargs
@@ -1450,8 +1491,8 @@ def update_mean(
 
 
 @cuda.jit(
-    # ["float32[::1], float32[::1], int32, int32",
-    #  "float64[::1], float64[::1], int32, int32"],
+    ["float32[::1], float32[::1], int32, int32",
+     "float64[::1], float64[::1], int32, int32"],
     device=True,
     inline=True,
     **compile_kwargs
@@ -1541,15 +1582,15 @@ def clamp(value, min_val, max_val):
 
 
 @cuda.jit(
-    # [(
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     numba_precision[::1],
-    #     int32,
-    #     int32[::1],
-    #     numba_precision[::1],
-    # )],
+    [(
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        numba_precision[::1],
+        int32,
+        int32[::1],
+        numba_precision[::1],
+    )],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1598,17 +1639,17 @@ def controller_PID_factory(
     n = int32(n)
     inv_n = precision(1.0 / n)
     @cuda.jit(
-        # [
-        #     (
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         numba_precision[::1],
-        #         int32,
-        #         int32[::1],
-        #         numba_precision[::1],
-        #     )
-        # ],
+        [
+            (
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32,
+                int32[::1],
+                numba_precision[::1],
+            )
+        ],
         device=True,
         inline=True,
         # fastmath=True,
@@ -1794,18 +1835,18 @@ obs_summ_size = int32(n_observables) if summarise_obs_bool else int32(0)
 # Scratch sizes depend on algorithm type
 accumulator_size = int32((stage_count - 1) * n_states)
 if algorithm_type == 'dirk':
-    solver_scratch_size = int32(2 * n_states)
+    solver_scratch_size = 2 * n_states
     dirk_scratch_size = accumulator_size + solver_scratch_size
-    erk_scratch_size = int32(0)
+    erk_scratch_size = 0
 else:
     solver_scratch_size = int32(0)
-    dirk_scratch_size = int32(0)
+    dirk_scratch_size = 0
     # ERK: stage_rhs if shared, accumulator if shared
-    erk_stage_rhs_size = int32(n_states + 1) if use_shared_erk_stage_rhs else (
-        int32(0))
+    erk_stage_rhs_size = n_states + 1 if use_shared_erk_stage_rhs else (
+        0)
     erk_accumulator_shared_size = (accumulator_size
                                    if use_shared_erk_stage_accumulator
-                                   else int32(0))
+                                   else 0)
     erk_scratch_size = erk_stage_rhs_size + erk_accumulator_shared_size
 
 # Shared memory pointer (advances for each shared buffer)
@@ -1879,7 +1920,7 @@ if algorithm_type == 'dirk':
     scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
     local_scratch_size = dirk_scratch_size
 else:
-    scratch_size = erk_scratch_size if use_shared_loop_scratch else int32(0)
+    scratch_size = erk_scratch_size if use_shared_loop_scratch else 0
     # ERK local scratch: accumulator_size + n_states
     local_scratch_size = accumulator_size + int32(n_states)
 scratch_end = scratch_start + scratch_size
@@ -1927,23 +1968,23 @@ obs_nonzero = max(n_observables, 1)
 drv_nonzero = max(n_drivers, 1)
 ncnt_nonzero = max(n_counters, 1)
 @cuda.jit(
-    # [
-    #     (
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :, ::1],
-    #         numba_precision[::1],
-    #         numba_precision[::1],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, :],
-    #         numba_precision[:, ::1],
-    #         float64,
-    #         float64,
-    #         float64,
-    #     )
-    # ],
+    [
+        (
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, :],
+            numba_precision[:, ::1],
+            float64,
+            float64,
+            float64,
+        )
+    ],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -1958,9 +1999,9 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     exceeds the end time (t0 + settling_time + duration), or when
     the maximum number of iterations is reached.
     """
-    t = float64(t0)
+    t = numba_precision (t0)
     t_prec = numba_precision(t)
-    t_end = float64(settling_time + t0 + duration)
+    t_end = numba_precision(settling_time + t0 + duration)
 
     # Cap max iterations - all internal steps at dt_min, plus a bonus
     # end/start, plus one failure per successful step.
@@ -2087,10 +2128,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
     # Set next save for settling time, or save first value if
     # starting at t0
-    next_save = settling_time + t0
+    next_save = numba_precision(settling_time + t0)
     if settling_time == 0.0:
         # Save initial state at t0, then advance to first interval save
-        next_save += float64(dt_save)
+        next_save += dt_save
 
         save_state_inline(
             state_buffer,
@@ -2125,6 +2166,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
     status = int32(0)
     dt[0] = dt0
+    dt_raw = dt0
     accept_step[0] = int32(0)
 
     # Initialize iteration counters
@@ -2144,10 +2186,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         if save_last:
             # If last save requested, predicated commit dt, finished,
             # do_save
-            at_last_save = finished and t < t_end
+            at_last_save = finished and t_prec < t_end
             finished = selp(at_last_save, False, True)
             dt[0] = selp(at_last_save, numba_precision(t_end - t),
-                         dt[0])
+                         dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
         finished |= (status & 0x8)
@@ -2156,8 +2198,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             return status
 
         if not finished:
-            do_save = (t + dt[0]) >= next_save
-            dt_eff = selp(do_save, numba_precision(next_save - t), dt[0])
+            do_save = (t_prec + dt_raw) >= next_save
+            dt_eff = selp(do_save, next_save - t_prec, dt_raw)
 
             # Fixed mode auto-accepts all steps; adaptive uses controller
 
@@ -2201,7 +2243,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             else:
                 accept = True
-
+            dt_raw = dt[0]
             # Accumulate iteration counters if active
             if save_counters_bool:
                 for i in range(n_counters):
@@ -2244,7 +2286,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             do_save = accept and do_save
             if do_save:
                 next_save = selp(do_save, next_save + dt_save, next_save)
-
                 save_state_inline(
                     state_buffer,
                     observables_buffer,
@@ -2306,21 +2347,21 @@ run_stride_f32 = int32(
 numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
-        # [(
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, ::1],
-        #         numba_prec[:, :, ::1],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         numba_prec[:, :, :],
-        #         int32[:, :, :],
-        #         int32[::1],
-        #         float64,
-        #         float64,
-        #         float64,
-        #         int32,
-        #     )],
+        [(
+                numba_prec[::1,:],
+                numba_prec[:, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                numba_prec[:, :, :],
+                int32[:, :, :],
+                int32[::1],
+                float64,
+                float64,
+                float64,
+                int32,
+            )],
         **compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_output, state_summaries_output,
@@ -2460,26 +2501,27 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
-
+    stream = cuda.stream()
     print("\nLaunching kernel...")
     kernel_launch_time = perf_counter()
-    integration_kernel[blocks_per_grid, current_blocksize, 0,
+    integration_kernel[blocks_per_grid, current_blocksize, stream,
                        dynamic_sharedmem](
         d_inits, d_params, d_driver_coefficients, state_output,
         observables_output, state_summaries_output,
         observable_summaries_output, iteration_counters_output,
         status_codes_output, duration, warmup, precision(0.0), n_runs)
 
-    cuda.synchronize()
     kernel_end_time = perf_counter()
     # Mapped arrays provide direct host access after synchronization
     # No explicit copy_to_host required
     print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
-    status_codes_output = status_codes_output.copy_to_host()
-    state_output = state_output.copy_to_host()
-    observables_output = observables_output.copy_to_host()
-    state_summaries_output = state_summaries_output.copy_to_host()
-    observables_summaries_output = observable_summaries_output.copy_to_host()
+    status_codes_output = status_codes_output.copy_to_host(stream=stream)
+    state_output = state_output.copy_to_host(stream=stream)
+    observables_output = observables_output.copy_to_host(stream=stream)
+    state_summaries_output = state_summaries_output.copy_to_host(stream=stream)
+    observables_summaries_output = observable_summaries_output.copy_to_host(stream=stream)
+    cuda.synchronize()
+
     memcpy_time = perf_counter() - kernel_end_time
     print(f"\nMemcpy time: {memcpy_time:.3f} s")
     print("\nExecution complete.")
