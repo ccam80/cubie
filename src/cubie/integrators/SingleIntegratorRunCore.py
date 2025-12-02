@@ -340,18 +340,31 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout matching previous from_sizes behavior
-            state_buffer_location='shared',
-            state_proposal_location='shared',
-            parameters_location='shared',
-            drivers_location='shared',
-            drivers_proposal_location='shared',
-            observables_location='shared',
-            observables_proposal_location='shared',
-            error_location='shared',
-            counters_location='shared',
-            state_summary_location='shared',
-            observable_summary_location='shared',
+            # Use buffer locations from loop_settings or default to 'shared'
+            state_buffer_location=loop_settings.get(
+                'state_buffer_location', 'shared'),
+            state_proposal_location=loop_settings.get(
+                'state_proposal_location', 'shared'),
+            parameters_location=loop_settings.get(
+                'parameters_location', 'shared'),
+            drivers_location=loop_settings.get(
+                'drivers_location', 'shared'),
+            drivers_proposal_location=loop_settings.get(
+                'drivers_proposal_location', 'shared'),
+            observables_location=loop_settings.get(
+                'observables_location', 'shared'),
+            observables_proposal_location=loop_settings.get(
+                'observables_proposal_location', 'shared'),
+            error_location=loop_settings.get(
+                'error_location', 'shared'),
+            counters_location=loop_settings.get(
+                'counters_location', 'shared'),
+            state_summary_location=loop_settings.get(
+                'state_summary_location', 'shared'),
+            observable_summary_location=loop_settings.get(
+                'observable_summary_location', 'shared'),
+            scratch_location=loop_settings.get(
+                'scratch_location', 'shared'),
         )
         loop_indices = buffer_settings.shared_indices
 
@@ -384,6 +397,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             shared_indices=shared_indices,
             local_indices=local_indices,
             compile_flags=compile_flags,
+            buffer_settings=buffer_settings,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -475,7 +489,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         #Recalculate settings derived from changes in children
         system_sizes=self.system_sizes
         
-        # Build buffer settings with all-shared layout
+        # Build buffer settings, preserving existing locations unless updated.
+        # Get current buffer settings from the loop's compile_settings.
+        current_buffer_settings = self._loop.compile_settings.buffer_settings
         n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
         buffer_settings = LoopBufferSettings(
             n_states=system_sizes.states,
@@ -488,18 +504,43 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout matching previous from_sizes behavior
-            state_buffer_location='shared',
-            state_proposal_location='shared',
-            parameters_location='shared',
-            drivers_location='shared',
-            drivers_proposal_location='shared',
-            observables_location='shared',
-            observables_proposal_location='shared',
-            error_location='shared',
-            counters_location='shared',
-            state_summary_location='shared',
-            observable_summary_location='shared',
+            # Use buffer locations from updates_dict or preserve existing values
+            state_buffer_location=updates_dict.get(
+                'state_buffer_location',
+                current_buffer_settings.state_buffer_location),
+            state_proposal_location=updates_dict.get(
+                'state_proposal_location',
+                current_buffer_settings.state_proposal_location),
+            parameters_location=updates_dict.get(
+                'parameters_location',
+                current_buffer_settings.parameters_location),
+            drivers_location=updates_dict.get(
+                'drivers_location',
+                current_buffer_settings.drivers_location),
+            drivers_proposal_location=updates_dict.get(
+                'drivers_proposal_location',
+                current_buffer_settings.drivers_proposal_location),
+            observables_location=updates_dict.get(
+                'observables_location',
+                current_buffer_settings.observables_location),
+            observables_proposal_location=updates_dict.get(
+                'observables_proposal_location',
+                current_buffer_settings.observables_proposal_location),
+            error_location=updates_dict.get(
+                'error_location',
+                current_buffer_settings.error_location),
+            counters_location=updates_dict.get(
+                'counters_location',
+                current_buffer_settings.counters_location),
+            state_summary_location=updates_dict.get(
+                'state_summary_location',
+                current_buffer_settings.state_summary_location),
+            observable_summary_location=updates_dict.get(
+                'observable_summary_location',
+                current_buffer_settings.observable_summary_location),
+            scratch_location=updates_dict.get(
+                'scratch_location',
+                current_buffer_settings.scratch_location),
         )
         loop_indices = buffer_settings.shared_indices
         
@@ -526,7 +567,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             algorithm_len=self._algo_step.persistent_local_required,
         )
         updates_dict.update({'shared_buffer_indices': shared_indices,
-                             'local_indices': local_indices})
+                             'local_indices': local_indices,
+                             'buffer_settings': buffer_settings})
 
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)

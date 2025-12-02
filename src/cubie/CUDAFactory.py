@@ -593,6 +593,12 @@ class CUDAFactory(ABC):
                 recognized |= r
                 updated |= u
 
+            # Check nested attrs classes and dicts if not found at top level
+            if not recognized:
+                r, u = self._check_nested_update(key, value)
+                recognized |= r
+                updated |= u
+
             if recognized:
                 recognized_params.append(key)
             if updated:
@@ -648,6 +654,69 @@ class CUDAFactory(ABC):
                 setattr(self._compile_settings, key, value)
                 updated = True
             recognized = True
+
+        return recognized, updated
+
+    def _check_nested_update(self, key: str, value: Any) -> Tuple[bool, bool]:
+        """Check nested attrs classes and dicts for a matching key.
+
+        Searches one level of nesting within compile_settings attributes.
+        If an attribute is an attrs class or dict, checks whether the key
+        exists as a field/key within it.
+
+        Parameters
+        ----------
+        key
+            Attribute name to search for in nested structures
+        value
+            New value for the attribute
+
+        Returns
+        -------
+        tuple (bool, bool)
+            recognized: The key was found in a nested structure
+            updated: The value has changed and was updated
+        """
+        updated = False
+        recognized = False
+
+        for field in attrs.fields(type(self._compile_settings)):
+            nested_obj = getattr(self._compile_settings, field.name)
+
+            # Check if nested object is an attrs class
+            if attrs.has(type(nested_obj)):
+                if in_attr(key, nested_obj):
+                    recognized = True
+                    # Check with underscore prefix first
+                    attr_key = f"_{key}" if in_attr(f"_{key}", nested_obj) \
+                        else key
+                    old_value = getattr(nested_obj, attr_key)
+                    try:
+                        value_changed = old_value != value
+                    except ValueError:
+                        value_changed = not array_equal(
+                            asarray(old_value), asarray(value)
+                        )
+                    if np.any(value_changed):
+                        setattr(nested_obj, attr_key, value)
+                        updated = True
+                    break  # Found a match, stop searching
+
+            # Check if nested object is a dict
+            elif isinstance(nested_obj, dict):
+                if key in nested_obj:
+                    recognized = True
+                    old_value = nested_obj[key]
+                    try:
+                        value_changed = old_value != value
+                    except ValueError:
+                        value_changed = not array_equal(
+                            asarray(old_value), asarray(value)
+                        )
+                    if np.any(value_changed):
+                        nested_obj[key] = value
+                        updated = True
+                    break  # Found a match, stop searching
 
         return recognized, updated
 

@@ -21,6 +21,7 @@ from cubie.integrators.algorithms.base_algorithm_step import \
 from cubie.integrators.loops.ode_loop import (
     IVPLoop,
     ALL_LOOP_SETTINGS,
+    ALL_BUFFER_LOCATION_PARAMETERS,
     LoopBufferSettings,
 )
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
