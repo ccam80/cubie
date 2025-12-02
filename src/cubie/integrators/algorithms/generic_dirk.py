@@ -68,12 +68,15 @@ class DIRKLocalSizes(LocalSizes):
         Stage accumulator buffer size.
     solver_scratch : int
         Solver scratch buffer size.
+    increment_cache : int
+        Increment cache buffer size (for FSAL when solver_scratch local).
     """
 
     stage_increment: int = attrs.field(validator=getype_validator(int, 0))
     stage_base: int = attrs.field(validator=getype_validator(int, 0))
     accumulator: int = attrs.field(validator=getype_validator(int, 0))
     solver_scratch: int = attrs.field(validator=getype_validator(int, 0))
+    increment_cache: int = attrs.field(validator=getype_validator(int, 0))
 
 
 @attrs.define
@@ -170,6 +173,17 @@ class DIRKBufferSettings(BufferSettings):
         return 2 * self.n
 
     @property
+    def persistent_local_elements(self) -> int:
+        """Return persistent local elements for increment_cache.
+
+        increment_cache must persist between step calls for FSAL. When
+        solver_scratch is local, increment_cache uses persistent local.
+        """
+        if self.use_shared_solver_scratch:
+            return 0
+        return self.n
+
+    @property
     def multistage(self) -> bool:
         """Return True if method has multiple stages."""
         return self.stage_count > 1
@@ -233,11 +247,14 @@ class DIRKBufferSettings(BufferSettings):
             stage_base_size = 0  # Aliases accumulator when multistage
         else:
             stage_base_size = self.n
+        # increment_cache needs persistent local when solver_scratch is local
+        increment_cache_size = self.n if not self.use_shared_solver_scratch else 0
         return DIRKLocalSizes(
             stage_increment=self.n,
             stage_base=stage_base_size,
             accumulator=self.accumulator_length,
             solver_scratch=self.solver_scratch_elements,
+            increment_cache=increment_cache_size,
         )
 
     @property
@@ -611,6 +628,10 @@ class DIRKStep(ODEImplicitStep):
         stage_base_local_size = local_sizes.nonzero('stage_base')
         accumulator_local_size = local_sizes.nonzero('accumulator')
         solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
+        increment_cache_local_size = local_sizes.nonzero('increment_cache')
+
+        # Persistent local elements needed for increment_cache when local
+        persistent_local_elements = buffer_settings.persistent_local_elements
 
 
         # no cover: start
@@ -728,7 +749,14 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
             stage_rhs = solver_scratch[:n]
-            increment_cache = solver_scratch[n:int32(2)*n]
+
+            # increment_cache persists between steps for FSAL optimization.
+            # When solver_scratch is shared, slice from it; when local, use
+            # persistent_local to maintain state between step invocations.
+            if solver_scratch_shared:
+                increment_cache = solver_scratch[n:int32(2)*n]
+            else:
+                increment_cache = persistent_local[:n]
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -1001,8 +1029,13 @@ class DIRKStep(ODEImplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for increment_cache which persists between step calls
+        for FSAL optimization. The device function selects between
+        shared memory and persistent_local based on buffer_settings.
+        """
+        return self.compile_settings.n
 
     @property
     def is_implicit(self) -> bool:
