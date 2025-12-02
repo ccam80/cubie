@@ -315,6 +315,12 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
+    buffer_settings: Optional[ERKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(ERKBufferSettings)
+        ),
+    )
 
     @property
     def first_same_as_last(self) -> bool:
@@ -405,6 +411,11 @@ class ERKStep(ODEExplicitStep):
         'fixed'
         """
 
+        # Create default buffer_settings for compile_settings
+        buffer_settings = ERKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -414,6 +425,7 @@ class ERKStep(ODEExplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
+            "buffer_settings": buffer_settings,
         }
         
         config = ERKStepConfig(**config_kwargs)
@@ -433,7 +445,6 @@ class ERKStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-        buffer_settings: Optional[ERKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
@@ -475,12 +486,8 @@ class ERKStep(ODEExplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        # Buffer settings for selective shared/local allocation
-        if buffer_settings is None:
-            buffer_settings = ERKBufferSettings(
-                n=n_arraysize,
-                stage_count=tableau.stage_count,
-            )
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         stage_rhs_shared = buffer_settings.use_shared_stage_rhs
@@ -587,11 +594,13 @@ class ERKStep(ODEExplicitStep):
                 )
 
             if multistage:
+                # stage_cache persists between steps for FSAL optimization.
+                # When shared, slice from shared memory; when local, use
+                # persistent_local to maintain state between step invocations.
                 if stage_cache_shared:
                     stage_cache = shared[stage_cache_slice]
                 else:
-                    stage_cache = cuda.local.array(stage_cache_local_size,
-                                                   precision)
+                    stage_cache = persistent_local[:stage_cache_local_size]
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -791,8 +800,13 @@ class ERKStep(ODEExplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for stage_cache when neither stage_rhs nor stage_accumulator
+        uses shared memory. When either is shared, stage_cache aliases it.
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def order(self) -> int:

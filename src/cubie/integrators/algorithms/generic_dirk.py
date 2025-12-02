@@ -68,12 +68,15 @@ class DIRKLocalSizes(LocalSizes):
         Stage accumulator buffer size.
     solver_scratch : int
         Solver scratch buffer size.
+    increment_cache : int
+        Increment cache buffer size (for FSAL when solver_scratch local).
     """
 
     stage_increment: int = attrs.field(validator=getype_validator(int, 0))
     stage_base: int = attrs.field(validator=getype_validator(int, 0))
     accumulator: int = attrs.field(validator=getype_validator(int, 0))
     solver_scratch: int = attrs.field(validator=getype_validator(int, 0))
+    increment_cache: int = attrs.field(validator=getype_validator(int, 0))
 
 
 @attrs.define
@@ -170,6 +173,17 @@ class DIRKBufferSettings(BufferSettings):
         return 2 * self.n
 
     @property
+    def persistent_local_elements(self) -> int:
+        """Return persistent local elements for increment_cache.
+
+        increment_cache must persist between step calls for FSAL. When
+        solver_scratch is local, increment_cache uses persistent local.
+        """
+        if self.use_shared_solver_scratch:
+            return 0
+        return self.n
+
+    @property
     def multistage(self) -> bool:
         """Return True if method has multiple stages."""
         return self.stage_count > 1
@@ -233,11 +247,14 @@ class DIRKBufferSettings(BufferSettings):
             stage_base_size = 0  # Aliases accumulator when multistage
         else:
             stage_base_size = self.n
+        # increment_cache needs persistent local when solver_scratch is local
+        increment_cache_size = self.n if not self.use_shared_solver_scratch else 0
         return DIRKLocalSizes(
             stage_increment=self.n,
             stage_base=stage_base_size,
             accumulator=self.accumulator_length,
             solver_scratch=self.solver_scratch_elements,
+            increment_cache=increment_cache_size,
         )
 
     @property
@@ -345,6 +362,12 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
+    buffer_settings: Optional[DIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(DIRKBufferSettings)
+        ),
+    )
 
 
 class DIRKStep(ODEImplicitStep):
@@ -429,6 +452,11 @@ class DIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+        # Create default buffer_settings for compile_settings
+        buffer_settings = DIRKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -449,6 +477,7 @@ class DIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
 
         config = DIRKStepConfig(**config_kwargs)
@@ -540,7 +569,6 @@ class DIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-        buffer_settings: Optional[DIRKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
@@ -585,12 +613,8 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Buffer settings for selective shared/local allocation
-        if buffer_settings is None:
-            buffer_settings = DIRKBufferSettings(
-                n=n_arraysize,
-                stage_count=tableau.stage_count,
-            )
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         stage_increment_shared = buffer_settings.use_shared_stage_increment
@@ -611,7 +635,6 @@ class DIRKStep(ODEImplicitStep):
         stage_base_local_size = local_sizes.nonzero('stage_base')
         accumulator_local_size = local_sizes.nonzero('accumulator')
         solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
-
 
         # no cover: start
         @cuda.jit(
@@ -728,7 +751,14 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
             stage_rhs = solver_scratch[:n]
-            increment_cache = solver_scratch[n:int32(2)*n]
+
+            # increment_cache persists between steps for FSAL optimization.
+            # When solver_scratch is shared, slice from it; when local, use
+            # persistent_local to maintain state between step invocations.
+            if solver_scratch_shared:
+                increment_cache = solver_scratch[n:int32(2)*n]
+            else:
+                increment_cache = persistent_local[:n]
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -1001,8 +1031,14 @@ class DIRKStep(ODEImplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for increment_cache when solver_scratch uses local memory.
+        When solver_scratch is shared, increment_cache aliases it and no
+        persistent local is needed.
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def is_implicit(self) -> bool:

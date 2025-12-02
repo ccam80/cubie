@@ -295,6 +295,12 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
     tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
     time_derivative_fn: Optional[Callable] = attrs.field(default=None)
     driver_del_t: Optional[Callable] = attrs.field(default=None)
+    buffer_settings: Optional[RosenbrockBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(RosenbrockBufferSettings)
+        ),
+    )
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -374,6 +380,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
+        # Create default buffer_settings for compile_settings
+        # cached_auxiliary_count is 0 at init; updated when helpers are built
+        buffer_settings = RosenbrockBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+            cached_auxiliary_count=0,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -390,6 +403,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": tableau_value.gamma,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
 
         config = RosenbrockWStepConfig(**config_kwargs)
@@ -444,7 +458,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
         self._cached_auxiliary_count = get_fn("cached_aux_count")
-
+        self.compile_settings.buffer_settings.cached_auxiliary_count = (
+            self._cached_auxiliary_count()
+        )
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -507,7 +523,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-        buffer_settings: Optional[RosenbrockBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
 
@@ -546,13 +561,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        # Buffer settings for selective shared/local allocation
-        if buffer_settings is None:
-            buffer_settings = RosenbrockBufferSettings(
-                n=n_arraysize,
-                stage_count=self.stage_count,
-                cached_auxiliary_count=self.cached_auxiliary_count,
-            )
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         stage_rhs_shared = buffer_settings.use_shared_stage_rhs
