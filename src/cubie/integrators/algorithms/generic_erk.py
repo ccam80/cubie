@@ -499,6 +499,9 @@ class ERKStep(ODEExplicitStep):
         stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
         stage_cache_local_size = local_sizes.nonzero('stage_cache')
 
+        # Persistent local elements needed for stage_cache when local
+        persistent_local_elements = buffer_settings.persistent_local_elements
+
         # no cover: start
         @cuda.jit(
             (
@@ -587,11 +590,13 @@ class ERKStep(ODEExplicitStep):
                 )
 
             if multistage:
+                # stage_cache persists between steps for FSAL optimization.
+                # When shared, slice from shared memory; when local, use
+                # persistent_local to maintain state between step invocations.
                 if stage_cache_shared:
                     stage_cache = shared[stage_cache_slice]
                 else:
-                    stage_cache = cuda.local.array(stage_cache_local_size,
-                                                   precision)
+                    stage_cache = persistent_local[:n]
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -791,8 +796,13 @@ class ERKStep(ODEExplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for stage_cache which persists between step calls
+        for FSAL optimization. The device function selects between
+        shared memory and persistent_local based on buffer_settings.
+        """
+        return self.compile_settings.n
 
     @property
     def order(self) -> int:
