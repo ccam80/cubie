@@ -20,7 +20,9 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
-from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
+from cubie.integrators.loops.ode_loop import (
+    IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
+)
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
 from cubie.outputhandling import OutputCompileFlags
@@ -392,6 +394,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         loop_kwargs = dict(loop_settings)
+        # Remove buffer location kwargs - they're already in buffer_settings
+        for key in ALL_BUFFER_LOCATION_PARAMETERS:
+            loop_kwargs.pop(key, None)
         loop_kwargs.update(
             precision=precision,
             shared_indices=shared_indices,

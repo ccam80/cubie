@@ -676,6 +676,12 @@ class CUDAFactory(ABC):
         tuple (bool, bool)
             recognized: The key was found in a nested structure
             updated: The value has changed and was updated
+
+        Notes
+        -----
+        Only updates values when the new value is type-compatible with the
+        existing attribute. This prevents accidental type mismatches when
+        a key name collides across different nested structures.
         """
         updated = False
         recognized = False
@@ -686,11 +692,17 @@ class CUDAFactory(ABC):
             # Check if nested object is an attrs class
             if attrs.has(type(nested_obj)):
                 if in_attr(key, nested_obj):
-                    recognized = True
                     # Check with underscore prefix first
                     attr_key = f"_{key}" if in_attr(f"_{key}", nested_obj) \
                         else key
                     old_value = getattr(nested_obj, attr_key)
+                    # Skip if types are incompatible (e.g., trying to set
+                    # a slice attribute with a float value)
+                    if old_value is not None and not isinstance(
+                        value, type(old_value)
+                    ):
+                        continue
+                    recognized = True
                     try:
                         value_changed = old_value != value
                     except ValueError:
