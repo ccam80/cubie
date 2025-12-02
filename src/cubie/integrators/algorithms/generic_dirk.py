@@ -297,8 +297,8 @@ DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "min_gain": 0.1,
+        "max_gain": 5.0,
     }
 )
 """Default step controller settings for adaptive DIRK tableaus.
@@ -691,31 +691,27 @@ class DIRKStep(ODEImplicitStep):
             #       - Refresh to the stage time before rhs or residual work.
             #       - Later stages reuse only the newest values, so no clashes.
             # ----------------------------------------------------------- #
-            # Selective allocation for stage_increment
+
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
             if stage_increment_shared:
                 stage_increment = shared[stage_increment_slice]
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
 
-            current_time = time_scalar
-            end_time = current_time + dt_scalar
-
-            # Selective allocation for accumulator
             if accumulator_shared:
                 stage_accumulator = shared[accumulator_slice]
             else:
                 stage_accumulator = cuda.local.array(accumulator_local_size,
                                                      precision)
 
-            # Selective allocation for solver_scratch
             if solver_scratch_shared:
                 solver_scratch = shared[solver_scratch_slice]
             else:
                 solver_scratch = cuda.local.array(solver_scratch_local_size,
                                                   precision)
-            stage_rhs = solver_scratch[:n]
-            increment_cache = solver_scratch[n:int32(2)*n]
 
             # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
@@ -726,6 +722,13 @@ class DIRKStep(ODEImplicitStep):
                                                   precision)
             else:
                 stage_base = cuda.local.array(stage_base_local_size, precision)
+
+            # --------------------------------------------------------------- #
+
+            current_time = time_scalar
+            end_time = current_time + dt_scalar
+            stage_rhs = solver_scratch[:n]
+            increment_cache = solver_scratch[n:int32(2)*n]
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -738,12 +741,11 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
 
             first_step = first_step_flag != int16(0)
-            prev_state_accepted = accepted_flag != int16(0)
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
             if first_same_as_last and multistage:
-                if not first_step_flag:
+                if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                     use_cached_rhs = all_threads_accepted

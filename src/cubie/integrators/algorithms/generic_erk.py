@@ -570,16 +570,15 @@ class ERKStep(ODEExplicitStep):
             #       loop.
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
-            # Selective allocation for stage_rhs
+
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
             if stage_rhs_shared:
                 stage_rhs = shared[stage_rhs_slice]
             else:
                 stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
 
-            current_time = time_scalar
-            end_time = current_time + dt_scalar
-
-            # Selective allocation for stage_accumulator
             if stage_accumulator_shared:
                 stage_accumulator = shared[stage_accumulator_slice]
             else:
@@ -587,13 +586,16 @@ class ERKStep(ODEExplicitStep):
                     stage_accumulator_local_size, precision
                 )
 
-            # Selective allocation for stage_cache (FSAL optimization)
             if multistage:
                 if stage_cache_shared:
                     stage_cache = shared[stage_cache_slice]
                 else:
                     stage_cache = cuda.local.array(stage_cache_local_size,
                                                    precision)
+            # ----------------------------------------------------------- #
+
+            current_time = time_scalar
+            end_time = current_time + dt_scalar
 
             for idx in range(n):
                 if accumulates_output:

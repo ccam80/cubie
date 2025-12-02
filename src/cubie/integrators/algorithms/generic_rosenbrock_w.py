@@ -627,29 +627,29 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #   - Provides Jacobian helper data prepared before the loop.
             # ----------------------------------------------------------- #
 
-            current_time = time_scalar
-            end_time = current_time + dt_scalar
-
-            # Selective allocation for stage_rhs
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
             if stage_rhs_shared:
                 stage_rhs = shared[stage_rhs_slice]
             else:
                 stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
 
-            # Selective allocation for stage_store
             if stage_store_shared:
                 stage_store = shared[stage_store_slice]
             else:
                 stage_store = cuda.local.array(stage_store_local_size, precision)
 
-            # Selective allocation for cached_auxiliaries
             if cached_auxiliaries_shared:
                 cached_auxiliaries = shared[cached_auxiliaries_slice]
             else:
                 cached_auxiliaries = cuda.local.array(
                     cached_auxiliaries_local_size, precision
                 )
+            # ----------------------------------------------------------- #
 
+            current_time = time_scalar
+            end_time = current_time + dt_scalar
             final_stage_base = n * (stage_count - int32(1))
             time_derivative = stage_store[
                 final_stage_base : final_stage_base + n

@@ -654,39 +654,42 @@ class FIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            # Selective allocation for stage_state
+
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
             if stage_state_shared:
                 stage_state = shared[stage_state_slice]
             else:
                 stage_state = cuda.local.array(stage_state_local_size,
                                                precision)
 
-            current_time = time_scalar
-            end_time = current_time + dt_scalar
-
-            # Selective allocation for solver_scratch
             if solver_scratch_shared:
                 solver_scratch = shared[solver_scratch_slice]
             else:
-                solver_scratch = cuda.local.array(solver_scratch_local_size,
-                                                  precision)
-            stage_rhs_flat = solver_scratch[:all_stages_n]
+                solver_scratch = cuda.local.array(
+                    solver_scratch_local_size, precision
+                )
 
-            # Selective allocation for stage_increment
             if stage_increment_shared:
                 stage_increment = shared[stage_increment_slice]
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
 
-            # Selective allocation for stage_driver_stack
             if stage_driver_stack_shared:
                 stage_driver_stack = shared[stage_driver_stack_slice]
             else:
                 stage_driver_stack = cuda.local.array(
                     stage_driver_stack_local_size, precision
                 )
+            # ----------------------------------------------------------- #
+
+
+            current_time = time_scalar
+            end_time = current_time + dt_scalar
             status_code = int32(0)
+            stage_rhs_flat = solver_scratch[:all_stages_n]
 
             for idx in range(n):
                 if accumulates_output:
