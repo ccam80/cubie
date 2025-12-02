@@ -819,12 +819,14 @@ class IVPLoop(CUDAFactory):
         # included in loop logic
         save_last = False
 
-        # Loop sizes
-        n_states = int32(shared_indices.n_states)
-        n_parameters = int32(shared_indices.n_parameters)
-        n_observables = int32(shared_indices.n_observables)
-        n_drivers = int32(shared_indices.n_drivers)
-        n_counters = int32(shared_indices.n_counters)
+        # Loop sizes - computed from slice dimensions
+        n_states = int32(state_shared_ind.stop - state_shared_ind.start)
+        n_parameters = int32(params_shared_ind.stop - params_shared_ind.start)
+        n_observables = int32(obs_shared_ind.stop - obs_shared_ind.start)
+        n_drivers = int32(drivers_shared_ind.stop - drivers_shared_ind.start)
+        n_counters = int32(
+            counters_shared_ind.stop - counters_shared_ind.start
+        )
         
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
