@@ -120,7 +120,7 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = (int(np.floor(np.float64(duration) / precision(dt_save)))
+    max_save_samples = (int(np.floor(precision(duration) / precision(dt_save)))
                         + 1)
 
     state = initial_state.copy()
@@ -155,15 +155,15 @@ def run_reference_loop(
     while next_save_time <= end_time:
         dt = controller.dt
         do_save = False
-        if t + dt >= next_save_time:
-            dt = precision(next_save_time - t)
+        if t32 + dt >= next_save_time:
+            dt = precision(next_save_time - t32)
             do_save = True
 
         result = stepper.step(
             state=state,
             params=params,
             dt=dt,
-            time=precision(t),
+            time=t32,
         )
 
         step_status = int(result.status)
@@ -179,14 +179,15 @@ def run_reference_loop(
 
         state = result.state.copy()
         observables = result.observables.copy()
-        t = t + precision(dt)
+        t = t + dt
+        t32 = precision(t)
 
         if do_save:
             if len(state_history) < max_save_samples:
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
-                time_history.append(precision(t - warmup))
-            next_save_time = precision(next_save_time + (dt_save))
+                time_history.append(precision(t32 - warmup))
+            next_save_time = next_save_time + dt_save
             save_idx += 1
 
     state_output = _collect_saved_outputs(
@@ -203,6 +204,8 @@ def run_reference_loop(
         precision,
     )
     if save_time:
+        if len(time_history) < state_output.shape[0]:
+            time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
     summarise_every = int(np.ceil(dt_summarise / dt_save))

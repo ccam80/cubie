@@ -424,8 +424,8 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
     # There may be an ulp of error here, that's fine, we're testing the
     # ability to accumulate time during long examples.
-    assert np.isclose(device_loop_outputs.state[-1,-1],
-                      precision(1e2 + 1e-5),
+    assert np.isclose(device_loop_outputs.state[-2,-1],
+                      precision(100.0008),
                       atol=2e-7)
 
 

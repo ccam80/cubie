@@ -155,18 +155,6 @@ def _build_loop(
         observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
         n_error=n_error,
         n_counters=0,
-        # Use all-shared layout
-        state_buffer_location='shared',
-        state_proposal_location='shared',
-        parameters_location='shared',
-        drivers_location='shared',
-        drivers_proposal_location='shared',
-        observables_location='shared',
-        observables_proposal_location='shared',
-        error_location='shared',
-        counters_location='shared',
-        state_summary_location='shared',
-        observable_summary_location='shared',
     )
 
     loop = IVPLoop(
