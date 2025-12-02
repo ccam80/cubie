@@ -331,6 +331,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             Configured loop instance ready for CUDA compilation.
         """
         n_counters = 4 if compile_flags.save_counters else 0
+        
+        # Extract buffer location kwargs from loop_settings to pass to
+        # LoopBufferSettings. Only pass locations explicitly provided by user.
+        buffer_location_kwargs = {
+            key: loop_settings[key]
+            for key in ALL_BUFFER_LOCATION_PARAMETERS
+            if key in loop_settings
+        }
         buffer_settings = LoopBufferSettings(
             n_states=n_states,
             n_parameters=n_parameters,
@@ -340,10 +348,11 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
+            **buffer_location_kwargs,
         )
 
         loop_kwargs = dict(loop_settings)
-        # Remove buffer location kwargs - they're already in buffer_settings
+        # Remove buffer location kwargs - they're now in buffer_settings
         for key in ALL_BUFFER_LOCATION_PARAMETERS:
             loop_kwargs.pop(key, None)
         loop_kwargs.update(

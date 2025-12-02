@@ -662,7 +662,8 @@ class CUDAFactory(ABC):
 
         Searches one level of nesting within compile_settings attributes.
         If an attribute is an attrs class or dict, checks whether the key
-        exists as a field/key within it.
+        exists as a field/key within it. Uses the same comparison logic
+        as _check_and_update.
 
         Parameters
         ----------
@@ -683,41 +684,36 @@ class CUDAFactory(ABC):
         existing attribute. This prevents accidental type mismatches when
         a key name collides across different nested structures.
         """
-        updated = False
-        recognized = False
-
         for field in attrs.fields(type(self._compile_settings)):
             nested_obj = getattr(self._compile_settings, field.name)
 
             # Check if nested object is an attrs class
             if attrs.has(type(nested_obj)):
-                if in_attr(key, nested_obj):
-                    # Check with underscore prefix first
-                    attr_key = f"_{key}" if in_attr(f"_{key}", nested_obj) \
-                        else key
-                    old_value = getattr(nested_obj, attr_key)
-                    # Skip if types are incompatible (e.g., trying to set
-                    # a slice attribute with a float value)
-                    if old_value is not None and not isinstance(
-                        value, type(old_value)
-                    ):
-                        continue
-                    recognized = True
-                    try:
-                        value_changed = old_value != value
-                    except ValueError:
-                        value_changed = not array_equal(
-                            asarray(old_value), asarray(value)
-                        )
-                    if np.any(value_changed):
-                        setattr(nested_obj, attr_key, value)
-                        updated = True
-                    break  # Found a match, stop searching
+                # Check with underscore prefix first, then without
+                for attr_key in (f"_{key}", key):
+                    if in_attr(attr_key, nested_obj):
+                        old_value = getattr(nested_obj, attr_key)
+                        # Skip if types are incompatible
+                        if old_value is not None and not isinstance(
+                            value, type(old_value)
+                        ):
+                            break  # Try next nested object
+                        # Use same comparison logic as _check_and_update
+                        try:
+                            value_changed = old_value != value
+                        except ValueError:
+                            value_changed = not array_equal(
+                                asarray(old_value), asarray(value)
+                            )
+                        updated = False
+                        if np.any(value_changed):
+                            setattr(nested_obj, attr_key, value)
+                            updated = True
+                        return True, updated
 
             # Check if nested object is a dict
             elif isinstance(nested_obj, dict):
                 if key in nested_obj:
-                    recognized = True
                     old_value = nested_obj[key]
                     try:
                         value_changed = old_value != value
@@ -725,12 +721,13 @@ class CUDAFactory(ABC):
                         value_changed = not array_equal(
                             asarray(old_value), asarray(value)
                         )
+                    updated = False
                     if np.any(value_changed):
                         nested_obj[key] = value
                         updated = True
-                    break  # Found a match, stop searching
+                    return True, updated
 
-        return recognized, updated
+        return False, False
 
     def _invalidate_cache(self):
         """Mark cached outputs as invalid."""

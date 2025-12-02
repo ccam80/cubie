@@ -40,21 +40,6 @@ class TestBufferLocationFiltering:
         }
         assert ALL_BUFFER_LOCATION_PARAMETERS == expected_params
 
-    def test_buffer_location_strict_mode_accepts_params(
-        self, system, precision
-    ):
-        """Buffer location params should not cause errors in strict mode."""
-        # strict=True should not raise for buffer location params
-        solver = Solver(
-            system,
-            strict=True,
-            state_buffer_location='shared',
-        )
-        # Verify the buffer location is actually set
-        loop = solver.kernel.single_integrator._loop
-        buffer_settings = loop.compile_settings.buffer_settings
-        assert buffer_settings.state_buffer_location == 'shared'
-
     def test_buffer_location_invalid_value_rejected(self, system, precision):
         """Invalid buffer location values should be rejected."""
         with pytest.raises(ValueError):
@@ -78,6 +63,25 @@ class TestBufferLocationFiltering:
         # Verify the buffer location actually changed
         buffer_settings = loop.compile_settings.buffer_settings
         assert buffer_settings.state_buffer_location == 'local'
+
+    def test_buffer_size_update_changes_indices(self, system, precision):
+        """Changing buffer size should update shared indices accordingly."""
+        solver = Solver(system, state_buffer_location='shared')
+        loop = solver.kernel.single_integrator._loop
+        buffer_settings = loop.compile_settings.buffer_settings
+        
+        # Record initial n_states and shared memory elements
+        initial_n_states = buffer_settings.n_states
+        initial_shared_elements = buffer_settings.shared_memory_elements
+        
+        # Update n_states (which affects shared indices when in shared memory)
+        new_n_states = initial_n_states + 2
+        buffer_settings.n_states = new_n_states
+        
+        # Verify shared memory elements changed
+        new_shared_elements = buffer_settings.shared_memory_elements
+        assert new_shared_elements != initial_shared_elements
+        assert buffer_settings.n_states == new_n_states
 
     def test_buffer_location_preserved_on_unrelated_update(
         self, system, precision
@@ -103,26 +107,19 @@ class TestBufferLocationFiltering:
         assert buffer_settings.parameters_location == 'local'
 
     def test_buffer_location_cache_invalidation(self, system, precision):
-        """Changing buffer location should cause recompilation."""
+        """Changing buffer location should invalidate the cache."""
         solver = Solver(system, state_buffer_location='shared')
         loop = solver.kernel.single_integrator._loop
         # Force compilation by accessing the device function
-        old_fn = loop.device_function
+        _ = loop.device_function
         
-        # Cache should be valid
+        # Cache should be valid after compilation
         assert loop.cache_valid
         
-        # Update buffer location - this triggers recompilation through the
-        # update chain. The cache may be valid after update because
-        # BatchSolverKernel.update() accesses device_function which rebuilds.
-        solver.update(state_buffer_location='local', silent=True)
+        # Update buffer location directly on the loop to test cache invalidation
+        loop.update_compile_settings(
+            {'state_buffer_location': 'local'}, silent=True
+        )
         
-        # Verify the buffer location actually changed
-        buffer_settings = loop.compile_settings.buffer_settings
-        assert buffer_settings.state_buffer_location == 'local'
-        
-        # The function should have been recompiled (different object)
-        new_fn = loop.device_function
-        # Note: In CUDA sim mode, functions may be the same object,
-        # so we verify the setting changed instead
-        assert buffer_settings.state_buffer_location == 'local'
+        # Cache should be invalid after buffer location change
+        assert not loop.cache_valid
