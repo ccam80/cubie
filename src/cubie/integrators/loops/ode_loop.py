@@ -717,6 +717,7 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
+        buffer_settings: Optional["LoopBufferSettings"] = None,
     ) -> None:
         super().__init__()
 
@@ -740,6 +741,7 @@ class IVPLoop(CUDAFactory):
             is_adaptive=is_adaptive,
         )
         self.setup_compile_settings(config)
+        self._buffer_settings = buffer_settings
 
     @property
     def precision(self) -> PrecisionDType:
@@ -830,6 +832,66 @@ class IVPLoop(CUDAFactory):
         
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
+
+        # Buffer settings for selective shared/local allocation
+        buffer_settings = self._buffer_settings
+        if buffer_settings is not None:
+            # Unpack boolean flags as compile-time constants
+            state_shared = buffer_settings.use_shared_state
+            state_proposal_shared = buffer_settings.use_shared_state_proposal
+            parameters_shared = buffer_settings.use_shared_parameters
+            drivers_shared = buffer_settings.use_shared_drivers
+            drivers_proposal_shared = buffer_settings.use_shared_drivers_proposal
+            observables_shared = buffer_settings.use_shared_observables
+            observables_proposal_shared = buffer_settings.use_shared_observables_proposal
+            error_shared = buffer_settings.use_shared_error
+            counters_shared = buffer_settings.use_shared_counters
+            state_summary_shared = buffer_settings.use_shared_state_summary
+            observable_summary_shared = buffer_settings.use_shared_observable_summary
+
+            # Unpack local sizes for local array allocation
+            local_sizes = buffer_settings.local_sizes
+            state_local_size = local_sizes.nonzero('state')
+            proposed_state_local_size = local_sizes.nonzero('proposed_state')
+            parameters_local_size = local_sizes.nonzero('parameters')
+            drivers_local_size = local_sizes.nonzero('drivers')
+            proposed_drivers_local_size = local_sizes.nonzero('proposed_drivers')
+            observables_local_size = local_sizes.nonzero('observables')
+            proposed_observables_local_size = local_sizes.nonzero(
+                'proposed_observables'
+            )
+            error_local_size = local_sizes.nonzero('error')
+            counters_local_size = local_sizes.nonzero('counters')
+            state_summary_local_size = local_sizes.nonzero('state_summary')
+            observable_summary_local_size = local_sizes.nonzero(
+                'observable_summary'
+            )
+        else:
+            # Default: all buffers in shared memory
+            state_shared = True
+            state_proposal_shared = True
+            parameters_shared = True
+            drivers_shared = True
+            drivers_proposal_shared = True
+            observables_shared = True
+            observables_proposal_shared = True
+            error_shared = True
+            counters_shared = True
+            state_summary_shared = True
+            observable_summary_shared = True
+
+            # Local sizes still needed for fallback (minimum 1)
+            state_local_size = max(n_states, 1)
+            proposed_state_local_size = max(n_states, 1)
+            parameters_local_size = max(n_parameters, 1)
+            drivers_local_size = max(n_drivers, 1)
+            proposed_drivers_local_size = max(n_drivers, 1)
+            observables_local_size = max(n_observables, 1)
+            proposed_observables_local_size = max(n_observables, 1)
+            error_local_size = max(n_states, 1)  # error size = n_states
+            counters_local_size = max(n_counters, 1)
+            state_summary_local_size = 1
+            observable_summary_local_size = 1
 
         @cuda.jit(
             [
@@ -923,17 +985,82 @@ class IVPLoop(CUDAFactory):
 
             shared_scratch[:] = precision(0.0)
 
-            state_buffer = shared_scratch[state_shared_ind]
-            state_proposal_buffer = shared_scratch[state_prop_shared_ind]
-            observables_buffer = shared_scratch[obs_shared_ind]
-            observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
-            parameters_buffer = shared_scratch[params_shared_ind]
-            drivers_buffer = shared_scratch[drivers_shared_ind]
-            drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
-            state_summary_buffer = shared_scratch[state_summ_shared_ind]
-            observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
+            if state_shared:
+                state_buffer = shared_scratch[state_shared_ind]
+            else:
+                state_buffer = cuda.local.array(state_local_size, precision)
+
+            if state_proposal_shared:
+                state_proposal_buffer = shared_scratch[state_prop_shared_ind]
+            else:
+                state_proposal_buffer = cuda.local.array(
+                    proposed_state_local_size, precision
+                )
+
+            if observables_shared:
+                observables_buffer = shared_scratch[obs_shared_ind]
+            else:
+                observables_buffer = cuda.local.array(
+                    observables_local_size, precision
+                )
+
+            if observables_proposal_shared:
+                observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
+            else:
+                observables_proposal_buffer = cuda.local.array(
+                    proposed_observables_local_size, precision
+                )
+
+            if parameters_shared:
+                parameters_buffer = shared_scratch[params_shared_ind]
+            else:
+                parameters_buffer = cuda.local.array(
+                    parameters_local_size, precision
+                )
+
+            if drivers_shared:
+                drivers_buffer = shared_scratch[drivers_shared_ind]
+            else:
+                drivers_buffer = cuda.local.array(drivers_local_size, precision)
+
+            if drivers_proposal_shared:
+                drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
+            else:
+                drivers_proposal_buffer = cuda.local.array(
+                    proposed_drivers_local_size, precision
+                )
+
+            if state_summary_shared:
+                state_summary_buffer = shared_scratch[state_summ_shared_ind]
+            else:
+                state_summary_buffer = cuda.local.array(
+                    state_summary_local_size, precision
+                )
+
+            if observable_summary_shared:
+                observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
+            else:
+                observable_summary_buffer = cuda.local.array(
+                    observable_summary_local_size, precision
+                )
+
+            if counters_shared:
+                counters_since_save = shared_scratch[counters_shared_ind]
+            else:
+                counters_since_save = cuda.local.array(
+                    counters_local_size, simsafe_int32
+                )
+
+            if error_shared:
+                error = shared_scratch[error_shared_ind]
+            else:
+                error = cuda.local.array(error_local_size, precision)
+
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
-            counters_since_save = shared_scratch[counters_shared_ind]
+            # ----------------------------------------------------------- #
 
             if save_counters_bool:
                 # When enabled, use shared memory buffers
@@ -944,7 +1071,6 @@ class IVPLoop(CUDAFactory):
             
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
-            error = shared_scratch[error_shared_ind]
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
 
