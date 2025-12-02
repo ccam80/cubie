@@ -113,7 +113,6 @@ class FixedStepController(BaseStepController):
                 )],
             device=True,
             inline=True,
-            fastmath=True,
             **compile_kwargs,
         )
         def controller_fixed_step(

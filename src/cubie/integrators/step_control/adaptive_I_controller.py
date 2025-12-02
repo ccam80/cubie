@@ -158,7 +158,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 )],
             device=True,
             inline=True,
-            fastmath=True,
             **compile_kwargs,
         )
         def controller_I(
