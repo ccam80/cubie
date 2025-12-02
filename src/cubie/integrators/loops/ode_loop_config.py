@@ -5,7 +5,7 @@ compile-critical metadata such as precision, save cadence, and device
 callbacks. They centralise validation so that loop factories receive
 consistent, ready-to-compile settings.
 """
-from typing import Callable, MutableMapping, Optional, Union
+from typing import Callable, MutableMapping, Optional, Union, TYPE_CHECKING
 
 from attrs import define, field, validators
 import numba
@@ -22,6 +22,9 @@ from cubie._utils import (
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
+
+if TYPE_CHECKING:
+    from cubie.integrators.loops.ode_loop import LoopBufferSettings
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
@@ -367,6 +370,10 @@ class ODELoopConfig:
     is_adaptive: Optional[bool] = field(
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
+    buffer_settings: Optional["LoopBufferSettings"] = field(
+        default=None,
+        validator=validators.optional(validators.instance_of(object)),
+    )
 
     @property
     def saves_per_summary(self) -> int:

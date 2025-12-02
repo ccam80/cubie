@@ -362,6 +362,12 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
+    buffer_settings: Optional[DIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(DIRKBufferSettings)
+        ),
+    )
 
 
 class DIRKStep(ODEImplicitStep):
@@ -446,6 +452,11 @@ class DIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+        # Create default buffer_settings for compile_settings
+        buffer_settings = DIRKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -466,6 +477,7 @@ class DIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
 
         config = DIRKStepConfig(**config_kwargs)
@@ -557,7 +569,6 @@ class DIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-        buffer_settings: Optional[DIRKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
@@ -602,12 +613,8 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Buffer settings for selective shared/local allocation
-        if buffer_settings is None:
-            buffer_settings = DIRKBufferSettings(
-                n=n_arraysize,
-                stage_count=tableau.stage_count,
-            )
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         stage_increment_shared = buffer_settings.use_shared_stage_increment
@@ -1026,11 +1033,12 @@ class DIRKStep(ODEImplicitStep):
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required.
 
-        Returns n for increment_cache which persists between step calls
-        for FSAL optimization. The device function selects between
-        shared memory and persistent_local based on buffer_settings.
+        Returns n for increment_cache when solver_scratch uses local memory.
+        When solver_scratch is shared, increment_cache aliases it and no
+        persistent local is needed.
         """
-        return self.compile_settings.n
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def is_implicit(self) -> bool:

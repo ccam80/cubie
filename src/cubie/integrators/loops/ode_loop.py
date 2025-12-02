@@ -721,6 +721,48 @@ class IVPLoop(CUDAFactory):
     ) -> None:
         super().__init__()
 
+        # Create default buffer_settings from shared_indices if not provided.
+        # Defaults assume all buffers in shared memory, matching the legacy
+        # behaviour when buffer_settings was not used.
+        if buffer_settings is None:
+            n_states = shared_indices.state.stop - shared_indices.state.start
+            n_params = (shared_indices.parameters.stop
+                        - shared_indices.parameters.start)
+            n_drivers = (shared_indices.drivers.stop
+                         - shared_indices.drivers.start)
+            n_obs = (shared_indices.observables.stop
+                     - shared_indices.observables.start)
+            n_counters = (shared_indices.counters.stop
+                          - shared_indices.counters.start)
+            n_error = shared_indices.error.stop - shared_indices.error.start
+            state_summ_height = (shared_indices.state_summaries.stop
+                                 - shared_indices.state_summaries.start)
+            obs_summ_height = (shared_indices.observable_summaries.stop
+                               - shared_indices.observable_summaries.start)
+            buffer_settings = LoopBufferSettings(
+                n_states=n_states,
+                n_parameters=n_params,
+                n_drivers=n_drivers,
+                n_observables=n_obs,
+                n_counters=n_counters,
+                n_error=n_error,
+                state_summary_buffer_height=state_summ_height,
+                observable_summary_buffer_height=obs_summ_height,
+                # All buffers default to shared memory
+                state_buffer_location='shared',
+                state_proposal_location='shared',
+                parameters_location='shared',
+                drivers_location='shared',
+                drivers_proposal_location='shared',
+                observables_location='shared',
+                observables_proposal_location='shared',
+                error_location='shared',
+                counters_location='shared',
+                state_summary_location='shared',
+                observable_summary_location='shared',
+                scratch_location='shared',
+            )
+
         config = ODELoopConfig(
             shared_buffer_indices=shared_indices,
             local_indices=local_indices,
@@ -739,9 +781,9 @@ class IVPLoop(CUDAFactory):
             dt_min=dt_min,
             dt_max=dt_max,
             is_adaptive=is_adaptive,
+            buffer_settings=buffer_settings,
         )
         self.setup_compile_settings(config)
-        self._buffer_settings = buffer_settings
 
     @property
     def precision(self) -> PrecisionDType:
@@ -833,66 +875,42 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
-        # Buffer settings for selective shared/local allocation
-        buffer_settings = self._buffer_settings
-        if buffer_settings is not None:
-            # Unpack boolean flags as compile-time constants
-            state_shared = buffer_settings.use_shared_state
-            state_proposal_shared = buffer_settings.use_shared_state_proposal
-            parameters_shared = buffer_settings.use_shared_parameters
-            drivers_shared = buffer_settings.use_shared_drivers
-            drivers_proposal_shared = buffer_settings.use_shared_drivers_proposal
-            observables_shared = buffer_settings.use_shared_observables
-            observables_proposal_shared = buffer_settings.use_shared_observables_proposal
-            error_shared = buffer_settings.use_shared_error
-            counters_shared = buffer_settings.use_shared_counters
-            state_summary_shared = buffer_settings.use_shared_state_summary
-            observable_summary_shared = buffer_settings.use_shared_observable_summary
+        # Buffer settings from compile_settings for selective shared/local.
+        # IVPLoop.__init__ ensures buffer_settings is always set.
+        buffer_settings = config.buffer_settings
 
-            # Unpack local sizes for local array allocation
-            local_sizes = buffer_settings.local_sizes
-            state_local_size = local_sizes.nonzero('state')
-            proposed_state_local_size = local_sizes.nonzero('proposed_state')
-            parameters_local_size = local_sizes.nonzero('parameters')
-            drivers_local_size = local_sizes.nonzero('drivers')
-            proposed_drivers_local_size = local_sizes.nonzero('proposed_drivers')
-            observables_local_size = local_sizes.nonzero('observables')
-            proposed_observables_local_size = local_sizes.nonzero(
-                'proposed_observables'
-            )
-            error_local_size = local_sizes.nonzero('error')
-            counters_local_size = local_sizes.nonzero('counters')
-            state_summary_local_size = local_sizes.nonzero('state_summary')
-            observable_summary_local_size = local_sizes.nonzero(
-                'observable_summary'
-            )
-        else:
-            # Default: all buffers in shared memory
-            state_shared = True
-            state_proposal_shared = True
-            parameters_shared = True
-            drivers_shared = True
-            drivers_proposal_shared = True
-            observables_shared = True
-            observables_proposal_shared = True
-            error_shared = True
-            counters_shared = True
-            state_summary_shared = True
-            observable_summary_shared = True
+        # Unpack boolean flags as compile-time constants
+        state_shared = buffer_settings.use_shared_state
+        state_proposal_shared = buffer_settings.use_shared_state_proposal
+        parameters_shared = buffer_settings.use_shared_parameters
+        drivers_shared = buffer_settings.use_shared_drivers
+        drivers_proposal_shared = buffer_settings.use_shared_drivers_proposal
+        observables_shared = buffer_settings.use_shared_observables
+        observables_proposal_shared = (
+            buffer_settings.use_shared_observables_proposal
+        )
+        error_shared = buffer_settings.use_shared_error
+        counters_shared = buffer_settings.use_shared_counters
+        state_summary_shared = buffer_settings.use_shared_state_summary
+        observable_summary_shared = buffer_settings.use_shared_observable_summary
 
-            # Local sizes set to 1 (minimum valid size for cuda.local.array)
-            # when all buffers are shared. Values unused but required for JIT.
-            state_local_size = 1
-            proposed_state_local_size = 1
-            parameters_local_size = 1
-            drivers_local_size = 1
-            proposed_drivers_local_size = 1
-            observables_local_size = 1
-            proposed_observables_local_size = 1
-            error_local_size = 1
-            counters_local_size = 1
-            state_summary_local_size = 1
-            observable_summary_local_size = 1
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        state_local_size = local_sizes.nonzero('state')
+        proposed_state_local_size = local_sizes.nonzero('proposed_state')
+        parameters_local_size = local_sizes.nonzero('parameters')
+        drivers_local_size = local_sizes.nonzero('drivers')
+        proposed_drivers_local_size = local_sizes.nonzero('proposed_drivers')
+        observables_local_size = local_sizes.nonzero('observables')
+        proposed_observables_local_size = local_sizes.nonzero(
+            'proposed_observables'
+        )
+        error_local_size = local_sizes.nonzero('error')
+        counters_local_size = local_sizes.nonzero('counters')
+        state_summary_local_size = local_sizes.nonzero('state_summary')
+        observable_summary_local_size = local_sizes.nonzero(
+            'observable_summary'
+        )
 
         @cuda.jit(
             [

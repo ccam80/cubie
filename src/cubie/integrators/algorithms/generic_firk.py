@@ -328,6 +328,12 @@ class FIRKStepConfig(ImplicitStepConfig):
     tableau: FIRKTableau = attrs.field(
         default=DEFAULT_FIRK_TABLEAU,
     )
+    buffer_settings: Optional[FIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(FIRKBufferSettings)
+        ),
+    )
 
     @property
     def stage_count(self) -> int:
@@ -428,6 +434,12 @@ class FIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+        # Create default buffer_settings for compile_settings
+        buffer_settings = FIRKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+            n_drivers=n_drivers,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -448,6 +460,7 @@ class FIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
         
         config = FIRKStepConfig(**config_kwargs)
@@ -545,7 +558,6 @@ class FIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-        buffer_settings: Optional[FIRKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
 
@@ -586,13 +598,8 @@ class FIRKStep(ODEImplicitStep):
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
-        # Buffer settings for selective shared/local allocation
-        if buffer_settings is None:
-            buffer_settings = FIRKBufferSettings(
-                n=n_arraysize,
-                stage_count=self.stage_count,
-                n_drivers=n_drivers_arraysize,
-            )
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         solver_scratch_shared = buffer_settings.use_shared_solver_scratch
