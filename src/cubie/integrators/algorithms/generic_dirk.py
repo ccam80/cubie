@@ -540,12 +540,15 @@ class DIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
+        buffer_settings: Optional[DIRKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
+        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
 
@@ -580,13 +583,33 @@ class DIRKStep(ODEImplicitStep):
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
-        solver_shared_elements = self.solver_shared_elements
 
-        # Shared memory indices
-        acc_start = 0
-        acc_end = accumulator_length
-        solver_start = acc_end
-        solver_end = acc_end + solver_shared_elements
+        # Buffer settings for selective shared/local allocation
+        if buffer_settings is None:
+            buffer_settings = DIRKBufferSettings(
+                n=n_arraysize,
+                stage_count=tableau.stage_count,
+            )
+
+        # Unpack boolean flags as compile-time constants
+        stage_increment_shared = buffer_settings.use_shared_stage_increment
+        stage_base_shared = buffer_settings.use_shared_stage_base
+        accumulator_shared = buffer_settings.use_shared_accumulator
+        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_increment_slice = shared_indices.stage_increment
+        # stage_base aliases accumulator when multistage, so no dedicated slice
+        accumulator_slice = shared_indices.accumulator
+        solver_scratch_slice = shared_indices.solver_scratch
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_increment_local_size = local_sizes.nonzero('stage_increment')
+        stage_base_local_size = local_sizes.nonzero('stage_base')
+        accumulator_local_size = local_sizes.nonzero('accumulator')
+        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
 
 
         # no cover: start
@@ -654,7 +677,7 @@ class DIRKStep(ODEImplicitStep):
             #   Note:
             #       - Evaluation state is computed inline by operators and
             #         residuals; no dedicated buffer required.
-            # stage_increment: size n, per-thread local memory.
+            # stage_increment: size n, shared or local memory.
             #   Default behaviour:
             #       - Starts as the Newton guess and finishes as the step.
             #       - Copied into increment_cache once the stage closes.
@@ -667,21 +690,41 @@ class DIRKStep(ODEImplicitStep):
             #       - Refresh to the stage time before rhs or residual work.
             #       - Later stages reuse only the newest values, so no clashes.
             # ----------------------------------------------------------- #
-            stage_increment = cuda.local.array(n, numba_precision)
+            # Selective allocation for stage_increment
+            if stage_increment_shared:
+                stage_increment = shared[stage_increment_slice]
+            else:
+                stage_increment = cuda.local.array(stage_increment_local_size,
+                                                   precision)
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            stage_accumulator = shared[acc_start:acc_end]
-            solver_scratch = shared[solver_start:solver_end]
+            # Selective allocation for accumulator
+            if accumulator_shared:
+                stage_accumulator = shared[accumulator_slice]
+            else:
+                stage_accumulator = cuda.local.array(accumulator_local_size,
+                                                     precision)
+
+            # Selective allocation for solver_scratch
+            if solver_scratch_shared:
+                solver_scratch = shared[solver_scratch_slice]
+            else:
+                solver_scratch = cuda.local.array(solver_scratch_local_size,
+                                                  precision)
             stage_rhs = solver_scratch[:n]
             increment_cache = solver_scratch[n:int32(2)*n]
 
-            #Alias stage base onto first stage accumulator - lifetimes disjoint
+            # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
-                stage_base = stage_accumulator[:n]
+                if stage_base_shared:
+                    stage_base = stage_accumulator[:n]
+                else:
+                    stage_base = cuda.local.array(stage_base_local_size,
+                                                  precision)
             else:
-                stage_base = cuda.local.array(n, numba_precision)
+                stage_base = cuda.local.array(stage_base_local_size, precision)
 
             for idx in range(n):
                 if has_error and accumulates_error:

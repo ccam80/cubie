@@ -433,6 +433,7 @@ class ERKStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
+        buffer_settings: Optional[ERKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
@@ -473,6 +474,30 @@ class ERKStep(ODEExplicitStep):
             b_row = int32(b_row)
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
+
+        # Buffer settings for selective shared/local allocation
+        if buffer_settings is None:
+            buffer_settings = ERKBufferSettings(
+                n=n_arraysize,
+                stage_count=tableau.stage_count,
+            )
+
+        # Unpack boolean flags as compile-time constants
+        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
+        stage_accumulator_shared = buffer_settings.use_shared_stage_accumulator
+        stage_cache_shared = buffer_settings.use_shared_stage_cache
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_rhs_slice = shared_indices.stage_rhs
+        stage_accumulator_slice = shared_indices.stage_accumulator
+        stage_cache_slice = shared_indices.stage_cache
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
+        stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
+        stage_cache_local_size = local_sizes.nonzero('stage_cache')
 
         # no cover: start
         @cuda.jit(
@@ -517,7 +542,7 @@ class ERKStep(ODEExplicitStep):
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared memory.
+            # stage_accumulator: size (stage_count-1) * n, shared or local.
             #   Default behaviour:
             #       - Holds finished stage rhs * dt for later stage sums.
             #       - Slice k stores contributions streamed into stage k+1.
@@ -533,7 +558,7 @@ class ERKStep(ODEExplicitStep):
             #   Default behaviour:
             #       - Refresh to the current stage time before rhs evaluation.
             #       - Later stages only read the newest values, so nothing lingers.
-            # stage_rhs: size n, per-thread local memory.
+            # stage_rhs: size n, shared or local memory.
             #   Default behaviour:
             #       - Holds the current stage rhs before scaling by dt.
             #   Reuse:
@@ -545,16 +570,30 @@ class ERKStep(ODEExplicitStep):
             #       loop.
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
-            stage_rhs = shared[:n]
+            # Selective allocation for stage_rhs
+            if stage_rhs_shared:
+                stage_rhs = shared[stage_rhs_slice]
+            else:
+                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            stage_accumulator = cuda.local.array(
-                accumulator_length, dtype=precision
-            )
+            # Selective allocation for stage_accumulator
+            if stage_accumulator_shared:
+                stage_accumulator = shared[stage_accumulator_slice]
+            else:
+                stage_accumulator = cuda.local.array(
+                    stage_accumulator_local_size, precision
+                )
+
+            # Selective allocation for stage_cache (FSAL optimization)
             if multistage:
-                stage_cache = stage_rhs  # FSAL cache alias
+                if stage_cache_shared:
+                    stage_cache = shared[stage_cache_slice]
+                else:
+                    stage_cache = cuda.local.array(stage_cache_local_size,
+                                                   precision)
 
             for idx in range(n):
                 if accumulates_output:

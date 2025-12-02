@@ -507,13 +507,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
+        buffer_settings: Optional[RosenbrockBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
 
+        n_arraysize = n
         n = int32(n)
         stage_count = int32(self.stage_count)
         has_driver_function = driver_function is not None
@@ -542,14 +545,30 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        stage_buffer_n = stage_count * n
-        cached_auxiliary_count = int32(self.cached_auxiliary_count)
-        stage_rhs_start = int32(0)
-        stage_rhs_end = stage_rhs_start + n
-        stage_store_start = stage_rhs_end
-        stage_store_end = stage_store_start + stage_buffer_n
-        aux_start = stage_store_end
-        aux_end = aux_start + cached_auxiliary_count
+        # Buffer settings for selective shared/local allocation
+        if buffer_settings is None:
+            buffer_settings = RosenbrockBufferSettings(
+                n=n_arraysize,
+                stage_count=self.stage_count,
+                cached_auxiliary_count=self.cached_auxiliary_count,
+            )
+
+        # Unpack boolean flags as compile-time constants
+        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
+        stage_store_shared = buffer_settings.use_shared_stage_store
+        cached_auxiliaries_shared = buffer_settings.use_shared_cached_auxiliaries
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_rhs_slice = shared_indices.stage_rhs
+        stage_store_slice = shared_indices.stage_store
+        cached_auxiliaries_slice = shared_indices.cached_auxiliaries
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
+        stage_store_local_size = local_sizes.nonzero('stage_store')
+        cached_auxiliaries_local_size = local_sizes.nonzero('cached_auxiliaries')
 
         # no cover: start
         @cuda.jit(
@@ -594,25 +613,41 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
-            # stage_rhs: size n, shared memory.
+            # stage_rhs: size n, shared or local memory.
             #   - Receives the stage right-hand side and doubles as a residual
             #     buffer before each linear solve.
-            # stage_store: size stage_count * n, shared memory.
+            # stage_store: size stage_count * n, shared or local memory.
             #   - Slice i caches the accepted stage increment K_i.
             #   - Stage slices double as the initial guess for the following
             #     stage and provide the stage state when assembling rhs values.
             #   - The final slice stores the scaled d f / d t vector until the
             #     last stage recomputes it immediately before use.
-            # cached_auxiliaries: size cached_auxiliary_count, shared memory.
+            # cached_auxiliaries: size cached_auxiliary_count, shared or local.
             #   - Provides Jacobian helper data prepared before the loop.
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            stage_rhs = shared[stage_rhs_start:stage_rhs_end]
-            stage_store = shared[stage_store_start:stage_store_end]
-            cached_auxiliaries = shared[aux_start:aux_end]
+            # Selective allocation for stage_rhs
+            if stage_rhs_shared:
+                stage_rhs = shared[stage_rhs_slice]
+            else:
+                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+
+            # Selective allocation for stage_store
+            if stage_store_shared:
+                stage_store = shared[stage_store_slice]
+            else:
+                stage_store = cuda.local.array(stage_store_local_size, precision)
+
+            # Selective allocation for cached_auxiliaries
+            if cached_auxiliaries_shared:
+                cached_auxiliaries = shared[cached_auxiliaries_slice]
+            else:
+                cached_auxiliaries = cuda.local.array(
+                    cached_auxiliaries_local_size, precision
+                )
 
             final_stage_base = n * (stage_count - int32(1))
             time_derivative = stage_store[
@@ -701,6 +736,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision(1.0),
                 stage_rhs,
                 stage_increment,
+                shared,
             )
 
             for idx in range(n):
@@ -828,6 +864,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     numba_precision(1.0),
                     stage_rhs,
                     stage_increment,
+                    shared,
                 )
 
                 if accumulates_output:

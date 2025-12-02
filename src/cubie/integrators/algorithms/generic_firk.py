@@ -545,12 +545,16 @@ class FIRKStep(ODEImplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
+        buffer_settings: Optional[FIRKBufferSettings] = None,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
+        n_arraysize = n
+        n_drivers_arraysize = n_drivers
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
@@ -582,12 +586,33 @@ class FIRKStep(ODEImplicitStep):
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
-        solver_shared_elements = int32(self.solver_shared_elements)
-        stage_driver_total = int32(stage_count * n_drivers)
-        drivers_start = int32(solver_shared_elements)
-        drivers_end = solver_shared_elements + stage_driver_total
-        stages_start = drivers_end
-        stages_end = stages_start + all_stages_n
+        # Buffer settings for selective shared/local allocation
+        if buffer_settings is None:
+            buffer_settings = FIRKBufferSettings(
+                n=n_arraysize,
+                stage_count=self.stage_count,
+                n_drivers=n_drivers_arraysize,
+            )
+
+        # Unpack boolean flags as compile-time constants
+        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
+        stage_increment_shared = buffer_settings.use_shared_stage_increment
+        stage_driver_stack_shared = buffer_settings.use_shared_stage_driver_stack
+        stage_state_shared = buffer_settings.use_shared_stage_state
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        solver_scratch_slice = shared_indices.solver_scratch
+        stage_increment_slice = shared_indices.stage_increment
+        stage_driver_stack_slice = shared_indices.stage_driver_stack
+        stage_state_slice = shared_indices.stage_state
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
+        stage_increment_local_size = local_sizes.nonzero('stage_increment')
+        stage_driver_stack_local_size = local_sizes.nonzero('stage_driver_stack')
+        stage_state_local_size = local_sizes.nonzero('stage_state')
         # no cover: start
         @cuda.jit(
             (
@@ -629,15 +654,38 @@ class FIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            stage_state = cuda.local.array(n, numba_precision)
+            # Selective allocation for stage_state
+            if stage_state_shared:
+                stage_state = shared[stage_state_slice]
+            else:
+                stage_state = cuda.local.array(stage_state_local_size,
+                                               precision)
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            solver_scratch = shared[:solver_shared_elements]
+            # Selective allocation for solver_scratch
+            if solver_scratch_shared:
+                solver_scratch = shared[solver_scratch_slice]
+            else:
+                solver_scratch = cuda.local.array(solver_scratch_local_size,
+                                                  precision)
             stage_rhs_flat = solver_scratch[:all_stages_n]
-            stage_increment = shared[stages_start:stages_end]
-            stage_driver_stack = shared[drivers_start:drivers_end]
+
+            # Selective allocation for stage_increment
+            if stage_increment_shared:
+                stage_increment = shared[stage_increment_slice]
+            else:
+                stage_increment = cuda.local.array(stage_increment_local_size,
+                                                   precision)
+
+            # Selective allocation for stage_driver_stack
+            if stage_driver_stack_shared:
+                stage_driver_stack = shared[stage_driver_stack_slice]
+            else:
+                stage_driver_stack = cuda.local.array(
+                    stage_driver_stack_local_size, precision
+                )
             status_code = int32(0)
 
             for idx in range(n):

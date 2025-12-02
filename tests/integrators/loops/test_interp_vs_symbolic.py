@@ -7,7 +7,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop
+from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.integrators.loops.ode_loop_config import (
     LoopLocalIndices,
     LoopSharedIndices,
@@ -146,20 +146,51 @@ def _build_loop(
         precision=precision,
         settings=controller_settings,
     )
-    shared_indices = LoopSharedIndices.from_sizes(
+    
+    n_error = loop_buffer_sizes.state if step_object.is_adaptive else 0
+    
+    # Build buffer settings with all-shared layout
+    buffer_settings = LoopBufferSettings(
         n_states=loop_buffer_sizes.state,
-        n_observables=loop_buffer_sizes.observables,
         n_parameters=loop_buffer_sizes.parameters,
         n_drivers=loop_buffer_sizes.drivers,
-        state_summaries_buffer_height=(
-            loop_buffer_sizes.state_summaries
-        ),
-        observable_summaries_buffer_height=(
-            loop_buffer_sizes.observable_summaries
-        ),
-        n_error=(
-            loop_buffer_sizes.state if step_object.is_adaptive else 0
-        ),
+        n_observables=loop_buffer_sizes.observables,
+        state_summary_buffer_height=loop_buffer_sizes.state_summaries,
+        observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
+        n_error=n_error,
+        n_counters=0,
+        # Use all-shared layout matching previous from_sizes behavior
+        state_buffer_location='shared',
+        state_proposal_location='shared',
+        parameters_location='shared',
+        drivers_location='shared',
+        drivers_proposal_location='shared',
+        observables_location='shared',
+        observables_proposal_location='shared',
+        error_location='shared',
+        counters_location='shared',
+        state_summary_location='shared',
+        observable_summary_location='shared',
+    )
+    loop_indices = buffer_settings.shared_indices
+    
+    # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
+    shared_indices = LoopSharedIndices(
+        state=loop_indices.state,
+        proposed_state=loop_indices.proposed_state,
+        observables=loop_indices.observables,
+        proposed_observables=loop_indices.proposed_observables,
+        parameters=loop_indices.parameters,
+        drivers=loop_indices.drivers,
+        proposed_drivers=loop_indices.proposed_drivers,
+        state_summaries=loop_indices.state_summaries,
+        observable_summaries=loop_indices.observable_summaries,
+        error=loop_indices.error,
+        counters=loop_indices.counters,
+        proposed_counters=loop_indices.proposed_counters,
+        local_end=loop_indices.local_end,
+        scratch=loop_indices.scratch,
+        all=loop_indices.all,
     )
     local_indices = LoopLocalIndices.from_sizes(
         controller_len=step_controller.local_memory_elements,
