@@ -628,11 +628,6 @@ class DIRKStep(ODEImplicitStep):
         stage_base_local_size = local_sizes.nonzero('stage_base')
         accumulator_local_size = local_sizes.nonzero('accumulator')
         solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
-        increment_cache_local_size = local_sizes.nonzero('increment_cache')
-
-        # Persistent local elements needed for increment_cache when local
-        persistent_local_elements = buffer_settings.persistent_local_elements
-
 
         # no cover: start
         @cuda.jit(

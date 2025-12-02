@@ -497,10 +497,6 @@ class ERKStep(ODEExplicitStep):
         local_sizes = buffer_settings.local_sizes
         stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
         stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
-        stage_cache_local_size = local_sizes.nonzero('stage_cache')
-
-        # Persistent local elements needed for stage_cache when local
-        persistent_local_elements = buffer_settings.persistent_local_elements
 
         # no cover: start
         @cuda.jit(
