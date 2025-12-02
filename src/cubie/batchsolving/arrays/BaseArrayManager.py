@@ -730,7 +730,8 @@ class BaseArrayManager(ABC):
             new_array, managed.stride_order
         )
         if current_array is not None and self._arrays_equal(
-                new_array, current_array):
+            new_array, current_array
+        ):
             return None
         if current_array is None:
             self._needs_reallocation.append(label)
