@@ -381,7 +381,9 @@ class OutputArrays(BaseArrayManager):
             if np.issubdtype(dtype, np.floating):
                 slot.dtype = self._precision
                 dtype = slot.dtype
-            new_arrays[name] = np.zeros(newshape, dtype=dtype)
+            new_arrays[name] = self._memory_manager.create_host_array(
+                newshape, dtype, slot.stride_order
+            )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
             dtype = slot.dtype

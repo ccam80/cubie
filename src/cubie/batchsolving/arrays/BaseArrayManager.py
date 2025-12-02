@@ -659,6 +659,44 @@ class BaseArrayManager(ABC):
             )
         return True
 
+    def _convert_to_device_strides(
+        self, array: NDArray, stride_order: tuple[str, ...]
+    ) -> NDArray:
+        """
+        Convert array to have strides compatible with device allocations.
+
+        Parameters
+        ----------
+        array
+            Source array to convert.
+        stride_order
+            Logical dimension labels in the array's native order.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array with strides matching the memory manager's stride order.
+
+        Notes
+        -----
+        For 3D arrays, this creates a new array with strides matching the
+        memory manager's ``_stride_order``, then copies data. For 2D and
+        1D arrays, the original array is returned unchanged.
+        """
+        if len(array.shape) != 3 or stride_order is None:
+            return array
+
+        target = self._memory_manager.create_host_array(
+            array.shape, array.dtype, stride_order
+        )
+        # Check if strides already match
+        if array.strides == target.strides:
+            return array
+
+        # Copy data to array with matching strides
+        target[:] = array
+        return target
+
     def _update_host_array(
         self, new_array: NDArray, current_array: Optional[NDArray], label: str
     ) -> None:
@@ -687,8 +725,13 @@ class BaseArrayManager(ABC):
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
+        # Convert to strides compatible with device allocations
+        new_array = self._convert_to_device_strides(
+            new_array, managed.stride_order
+        )
         if current_array is not None and self._arrays_equal(
-                new_array, current_array):
+            new_array, current_array
+        ):
             return None
         if current_array is None:
             self._needs_reallocation.append(label)
