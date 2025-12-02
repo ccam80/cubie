@@ -910,6 +910,62 @@ class MemoryManager:
 
         return strides
 
+    def create_host_array(
+        self,
+        shape: tuple[int, ...],
+        dtype: type,
+        stride_order: Optional[tuple[str, ...]] = None,
+    ) -> np.ndarray:
+        """
+        Create a host array with strides matching the memory manager's order.
+
+        Parameters
+        ----------
+        shape
+            Shape of the array to create.
+        dtype
+            Data type for the array elements.
+        stride_order
+            Logical dimension labels in the array's native order. For 3D
+            arrays this should be a tuple like ``('time', 'run', 'variable')``.
+            When omitted, a C-contiguous array is returned.
+
+        Returns
+        -------
+        numpy.ndarray
+            Host array with strides compatible with device allocations.
+
+        Notes
+        -----
+        For 3D arrays, this method creates an array with strides that match
+        the memory manager's ``_stride_order``. The array is created by
+        allocating with the desired stride order, then transposing back to
+        the native order. This ensures that ``copy_to_host`` operations
+        succeed when copying from device arrays allocated with custom strides.
+
+        For 2D and 1D arrays, a standard C-contiguous array is returned.
+        """
+        if len(shape) != 3 or stride_order is None:
+            return np.zeros(shape, dtype=dtype)
+
+        desired_order = self._stride_order
+        if stride_order == desired_order:
+            return np.zeros(shape, dtype=dtype)
+
+        # Build shape in desired stride order
+        shape_map = {
+            name: size for name, size in zip(stride_order, shape)
+        }
+        ordered_shape = tuple(shape_map[dim] for dim in desired_order)
+
+        # Create array in desired stride order (contiguous in that order)
+        arr = np.zeros(ordered_shape, dtype=dtype)
+
+        # Compute transpose axes to return to native order
+        # We need axes that map desired_order -> stride_order
+        axes = tuple(desired_order.index(dim) for dim in stride_order)
+        return arr.transpose(axes)
+
     def get_available_single(self, instance_id: int) -> int:
         """
         Get available memory for a single instance.
