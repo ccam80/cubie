@@ -23,8 +23,7 @@ from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import (
     IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
 )
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
+from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
@@ -331,7 +330,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         IVPLoop
             Configured loop instance ready for CUDA compilation.
         """
-        # Use LoopBufferSettings to calculate shared memory indices
         n_counters = 4 if compile_flags.save_counters else 0
         buffer_settings = LoopBufferSettings(
             n_states=n_states,
@@ -342,55 +340,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use buffer locations from loop_settings or default to 'shared'
-            state_buffer_location=loop_settings.get(
-                'state_buffer_location', 'shared'),
-            state_proposal_location=loop_settings.get(
-                'state_proposal_location', 'shared'),
-            parameters_location=loop_settings.get(
-                'parameters_location', 'shared'),
-            drivers_location=loop_settings.get(
-                'drivers_location', 'shared'),
-            drivers_proposal_location=loop_settings.get(
-                'drivers_proposal_location', 'shared'),
-            observables_location=loop_settings.get(
-                'observables_location', 'shared'),
-            observables_proposal_location=loop_settings.get(
-                'observables_proposal_location', 'shared'),
-            error_location=loop_settings.get(
-                'error_location', 'shared'),
-            counters_location=loop_settings.get(
-                'counters_location', 'shared'),
-            state_summary_location=loop_settings.get(
-                'state_summary_location', 'shared'),
-            observable_summary_location=loop_settings.get(
-                'observable_summary_location', 'shared'),
-            scratch_location=loop_settings.get(
-                'scratch_location', 'shared'),
-        )
-        loop_indices = buffer_settings.shared_indices
-
-        # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
-        shared_indices = LoopSharedIndices(
-            state=loop_indices.state,
-            proposed_state=loop_indices.proposed_state,
-            observables=loop_indices.observables,
-            proposed_observables=loop_indices.proposed_observables,
-            parameters=loop_indices.parameters,
-            drivers=loop_indices.drivers,
-            proposed_drivers=loop_indices.proposed_drivers,
-            state_summaries=loop_indices.state_summaries,
-            observable_summaries=loop_indices.observable_summaries,
-            error=loop_indices.error,
-            counters=loop_indices.counters,
-            proposed_counters=loop_indices.proposed_counters,
-            local_end=loop_indices.local_end,
-            scratch=loop_indices.scratch,
-            all=loop_indices.all,
-        )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=controller_local_elements,
-            algorithm_len=algorithm_local_elements,
         )
 
         loop_kwargs = dict(loop_settings)
@@ -399,10 +348,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             loop_kwargs.pop(key, None)
         loop_kwargs.update(
             precision=precision,
-            shared_indices=shared_indices,
-            local_indices=local_indices,
-            compile_flags=compile_flags,
             buffer_settings=buffer_settings,
+            compile_flags=compile_flags,
+            controller_local_len=controller_local_elements,
+            algorithm_local_len=algorithm_local_elements,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -509,71 +458,13 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use buffer locations from updates_dict or preserve existing values
-            state_buffer_location=updates_dict.get(
-                'state_buffer_location',
-                current_buffer_settings.state_buffer_location),
-            state_proposal_location=updates_dict.get(
-                'state_proposal_location',
-                current_buffer_settings.state_proposal_location),
-            parameters_location=updates_dict.get(
-                'parameters_location',
-                current_buffer_settings.parameters_location),
-            drivers_location=updates_dict.get(
-                'drivers_location',
-                current_buffer_settings.drivers_location),
-            drivers_proposal_location=updates_dict.get(
-                'drivers_proposal_location',
-                current_buffer_settings.drivers_proposal_location),
-            observables_location=updates_dict.get(
-                'observables_location',
-                current_buffer_settings.observables_location),
-            observables_proposal_location=updates_dict.get(
-                'observables_proposal_location',
-                current_buffer_settings.observables_proposal_location),
-            error_location=updates_dict.get(
-                'error_location',
-                current_buffer_settings.error_location),
-            counters_location=updates_dict.get(
-                'counters_location',
-                current_buffer_settings.counters_location),
-            state_summary_location=updates_dict.get(
-                'state_summary_location',
-                current_buffer_settings.state_summary_location),
-            observable_summary_location=updates_dict.get(
-                'observable_summary_location',
-                current_buffer_settings.observable_summary_location),
-            scratch_location=updates_dict.get(
-                'scratch_location',
-                current_buffer_settings.scratch_location),
         )
-        loop_indices = buffer_settings.shared_indices
-        
-        # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
-        shared_indices = LoopSharedIndices(
-            state=loop_indices.state,
-            proposed_state=loop_indices.proposed_state,
-            observables=loop_indices.observables,
-            proposed_observables=loop_indices.proposed_observables,
-            parameters=loop_indices.parameters,
-            drivers=loop_indices.drivers,
-            proposed_drivers=loop_indices.proposed_drivers,
-            state_summaries=loop_indices.state_summaries,
-            observable_summaries=loop_indices.observable_summaries,
-            error=loop_indices.error,
-            counters=loop_indices.counters,
-            proposed_counters=loop_indices.proposed_counters,
-            local_end=loop_indices.local_end,
-            scratch=loop_indices.scratch,
-            all=loop_indices.all,
-        )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=self._step_controller.local_memory_elements,
-            algorithm_len=self._algo_step.persistent_local_required,
-        )
-        updates_dict.update({'shared_buffer_indices': shared_indices,
-                             'local_indices': local_indices,
-                             'buffer_settings': buffer_settings})
+
+        updates_dict.update({
+            'buffer_settings': buffer_settings,
+            'controller_local_len': self._step_controller.local_memory_elements,
+            'algorithm_local_len': self._algo_step.persistent_local_required,
+        })
 
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)

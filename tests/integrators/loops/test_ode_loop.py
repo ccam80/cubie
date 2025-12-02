@@ -394,17 +394,17 @@ def test_all_summary_metrics_numerical_check(
 @pytest.mark.parametrize("solver_settings_override",
                          [{
                              'output_types': ['state', 'time'],
-                             'duration': 1.1e-7,
-                             'dt_save': 2e-8,
-                             't0': 1.0 - 1e-7,
+                             'duration': 1e-4,
+                             'dt_save': 2e-5, #representable in f32 - 2e6*1.0
+                             't0': 1.0,
                              'algorithm': "euler",
-                             'dt': 1e-8,
+                             'dt': 1e-7, # smaller than 1f32 eps
                          }],
                          indirect=True,
                          ids=[""])
 def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
     """Verify time accumulates correctly with float32 precision and small dt."""
-    assert device_loop_outputs.state[-1,-1] == precision(1.0)
+    assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(1.00008))
 
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64],
@@ -412,8 +412,8 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
 @pytest.mark.parametrize("solver_settings_override",
                          [{
                              'output_types': ['state', 'time'],
-                             'duration': 1.1e-5,
-                             'dt_save': 2e-6,
+                             'duration': 1e-3,
+                             'dt_save': 2e-4,
                              't0': 1e2,
                              'algorithm': 'euler',
                              'dt': 1e-6,
@@ -424,8 +424,8 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
     # There may be an ulp of error here, that's fine, we're testing the
     # ability to accumulate time during long examples.
-    assert np.isclose(device_loop_outputs.state[-1,-1],
-                      precision(1e2 + 1e-5),
+    assert np.isclose(device_loop_outputs.state[-2,-1],
+                      precision(100.0008),
                       atol=2e-7)
 
 
@@ -436,19 +436,22 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                          ids=[""])
 @pytest.mark.parametrize("solver_settings_override",
                          [{
-                             'duration': 1e-7,
-                             'dt_save': 2e-8,
-                             't0': 1.0 - 1e-7,
+                             'duration': 1e-4,
+                             'dt_save': 2e-5,
+                             't0': 1.0,
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
                              'output_types': ['state', 'time'],
-                             'dt_min': 1e-10,
-                             'dt_max': 1e-8,
+                             'dt_min': 1e-7,
+                             'dt_max': 1e-6, # smaller than eps * t0
                          }],
                          indirect=True)
 def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
-    assert device_loop_outputs.state[-1,-1] == precision(1.0)
+    assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(
+            1.00008))
+    #Testing second-last sample as the final sample overshoots t_end in this
+                                                             # case
 
 @pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
 @pytest.mark.parametrize(

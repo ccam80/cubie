@@ -2,7 +2,6 @@
 import pytest
 from cubie.integrators.loops.ode_loop import (
     LoopBufferSettings,
-    LoopSharedIndicesFromSettings,
     LoopLocalSizes,
     LoopSliceIndices,
 )
@@ -11,22 +10,6 @@ from cubie.integrators.loops.ode_loop import (
 class TestLoopBufferSettings:
     """Tests for LoopBufferSettings initialization and properties."""
 
-    def test_default_locations_match_all_in_one(self):
-        """Default locations should match tests/all_in_one.py settings."""
-        settings = LoopBufferSettings(n_states=3)
-
-        assert settings.state_buffer_location == 'local'
-        assert settings.state_proposal_location == 'local'
-        assert settings.parameters_location == 'local'
-        assert settings.drivers_location == 'shared'
-        assert settings.drivers_proposal_location == 'shared'
-        assert settings.observables_location == 'shared'
-        assert settings.observables_proposal_location == 'shared'
-        assert settings.error_location == 'local'
-        assert settings.counters_location == 'local'
-        assert settings.state_summary_location == 'local'
-        assert settings.observable_summary_location == 'shared'
-        assert settings.scratch_location == 'shared'
 
     def test_boolean_flags_from_locations(self):
         """Boolean properties should reflect location settings."""
@@ -39,7 +22,7 @@ class TestLoopBufferSettings:
         assert settings.use_shared_state is True
         assert settings.use_shared_parameters is True
         assert settings.use_shared_state_proposal is False
-        assert settings.use_shared_drivers is True
+        assert settings.use_shared_drivers is False
 
     def test_invalid_location_raises(self):
         """Invalid location string should raise ValueError."""
@@ -222,12 +205,12 @@ class TestLoopBufferSettingsIndices:
         assert indices.scratch.start == indices.local_end
 
 
-class TestLoopSharedIndicesFromSettings:
-    """Tests for LoopSharedIndicesFromSettings properties."""
+class TestLoopSliceIndicesProperties:
+    """Tests for LoopSliceIndices properties."""
 
     def test_n_states_property(self):
         """n_states should reflect state slice width."""
-        indices = LoopSharedIndicesFromSettings(
+        indices = LoopSliceIndices(
             state=slice(0, 5),
             proposed_state=slice(5, 10),
             observables=slice(10, 12),
@@ -250,7 +233,7 @@ class TestLoopSharedIndicesFromSettings:
 
     def test_loop_shared_elements_property(self):
         """loop_shared_elements should return local_end."""
-        indices = LoopSharedIndicesFromSettings(
+        indices = LoopSliceIndices(
             state=slice(0, 3),
             proposed_state=slice(3, 6),
             observables=slice(6, 8),

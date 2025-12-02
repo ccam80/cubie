@@ -2515,8 +2515,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     # No explicit copy_to_host required
     print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
     status_codes_output = status_codes_output.copy_to_host(stream=stream)
-    state_output = np.zeros((n_output_samples, n_runs, n_states + 1),)
-    state_output.copy_to_host(stream=stream, to=state_output)
+    state_output = state_output.copy_to_host(stream=stream)
     observables_output = observables_output.copy_to_host(stream=stream)
     state_summaries_output = state_summaries_output.copy_to_host(stream=stream)
     observables_summaries_output = observable_summaries_output.copy_to_host(stream=stream)

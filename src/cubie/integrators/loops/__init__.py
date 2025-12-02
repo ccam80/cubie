@@ -4,7 +4,6 @@ from cubie.integrators.loops.ode_loop import (
     IVPLoop,
     LoopBufferSettings,
     LoopLocalSizes,
-    LoopSharedIndicesFromSettings,
     LoopSliceIndices,
 )
 
@@ -12,6 +11,5 @@ __all__ = [
     "IVPLoop",
     "LoopBufferSettings",
     "LoopLocalSizes",
-    "LoopSharedIndicesFromSettings",
     "LoopSliceIndices",
 ]

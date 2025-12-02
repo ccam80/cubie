@@ -22,7 +22,6 @@ from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import getype_validator, PrecisionDType
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
-                                                     LoopSharedIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
@@ -245,16 +244,16 @@ class LoopBufferSettings(BufferSettings):
         default='local', validator=validators.in_(["local", "shared"])
     )
     drivers_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     drivers_proposal_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     observables_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     observables_proposal_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     error_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
@@ -266,10 +265,10 @@ class LoopBufferSettings(BufferSettings):
         default='local', validator=validators.in_(["local", "shared"])
     )
     observable_summary_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     scratch_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
 
     # Boolean properties for compile-time flags
@@ -627,10 +626,6 @@ class LoopBufferSettings(BufferSettings):
         return self.calculate_shared_indices()
 
 
-# Alias for backwards compatibility
-LoopSharedIndicesFromSettings = LoopSliceIndices
-
-
 @attrs.define
 class IVPLoopCache(CUDAFunctionCache):
     """Cache for IVP loop device function.
@@ -680,12 +675,14 @@ class IVPLoop(CUDAFactory):
     ----------
     precision
         Precision used for state and observable updates.
-    shared_indices
-        Buffer layout describing slices of shared memory arrays.
-    local_indices
-        Buffer layout describing slices of persistent local memory.
+    buffer_settings
+        Configuration for loop buffer sizes and memory locations.
     compile_flags
         Output configuration that drives save and summary behaviour.
+    controller_local_len
+        Number of persistent local memory elements for the controller.
+    algorithm_local_len
+        Number of persistent local memory elements for the algorithm.
     dt_save
         Interval between accepted saves. Defaults to ``0.1`` when not
         provided.
@@ -719,15 +716,16 @@ class IVPLoop(CUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        shared_indices: LoopSharedIndices,
-        local_indices: LoopLocalIndices,
+        buffer_settings: LoopBufferSettings,
         compile_flags: OutputCompileFlags,
+        controller_local_len: int = 0,
+        algorithm_local_len: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        dt0: Optional[float]=None,
-        dt_min: Optional[float]=None,
-        dt_max: Optional[float]=None,
-        is_adaptive: Optional[bool]=None,
+        dt0: Optional[float] = None,
+        dt_min: Optional[float] = None,
+        dt_max: Optional[float] = None,
+        is_adaptive: Optional[bool] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -735,55 +733,13 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
-        buffer_settings: Optional["LoopBufferSettings"] = None,
     ) -> None:
         super().__init__()
 
-        # Create default buffer_settings from shared_indices if not provided.
-        # Defaults assume all buffers in shared memory, matching the legacy
-        # behaviour when buffer_settings was not used.
-        if buffer_settings is None:
-            n_states = shared_indices.state.stop - shared_indices.state.start
-            n_params = (shared_indices.parameters.stop
-                        - shared_indices.parameters.start)
-            n_drivers = (shared_indices.drivers.stop
-                         - shared_indices.drivers.start)
-            n_obs = (shared_indices.observables.stop
-                     - shared_indices.observables.start)
-            n_counters = (shared_indices.counters.stop
-                          - shared_indices.counters.start)
-            n_error = shared_indices.error.stop - shared_indices.error.start
-            state_summ_height = (shared_indices.state_summaries.stop
-                                 - shared_indices.state_summaries.start)
-            obs_summ_height = (shared_indices.observable_summaries.stop
-                               - shared_indices.observable_summaries.start)
-            buffer_settings = LoopBufferSettings(
-                n_states=n_states,
-                n_parameters=n_params,
-                n_drivers=n_drivers,
-                n_observables=n_obs,
-                n_counters=n_counters,
-                n_error=n_error,
-                state_summary_buffer_height=state_summ_height,
-                observable_summary_buffer_height=obs_summ_height,
-                # All buffers default to shared memory
-                state_buffer_location='shared',
-                state_proposal_location='shared',
-                parameters_location='shared',
-                drivers_location='shared',
-                drivers_proposal_location='shared',
-                observables_location='shared',
-                observables_proposal_location='shared',
-                error_location='shared',
-                counters_location='shared',
-                state_summary_location='shared',
-                observable_summary_location='shared',
-                scratch_location='shared',
-            )
-
         config = ODELoopConfig(
-            shared_buffer_indices=shared_indices,
-            local_indices=local_indices,
+            buffer_settings=buffer_settings,
+            controller_local_len=controller_local_len,
+            algorithm_local_len=algorithm_local_len,
             save_state_fn=save_state_func,
             update_summaries_fn=update_summaries_func,
             save_summaries_fn=save_summaries_func,
@@ -799,7 +755,6 @@ class IVPLoop(CUDAFactory):
             dt_min=dt_min,
             dt_max=dt_max,
             is_adaptive=is_adaptive,
-            buffer_settings=buffer_settings,
         )
         self.setup_compile_settings(config)
 
@@ -881,21 +836,20 @@ class IVPLoop(CUDAFactory):
         # included in loop logic
         save_last = False
 
+        buffer_settings = config.buffer_settings
+
         # Loop sizes - computed from slice dimensions
-        n_states = int32(state_shared_ind.stop - state_shared_ind.start)
-        n_parameters = int32(params_shared_ind.stop - params_shared_ind.start)
-        n_observables = int32(obs_shared_ind.stop - obs_shared_ind.start)
-        n_drivers = int32(drivers_shared_ind.stop - drivers_shared_ind.start)
-        n_counters = int32(
-            counters_shared_ind.stop - counters_shared_ind.start
-        )
+        n_states = int32(buffer_settings.n_states)
+        n_parameters = int32(buffer_settings.n_parameters)
+        n_observables = int32(buffer_settings.n_observables)
+        n_drivers = int32(buffer_settings.n_drivers)
+        n_counters = int32(buffer_settings.n_counters)
         
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
         # Buffer settings from compile_settings for selective shared/local.
         # IVPLoop.__init__ ensures buffer_settings is always set.
-        buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
         state_shared = buffer_settings.use_shared_state
@@ -1009,7 +963,7 @@ class IVPLoop(CUDAFactory):
             """
             t = float64(t0)
             t_prec = precision(t)
-            t_end = float64(settling_time + t0 + duration)
+            t_end = precision(settling_time + t0 + duration)
 
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
@@ -1029,6 +983,8 @@ class IVPLoop(CUDAFactory):
                 state_buffer = shared_scratch[state_shared_ind]
             else:
                 state_buffer = cuda.local.array(state_local_size, precision)
+                for _i in range(state_local_size):
+                    state_buffer[_i] = precision(0.0)
 
             if state_proposal_shared:
                 state_proposal_buffer = shared_scratch[state_prop_shared_ind]
@@ -1036,6 +992,8 @@ class IVPLoop(CUDAFactory):
                 state_proposal_buffer = cuda.local.array(
                     proposed_state_local_size, precision
                 )
+                for _i in range(proposed_state_local_size):
+                    state_proposal_buffer[_i] = precision(0.0)
 
             if observables_shared:
                 observables_buffer = shared_scratch[obs_shared_ind]
@@ -1043,6 +1001,8 @@ class IVPLoop(CUDAFactory):
                 observables_buffer = cuda.local.array(
                     observables_local_size, precision
                 )
+                for _i in range(observables_local_size):
+                    observables_buffer[_i] = precision(0.0)
 
             if observables_proposal_shared:
                 observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
@@ -1050,6 +1010,8 @@ class IVPLoop(CUDAFactory):
                 observables_proposal_buffer = cuda.local.array(
                     proposed_observables_local_size, precision
                 )
+                for _i in range(proposed_observables_local_size):
+                    observables_proposal_buffer[_i] = precision(0.0)
 
             if parameters_shared:
                 parameters_buffer = shared_scratch[params_shared_ind]
@@ -1057,11 +1019,15 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer = cuda.local.array(
                     parameters_local_size, precision
                 )
+                for _i in range(parameters_local_size):
+                    parameters_buffer[_i] = precision(0.0)
 
             if drivers_shared:
                 drivers_buffer = shared_scratch[drivers_shared_ind]
             else:
                 drivers_buffer = cuda.local.array(drivers_local_size, precision)
+                for _i in range(drivers_local_size):
+                    drivers_buffer[_i] = precision(0.0)
 
             if drivers_proposal_shared:
                 drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
@@ -1069,6 +1035,8 @@ class IVPLoop(CUDAFactory):
                 drivers_proposal_buffer = cuda.local.array(
                     proposed_drivers_local_size, precision
                 )
+                for _i in range(proposed_drivers_local_size):
+                    drivers_proposal_buffer[_i] = precision(0.0)
 
             if state_summary_shared:
                 state_summary_buffer = shared_scratch[state_summ_shared_ind]
@@ -1076,6 +1044,8 @@ class IVPLoop(CUDAFactory):
                 state_summary_buffer = cuda.local.array(
                     state_summary_local_size, precision
                 )
+                for _i in range(state_summary_local_size):
+                    state_summary_buffer[_i] = precision(0.0)
 
             if observable_summary_shared:
                 observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
@@ -1083,6 +1053,8 @@ class IVPLoop(CUDAFactory):
                 observable_summary_buffer = cuda.local.array(
                     observable_summary_local_size, precision
                 )
+                for _i in range(observable_summary_local_size):
+                    observable_summary_buffer[_i] = precision(0.0)
 
             if counters_shared:
                 counters_since_save = shared_scratch[counters_shared_ind]
@@ -1090,11 +1062,15 @@ class IVPLoop(CUDAFactory):
                 counters_since_save = cuda.local.array(
                     counters_local_size, simsafe_int32
                 )
+                for _i in range(counters_local_size):
+                    counters_since_save[_i] = simsafe_int32(0)
 
             if error_shared:
                 error = shared_scratch[error_shared_ind]
             else:
                 error = cuda.local.array(error_local_size, precision)
+                for _i in range(error_local_size):
+                    error[_i] = precision(0.0)
 
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
             # ----------------------------------------------------------- #
@@ -1105,7 +1081,9 @@ class IVPLoop(CUDAFactory):
             else:
                 # When disabled, use a dummy local "proposed_counters" buffer
                 proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-            
+                for _i in range(2):
+                    proposed_counters[_i] = int32(0)
+
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             controller_temp = persistent_local[controller_slice]
@@ -1143,10 +1121,10 @@ class IVPLoop(CUDAFactory):
 
             # Set next save for settling time, or save first value if
             # starting at t0
-            next_save = settling_time + t0
+            next_save = precision(settling_time + t0)
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
-                next_save += float64(dt_save)
+                next_save += dt_save
 
                 save_state(
                     state_buffer,
@@ -1181,6 +1159,7 @@ class IVPLoop(CUDAFactory):
 
             status = int32(0)
             dt[0] = dt0
+            dt_raw = dt0
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
@@ -1200,10 +1179,10 @@ class IVPLoop(CUDAFactory):
                 if save_last:
                     # If last save requested, predicated commit dt, finished,
                     # do_save
-                    at_last_save = finished and t < t_end
+                    at_last_save = finished and t_prec < t_end
                     finished = selp(at_last_save, False, True)
                     dt[0] = selp(at_last_save, precision(t_end - t),
-                                 dt[0])
+                                 dt_raw)
 
                 # also exit loop if min step size limit hit - things are bad
                 finished |= (status & 0x8)
@@ -1212,8 +1191,8 @@ class IVPLoop(CUDAFactory):
                     return status
 
                 if not finished:
-                    do_save = (t + dt[0]) >= next_save
-                    dt_eff = selp(do_save, precision(next_save - t), dt[0])
+                    do_save = (t_prec + dt_raw) >= next_save
+                    dt_eff = selp(do_save, next_save - t_prec, dt_raw)
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
 
@@ -1259,6 +1238,8 @@ class IVPLoop(CUDAFactory):
                     else:
                         accept = True
 
+                    dt_raw = dt[0]
+
                     # Accumulate iteration counters if active
                     if save_counters_bool:
                         for i in range(n_counters):
@@ -1301,7 +1282,6 @@ class IVPLoop(CUDAFactory):
                     do_save = accept and do_save
                     if do_save:
                         next_save = selp(do_save, next_save + dt_save, next_save)
-
                         save_state(
                             state_buffer,
                             observables_buffer,
@@ -1309,7 +1289,9 @@ class IVPLoop(CUDAFactory):
                             t_prec,
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
-                            iteration_counters_output[save_idx * save_counters_bool, :],
+                            iteration_counters_output[
+                                save_idx * save_counters_bool, :
+                            ],
                         )
                         if summarise:
                             update_summaries(
@@ -1395,13 +1377,13 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def shared_buffer_indices(self) -> LoopSharedIndices:
+    def shared_buffer_indices(self) -> LoopSliceIndices:
         """Return the shared buffer index layout."""
 
         return self.compile_settings.shared_buffer_indices
 
     @property
-    def buffer_indices(self) -> LoopSharedIndices:
+    def buffer_indices(self) -> LoopSliceIndices:
         """Return the shared buffer index layout."""
 
         return self.shared_buffer_indices
