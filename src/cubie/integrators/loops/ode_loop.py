@@ -880,16 +880,17 @@ class IVPLoop(CUDAFactory):
             state_summary_shared = True
             observable_summary_shared = True
 
-            # Local sizes still needed for fallback (minimum 1)
-            state_local_size = max(n_states, 1)
-            proposed_state_local_size = max(n_states, 1)
-            parameters_local_size = max(n_parameters, 1)
-            drivers_local_size = max(n_drivers, 1)
-            proposed_drivers_local_size = max(n_drivers, 1)
-            observables_local_size = max(n_observables, 1)
-            proposed_observables_local_size = max(n_observables, 1)
-            error_local_size = max(n_states, 1)  # error size = n_states
-            counters_local_size = max(n_counters, 1)
+            # Local sizes set to 1 (minimum valid size for cuda.local.array)
+            # when all buffers are shared. Values unused but required for JIT.
+            state_local_size = 1
+            proposed_state_local_size = 1
+            parameters_local_size = 1
+            drivers_local_size = 1
+            proposed_drivers_local_size = 1
+            observables_local_size = 1
+            proposed_observables_local_size = 1
+            error_local_size = 1
+            counters_local_size = 1
             state_summary_local_size = 1
             observable_summary_local_size = 1
 
