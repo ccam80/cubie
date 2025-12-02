@@ -774,6 +774,8 @@ class BatchSolverKernel(CUDAFactory):
         """
         if self.precision == np.float64:
             return False
+        elif self.shared_memory_elements == 0:
+            return False
         elif self.shared_memory_elements % 2 == 0:
             return True
         else:
@@ -888,7 +890,10 @@ class BatchSolverKernel(CUDAFactory):
         Includes both initial state (at t=t0 or t=settling_time) and final
         state (at t=t_end) for complete trajectory coverage.
         """
-        return int(np.floor(self.duration / self.single_integrator.dt_save)) + 1
+        return (int(
+                np.floor(self.precision(self.duration) /
+                        self.precision(self.single_integrator.dt_save)))
+                + 1)
 
     @property
     def summaries_length(self) -> int:

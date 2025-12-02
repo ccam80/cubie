@@ -311,8 +311,8 @@ class ODELoopConfig:
     def loop_shared_elements(self) -> int:
         """Return the loop's shared-memory contribution."""
 
-        local_end = getattr(self.shared_buffer_indices, "local_end", None)
-        return int(local_end or 0)
+        shared_end = self.shared_buffer_indices.local_end
+        return shared_end
 
     @property
     def loop_local_elements(self) -> int:

@@ -337,18 +337,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout
-            state_buffer_location='shared',
-            state_proposal_location='shared',
-            parameters_location='shared',
-            drivers_location='shared',
-            drivers_proposal_location='shared',
-            observables_location='shared',
-            observables_proposal_location='shared',
-            error_location='shared',
-            counters_location='shared',
-            state_summary_location='shared',
-            observable_summary_location='shared',
         )
 
         loop_kwargs = dict(loop_settings)
@@ -462,18 +450,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout
-            state_buffer_location='shared',
-            state_proposal_location='shared',
-            parameters_location='shared',
-            drivers_location='shared',
-            drivers_proposal_location='shared',
-            observables_location='shared',
-            observables_proposal_location='shared',
-            error_location='shared',
-            counters_location='shared',
-            state_summary_location='shared',
-            observable_summary_location='shared',
         )
 
         updates_dict.update({

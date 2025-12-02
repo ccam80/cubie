@@ -54,7 +54,7 @@ from tests.system_fixtures import (
 
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
-
+np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #

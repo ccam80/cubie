@@ -138,16 +138,16 @@ def run_reference_loop(
     )
 
     if warmup > np.float64(0.0):
-        next_save_time = warmup + t0
+        next_save_time = precision(warmup + t0)
         save_idx = 0
     else:
-        next_save_time = warmup + t0 + np.float64(dt_save)
+        next_save_time = precision(warmup + t0 + (dt_save))
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
         save_idx = 1
 
-    end_time = np.float64(warmup + t0 + duration)
+    end_time = precision(warmup + t0 + duration)
 
     status_flags = 0
 
@@ -186,7 +186,7 @@ def run_reference_loop(
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(t - warmup))
-            next_save_time = next_save_time + np.float64(dt_save)
+            next_save_time = precision(next_save_time + (dt_save))
             save_idx += 1
 
     state_output = _collect_saved_outputs(
