@@ -255,6 +255,13 @@ class ERKBufferSettings(BufferSettings):
         )
 
 
+# Buffer location parameters for ERK algorithms
+ALL_ERK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_rhs_location",
+    "stage_accumulator_location",
+}
+
+
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",

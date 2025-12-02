@@ -305,6 +305,15 @@ class DIRKBufferSettings(BufferSettings):
         )
 
 
+# Buffer location parameters for DIRK algorithms
+ALL_DIRK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_increment_location",
+    "stage_base_location",
+    "accumulator_location",
+    "solver_scratch_location",
+}
+
+
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",

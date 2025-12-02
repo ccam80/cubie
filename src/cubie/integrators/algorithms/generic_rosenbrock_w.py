@@ -235,6 +235,14 @@ class RosenbrockBufferSettings(BufferSettings):
         )
 
 
+# Buffer location parameters for Rosenbrock algorithms
+ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_rhs_location",
+    "stage_store_location",
+    "cached_auxiliaries_location",
+}
+
+
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",

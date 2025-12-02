@@ -269,6 +269,15 @@ class FIRKBufferSettings(BufferSettings):
         )
 
 
+# Buffer location parameters for FIRK algorithms
+ALL_FIRK_BUFFER_LOCATION_PARAMETERS = {
+    "solver_scratch_location",
+    "stage_increment_location",
+    "stage_driver_stack_location",
+    "stage_state_location",
+}
+
+
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",

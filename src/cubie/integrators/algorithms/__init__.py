@@ -16,6 +16,7 @@ from .generic_dirk import (
     DIRKBufferSettings,
     DIRKLocalSizes,
     DIRKSliceIndices,
+    ALL_DIRK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_dirk_tableaus import DIRK_TABLEAU_REGISTRY, DIRKTableau
 from .generic_firk import (
@@ -23,6 +24,7 @@ from .generic_firk import (
     FIRKBufferSettings,
     FIRKLocalSizes,
     FIRKSliceIndices,
+    ALL_FIRK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_firk_tableaus import FIRK_TABLEAU_REGISTRY, FIRKTableau
 from .generic_erk import (
@@ -31,6 +33,7 @@ from .generic_erk import (
     ERKBufferSettings,
     ERKLocalSizes,
     ERKSliceIndices,
+    ALL_ERK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_erk_tableaus import ERK_TABLEAU_REGISTRY
 from .generic_rosenbrock_w import (
@@ -38,8 +41,18 @@ from .generic_rosenbrock_w import (
     RosenbrockBufferSettings,
     RosenbrockLocalSizes,
     RosenbrockSliceIndices,
+    ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_rosenbrockw_tableaus import ROSENBROCK_TABLEAUS, RosenbrockTableau
+
+
+# Combined set of all algorithm buffer location parameters
+ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS = (
+    ALL_ERK_BUFFER_LOCATION_PARAMETERS
+    | ALL_DIRK_BUFFER_LOCATION_PARAMETERS
+    | ALL_FIRK_BUFFER_LOCATION_PARAMETERS
+    | ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS
+)
 
 
 __all__ = [
@@ -73,6 +86,11 @@ __all__ = [
     "RosenbrockBufferSettings",
     "RosenbrockLocalSizes",
     "RosenbrockSliceIndices",
+    "ALL_ERK_BUFFER_LOCATION_PARAMETERS",
+    "ALL_DIRK_BUFFER_LOCATION_PARAMETERS",
+    "ALL_FIRK_BUFFER_LOCATION_PARAMETERS",
+    "ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS",
+    "ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS",
 ]
 
 _ALGORITHM_REGISTRY = {
