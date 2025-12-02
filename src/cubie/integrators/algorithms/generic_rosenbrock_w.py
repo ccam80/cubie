@@ -459,7 +459,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         )
         self._cached_auxiliary_count = get_fn("cached_aux_count")
         self.compile_settings.buffer_settings.cached_auxiliary_count = (
-            self._cached_auxiliary_count()
+            self._cached_auxiliary_count
         )
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters

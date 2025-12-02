@@ -5,7 +5,7 @@ compile-critical metadata such as precision, save cadence, and device
 callbacks. They centralise validation so that loop factories receive
 consistent, ready-to-compile settings.
 """
-from typing import Callable, MutableMapping, Optional, Union, TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING
 
 from attrs import define, field, validators
 import numba
@@ -13,6 +13,7 @@ from numpy import float32
 
 from cubie._utils import (
     PrecisionDType,
+    getype_validator,
     gttype_validator,
     is_device_validator,
     precision_converter,
@@ -24,7 +25,10 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 if TYPE_CHECKING:
-    from cubie.integrators.loops.ode_loop import LoopBufferSettings
+    from cubie.integrators.loops.ode_loop import (
+        LoopBufferSettings,
+        LoopSliceIndices,
+    )
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
@@ -132,134 +136,6 @@ class LoopLocalIndices:
         """Return the loop's intrinsic persistent local requirement."""
         return int(self.loop_end or 0)
 
-@define
-class LoopSharedIndices:
-    """Slice container describing shared-memory buffer layouts.
-
-    This class holds slices for partitioning shared memory among loop
-    buffers. Size information should come from BufferSettings, not from
-    the slices themselves.
-
-    Attributes
-    ----------
-    state
-        Slice covering the primary state buffer.
-    proposed_state
-        Slice covering the proposed state buffer.
-    observables
-        Slice covering observable work buffers.
-    proposed_observables
-        Slice covering the proposed observable buffer.
-    parameters
-        Slice covering parameter storage.
-    drivers
-        Slice covering driver storage.
-    proposed_drivers
-        Slice covering the proposed driver storage.
-    state_summaries
-        Slice covering aggregated state summaries.
-    observable_summaries
-        Slice covering aggregated observable summaries.
-    error
-        Slice covering the shared error buffer reused by adaptive algorithms.
-    counters
-        Slice covering the iteration counters buffer.
-    proposed_counters
-        Slice covering the proposed iteration counters buffer.
-    local_end
-        Offset of the end of loop-managed shared memory.
-    scratch
-        Slice covering any remaining shared-memory scratch space.
-    all
-        Slice that spans the full shared-memory buffer.
-    """
-
-    state:  Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    proposed_state: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    observables: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    proposed_observables: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    parameters: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    drivers: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    proposed_drivers: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    state_summaries: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    observable_summaries: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    error: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    counters: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    proposed_counters: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    local_end: Optional[int] = field(
-            default=None,
-            validator=opt_getype_validator(int, 0)
-    )
-    scratch: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-    all: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
-
-    def from_dict(
-        self,
-        indices_dict: MutableMapping[str, Union[slice, tuple[int, ...]]],
-    ) -> None:
-        """Load indices from a mapping.
-
-        Parameters
-        ----------
-        indices_dict
-            Mapping of attribute names to slices or ``slice`` constructor
-            arguments.
-        """
-        for key, value in indices_dict.items():
-            if isinstance(value, slice):
-                setattr(self, key, value)
-            else:
-                setattr(self, key, slice(*value))
-
-        self.local_end = self.scratch.stop
-
-    @property
-    def loop_shared_elements(self) -> int:
-        """Return the number of shared memory elements."""
-        return int(self.local_end or 0)
-
 
 @define
 class ODELoopConfig:
@@ -267,10 +143,12 @@ class ODELoopConfig:
 
     Attributes
     ----------
-    shared_buffer_indices
-        Shared-memory layout describing scratch buffers and outputs.
-    local_indices
-        Persistent local-memory layout describing private buffers.
+    buffer_settings
+        Configuration for loop buffer sizes and memory locations.
+    controller_local_len
+        Number of persistent local memory elements for the controller.
+    algorithm_local_len
+        Number of persistent local memory elements for the algorithm.
     precision
         Precision used for all loop-managed computations.
     compile_flags
@@ -303,11 +181,16 @@ class ODELoopConfig:
         Whether the loop operates with an adaptive controller.
     """
 
-    shared_buffer_indices: LoopSharedIndices = field(
-        validator=validators.instance_of(LoopSharedIndices)
+    buffer_settings: "LoopBufferSettings" = field(
+        validator=validators.instance_of(object)
     )
-    local_indices: LoopLocalIndices = field(
-        validator=validators.instance_of(LoopLocalIndices)
+    controller_local_len: int = field(
+        default=0,
+        validator=getype_validator(int, 0)
+    )
+    algorithm_local_len: int = field(
+        default=0,
+        validator=getype_validator(int, 0)
     )
 
     precision: PrecisionDType = field(
@@ -370,10 +253,19 @@ class ODELoopConfig:
     is_adaptive: Optional[bool] = field(
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
-    buffer_settings: Optional["LoopBufferSettings"] = field(
-        default=None,
-        validator=validators.optional(validators.instance_of(object)),
-    )
+
+    @property
+    def shared_buffer_indices(self) -> "LoopSliceIndices":
+        """Return shared memory indices from buffer_settings."""
+        return self.buffer_settings.shared_indices
+
+    @property
+    def local_indices(self) -> LoopLocalIndices:
+        """Return local memory indices computed from size hints."""
+        return LoopLocalIndices.from_sizes(
+            self.controller_local_len,
+            self.algorithm_local_len
+        )
 
     @property
     def saves_per_summary(self) -> int:
@@ -419,12 +311,13 @@ class ODELoopConfig:
     def loop_shared_elements(self) -> int:
         """Return the loop's shared-memory contribution."""
 
-        local_end = getattr(self.shared_buffer_indices, "local_end", None)
-        return int(local_end or 0)
+        shared_end = self.shared_buffer_indices.local_end
+        return shared_end
 
     @property
     def loop_local_elements(self) -> int:
         """Return the loop's persistent local-memory contribution."""
 
         return self.local_indices.loop_elements
+
 

@@ -723,18 +723,24 @@ class DIRKStep(ODEImplicitStep):
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
+                for _i in range(stage_increment_local_size):
+                    stage_increment[_i] = numba_precision(0.0)
 
             if accumulator_shared:
                 stage_accumulator = shared[accumulator_slice]
             else:
                 stage_accumulator = cuda.local.array(accumulator_local_size,
                                                      precision)
+                for _i in range(accumulator_local_size):
+                    stage_accumulator[_i] = numba_precision(0.0)
 
             if solver_scratch_shared:
                 solver_scratch = shared[solver_scratch_slice]
             else:
                 solver_scratch = cuda.local.array(solver_scratch_local_size,
                                                   precision)
+                for _i in range(solver_scratch_local_size):
+                    solver_scratch[_i] = numba_precision(0.0)
 
             # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
@@ -743,8 +749,12 @@ class DIRKStep(ODEImplicitStep):
                 else:
                     stage_base = cuda.local.array(stage_base_local_size,
                                                   precision)
+                    for _i in range(stage_base_local_size):
+                        stage_base[_i] = numba_precision(0.0)
             else:
                 stage_base = cuda.local.array(stage_base_local_size, precision)
+                for _i in range(stage_base_local_size):
+                    stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #
 

@@ -585,6 +585,8 @@ class ERKStep(ODEExplicitStep):
                 stage_rhs = shared[stage_rhs_slice]
             else:
                 stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+                for _i in range(stage_rhs_local_size):
+                    stage_rhs[_i] = typed_zero
 
             if stage_accumulator_shared:
                 stage_accumulator = shared[stage_accumulator_slice]
@@ -592,6 +594,8 @@ class ERKStep(ODEExplicitStep):
                 stage_accumulator = cuda.local.array(
                     stage_accumulator_local_size, precision
                 )
+                for _i in range(stage_accumulator_local_size):
+                    stage_accumulator[_i] = typed_zero
 
             if multistage:
                 # stage_cache persists between steps for FSAL optimization.
