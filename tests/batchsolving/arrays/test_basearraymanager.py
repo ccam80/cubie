@@ -638,10 +638,10 @@ class TestBaseArrayManager:
                 ),
             }
         )
-        cuda.to_device(test_arrmgr.host.state.array, to=test_arrmgr.device.state.array)
-        cuda.to_device(
-            test_arrmgr.host.observables.array, to=test_arrmgr.device.observables.array
-        )
+
+        # Set device arrays to non-zero values directly
+        test_arrmgr.device.state.array[:] = 1.0
+        test_arrmgr.device.observables.array[:] = 1.0
 
         test1 = test_arrmgr.device.state.array.copy_to_host()
         test2 = test_arrmgr.device.observables.array.copy_to_host()
@@ -1063,10 +1063,13 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Arrays should be updated and marked for overwrite
-        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
-        assert (
-            test_manager_with_sizing.host.observables.array
-            is new_arrays["observables"]
+        # Note: stride conversion may create new array objects
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.state.array, new_arrays["state"]
+        )
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.observables.array,
+            new_arrays["observables"]
         )
         assert "state" in test_manager_with_sizing._needs_overwrite
         assert "observables" in test_manager_with_sizing._needs_overwrite
@@ -1091,7 +1094,10 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Array should be updated and marked for reallocation
-        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
+        # Note: stride conversion may create new array objects
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.state.array, new_arrays["state"]
+        )
         assert "state" in test_manager_with_sizing._needs_reallocation
 
     def test_update_host_arrays_size_mismatch(

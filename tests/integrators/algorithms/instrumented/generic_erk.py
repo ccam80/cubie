@@ -120,7 +120,8 @@ class ERKStep(ODEExplicitStep):
         has_error = self.is_adaptive
         first_same_as_last = self.first_same_as_last
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stages_except_first = stage_count - int32(1)
+        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
@@ -297,29 +298,31 @@ class ERKStep(ODEExplicitStep):
             #            Stages 1-s: refresh observables and drivers       #
             # ----------------------------------------------------------- #
 
-            for stage_idx in range(1, stage_count):
+            for prev_idx in range(stages_except_first):
+                stage_offset = prev_idx * n
+                stage_idx = prev_idx + int32(1)
+                matrix_col = stage_rhs_coeffs[prev_idx]
 
                 # Stream last result into the accumulators
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
-
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - 1) * n
+                for successor_idx in range(stages_except_first):
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
                     for idx in range(n):
-                        # 1x duplicated FMUL to avoid a memory save/load - nice
                         increment = stage_rhs[idx]
-                        contribution = state_coeff * increment
-                        stage_accumulator[base + idx] += contribution
+                        stage_accumulator[row_offset + idx] += (
+                            coeff * increment
+                        )
 
-                stage_offset = (stage_idx - 1) * n
+                base = stage_offset
                 dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
+                # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_scalar
-                    stage_accumulator[stage_offset + idx] += state[idx]
+                    stage_accumulator[base] = (
+                        stage_accumulator[base] * dt_scalar + state[idx]
+                    )
+                    base += int32(1)
 
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
 
