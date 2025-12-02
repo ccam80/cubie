@@ -61,5 +61,3 @@ generated/
 /docs/api/
 nvprof/
 
-# Agent planning files
-.github/active_plans/
