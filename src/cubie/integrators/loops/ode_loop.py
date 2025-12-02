@@ -22,7 +22,6 @@ from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import getype_validator, PrecisionDType
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
-                                                     LoopSharedIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
@@ -627,10 +626,6 @@ class LoopBufferSettings(BufferSettings):
         return self.calculate_shared_indices()
 
 
-# Alias for backwards compatibility
-LoopSharedIndicesFromSettings = LoopSliceIndices
-
-
 @attrs.define
 class IVPLoopCache(CUDAFunctionCache):
     """Cache for IVP loop device function.
@@ -662,12 +657,14 @@ class IVPLoop(CUDAFactory):
     ----------
     precision
         Precision used for state and observable updates.
-    shared_indices
-        Buffer layout describing slices of shared memory arrays.
-    local_indices
-        Buffer layout describing slices of persistent local memory.
+    buffer_settings
+        Configuration for loop buffer sizes and memory locations.
     compile_flags
         Output configuration that drives save and summary behaviour.
+    controller_local_len
+        Number of persistent local memory elements for the controller.
+    algorithm_local_len
+        Number of persistent local memory elements for the algorithm.
     dt_save
         Interval between accepted saves. Defaults to ``0.1`` when not
         provided.
@@ -701,15 +698,16 @@ class IVPLoop(CUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        shared_indices: LoopSharedIndices,
-        local_indices: LoopLocalIndices,
+        buffer_settings: LoopBufferSettings,
         compile_flags: OutputCompileFlags,
+        controller_local_len: int = 0,
+        algorithm_local_len: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        dt0: Optional[float]=None,
-        dt_min: Optional[float]=None,
-        dt_max: Optional[float]=None,
-        is_adaptive: Optional[bool]=None,
+        dt0: Optional[float] = None,
+        dt_min: Optional[float] = None,
+        dt_max: Optional[float] = None,
+        is_adaptive: Optional[bool] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -717,55 +715,13 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
-        buffer_settings: Optional["LoopBufferSettings"] = None,
     ) -> None:
         super().__init__()
 
-        # Create default buffer_settings from shared_indices if not provided.
-        # Defaults assume all buffers in shared memory, matching the legacy
-        # behaviour when buffer_settings was not used.
-        if buffer_settings is None:
-            n_states = shared_indices.state.stop - shared_indices.state.start
-            n_params = (shared_indices.parameters.stop
-                        - shared_indices.parameters.start)
-            n_drivers = (shared_indices.drivers.stop
-                         - shared_indices.drivers.start)
-            n_obs = (shared_indices.observables.stop
-                     - shared_indices.observables.start)
-            n_counters = (shared_indices.counters.stop
-                          - shared_indices.counters.start)
-            n_error = shared_indices.error.stop - shared_indices.error.start
-            state_summ_height = (shared_indices.state_summaries.stop
-                                 - shared_indices.state_summaries.start)
-            obs_summ_height = (shared_indices.observable_summaries.stop
-                               - shared_indices.observable_summaries.start)
-            buffer_settings = LoopBufferSettings(
-                n_states=n_states,
-                n_parameters=n_params,
-                n_drivers=n_drivers,
-                n_observables=n_obs,
-                n_counters=n_counters,
-                n_error=n_error,
-                state_summary_buffer_height=state_summ_height,
-                observable_summary_buffer_height=obs_summ_height,
-                # All buffers default to shared memory
-                state_buffer_location='shared',
-                state_proposal_location='shared',
-                parameters_location='shared',
-                drivers_location='shared',
-                drivers_proposal_location='shared',
-                observables_location='shared',
-                observables_proposal_location='shared',
-                error_location='shared',
-                counters_location='shared',
-                state_summary_location='shared',
-                observable_summary_location='shared',
-                scratch_location='shared',
-            )
-
         config = ODELoopConfig(
-            shared_buffer_indices=shared_indices,
-            local_indices=local_indices,
+            buffer_settings=buffer_settings,
+            controller_local_len=controller_local_len,
+            algorithm_local_len=algorithm_local_len,
             save_state_fn=save_state_func,
             update_summaries_fn=update_summaries_func,
             save_summaries_fn=save_summaries_func,
@@ -781,7 +737,6 @@ class IVPLoop(CUDAFactory):
             dt_min=dt_min,
             dt_max=dt_max,
             is_adaptive=is_adaptive,
-            buffer_settings=buffer_settings,
         )
         self.setup_compile_settings(config)
 
@@ -1377,13 +1332,13 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def shared_buffer_indices(self) -> LoopSharedIndices:
+    def shared_buffer_indices(self) -> LoopSliceIndices:
         """Return the shared buffer index layout."""
 
         return self.compile_settings.shared_buffer_indices
 
     @property
-    def buffer_indices(self) -> LoopSharedIndices:
+    def buffer_indices(self) -> LoopSliceIndices:
         """Return the shared buffer index layout."""
 
         return self.shared_buffer_indices

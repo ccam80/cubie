@@ -23,8 +23,6 @@ from cubie.integrators.loops.ode_loop import (
     ALL_LOOP_SETTINGS,
     LoopBufferSettings,
 )
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
 
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -173,7 +171,7 @@ def _build_loop_instance(
         observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
         n_error=n_error,
         n_counters=0,
-        # Use all-shared layout matching previous from_sizes behavior
+        # Use all-shared layout
         state_buffer_location='shared',
         state_proposal_location='shared',
         parameters_location='shared',
@@ -186,36 +184,14 @@ def _build_loop_instance(
         state_summary_location='shared',
         observable_summary_location='shared',
     )
-    loop_indices = buffer_settings.shared_indices
     
-    # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
-    shared_indices = LoopSharedIndices(
-        state=loop_indices.state,
-        proposed_state=loop_indices.proposed_state,
-        observables=loop_indices.observables,
-        proposed_observables=loop_indices.proposed_observables,
-        parameters=loop_indices.parameters,
-        drivers=loop_indices.drivers,
-        proposed_drivers=loop_indices.proposed_drivers,
-        state_summaries=loop_indices.state_summaries,
-        observable_summaries=loop_indices.observable_summaries,
-        error=loop_indices.error,
-        counters=loop_indices.counters,
-        proposed_counters=loop_indices.proposed_counters,
-        local_end=loop_indices.local_end,
-        scratch=loop_indices.scratch,
-        all=loop_indices.all,
-    )
-    local_indices = LoopLocalIndices.from_sizes(
-        controller_len=step_controller.local_memory_elements,
-        algorithm_len=step_object.persistent_local_required,
-    )
     driver_function = _get_driver_function(driver_array)
     return IVPLoop(
         precision=precision,
-        shared_indices=shared_indices,
-        local_indices=local_indices,
+        buffer_settings=buffer_settings,
         compile_flags=output_functions.compile_flags,
+        controller_local_len=step_controller.local_memory_elements,
+        algorithm_local_len=step_object.persistent_local_required,
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
@@ -230,6 +206,8 @@ def _build_loop_instance(
         dt_max=step_controller.dt_max,
         is_adaptive=step_controller.is_adaptive,
     )
+
+
 def _build_cpu_step_controller(
     precision: np.dtype,
     step_controller_settings: Dict[str, Any],

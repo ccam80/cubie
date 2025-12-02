@@ -21,8 +21,6 @@ from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
@@ -329,7 +327,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         IVPLoop
             Configured loop instance ready for CUDA compilation.
         """
-        # Use LoopBufferSettings to calculate shared memory indices
         n_counters = 4 if compile_flags.save_counters else 0
         buffer_settings = LoopBufferSettings(
             n_states=n_states,
@@ -340,7 +337,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout matching previous from_sizes behavior
+            # Use all-shared layout
             state_buffer_location='shared',
             state_proposal_location='shared',
             parameters_location='shared',
@@ -353,37 +350,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             state_summary_location='shared',
             observable_summary_location='shared',
         )
-        loop_indices = buffer_settings.shared_indices
-
-        # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
-        shared_indices = LoopSharedIndices(
-            state=loop_indices.state,
-            proposed_state=loop_indices.proposed_state,
-            observables=loop_indices.observables,
-            proposed_observables=loop_indices.proposed_observables,
-            parameters=loop_indices.parameters,
-            drivers=loop_indices.drivers,
-            proposed_drivers=loop_indices.proposed_drivers,
-            state_summaries=loop_indices.state_summaries,
-            observable_summaries=loop_indices.observable_summaries,
-            error=loop_indices.error,
-            counters=loop_indices.counters,
-            proposed_counters=loop_indices.proposed_counters,
-            local_end=loop_indices.local_end,
-            scratch=loop_indices.scratch,
-            all=loop_indices.all,
-        )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=controller_local_elements,
-            algorithm_len=algorithm_local_elements,
-        )
 
         loop_kwargs = dict(loop_settings)
         loop_kwargs.update(
             precision=precision,
-            shared_indices=shared_indices,
-            local_indices=local_indices,
+            buffer_settings=buffer_settings,
             compile_flags=compile_flags,
+            controller_local_len=controller_local_elements,
+            algorithm_local_len=algorithm_local_elements,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -488,7 +462,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            # Use all-shared layout matching previous from_sizes behavior
+            # Use all-shared layout
             state_buffer_location='shared',
             state_proposal_location='shared',
             parameters_location='shared',
@@ -501,32 +475,12 @@ class SingleIntegratorRunCore(CUDAFactory):
             state_summary_location='shared',
             observable_summary_location='shared',
         )
-        loop_indices = buffer_settings.shared_indices
-        
-        # Convert LoopSliceIndices to LoopSharedIndices for IVPLoop
-        shared_indices = LoopSharedIndices(
-            state=loop_indices.state,
-            proposed_state=loop_indices.proposed_state,
-            observables=loop_indices.observables,
-            proposed_observables=loop_indices.proposed_observables,
-            parameters=loop_indices.parameters,
-            drivers=loop_indices.drivers,
-            proposed_drivers=loop_indices.proposed_drivers,
-            state_summaries=loop_indices.state_summaries,
-            observable_summaries=loop_indices.observable_summaries,
-            error=loop_indices.error,
-            counters=loop_indices.counters,
-            proposed_counters=loop_indices.proposed_counters,
-            local_end=loop_indices.local_end,
-            scratch=loop_indices.scratch,
-            all=loop_indices.all,
-        )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=self._step_controller.local_memory_elements,
-            algorithm_len=self._algo_step.persistent_local_required,
-        )
-        updates_dict.update({'shared_buffer_indices': shared_indices,
-                             'local_indices': local_indices})
+
+        updates_dict.update({
+            'buffer_settings': buffer_settings,
+            'controller_local_len': self._step_controller.local_memory_elements,
+            'algorithm_local_len': self._algo_step.persistent_local_required,
+        })
 
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)

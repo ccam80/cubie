@@ -2,7 +2,6 @@
 import pytest
 from cubie.integrators.loops.ode_loop import (
     LoopBufferSettings,
-    LoopSharedIndicesFromSettings,
     LoopLocalSizes,
     LoopSliceIndices,
 )
@@ -222,12 +221,12 @@ class TestLoopBufferSettingsIndices:
         assert indices.scratch.start == indices.local_end
 
 
-class TestLoopSharedIndicesFromSettings:
-    """Tests for LoopSharedIndicesFromSettings properties."""
+class TestLoopSliceIndicesProperties:
+    """Tests for LoopSliceIndices properties."""
 
     def test_n_states_property(self):
         """n_states should reflect state slice width."""
-        indices = LoopSharedIndicesFromSettings(
+        indices = LoopSliceIndices(
             state=slice(0, 5),
             proposed_state=slice(5, 10),
             observables=slice(10, 12),
@@ -250,7 +249,7 @@ class TestLoopSharedIndicesFromSettings:
 
     def test_loop_shared_elements_property(self):
         """loop_shared_elements should return local_end."""
-        indices = LoopSharedIndicesFromSettings(
+        indices = LoopSliceIndices(
             state=slice(0, 3),
             proposed_state=slice(3, 6),
             observables=slice(6, 8),
