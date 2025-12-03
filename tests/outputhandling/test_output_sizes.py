@@ -7,8 +7,6 @@ import pytest
 import attrs
 
 from cubie.outputhandling.output_sizes import (
-    SummariesBufferSizes,
-    LoopBufferSizes,
     OutputArrayHeights,
     SingleRunOutputSizes,
     BatchOutputSizes,
@@ -21,7 +19,10 @@ class TestNonzeroProperty:
 
     def test_nonzero_property_int_values(self):
         """Test that nonzero property converts zero int values to 1"""
-        sizes = SummariesBufferSizes(state=0, observables=0, per_variable=5)
+        sizes = OutputArrayHeights(
+            state=0, observables=0, state_summaries=0,
+            observable_summaries=0, per_variable=5
+        )
         nonzero_sizes = sizes.nonzero
 
         assert nonzero_sizes.state == 1
@@ -45,7 +46,10 @@ class TestNonzeroProperty:
 
     def test_nonzero_property_preserves_original(self):
         """Test that nonzero property doesn't modify the original object"""
-        original = SummariesBufferSizes(state=0, observables=3, per_variable=0)
+        original = OutputArrayHeights(
+            state=0, observables=3, state_summaries=0,
+            observable_summaries=0, per_variable=0
+        )
         nonzero_copy = original.nonzero
 
         # Original should be unchanged
@@ -87,188 +91,6 @@ def run_settings(run_settings_override):
         if hasattr(default_settings, key):
             setattr(default_settings, key, value)
     return default_settings
-
-
-class TestSummariesBufferSizes:
-    """Test SummariesBufferSizes class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param({"state": 5, "observables": 3}, id="normal_values"),
-            pytest.param({"state": 0, "observables": 0}, id="zeros"),
-            pytest.param({"state": 10, "observables": 7}, id="larger_values"),
-        ],
-    )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of SummariesBufferSizes"""
-        sizes = SummariesBufferSizes(**test_data)
-        assert sizes.state == test_data["state"]
-        assert sizes.observables == test_data["observables"]
-
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        sizes = SummariesBufferSizes(state=0, observables=0, per_variable=5)
-        nonzero_sizes = sizes.nonzero
-
-        assert nonzero_sizes.state == 1
-        assert nonzero_sizes.observables == 1
-        assert nonzero_sizes.per_variable == 5
-
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
-    def test_from_output_fns_default(self, output_functions):
-        """Test creating SummariesBufferSizes from output_functions"""
-        sizes = SummariesBufferSizes.from_output_fns(output_functions)
-
-        assert sizes.state == output_functions.state_summaries_buffer_height
-        assert (
-            sizes.observables
-            == output_functions.observable_summaries_buffer_height
-        )
-
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
-    def test_explicit_vs_from_output_fns(self, output_functions):
-        """Test that explicit initialization matches from_output_fns result"""
-        from_fns = SummariesBufferSizes.from_output_fns(output_functions)
-        explicit = SummariesBufferSizes(
-            state=output_functions.state_summaries_buffer_height,
-            observables=output_functions.observable_summaries_buffer_height,
-        )
-
-        assert from_fns.state == explicit.state
-        assert from_fns.observables == explicit.observables
-
-
-class TestLoopBufferSizes:
-    """Test LoopBufferSizes class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param(
-                {
-                    "state_summaries": 5,
-                    "observable_summaries": 3,
-                    "state": 3,
-                    "observables": 4,
-                    "dxdt": 3,
-                    "parameters": 2,
-                    "drivers": 2,
-                },
-                id="normal_values",
-            ),
-            pytest.param(
-                {
-                    "state_summaries": 0,
-                    "observable_summaries": 0,
-                    "state": 0,
-                    "observables": 0,
-                    "dxdt": 0,
-                    "parameters": 0,
-                    "drivers": 0,
-                },
-                id="zeros",
-            ),
-        ],
-    )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of LoopBufferSizes"""
-        sizes = LoopBufferSizes(**test_data)
-
-        assert sizes.state_summaries == test_data["state_summaries"]
-        assert sizes.observable_summaries == test_data["observable_summaries"]
-        assert sizes.state == test_data["state"]
-        assert sizes.observables == test_data["observables"]
-        assert sizes.dxdt == test_data["dxdt"]
-        assert sizes.parameters == test_data["parameters"]
-        assert sizes.drivers == test_data["drivers"]
-
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        sizes = LoopBufferSizes(
-            state_summaries=0,
-            observable_summaries=0,
-            state=0,
-            observables=0,
-            dxdt=0,
-            parameters=0,
-            drivers=0,
-        )
-        nonzero_sizes = sizes.nonzero
-
-        # All values should be at least 1
-        assert nonzero_sizes.state_summaries == 1
-        assert nonzero_sizes.observable_summaries == 1
-        assert nonzero_sizes.state == 1
-        assert nonzero_sizes.observables == 1
-        assert nonzero_sizes.dxdt == 1
-        assert nonzero_sizes.parameters == 1
-        assert nonzero_sizes.drivers == 1
-
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
-    def test_from_system_and_output_fns_default(
-        self, system, output_functions
-    ):
-        """Test creating LoopBufferSizes from system and output_functions"""
-        sizes = LoopBufferSizes.from_system_and_output_fns(
-            system, output_functions
-        )
-
-        assert (
-            sizes.state_summaries
-            == output_functions.state_summaries_buffer_height
-        )
-        assert (
-            sizes.observable_summaries
-            == output_functions.observable_summaries_buffer_height
-        )
-        assert sizes.state == system.sizes.states
-        assert sizes.observables == system.sizes.observables
-        assert sizes.dxdt == system.sizes.states
-        assert sizes.parameters == system.sizes.parameters
-        assert sizes.drivers == system.sizes.drivers
-
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
-    def test_explicit_vs_from_system_and_output_fns(
-        self, system, output_functions
-    ):
-        """Test that explicit initialization matches from_system_and_output_fns result"""
-        from_fns = LoopBufferSizes.from_system_and_output_fns(
-            system, output_functions
-        )
-        explicit = LoopBufferSizes(
-            state_summaries=output_functions.state_summaries_buffer_height,
-            observable_summaries=output_functions.observable_summaries_buffer_height,
-            state=system.sizes.states,
-            observables=system.sizes.observables,
-            dxdt=system.sizes.states,
-            parameters=system.sizes.parameters,
-            drivers=system.sizes.drivers,
-        )
-
-        assert from_fns.state_summaries == explicit.state_summaries
-        assert from_fns.observable_summaries == explicit.observable_summaries
-        assert from_fns.state == explicit.state
-        assert from_fns.observables == explicit.observables
-        assert from_fns.dxdt == explicit.dxdt
-        assert from_fns.parameters == explicit.parameters
-        assert from_fns.drivers == explicit.drivers
 
 
 class TestOutputArrayHeights:
@@ -683,26 +505,17 @@ class TestIntegrationScenarios:
         self, system, solverkernel, output_functions
     ):
         """Test edge case where everything is zero but using nonzero property"""
-        numruns = 0
 
         # Test with nonzero property - everything should become at least 1
         single_run = SingleRunOutputSizes.from_solver(solverkernel)
         batch = BatchOutputSizes.from_solver(solverkernel)
-        loop_buffer = LoopBufferSizes.from_system_and_output_fns(
-            system, output_functions
-        )
 
         # Use nonzero property to get nonzero versions
         nonzero_single_run = single_run.nonzero
         nonzero_batch = batch.nonzero
-        nonzero_loop_buffer = loop_buffer.nonzero
 
         assert all(v >= 1 for v in nonzero_single_run.state)
         assert all(v >= 1 for v in nonzero_single_run.observables)
 
         assert all(v >= 1 for v in nonzero_batch.state)
         assert all(v >= 1 for v in nonzero_batch.observables)
-
-        assert nonzero_loop_buffer.state >= 1
-        assert nonzero_loop_buffer.observables >= 1
-        assert nonzero_loop_buffer.parameters >= 1

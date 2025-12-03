@@ -578,13 +578,6 @@ def test_solver_state_and_observable_summaries(solver):
     assert solver.state_summaries is not None
     assert solver.observable_summaries is not None
 
-
-def test_solver_summaries_buffer_sizes(solver):
-    """Test summaries buffer sizes property."""
-    buffer_sizes = solver.summaries_buffer_sizes
-    assert buffer_sizes is not None
-
-
 def test_solver_num_runs_property(solver):
     """Test num_runs property."""
     num_runs = solver.num_runs
