@@ -679,23 +679,15 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        For 2D arrays, expects input in (run, variable) format from user
-        and transposes to (variable, run) for run-contiguous device layout.
+        For 2D arrays, returns unchanged (expects input in native format).
         For 3D arrays, creates a new array with strides matching the memory
         manager's ``_stride_order``, then copies data.
         """
         if stride_order is None:
             return array
 
-        # Handle 2D arrays: transpose from user format (run, variable)
-        # to device format (variable, run) for run-contiguous layout.
-        # The condition checks if internal stride_order expects variable-first,
-        # implying user input is run-first and needs transposition.
+        # 2D arrays are expected in native (variable, run) format
         if len(array.shape) == 2:
-            if len(stride_order) == 2 and stride_order[0] == "variable":
-                # User provides (n_runs, n_variables) in run-first format
-                # Transpose to get internal (n_variables, n_runs) format
-                return np.ascontiguousarray(array.T)
             return array
 
         # Handle 3D arrays

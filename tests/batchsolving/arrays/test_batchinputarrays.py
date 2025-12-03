@@ -53,13 +53,11 @@ def input_arrays_manager(precision, solver, input_test_settings):
 
 @pytest.fixture(scope="function")
 def sample_input_arrays(solver, input_test_settings, precision):
-    """Create sample input arrays for testing based on real solver
+    """Create sample input arrays for testing based on real solver.
     
-    Arrays are created in user-facing format (run, variable) to match
-    what BatchGridBuilder.grid_arrays() returns. The InputArrays manager
-    will transpose these to internal format (variable, run).
-    
-    driver_coefficients uses a simplified 2D format for testing.
+    Arrays are created in native (variable, run) format matching the internal
+    representation used by the solver. This format has run in the rightmost
+    dimension for CUDA memory coalescing.
     """
     num_runs = input_test_settings["num_runs"]
     dtype = precision
@@ -68,14 +66,12 @@ def sample_input_arrays(solver, input_test_settings, precision):
     parameters_count = solver.system_sizes.parameters
     forcing_count = solver.system_sizes.drivers
 
-    # User-facing format: (run, variable) - will be transposed internally
+    # Native format: (variable, run) - run in rightmost dimension
     return {
-        "initial_values": np.random.rand(num_runs, variables_count).astype(
+        "initial_values": np.random.rand(variables_count, num_runs).astype(
             dtype
         ),
-        "parameters": np.random.rand(num_runs, parameters_count).astype(dtype),
-        # driver_coefficients uses internal format (forcing, run) directly
-        # since the 3D transpose logic doesn't apply to this 2D test fixture
+        "parameters": np.random.rand(parameters_count, num_runs).astype(dtype),
         "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
             dtype
         ),
@@ -175,16 +171,14 @@ class TestInputArrays:
         )
 
         # Check that host arrays were updated
-        # Arrays are transposed from user format (run, variable) to
-        # internal format (variable, run)
+        # Arrays are in native (variable, run) format - no transpose needed
         assert_array_equal(
             input_arrays_manager.initial_values,
-            sample_input_arrays["initial_values"].T,
+            sample_input_arrays["initial_values"],
         )
         assert_array_equal(
-            input_arrays_manager.parameters, sample_input_arrays["parameters"].T
+            input_arrays_manager.parameters, sample_input_arrays["parameters"]
         )
-        # driver_coefficients uses internal format directly in fixture
         assert_array_equal(
             input_arrays_manager.driver_coefficients,
             sample_input_arrays["driver_coefficients"],
@@ -202,15 +196,14 @@ class TestInputArrays:
         forcing_count = solver.system_sizes.drivers
 
         # Initial call with original sizes
-        # Use user format (run, variable) - will be transposed internally
+        # Native format: (variable, run)
         initial_arrays = {
-            "initial_values": np.random.rand(num_runs, variables_count).astype(
+            "initial_values": np.random.rand(variables_count, num_runs).astype(
                 dtype
             ),
-            "parameters": np.random.rand(num_runs, parameters_count).astype(
+            "parameters": np.random.rand(parameters_count, num_runs).astype(
                 dtype
             ),
-            # driver_coefficients uses internal format directly
             "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
                 dtype
             ),
@@ -229,15 +222,14 @@ class TestInputArrays:
 
         # Call with different sized arrays (more runs)
         new_num_runs = num_runs + 2
-        # Use user format (run, variable) - will be transposed internally
+        # Native format: (variable, run)
         new_arrays = {
             "initial_values": np.random.rand(
-                new_num_runs, variables_count
+                variables_count, new_num_runs
             ).astype(dtype),
             "parameters": np.random.rand(
-                new_num_runs, parameters_count
+                parameters_count, new_num_runs
             ).astype(dtype),
-            # driver_coefficients uses internal format directly
             "driver_coefficients": np.random.rand(
                 forcing_count, new_num_runs
             ).astype(dtype),
@@ -255,7 +247,7 @@ class TestInputArrays:
             input_arrays_manager.device_initial_values
             is not original_device_initial_values
         )
-        # Internal format is (variable, run)
+        # Native format is (variable, run)
         assert input_arrays_manager.device_initial_values.shape == (
             variables_count,
             new_num_runs,
@@ -294,17 +286,15 @@ class TestInputArrays:
         input_arrays_manager.initialise(host_indices)
 
         # Check that device arrays now match host arrays
-        # Arrays are transposed from user format (run, variable) to
-        # internal format (variable, run)
+        # Arrays are in native (variable, run) format - no transpose needed
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.initial_values.array),
-            sample_input_arrays["initial_values"].T,
+            sample_input_arrays["initial_values"],
         )
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.parameters.array),
-            sample_input_arrays["parameters"].T,
+            sample_input_arrays["parameters"],
         )
-        # driver_coefficients uses internal format directly in fixture
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.driver_coefficients.array),
             sample_input_arrays["driver_coefficients"],

@@ -799,19 +799,25 @@ class BatchGridBuilder:
         Parameters
         ----------
         states
-            Initial state array to cast.
+            Initial state array to cast. Expected in (run, variable) format.
         params
-            Parameter array to cast.
+            Parameter array to cast. Expected in (run, variable) format.
 
         Returns
         -------
         tuple of np.ndarray and np.ndarray
-            State and parameter arrays with ``dtype`` matching
-            ``self.precision``.
+            State and parameter arrays transposed to (variable, run) format
+            with ``dtype`` matching ``self.precision``.
         """
+        # Transpose from (run, variable) to (variable, run) for CUDA memory
+        # coalescing. Run dimension in rightmost position is optimal.
         return (
-            states.astype(self.precision, copy=False),
-            params.astype(self.precision, copy=False),
+            np.ascontiguousarray(
+                states.astype(self.precision, copy=False).T
+            ),
+            np.ascontiguousarray(
+                params.astype(self.precision, copy=False).T
+            ),
         )
 
     # ------------------------------------------------------------------

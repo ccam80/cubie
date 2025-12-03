@@ -273,7 +273,8 @@ class BatchSolverKernel(CUDAFactory):
         self._warmup = warmup
         self._t0 = t0
 
-        numruns = inits.shape[0]
+        # inits is in (variable, run) format - run count is in shape[1]
+        numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
         # Queue allocations

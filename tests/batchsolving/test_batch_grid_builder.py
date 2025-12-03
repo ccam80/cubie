@@ -81,8 +81,9 @@ def test_grid_arrays(grid_builder, system):
     param_names = list(system.parameters.names)
     request = {state_names[0]: [0, 1], param_names[0]: [10, 20]}
     inits, params = grid_builder.grid_arrays(request, kind="combinatorial")
-    assert inits.shape == (4, system.sizes.states)
-    assert params.shape == (4, system.sizes.parameters)
+    # Arrays are in (variable, run) format for CUDA memory coalescing
+    assert inits.shape == (system.sizes.states, 4)
+    assert params.shape == (system.sizes.parameters, 4)
 
 
 def test_call_with_request(grid_builder, system):
@@ -90,7 +91,8 @@ def test_call_with_request(grid_builder, system):
     param_names = list(system.parameters.names)
     request = {state_names[0]: [0, 1], param_names[0]: [10, 20]}
     inits, params = grid_builder(request=request, kind="combinatorial")
-    assert inits.shape[0] == params.shape[0] == 4
+    # Arrays are in (variable, run) format - runs in shape[1]
+    assert inits.shape[1] == params.shape[1] == 4
 
 
 def test_unique_cartesian_product(example_arrays, example_grids):
@@ -226,22 +228,24 @@ def test_grid_arrays_1each(grid_builder, batch_request, batch_settings):
     initial_values_array, params_array = grid_builder.grid_arrays(
         batch_request, kind=kind
     )
+    # Arrays are in (variable, run) format
     assert (
-        initial_values_array.shape[1]
+        initial_values_array.shape[0]
         == grid_builder.states.values_array.shape[0]
     )
     assert (
-        params_array.shape[1] == grid_builder.parameters.values_array.shape[0]
+        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
     )
     if kind == "combinatorial":
+        # Run count is in shape[1]
         assert (
-            initial_values_array.shape[0]
+            initial_values_array.shape[1]
             == batch_settings["num_state_vals"]
             * batch_settings["num_param_vals"]
         )
     elif kind == "verbatim":
         assert (
-            initial_values_array.shape[0] == batch_settings["num_state_vals"]
+            initial_values_array.shape[1] == batch_settings["num_state_vals"]
         )
 
 
@@ -271,18 +275,20 @@ def test_grid_arrays_2and2(system, grid_builder, batch_settings):
         request, kind=kind
     )
 
+    # Arrays are in (variable, run) format
     assert (
-        initial_values_array.shape[1]
+        initial_values_array.shape[0]
         == grid_builder.states.values_array.shape[0]
     )
     assert (
-        params_array.shape[1] == grid_builder.parameters.values_array.shape[0]
+        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
     )
 
+    # Run count is in shape[1]
     if kind == "combinatorial":
-        assert initial_values_array.shape[0] == numinits**2 * numparams**2
+        assert initial_values_array.shape[1] == numinits**2 * numparams**2
     elif kind == "verbatim":
-        assert initial_values_array.shape[0] == numinits
+        assert initial_values_array.shape[1] == numinits
 
 
 @pytest.mark.parametrize(
@@ -339,18 +345,20 @@ def test_grid_arrays_empty_inputs(system, grid_builder, batch_settings):
         request, kind=kind
     )
 
+    # Arrays are in (variable, run) format
     assert (
-        initial_values_array.shape[1]
+        initial_values_array.shape[0]
         == grid_builder.states.values_array.shape[0]
     )
     assert (
-        params_array.shape[1] == grid_builder.parameters.values_array.shape[0]
+        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
     )
 
+    # Run count is in shape[1]
     if kind == "combinatorial":
-        assert initial_values_array.shape[0] == numinits * numparams
+        assert initial_values_array.shape[1] == numinits * numparams
     elif kind == "verbatim":
-        assert initial_values_array.shape[0] == numinits
+        assert initial_values_array.shape[1] == numinits
 
 
 @pytest.fixture(scope="function")
@@ -478,16 +486,17 @@ def test_call_input_types(
 
     sizes = system.sizes
 
-    assert initial.shape[0] == param.shape[0]
-    assert initial.shape[1] == sizes.states
-    assert param.shape[1] == sizes.parameters
+    # Arrays are in (variable, run) format
+    assert initial.shape[1] == param.shape[1]  # Same number of runs
+    assert initial.shape[0] == sizes.states  # Variables in shape[0]
+    assert param.shape[0] == sizes.parameters
     assert_array_equal(
-        param[:, -1],
-        np.full_like(param[:, -1], system.parameters.values_array[-1]),
+        param[-1, :],
+        np.full_like(param[-1, :], system.parameters.values_array[-1]),
     )
     assert_array_equal(
-        initial[:, -1],
-        np.full_like(initial[:, -1], system.initial_values.values_array[-1]),
+        initial[-1, :],
+        np.full_like(initial[-1, :], system.initial_values.values_array[-1]),
     )
 
 
@@ -554,13 +563,20 @@ def test_call_outputs(system, grid_builder):
 
 
 def extend_test_array(array, values_object):
-    """Extend a 2D array to match the system's initial values size."""
-    return np.pad(
+    """Extend a 2D array to match the system's initial values size.
+    
+    Input array is in (run, variable) format. Output is padded and transposed
+    to (variable, run) format to match BatchGridBuilder output.
+    """
+    # Pad in variable dimension (axis 1)
+    padded = np.pad(
         array,
         ((0, 0), (0, values_object.n - array.shape[1])),
         mode="constant",
         constant_values=values_object.values_array[array.shape[1] :],
     )
+    # Transpose to (variable, run) format
+    return padded.T
 
 
 def test_docstring_examples(grid_builder, system, tolerance):
@@ -572,6 +588,7 @@ def test_docstring_examples(grid_builder, system, tolerance):
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="combinatorial"
     )
+    # Expected arrays in (variable, run) format - transposed from original
     expected_initial_large = np.array(
         [
             [1.0, 0.5, 1.2],
@@ -591,7 +608,7 @@ def test_docstring_examples(grid_builder, system, tolerance):
             [2.0, 1.5, 1.2],
             [2.0, 1.5, 1.2],
         ]
-    )
+    ).T
     expected_params_large = np.array(
         [
             [0.1, 10.0, 1.1],
@@ -611,7 +628,7 @@ def test_docstring_examples(grid_builder, system, tolerance):
             [0.2, 10.0, 1.1],
             [0.2, 20.0, 1.1],
         ]
-    )
+    ).T
     assert_allclose(
         initial_states,
         expected_initial_large,
@@ -631,8 +648,9 @@ def test_docstring_examples(grid_builder, system, tolerance):
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="verbatim"
     )
-    expected_initial = np.array([[1.0, 2.0, 1.2], [0.5, 1.5, 1.2]])
-    expected_params = np.array([[0.1, 0.2, 1.1], [10.0, 20.0, 1.1]])
+    # Expected arrays in (variable, run) format
+    expected_initial = np.array([[1.0, 2.0, 1.2], [0.5, 1.5, 1.2]]).T
+    expected_params = np.array([[0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]).T
     assert_allclose(
         initial_states,
         expected_initial,
@@ -650,12 +668,13 @@ def test_docstring_examples(grid_builder, system, tolerance):
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="combinatorial"
     )
+    # Expected arrays in (variable, run) format
     expected_initial = np.array(
         [[1.0, 2.0, 1.2], [1.0, 2.0, 1.2], [0.5, 1.5, 1.2], [0.5, 1.5, 1.2]]
-    )
+    ).T
     expected_params = np.array(
         [[0.1, 0.2, 1.1], [10.0, 20.0, 1.1], [0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]
-    )
+    ).T
     assert_allclose(
         initial_states,
         expected_initial,
@@ -710,8 +729,9 @@ def test_docstring_examples(grid_builder, system, tolerance):
     initial_states, parameters = grid_builder(
         request=request, kind="combinatorial"
     )
-    expected_params = np.array([[0.1, 0.90, 1.1], [0.2, 0.9, 1.1]])
-    expected_initial = np.array([[0.5, -0.25, 1.2], [0.5, -0.25, 1.2]])
+    # Expected arrays in (variable, run) format
+    expected_params = np.array([[0.1, 0.90, 1.1], [0.2, 0.9, 1.1]]).T
+    expected_initial = np.array([[0.5, -0.25, 1.2], [0.5, -0.25, 1.2]]).T
     assert_allclose(
         initial_states,
         expected_initial,
