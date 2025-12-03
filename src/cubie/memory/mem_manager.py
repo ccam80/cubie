@@ -937,20 +937,28 @@ class MemoryManager:
 
         Notes
         -----
-        For 3D arrays, this method creates an array with strides that match
-        the memory manager's ``_stride_order``. The array is created by
-        allocating with the desired stride order, then transposing back to
-        the native order. This ensures that ``copy_to_host`` operations
-        succeed when copying from device arrays allocated with custom strides.
+        For 3D arrays, this method creates a pinned array with strides that
+        match the memory manager's ``_stride_order``. Pinned memory is used
+        to enable truly asynchronous device-to-host transfers when using
+        CUDA streams. The array is created by allocating with the desired
+        stride order, then transposing back to the native order. This ensures
+        that ``copy_to_host`` operations succeed when copying from device
+        arrays allocated with custom strides.
 
-        For 2D and 1D arrays, a standard C-contiguous array is returned.
+        For 2D and 1D arrays, a standard C-contiguous pinned array is
+        returned to support async transfers.
         """
+        _ensure_cuda_context()
         if len(shape) != 3 or stride_order is None:
-            return np.zeros(shape, dtype=dtype)
+            arr = cuda.pinned_array(shape, dtype=dtype)
+            arr[:] = 0
+            return arr
 
         desired_order = self._stride_order
         if stride_order == desired_order:
-            return np.zeros(shape, dtype=dtype)
+            arr = cuda.pinned_array(shape, dtype=dtype)
+            arr[:] = 0
+            return arr
 
         # Build shape in desired stride order
         shape_map = {
@@ -958,8 +966,9 @@ class MemoryManager:
         }
         ordered_shape = tuple(shape_map[dim] for dim in desired_order)
 
-        # Create array in desired stride order (contiguous in that order)
-        arr = np.zeros(ordered_shape, dtype=dtype)
+        # Create pinned array in desired stride order (contiguous in order)
+        arr = cuda.pinned_array(ordered_shape, dtype=dtype)
+        arr[:] = 0
 
         # Compute transpose axes to return to native order
         # We need axes that map desired_order -> stride_order
