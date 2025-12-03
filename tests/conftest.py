@@ -18,9 +18,12 @@ from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
-from cubie.integrators.loops.ode_loop import IVPLoop, ALL_LOOP_SETTINGS
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
+from cubie.integrators.loops.ode_loop import (
+    IVPLoop,
+    ALL_LOOP_SETTINGS,
+    ALL_BUFFER_LOCATION_PARAMETERS,
+    LoopBufferSettings,
+)
 
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -52,7 +55,7 @@ from tests.system_fixtures import (
 
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
-
+np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -156,29 +159,28 @@ def _build_loop_instance(
     driver_array: Optional[ArrayInterpolator],
 ) -> IVPLoop:
     """Construct an :class:`IVPLoop` instance for device loop tests."""
-
-    shared_indices = LoopSharedIndices.from_sizes(
+    
+    n_error = loop_buffer_sizes.state if step_object.is_adaptive else 0
+    
+    # Build buffer settings with all-shared layout
+    buffer_settings = LoopBufferSettings(
         n_states=loop_buffer_sizes.state,
-        n_observables=loop_buffer_sizes.observables,
         n_parameters=loop_buffer_sizes.parameters,
         n_drivers=loop_buffer_sizes.drivers,
-        state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
-        observable_summaries_buffer_height=
-        loop_buffer_sizes.observable_summaries,
-        n_error=(
-            loop_buffer_sizes.state if step_object.is_adaptive else 0
-        ),
+        n_observables=loop_buffer_sizes.observables,
+        state_summary_buffer_height=loop_buffer_sizes.state_summaries,
+        observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
+        n_error=n_error,
+        n_counters=0
     )
-    local_indices = LoopLocalIndices.from_sizes(
-        controller_len=step_controller.local_memory_elements,
-        algorithm_len=step_object.persistent_local_required,
-    )
+    
     driver_function = _get_driver_function(driver_array)
     return IVPLoop(
         precision=precision,
-        shared_indices=shared_indices,
-        local_indices=local_indices,
+        buffer_settings=buffer_settings,
         compile_flags=output_functions.compile_flags,
+        controller_local_len=step_controller.local_memory_elements,
+        algorithm_local_len=step_object.persistent_local_required,
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
@@ -193,6 +195,8 @@ def _build_loop_instance(
         dt_max=step_controller.dt_max,
         is_adaptive=step_controller.is_adaptive,
     )
+
+
 def _build_cpu_step_controller(
     precision: np.dtype,
     step_controller_settings: Dict[str, Any],

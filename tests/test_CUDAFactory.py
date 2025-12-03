@@ -373,3 +373,70 @@ def test_specialize_and_compile_simulator_mode(factory_with_settings):
 
     # Verify no timing recorded (in sim mode, events may or may not be recorded)
     # Just ensure no error occurred
+
+
+def test_update_compile_settings_nested_attrs(factory):
+    """Test that update_compile_settings finds keys in nested attrs classes."""
+    @attrs.define
+    class NestedSettings:
+        nested_value: int = 10
+        _underscore_value: int = 20
+
+    @attrs.define
+    class TopSettings:
+        precision: type = np.float32
+        nested: NestedSettings = attrs.Factory(NestedSettings)
+
+    factory.setup_compile_settings(TopSettings())
+
+    # Test updating nested attribute (no underscore)
+    recognized = factory.update_compile_settings(nested_value=42)
+    assert "nested_value" in recognized
+    assert factory.compile_settings.nested.nested_value == 42
+
+    # Test updating nested attribute with underscore
+    recognized = factory.update_compile_settings(underscore_value=100)
+    assert "underscore_value" in recognized
+    assert factory.compile_settings.nested._underscore_value == 100
+
+    # Verify cache was invalidated
+    assert factory.cache_valid is False
+
+
+def test_update_compile_settings_nested_dict(factory):
+    """Test that update_compile_settings finds keys in nested dicts."""
+    @attrs.define
+    class TopSettingsWithDict:
+        precision: type = np.float32
+        options: dict = attrs.Factory(lambda: {"key1": "value1", "key2": 10})
+
+    factory.setup_compile_settings(TopSettingsWithDict())
+
+    # Test updating dict key
+    recognized = factory.update_compile_settings(key1="new_value")
+    assert "key1" in recognized
+    assert factory.compile_settings.options["key1"] == "new_value"
+
+    recognized = factory.update_compile_settings(key2=99)
+    assert "key2" in recognized
+    assert factory.compile_settings.options["key2"] == 99
+
+    # Verify cache was invalidated
+    assert factory.cache_valid is False
+
+
+def test_update_compile_settings_nested_not_found(factory):
+    """Test that unrecognized nested keys raise KeyError."""
+    @attrs.define
+    class NestedSettings:
+        nested_value: int = 10
+
+    @attrs.define
+    class TopSettings:
+        precision: type = np.float32
+        nested: NestedSettings = attrs.Factory(NestedSettings)
+
+    factory.setup_compile_settings(TopSettings())
+
+    with pytest.raises(KeyError):
+        factory.update_compile_settings(nonexistent_key=42)

@@ -123,9 +123,10 @@ def newton_krylov_solver_factory(
         base_state
             Reference state used when evaluating the residual.
         shared_scratch
-            Shared scratch buffer providing Newton direction and residual
-            storage. The first ``n`` entries store the Newton direction and
-            the next ``n`` entries store the residual.
+            Shared scratch buffer providing Newton direction, residual,
+            and linear solver storage. The first ``n`` entries store the
+            Newton direction, the next ``n`` entries store the residual,
+            and remaining entries are available for the linear solver.
         counters
             Size (2,) int32 array for iteration counters. Index 0 receives
             Newton iteration count, index 1 receives cumulative Krylov
@@ -139,8 +140,9 @@ def newton_krylov_solver_factory(
         Notes
         -----
         Scratch space requirements total two vectors of length ``n`` drawn
-        from ``shared_scratch``. No need to zero scratch space before
-        passing - it's write-first in this function.
+        from ``shared_scratch`` plus any additional space needed by the
+        linear solver. No need to zero scratch space before passing - it's
+        write-first in this function.
         ``delta`` is reset to zero before the first linear solve so it can be
         reused as the Newton direction buffer. The linear solver is invoked
         on the Jacobian system ``J * delta = rhs`` with ``rhs`` stored in
@@ -182,6 +184,8 @@ def newton_krylov_solver_factory(
 
             iters_count += int32(1)
             if status < 0:
+                # Linear solver shared memory starts after newton's scratch
+                lin_shared = shared_scratch[2 * n:]
                 lin_return = linear_solver(
                     stage_increment,
                     parameters,
@@ -192,6 +196,7 @@ def newton_krylov_solver_factory(
                     a_ij,
                     residual,
                     delta,
+                    lin_shared,
                 )
                 krylov_iters = (lin_return >> 16) & int32(0xFFFF)
                 total_krylov_iters += krylov_iters

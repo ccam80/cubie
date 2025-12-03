@@ -125,6 +125,7 @@ class RMS(SummaryMetric):
             Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
             and resets ``buffer[0]`` for the next summary period.
             """
+
             output_array[0] = sqrt(buffer[0] / summarise_every)
             buffer[0] = precision(0.0)
 

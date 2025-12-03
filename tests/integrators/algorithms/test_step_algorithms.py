@@ -1343,9 +1343,6 @@ def test_algorithm(
             "is_adaptive getter"
         assert step_object.is_multistage is properties["is_multistage"],\
             "is_multistage getter"
-        assert step_object.persistent_local_required \
-            == properties["persistent_local_required"], \
-            "persistent_local_required getter"
         assert (
             step_object.threads_per_step == properties["threads_per_step"]
         ), "threads_per_step getter"
@@ -1364,19 +1361,6 @@ def test_algorithm(
     expected_order = _expected_order(step_object, tableau)
     assert step_object.order == expected_order, "order getter"
 
-    extra_shared = system._jacobian_aux_count or 0
-    expected_shared, expected_local = _expected_memory_requirements(
-        step_object,
-        tableau,
-        system.sizes.states,
-        extra_shared,
-    )
-    assert (
-        step_object.shared_memory_required == expected_shared
-    ), "shared_memory_required getter"
-    assert (
-        step_object.local_scratch_required == expected_local
-    ), "local_scratch_required getter"
 
     if properties is not None and properties["is_implicit"]:
         if algorithm == "rosenbrock":

@@ -71,17 +71,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared-memory elements required by the loop."""
-
-        loop_shared = (
-            self._loop.shared_memory_elements
-            if hasattr(self._loop, "shared_memory_elements")
-            else 0
-        )
-        algorithm_shared = (
-            self._algo_step.shared_memory_required
-            if hasattr(self._algo_step, "shared_memory_required")
-            else 0
-        )
+        loop_shared = self._loop.shared_memory_elements
+        algorithm_shared = self._algo_step.shared_memory_required
         return loop_shared + algorithm_shared
 
     @property
@@ -96,21 +87,9 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def local_memory_elements(self) -> int:
         """Return total persistent local-memory requirement."""
 
-        loop = (
-            self._loop.local_memory_elements
-            if hasattr(self._loop, "local_memory_elements")
-            else 0
-        )
-        algorithm = (
-            self._algo_step.persistent_local_required
-            if hasattr(self._algo_step, "persistent_local_required")
-            else 0
-        )
-        controller = (
-            self._step_controller.local_memory_elements
-            if hasattr(self._step_controller, "local_memory_elements")
-            else 0
-        )
+        loop = self._loop.local_memory_elements
+        algorithm = self._algo_step.persistent_local_required
+        controller = self._step_controller.local_memory_elements
         return loop + algorithm + controller
 
     @property
