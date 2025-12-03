@@ -7,7 +7,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop
+from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.integrators.step_control import get_controller
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -101,7 +101,6 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 def _build_loop(
     system,
     solver_settings,
-    buffer_settings,
     output_functions,
     precision,
     driver_array=None,
@@ -140,6 +139,19 @@ def _build_loop(
         settings=controller_settings,
     )
 
+    # Build buffer settings for this specific system
+    n_error = system.sizes.states if step_object.is_adaptive else 0
+    buffer_settings = LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
+    )
+
     loop = IVPLoop(
         precision=precision,
         buffer_settings=buffer_settings,
@@ -167,7 +179,6 @@ def test_time_driver_array_matches_function(
     precision,
     time_driver_systems,
     time_driver_solver_settings,
-    buffer_settings,
     sinusoid_driver_array,
     single_integrator_run
 ):
@@ -197,14 +208,12 @@ def test_time_driver_array_matches_function(
     loop_function = _build_loop(
         function_system,
         solver_settings,
-        buffer_settings,
         output_functions_function,
         precision,
     )
     loop_driver = _build_loop(
         interpolated_system,
         solver_settings,
-        buffer_settings,
         output_functions_driver,
         precision,
         driver_array=driver_array,
