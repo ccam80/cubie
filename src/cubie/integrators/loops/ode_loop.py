@@ -649,6 +649,24 @@ ALL_LOOP_SETTINGS = {
     "is_adaptive",
 }
 
+# Buffer location parameters that can be specified at Solver level.
+# These parameters control whether specific buffers are allocated in
+# shared or local memory within CUDA device functions.
+ALL_BUFFER_LOCATION_PARAMETERS = {
+    "state_buffer_location",
+    "state_proposal_location",
+    "parameters_location",
+    "drivers_location",
+    "drivers_proposal_location",
+    "observables_location",
+    "observables_proposal_location",
+    "error_location",
+    "counters_location",
+    "state_summary_location",
+    "observable_summary_location",
+    "scratch_location",
+}
+
 
 class IVPLoop(CUDAFactory):
     """Factory for CUDA device loops that advance an IVP integration.

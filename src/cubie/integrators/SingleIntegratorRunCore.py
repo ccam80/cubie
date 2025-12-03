@@ -20,6 +20,9 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
+from cubie.integrators.loops.ode_loop import (
+    IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
+)
 from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
@@ -328,6 +331,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             Configured loop instance ready for CUDA compilation.
         """
         n_counters = 4 if compile_flags.save_counters else 0
+        
+        # Extract buffer location kwargs from loop_settings to pass to
+        # LoopBufferSettings. Only pass locations explicitly provided by user.
+        buffer_location_kwargs = {
+            key: loop_settings[key]
+            for key in ALL_BUFFER_LOCATION_PARAMETERS
+            if key in loop_settings
+        }
         buffer_settings = LoopBufferSettings(
             n_states=n_states,
             n_parameters=n_parameters,
@@ -337,9 +348,13 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
+            **buffer_location_kwargs,
         )
 
         loop_kwargs = dict(loop_settings)
+        # Remove buffer location kwargs - they're now in buffer_settings
+        for key in ALL_BUFFER_LOCATION_PARAMETERS:
+            loop_kwargs.pop(key, None)
         loop_kwargs.update(
             precision=precision,
             buffer_settings=buffer_settings,
@@ -437,7 +452,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         #Recalculate settings derived from changes in children
         system_sizes=self.system_sizes
         
-        # Build buffer settings with all-shared layout
+        # Build buffer settings, preserving existing locations unless updated.
+        # Get current buffer settings from the loop's compile_settings.
+        current_buffer_settings = self._loop.compile_settings.buffer_settings
         n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
         buffer_settings = LoopBufferSettings(
             n_states=system_sizes.states,

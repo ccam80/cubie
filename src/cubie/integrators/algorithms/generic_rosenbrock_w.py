@@ -125,13 +125,13 @@ class RosenbrockBufferSettings(BufferSettings):
         default=0, validator=getype_validator(int, 0)
     )
     stage_rhs_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     stage_store_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     cached_auxiliaries_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
 
     @property
@@ -235,6 +235,14 @@ class RosenbrockBufferSettings(BufferSettings):
         )
 
 
+# Buffer location parameters for Rosenbrock algorithms
+ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_rhs_location",
+    "stage_store_location",
+    "cached_auxiliaries_location",
+}
+
+
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
@@ -320,6 +328,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
+        stage_rhs_location: Optional[str] = None,
+        stage_store_location: Optional[str] = None,
+        cached_auxiliaries_location: Optional[str] = None,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
         
@@ -380,13 +391,20 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        # Create default buffer_settings for compile_settings
+        # Create buffer_settings - only pass locations if explicitly provided
         # cached_auxiliary_count is 0 at init; updated when helpers are built
-        buffer_settings = RosenbrockBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-            cached_auxiliary_count=0,
-        )
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+            'cached_auxiliary_count': 0,
+        }
+        if stage_rhs_location is not None:
+            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
+        if stage_store_location is not None:
+            buffer_kwargs['stage_store_location'] = stage_store_location
+        if cached_auxiliaries_location is not None:
+            buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
+        buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,
