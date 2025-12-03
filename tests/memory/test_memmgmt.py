@@ -718,9 +718,10 @@ class TestMemoryManager:
         # Chunk by run dimension (index 2)
         chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
 
-        # arr1: (100, 200, 50) -> (100, 200, 12) since 50/4 = 12
-        assert chunked["arr1"].shape == (100, 200, 12)  # 50/4 = 12
-        assert chunked["arr2"].shape == (50, 400, 6)  # 25/4 = 6
+        # arr1: (100, 200, 50) -> (100, 200, 13) since ceil(50/4) = 13
+        # arr2: (50, 400, 25) -> (50, 400, 7) since ceil(25/4) = 7
+        assert chunked["arr1"].shape == (100, 200, 13)
+        assert chunked["arr2"].shape == (50, 400, 7)
 
         # Chunk by time dimension (index 0)
         chunked_time = mgr.chunk_arrays(requests, numchunks=2, axis="time")
