@@ -53,7 +53,12 @@ def input_arrays_manager(precision, solver, input_test_settings):
 
 @pytest.fixture(scope="function")
 def sample_input_arrays(solver, input_test_settings, precision):
-    """Create sample input arrays for testing based on real solver"""
+    """Create sample input arrays for testing based on real solver.
+    
+    Arrays are created in native (variable, run) format matching the internal
+    representation used by the solver. This format has run in the rightmost
+    dimension for CUDA memory coalescing.
+    """
     num_runs = input_test_settings["num_runs"]
     dtype = precision
 
@@ -61,6 +66,7 @@ def sample_input_arrays(solver, input_test_settings, precision):
     parameters_count = solver.system_sizes.parameters
     forcing_count = solver.system_sizes.drivers
 
+    # Native format: (variable, run) - run in rightmost dimension
     return {
         "initial_values": np.random.rand(variables_count, num_runs).astype(
             dtype
@@ -93,7 +99,7 @@ class TestInputArrayContainer:
         """Test that stride order is set correctly"""
         container = InputArrayContainer()
         stride_order = container.parameters.stride_order
-        assert stride_order == ("run", "variable")
+        assert stride_order == ("variable", "run")
 
     def test_host_factory(self):
         """Test host factory method creates pinned memory container"""
@@ -165,6 +171,7 @@ class TestInputArrays:
         )
 
         # Check that host arrays were updated
+        # Arrays are in native (variable, run) format - no transpose needed
         assert_array_equal(
             input_arrays_manager.initial_values,
             sample_input_arrays["initial_values"],
@@ -189,6 +196,7 @@ class TestInputArrays:
         forcing_count = solver.system_sizes.drivers
 
         # Initial call with original sizes
+        # Native format: (variable, run)
         initial_arrays = {
             "initial_values": np.random.rand(variables_count, num_runs).astype(
                 dtype
@@ -214,6 +222,7 @@ class TestInputArrays:
 
         # Call with different sized arrays (more runs)
         new_num_runs = num_runs + 2
+        # Native format: (variable, run)
         new_arrays = {
             "initial_values": np.random.rand(
                 variables_count, new_num_runs
@@ -238,6 +247,7 @@ class TestInputArrays:
             input_arrays_manager.device_initial_values
             is not original_device_initial_values
         )
+        # Native format is (variable, run)
         assert input_arrays_manager.device_initial_values.shape == (
             variables_count,
             new_num_runs,
@@ -276,6 +286,7 @@ class TestInputArrays:
         input_arrays_manager.initialise(host_indices)
 
         # Check that device arrays now match host arrays
+        # Arrays are in native (variable, run) format - no transpose needed
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.initial_values.array),
             sample_input_arrays["initial_values"],

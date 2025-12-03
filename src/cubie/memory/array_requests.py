@@ -53,7 +53,7 @@ class ArrayRequest:
     When ``stride_order`` is ``None``, it is set automatically during
     initialization:
 
-    * For 3D arrays, ``("time", "run", "variable")`` is selected.
+    * For 3D arrays, ``("time", "variable", "run")`` is selected.
     * For 2D arrays, ``("variable", "run")`` is selected.
     """
 
@@ -89,7 +89,7 @@ class ArrayRequest:
         """
         if self.stride_order is None:
             if len(self.shape) == 3:
-                self.stride_order = ("time", "run", "variable")
+                self.stride_order = ("time", "variable", "run")
             elif len(self.shape) == 2:
                 self.stride_order = ("variable", "run")
 

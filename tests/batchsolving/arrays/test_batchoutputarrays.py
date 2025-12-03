@@ -68,17 +68,17 @@ def sample_output_arrays(solver, output_test_settings, precision):
     observables_count = solver.system_sizes.observables
 
     return {
-        "state": np.random.rand(time_points, num_runs, variables_count).astype(
+        "state": np.random.rand(time_points, variables_count, num_runs).astype(
             dtype
         ),
         "observables": np.random.rand(
-            time_points, num_runs, observables_count
+            time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, variables_count
+            max(0, time_points - 2), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, observables_count
+            max(0, time_points - 2), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
@@ -110,7 +110,7 @@ class TestOutputArrayContainer:
         """Test that stride order is set correctly"""
         container = OutputArrayContainer()
         stride_order = container.state.stride_order
-        assert stride_order == ("time", "run", "variable")
+        assert stride_order == ("time", "variable", "run")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""
@@ -489,20 +489,21 @@ def test_output_arrays_with_different_systems(output_arrays_manager, solver):
     output_arrays_manager.update(solver)
 
     # Verify the arrays match the system's requirements
+    # With stride order (time, variable, run), variable is at index 1
     assert (
-        output_arrays_manager.state.shape[2]
+        output_arrays_manager.state.shape[1]
         == solver.output_array_heights.state
     )
     assert (
-        output_arrays_manager.observables.shape[2]
+        output_arrays_manager.observables.shape[1]
         == solver.output_array_heights.observables
     )
     assert (
-        output_arrays_manager.state_summaries.shape[2]
+        output_arrays_manager.state_summaries.shape[1]
         == solver.output_array_heights.state_summaries
     )
     assert (
-        output_arrays_manager.observable_summaries.shape[2]
+        output_arrays_manager.observable_summaries.shape[1]
         == solver.output_array_heights.observable_summaries
     )
 

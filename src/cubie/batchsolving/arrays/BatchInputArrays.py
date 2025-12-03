@@ -26,21 +26,21 @@ class InputArrayContainer(ArrayContainer):
     initial_values: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("run", "variable"),
+            stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
     parameters: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("run", "variable"),
+            stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
     driver_coefficients: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             is_chunked=False,
         )

@@ -683,16 +683,19 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        For 3D arrays, this creates a new array with strides matching the
-        memory manager's ``_stride_order``, then copies data. For 2D and
-        1D arrays, the original array is returned unchanged.
-
-        When ``memory_type="pinned"``, the returned array uses pinned
-        (page-locked) memory to enable asynchronous host-to-device transfers
-        with CUDA streams. Using ``memory_type="host"`` creates a pageable
-        array which will block async transfers.
+        For 2D arrays, returns unchanged (expects input in native format).
+        For 3D arrays, creates a new array with strides matching the memory
+        manager's ``_stride_order``, then copies data.
         """
-        if len(array.shape) != 3 or stride_order is None:
+        if stride_order is None:
+            return array
+
+        # 2D arrays are expected in native (variable, run) format
+        if len(array.shape) == 2:
+            return array
+
+        # Handle 3D arrays
+        if len(array.shape) != 3:
             return array
 
         target = self._memory_manager.create_host_array(
