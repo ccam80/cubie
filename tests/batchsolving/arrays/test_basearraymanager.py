@@ -44,7 +44,7 @@ class TestArrays(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -52,7 +52,7 @@ class TestArrays(ArrayContainer):
     observables: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -60,7 +60,7 @@ class TestArrays(ArrayContainer):
     state_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -68,7 +68,7 @@ class TestArrays(ArrayContainer):
     observable_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -81,7 +81,7 @@ class TestArraysSimple(ArrayContainer):
     arr1: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -89,7 +89,7 @@ class TestArraysSimple(ArrayContainer):
     arr2: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -106,7 +106,7 @@ def arraytest_overrides(request):
 
 @pytest.fixture(scope="function")
 def arraytest_settings(arraytest_overrides):
-    stride_template = ("time", "run", "variable")
+    stride_template = ("time", "variable", "run")
     settings = {
         "hostshape1": (4, 3, 4),
         "hostshape2": (4, 3, 4),

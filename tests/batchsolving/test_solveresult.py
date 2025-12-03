@@ -75,21 +75,22 @@ class TestSolveResultStaticMethods:
 
     def test_cleave_time_with_time_saved(self):
         """Test time cleaving when time is saved."""
-        # Create test array with time as last variable
-        state = np.array([[[1, 2, 0.1]], [[3, 4, 0.2]]])  # time, run, variable
+        # Create test array with shape (time, variable, run)
+        # time has 2 samples, 3 variables (including time at last position), 1 run
+        state = np.array([[[1], [2], [0.1]], [[3], [4], [0.2]]])  # (2, 3, 1)
         time_result, state_result = SolveResult.cleave_time(
             state, time_saved=True
         )
 
         expected_time = np.array([[0.1], [0.2]])
-        expected_state = np.array([[[1, 2]], [[3, 4]]])
+        expected_state = np.array([[[1], [2]], [[3], [4]]])  # (2, 2, 1)
 
         assert np.array_equal(time_result, expected_time)
         assert np.array_equal(state_result, expected_state)
 
     def test_cleave_time_without_time_saved(self):
         """Test time cleaving when time is not saved."""
-        state = np.array([[[1, 2]], [[3, 4]]])
+        state = np.array([[[1], [2]], [[3], [4]]])  # (2, 2, 1) shape
         time_result, state_result = SolveResult.cleave_time(
             state, time_saved=False
         )
@@ -441,7 +442,7 @@ class TestSolveResultDefaultBehavior:
         assert result.time is not None and result.time.size == 0
         assert len(result.time_domain_legend) == 0
         assert len(result.summaries_legend) == 0
-        assert result._stride_order == ("time", "run", "variable")
+        assert result._stride_order == ("time", "variable", "run")
 
     def test_custom_stride_order(self):
         """Test SolveResult with custom stride order."""
@@ -487,8 +488,8 @@ class TestSolveResultPandasIntegration:
 
         array_shape = result.time_domain_array.shape
         if result.time_domain_array.ndim == 3:
-            # For 3D arrays: (time, run, variable) -> DataFrame (time, run*variable)
-            expected_cols = array_shape[1] * array_shape[2]  # run * variable
+            # For 3D arrays: (time, variable, run) -> DataFrame (time, variable*run)
+            expected_cols = array_shape[1] * array_shape[2]  # variable * run
             assert td_df.shape == (array_shape[0], expected_cols)
 
         # Check summaries DataFrame columns match legend

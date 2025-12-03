@@ -68,17 +68,17 @@ def sample_output_arrays(solver, output_test_settings, precision):
     observables_count = solver.system_sizes.observables
 
     return {
-        "state": np.random.rand(time_points, num_runs, variables_count).astype(
+        "state": np.random.rand(time_points, variables_count, num_runs).astype(
             dtype
         ),
         "observables": np.random.rand(
-            time_points, num_runs, observables_count
+            time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, variables_count
+            max(0, time_points - 2), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, observables_count
+            max(0, time_points - 2), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
@@ -110,7 +110,7 @@ class TestOutputArrayContainer:
         """Test that stride order is set correctly"""
         container = OutputArrayContainer()
         stride_order = container.state.stride_order
-        assert stride_order == ("time", "run", "variable")
+        assert stride_order == ("time", "variable", "run")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""

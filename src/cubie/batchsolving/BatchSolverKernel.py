@@ -584,20 +584,20 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-            rx_inits = inits[run_index, :]
-            rx_params = params[run_index, :]
-            rx_state = state_output[:, run_index * save_state, :]
+            rx_inits = inits[:, run_index]
+            rx_params = params[:, run_index]
+            rx_state = state_output[:, :, run_index * save_state]
             rx_observables = observables_output[
-                :, run_index * save_observables, :
+                :, :, run_index * save_observables
             ]
             rx_state_summaries = state_summaries_output[
-                :, run_index * save_state_summaries, :
+                :, :, run_index * save_state_summaries
             ]
             rx_observables_summaries = observables_summaries_output[
-                :, run_index * save_observable_summaries, :
+                :, :, run_index * save_observable_summaries
             ]
             rx_iteration_counters = iteration_counters_output[
-                run_index, :, :
+                :, :, run_index
             ]
             status = loopfunction(
                 rx_inits,
@@ -628,14 +628,14 @@ class BatchSolverKernel(CUDAFactory):
         n_parameters = int(system_sizes.parameters)
         n_observables = int(system_sizes.observables)
         integration_kernel.critical_shapes = (
-            (1, n_states),  # inits - [n_runs, n_states]
-            (1, n_parameters),  # params - [n_runs, n_parameters]
-            (100,n_states,6),  # d_coefficients - complex driver array
-            (100, 1, n_states), # state_output
-            (100, 1, n_observables),  # observables_output
-            (100, 1, n_observables), # state_summaries_output
-            (100, 1, n_observables), # observables_summaries_output
-            (100, 1, 4), # iteration_counters_output
+            (n_states, 1),  # inits - [n_states, n_runs]
+            (n_parameters, 1),  # params - [n_parameters, n_runs]
+            (100, n_states, 6),  # d_coefficients - (time, variable, run)
+            (100, n_states, 1),  # state_output - (time, variable, run)
+            (100, n_observables, 1),  # observables_output
+            (100, n_observables, 1),  # state_summaries_output
+            (100, n_observables, 1),  # observables_summaries_output
+            (100, 4, 1),  # iteration_counters_output - (time, 4, run)
             (1,),  # status_codes_output
             None,  # duration - scalar
             None,  # warmup - scalar

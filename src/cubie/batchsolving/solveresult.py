@@ -184,7 +184,7 @@ class SolveResult:
         default=attrs.Factory(lambda: ActiveOutputs())
     )
     _stride_order: Union[tuple[str, ...], list[str]] = attrs.field(
-        default=("time", "run", "variable")
+        default=("time", "variable", "run")
     )
 
     @classmethod
@@ -458,7 +458,7 @@ class SolveResult:
             Flag indicating if time is saved in the state array.
         stride_order
             Optional order of dimensions in the array. Defaults to
-            ``["time", "run", "variable"]`` when ``None``.
+            ``["time", "variable", "run"]`` when ``None``.
 
         Returns
         -------
@@ -467,7 +467,7 @@ class SolveResult:
             with time removed.
         """
         if stride_order is None:
-            stride_order = ["time", "run", "variable"]
+            stride_order = ["time", "variable", "run"]
         if time_saved:
             var_index = stride_order.index("variable")
             ndim = len(state.shape)

@@ -16,7 +16,7 @@ def array_request_settings(array_request_override):
         "shape": (1, 1, 1),
         "dtype": np.float32,
         "memory": "device",
-        "stride_order": ("time", "run", "variable"),
+        "stride_order": ("time", "variable", "run"),
     }
     if array_request_override:
         for key, value in array_request_override.items():

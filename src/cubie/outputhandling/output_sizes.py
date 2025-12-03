@@ -381,14 +381,14 @@ class BatchInputSizes(ArraySizingClass):
     Attributes
     ----------
     initial_values : tuple[int, int], default (1, 1)
-        Shape of initial values array as (n_runs, n_states).
+        Shape of initial values array as (n_states, n_runs).
     parameters : tuple[int, int], default (1, 1)
-        Shape of parameters array as (n_runs, n_parameters).
+        Shape of parameters array as (n_parameters, n_runs).
     driver_coefficients : tuple[int or None, int, int or None],
         default (1, 1, 1)
         Shape of the driver coefficient array as
         (num_segments, num_drivers, polynomial_degree).
-    stride_order : tuple[str, ...], default ("run", "variable")
+    stride_order : tuple[str, ...], default ("variable", "run")
         Order of dimensions in the input arrays.
     """
 
@@ -403,7 +403,7 @@ class BatchInputSizes(ArraySizingClass):
     )
 
     stride_order: Tuple[str, ...] = attrs.field(
-        default=("run", "variable"),
+        default=("variable", "run"),
         validator=attrs.validators.deep_iterable(
             attrs.validators.in_(["run", "variable"])
         ),
@@ -427,8 +427,8 @@ class BatchInputSizes(ArraySizingClass):
         """
         loopBufferSizes = LoopBufferSizes.from_solver(solver_instance)
         num_runs = solver_instance.num_runs
-        initial_values = (num_runs, loopBufferSizes.state)
-        parameters = (num_runs, loopBufferSizes.parameters)
+        initial_values = (loopBufferSizes.state, num_runs)
+        parameters = (loopBufferSizes.parameters, num_runs)
         driver_coefficients = (None, loopBufferSizes.drivers, None)
 
         obj = cls(initial_values, parameters, driver_coefficients)
@@ -439,26 +439,25 @@ class BatchInputSizes(ArraySizingClass):
 class BatchOutputSizes(ArraySizingClass):
     """Output array sizes for batch integration runs.
 
-    This class provides 3D array sizes (time × run × variable) for output
+    This class provides 3D array sizes (time × variable × run) for output
     arrays from batch integration runs.
 
     Attributes
     ----------
     state : tuple[int, int, int], default (1, 1, 1)
-        Shape of state output array as (time_samples, n_runs,
-         n_variables).
+        Shape of state output array as (time_samples, n_variables, n_runs).
     observables : tuple[int, int, int], default (1, 1, 1)
-        Shape of observable output array as (time_samples, n_runs,
-        n_variables).
+        Shape of observable output array as (time_samples, n_variables,
+        n_runs).
     state_summaries : tuple[int, int, int], default (1, 1, 1)
-        Shape of state summary array as (summary_samples, n_runs,
-        n_summaries).
+        Shape of state summary array as (summary_samples, n_summaries,
+        n_runs).
     observable_summaries : tuple[int, int, int], default (1, 1, 1)
-        Shape of observable summary array as (summary_samples, n_runs,
-        n_summaries).
+        Shape of observable summary array as (summary_samples, n_summaries,
+        n_runs).
     status_codes : tuple[int], default (1,)
         Shape of the status code output array indexed by run.
-    stride_order : tuple[str, ...], default ("time", "run", "variable")
+    stride_order : tuple[str, ...], default ("time", "variable", "run")
         Order of dimensions in the output arrays.
     """
 
@@ -478,10 +477,10 @@ class BatchOutputSizes(ArraySizingClass):
         default=(1,), validator=attrs.validators.instance_of(Tuple)
     )
     iteration_counters: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 4), validator=attrs.validators.instance_of(Tuple)
+        default=(1, 4, 1), validator=attrs.validators.instance_of(Tuple)
     )
     stride_order: Tuple[str, ...] = attrs.field(
-        default=("time", "run", "variable"),
+        default=("time", "variable", "run"),
         validator=attrs.validators.deep_iterable(
             attrs.validators.in_(["time", "run", "variable"])
         ),
@@ -513,32 +512,32 @@ class BatchOutputSizes(ArraySizingClass):
         num_runs = solver_instance.num_runs
         state = (
             single_run_sizes.state[0],
-            num_runs,
             single_run_sizes.state[1],
+            num_runs,
         )
         observables = (
             single_run_sizes.observables[0],
-            num_runs,
             single_run_sizes.observables[1],
+            num_runs,
         )
         state_summaries = (
             single_run_sizes.state_summaries[0],
-            num_runs,
             single_run_sizes.state_summaries[1],
+            num_runs,
         )
         observable_summaries = (
             single_run_sizes.observable_summaries[0],
-            num_runs,
             single_run_sizes.observable_summaries[1],
+            num_runs,
         )
         status_codes = (num_runs,)
         
-        # Iteration counters have shape (n_runs, n_saves, 4)
+        # Iteration counters have shape (n_saves, 4, n_runs)
         # where 4 is for [Newton, Krylov, steps, rejections]
         iteration_counters = (
-            num_runs,
             single_run_sizes.state[0],  # n_saves
             4,
+            num_runs,
         )
         
         obj = cls(

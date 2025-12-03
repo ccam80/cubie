@@ -29,28 +29,28 @@ class OutputArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observables: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     state_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observable_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
@@ -65,8 +65,8 @@ class OutputArrayContainer(ArrayContainer):
     iteration_counters: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.int32,
-            stride_order=("run", "time", "variable"),
-            shape=(1, 1, 4),
+            stride_order=("time", "variable", "run"),
+            shape=(1, 4, 1),
         )
     )
 

@@ -560,9 +560,9 @@ class TestBatchInputSizes:
         assert nonzero_sizes.driver_coefficients[1] == 1
 
     def test_stride_order_default(self):
-        """Test that _stride_order has correct default value"""
+        """Test that stride_order has correct default value"""
         sizes = BatchInputSizes()
-        assert sizes.stride_order == ("run", "variable")
+        assert sizes.stride_order == ("variable", "run")
 
 
 class TestBatchOutputSizes:
@@ -658,13 +658,13 @@ class TestIntegrationScenarios:
 
         assert batch.state == (
             solverkernel.output_length,
-            numruns,
             expected_state_height,
+            numruns,
         )
         assert batch.observables == (
             solverkernel.output_length,
-            numruns,
             output_functions.n_saved_observables,
+            numruns,
         )
 
     @pytest.mark.parametrize(

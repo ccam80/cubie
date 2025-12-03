@@ -93,7 +93,7 @@ class TestInputArrayContainer:
         """Test that stride order is set correctly"""
         container = InputArrayContainer()
         stride_order = container.parameters.stride_order
-        assert stride_order == ("run", "variable")
+        assert stride_order == ("variable", "run")
 
     def test_host_factory(self):
         """Test host factory method"""
