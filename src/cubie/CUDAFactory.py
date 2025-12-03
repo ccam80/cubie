@@ -594,10 +594,9 @@ class CUDAFactory(ABC):
                 updated |= u
 
             # Check nested attrs classes and dicts if not found at top level
-            if not recognized:
-                r, u = self._check_nested_update(key, value)
-                recognized |= r
-                updated |= u
+            r, u = self._check_nested_update(key, value)
+            recognized |= r
+            updated |= u
 
             if recognized:
                 recognized_params.append(key)
@@ -693,12 +692,6 @@ class CUDAFactory(ABC):
                 for attr_key in (f"_{key}", key):
                     if in_attr(attr_key, nested_obj):
                         old_value = getattr(nested_obj, attr_key)
-                        # Skip if types are incompatible
-                        if old_value is not None and not isinstance(
-                            value, type(old_value)
-                        ):
-                            break  # Try next nested object
-                        # Use same comparison logic as _check_and_update
                         try:
                             value_changed = old_value != value
                         except ValueError:
