@@ -915,6 +915,7 @@ class MemoryManager:
         shape: tuple[int, ...],
         dtype: type,
         stride_order: Optional[tuple[str, ...]] = None,
+        memory_type: str = "pinned",
     ) -> np.ndarray:
         """
         Create a host array with strides matching the memory manager's order.
@@ -929,6 +930,9 @@ class MemoryManager:
             Logical dimension labels in the array's native order. For 3D
             arrays this should be a tuple like ``('time', 'run', 'variable')``.
             When omitted, a C-contiguous array is returned.
+        memory_type
+            Memory type for the host array. Must be ``"pinned"`` or
+            ``"host"``. Defaults to ``"pinned"``.
 
         Returns
         -------
@@ -937,27 +941,36 @@ class MemoryManager:
 
         Notes
         -----
-        For 3D arrays, this method creates a pinned array with strides that
-        match the memory manager's ``_stride_order``. Pinned memory is used
-        to enable truly asynchronous device-to-host transfers when using
-        CUDA streams. The array is created by allocating with the desired
-        stride order, then transposing back to the native order. This ensures
-        that ``copy_to_host`` operations succeed when copying from device
-        arrays allocated with custom strides.
+        For 3D arrays, this method creates an array with strides that match
+        the memory manager's ``_stride_order``. The array is created by
+        allocating with the desired stride order, then transposing back to
+        the native order. This ensures that ``copy_to_host`` operations
+        succeed when copying from device arrays allocated with custom strides.
 
-        For 2D and 1D arrays, a standard C-contiguous pinned array is
-        returned to support async transfers.
+        When ``memory_type="pinned"``, the array uses pinned (page-locked)
+        memory which enables truly asynchronous device-to-host transfers
+        with CUDA streams. Using ``memory_type="host"`` creates a regular
+        pageable array which will block async transfers due to required
+        intermediate buffering by the CUDA runtime.
         """
         _ensure_cuda_context()
+        use_pinned = memory_type == "pinned"
+
         if len(shape) != 3 or stride_order is None:
-            arr = cuda.pinned_array(shape, dtype=dtype)
-            arr[:] = 0
+            if use_pinned:
+                arr = cuda.pinned_array(shape, dtype=dtype)
+                arr.fill(0)
+            else:
+                arr = np.zeros(shape, dtype=dtype)
             return arr
 
         desired_order = self._stride_order
         if stride_order == desired_order:
-            arr = cuda.pinned_array(shape, dtype=dtype)
-            arr[:] = 0
+            if use_pinned:
+                arr = cuda.pinned_array(shape, dtype=dtype)
+                arr.fill(0)
+            else:
+                arr = np.zeros(shape, dtype=dtype)
             return arr
 
         # Build shape in desired stride order
@@ -966,9 +979,12 @@ class MemoryManager:
         }
         ordered_shape = tuple(shape_map[dim] for dim in desired_order)
 
-        # Create pinned array in desired stride order (contiguous in order)
-        arr = cuda.pinned_array(ordered_shape, dtype=dtype)
-        arr[:] = 0
+        # Create array in desired stride order (contiguous in that order)
+        if use_pinned:
+            arr = cuda.pinned_array(ordered_shape, dtype=dtype)
+            arr.fill(0)
+        else:
+            arr = np.zeros(ordered_shape, dtype=dtype)
 
         # Compute transpose axes to return to native order
         # We need axes that map desired_order -> stride_order
