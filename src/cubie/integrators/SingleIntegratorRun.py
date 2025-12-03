@@ -653,12 +653,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._output_functions.n_summarised_observables
 
     @property
-    def summaries_buffer_sizes(self) -> Any:
-        """Return the summary buffer size descriptor."""
-
-        return self._output_functions.summaries_buffer_sizes
-
-    @property
     def output_array_heights(self) -> Any:
         """Return the output array height descriptor."""
 

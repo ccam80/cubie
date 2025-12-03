@@ -15,10 +15,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.outputhandling.output_config import OutputCompileFlags, OutputConfig
-from cubie.outputhandling.output_sizes import (
-    SummariesBufferSizes,
-    OutputArrayHeights,
-)
+from cubie.outputhandling.output_sizes import OutputArrayHeights
 from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -206,8 +203,6 @@ class OutputFunctions(CUDAFactory):
 
         summary_metrics.update(dt_save=config.dt_save, precision=config.precision)
 
-        buffer_sizes = self.summaries_buffer_sizes
-
         # Build functions using output sizes objects
         save_state_func = save_state_factory(
             config.saved_state_indices,
@@ -219,14 +214,14 @@ class OutputFunctions(CUDAFactory):
         )
 
         update_summary_metrics_func = update_summary_factory(
-            buffer_sizes,
+            config.summaries_buffer_height_per_var,
             config.summarised_state_indices,
             config.summarised_observable_indices,
             config.summary_types,
         )
 
         save_summary_metrics_func = save_summary_factory(
-            buffer_sizes,
+            config.summaries_buffer_height_per_var,
             config.summarised_state_indices,
             config.summarised_observable_indices,
             config.summary_types,
@@ -342,11 +337,6 @@ class OutputFunctions(CUDAFactory):
     def n_summarised_observables(self) -> int:
         """Number of observables included in summary calculations."""
         return self.compile_settings.n_summarised_observables
-
-    @property
-    def summaries_buffer_sizes(self) -> SummariesBufferSizes:
-        """Summary buffer size helper built from the active configuration."""
-        return SummariesBufferSizes.from_output_fns(self)
 
     @property
     def output_array_heights(self) -> OutputArrayHeights:

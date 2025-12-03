@@ -994,12 +994,6 @@ class BatchSolverKernel(CUDAFactory):
         return BatchOutputSizes.from_solver(self)
 
     @property
-    def summaries_buffer_sizes(self) -> Any:
-        """Device buffer sizes required for summary reductions."""
-
-        return self.single_integrator.summaries_buffer_sizes
-
-    @property
     def summary_legend_per_variable(self) -> Any:
         """Legend entries describing each summarised variable."""
 
