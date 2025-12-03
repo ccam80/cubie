@@ -133,13 +133,13 @@ class DIRKBufferSettings(BufferSettings):
         default='local', validator=validators.in_(["local", "shared"])
     )
     stage_base_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     accumulator_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     solver_scratch_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
 
     @property

@@ -129,13 +129,13 @@ class FIRKBufferSettings(BufferSettings):
     stage_count: int = attrs.field(validator=getype_validator(int, 1))
     n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
     solver_scratch_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     stage_increment_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     stage_driver_stack_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     stage_state_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])

@@ -807,9 +807,7 @@ class ERKStep(ODEExplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        stage_count = self.tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return accumulator_span
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:

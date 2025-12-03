@@ -125,13 +125,13 @@ class RosenbrockBufferSettings(BufferSettings):
         default=0, validator=getype_validator(int, 0)
     )
     stage_rhs_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     stage_store_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     cached_auxiliaries_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
 
     @property
