@@ -23,13 +23,19 @@ def example_arrays():
 
 @pytest.fixture(scope="function")
 def example_grids(example_arrays):
-    """Fixture providing example grids for combinatorial and verbatim."""
+    """Fixture providing example grids for combinatorial and verbatim.
+    
+    Grids are in (variable, run) format: rows are variables, columns are runs.
+    """
     a, b = example_arrays
-    combinatorial_grid = np.zeros(shape=(a.shape[0] * b.shape[0], 2))
+    # Build in (variable, run) format - 2 variables, 9 runs for combinatorial
+    combinatorial_grid = np.zeros(shape=(2, a.shape[0] * b.shape[0]))
     for i, val_a in enumerate(a):
         for j, val_b in enumerate(b):
-            combinatorial_grid[i * b.shape[0] + j] = [val_a, val_b]
-    verbatim_grid = np.hstack((a, b))
+            run_idx = i * b.shape[0] + j
+            combinatorial_grid[0, run_idx] = val_a
+            combinatorial_grid[1, run_idx] = val_b
+    verbatim_grid = np.vstack((a, b))  # (2, 3) format
     return combinatorial_grid, verbatim_grid
 
 
@@ -69,11 +75,13 @@ def test_combinatorial_and_verbatim_grid(system):
     }
     idx, grid = batchgridmodule.combinatorial_grid(request, param)
     assert_array_equal(idx, np.array([0, 1]))
-    assert grid.shape == (4, 2)
+    # Grid is (variable, run) format: 2 swept vars, 4 runs
+    assert grid.shape == (2, 4)
 
     idx_v, grid_v = batchgridmodule.verbatim_grid(request, param)
     assert_array_equal(idx_v, np.array([0, 1]))
-    assert_array_equal(grid_v, np.array([[0, 10], [1, 20]]))
+    # Verbatim grid: 2 swept vars, 2 runs (paired row-wise)
+    assert_array_equal(grid_v, np.array([[0, 1], [10, 20]]))
 
 
 def test_grid_arrays(grid_builder, system):
@@ -109,15 +117,20 @@ def test_combinatorial_grid(system, batch_settings):
     b = np.arange(numvals - 1) + numvals - 1
     request = {param.names[0]: a, param.names[1]: b}
     indices, grid = batchgridmodule.combinatorial_grid(request, param)
-    test_result = np.zeros(shape=(numvals * (numvals - 1), 2))
+    # Build expected grid in (variable, run) format
+    n_runs = numvals * (numvals - 1)
+    test_result = np.zeros(shape=(2, n_runs))
 
     for i, val_a in enumerate(a):
         for j, val_b in enumerate(b):
-            test_result[i * b.shape[0] + j] = [val_a, val_b]
+            run_idx = i * b.shape[0] + j
+            test_result[0, run_idx] = val_a
+            test_result[1, run_idx] = val_b
 
     assert_array_equal(indices, np.array([0, 1]))
-    assert grid.shape[0] == numvals * (numvals - 1)
-    assert grid.shape[1] == 2
+    # Grid is (variable, run) format: rows are swept variables, columns are runs
+    assert grid.shape[0] == 2  # 2 variables swept
+    assert grid.shape[1] == n_runs
     assert_array_equal(grid, test_result)
 
 
@@ -127,13 +140,15 @@ def test_verbatim_grid(system, batch_settings):
     a = np.arange(numvals)
     b = np.arange(numvals) + numvals
     request = {param.names[0]: a, param.names[1]: b}
-    test_result = np.zeros(shape=(numvals, 2))
-    test_result[:, 0] = a
-    test_result[:, 1] = b
+    # Build expected grid in (variable, run) format
+    test_result = np.zeros(shape=(2, numvals))
+    test_result[0, :] = a
+    test_result[1, :] = b
 
     indices, grid = batchgridmodule.verbatim_grid(request, param)
-    assert grid.shape[0] == numvals
-    assert grid.shape[1] == 2
+    # Grid is (variable, run) format
+    assert grid.shape[0] == 2  # 2 variables swept
+    assert grid.shape[1] == numvals  # numvals runs
     assert_array_equal(indices, np.array([0, 1]))
     assert_array_equal(grid, test_result)
 
@@ -144,10 +159,13 @@ def test_generate_grid(system, batch_settings):
     a = np.arange(numvals)
     b = np.arange(numvals) + numvals
     request = {state.names[0]: a, state.names[1]: b}
+    # Grid is (variable, run) format
     indices, grid = batchgridmodule.generate_grid(request, state, kind="combinatorial")
-    assert grid.shape[0] == numvals * numvals
+    assert grid.shape[0] == 2  # 2 variables swept
+    assert grid.shape[1] == numvals * numvals  # n*n runs for combinatorial
     indices, grid = batchgridmodule.generate_grid(request, state, kind="verbatim")
-    assert grid.shape[0] == numvals
+    assert grid.shape[0] == 2  # 2 variables swept
+    assert grid.shape[1] == numvals  # numvals runs for verbatim
     with pytest.raises(ValueError):
         batchgridmodule.generate_grid(request, state, kind="badkind")
 
@@ -162,13 +180,16 @@ def test_grid_size_errors(system):
 
 
 def test_combine_grids(example_arrays):
-    # Combinatorial test: create two grids with different numbers of rows
-    grid1 = np.array([[1, 2], [3, 4]])
-    grid2 = np.array([[10, 20], [30, 40], [50, 60]])
+    # Combinatorial test: create two grids in (variable, run) format
+    # grid1: 2 variables, 2 runs
+    grid1 = np.array([[1, 2], [3, 4]])  # var0=[1,2], var1=[3,4]
+    # grid2: 2 variables, 3 runs
+    grid2 = np.array([[10, 20, 30], [40, 50, 60]])  # var0=[10,20,30], var1=[40,50,60]
 
-    expected_grid1 = np.array([[1, 2], [1, 2], [1, 2], [3, 4], [3, 4], [3, 4]])
+    # Expected combinatorial: 2 runs * 3 runs = 6 runs total
+    expected_grid1 = np.array([[1, 1, 1, 2, 2, 2], [3, 3, 3, 4, 4, 4]])
     expected_grid2 = np.array(
-        [[10, 20], [30, 40], [50, 60], [10, 20], [30, 40], [50, 60]]
+        [[10, 20, 30, 10, 20, 30], [40, 50, 60, 40, 50, 60]]
     )
     result_grid1, result_grid2 = batchgridmodule.combine_grids(
         grid1, grid2, kind="combinatorial"
@@ -176,9 +197,9 @@ def test_combine_grids(example_arrays):
     assert np.array_equal(result_grid1, expected_grid1)
     assert np.array_equal(result_grid2, expected_grid2)
 
-    # Verbatim test: grids with matching number of rows should be returned as is
-    grid1_v = np.array([[1, 2], [3, 4]])
-    grid2_v = np.array([[10, 20], [30, 40]])
+    # Verbatim test: grids with matching number of runs should be returned as is
+    grid1_v = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
+    grid2_v = np.array([[10, 20], [30, 40]])  # 2 vars, 2 runs
     result_grid1_v, result_grid2_v = batchgridmodule.combine_grids(
         grid1_v, grid2_v, kind="verbatim"
     )
@@ -189,11 +210,14 @@ def test_combine_grids(example_arrays):
 def test_extend_grid_to_array(system):
     param = system.parameters
     indices = np.array([0, 1])
-    grid = np.array([[1, 2], [3, 4], [5, 6]])
+    # Grid in (variable, run) format: 2 swept variables, 3 runs
+    grid = np.array([[1, 2, 3], [4, 5, 6]])
     arr = batchgridmodule.extend_grid_to_array(grid, indices, param.values_array)
-    assert arr.shape[1] == param.values_array.shape[0]
-    assert_array_equal(arr[:, indices], grid)
-    assert np.all(arr[:, 2] == param.values_array[2])
+    # Result is (variable, run) format
+    assert arr.shape[0] == param.values_array.shape[0]  # all variables
+    assert arr.shape[1] == 3  # 3 runs
+    assert_array_equal(arr[indices, :], grid)
+    assert np.all(arr[2, :] == param.values_array[2])
 
 
 def test_generate_array(system, batch_settings, batch_request):
@@ -205,12 +229,13 @@ def test_generate_array(system, batch_settings, batch_request):
         param.names[0]: a,
     }
     arr = batchgridmodule.generate_array(request, param)
+    # Result is (variable, run) format
     assert arr.ndim == 2
-    assert arr.shape[1] == param.values_array.shape[0]
-    assert arr.shape[0] == numvals
-    assert_array_equal(arr[:, 0], a)
+    assert arr.shape[0] == param.values_array.shape[0]  # all variables
+    assert arr.shape[1] == numvals  # numvals runs
+    assert_array_equal(arr[0, :], a)  # swept variable values
     assert np.all(
-        arr[:, 1:] == param.values_array[1:]
+        arr[1:, :] == param.values_array[1:, np.newaxis]
     )  # Check other parameters are unchanged
 
 
@@ -502,7 +527,8 @@ def test_call_input_types(
 
 @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_outputs(system, grid_builder):
-    testarray1 = np.array([[1, 2], [3, 4]])
+    # Input arrays are in (variable, run) format
+    testarray1 = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
     state_testarray1 = extend_test_array(testarray1, system.initial_values)
     param_testarray1 = extend_test_array(testarray1, system.parameters)
     testlistarray = [[1, 2], [3, 4]]
@@ -516,21 +542,22 @@ def test_call_outputs(system, grid_builder):
     teststatedict = {"x0": [1, 3], "x1": [2, 4]}
     testparamdict = {"p0": [1, 3], "p1": [2, 4]}
 
-    fullcombosingle = np.asarray([[1, 2], [1, 4], [3, 2], [3, 4]])
-    fullcombdouble1 = np.vstack(
-        (fullcombosingle, fullcombosingle, fullcombosingle, fullcombosingle)
-    )
-    fullcombdouble2 = np.repeat(fullcombosingle, 4, axis=0)
-    statefullcombdouble = extend_test_array(
-        fullcombdouble2, system.initial_values
-    )
-    paramfullcombdouble = extend_test_array(fullcombdouble1, system.parameters)
-
+    # For combinatorial dict with 2 values each: 2*2 = 4 combinations for states/params
+    # Then state combos * param combos = 4 * 4 = 16 total runs
+    # But for test_call_outputs, we're combining arrays directly
+    # testarray1 has 2 runs, so combinatorial gives 2*2=4 runs
+    
+    # For combinatorial: each column of grid1 paired with each column of grid2
+    # grid1 (states): [[1,2],[3,4]] -> 2 runs
+    # grid2 (params): [[1,2],[3,4]] -> 2 runs  
+    # Result: 4 runs total
+    # States: repeat each column for each param column: [[1,1,2,2],[3,3,4,4]]
+    # Params: tile columns: [[1,2,1,2],[3,4,3,4]]
     arraycomb1 = extend_test_array(
-        np.asarray([[1, 2], [1, 2], [3, 4], [3, 4]]), system.initial_values
+        np.asarray([[1, 1, 2, 2], [3, 3, 4, 4]]), system.initial_values
     )
     arraycomb2 = extend_test_array(
-        np.asarray([[1, 2], [3, 4], [1, 2], [3, 4]]), system.parameters
+        np.asarray([[1, 2, 1, 2], [3, 4, 3, 4]]), system.parameters
     )
 
     # Combine input arrays
@@ -546,14 +573,34 @@ def test_call_outputs(system, grid_builder):
     assert_array_equal(inits, state_testarray1)
     assert_array_equal(params, param_testarray1)
 
-    # full combo from dict:
+    # full combo from dict - produces 16 runs (2*2 state combos * 2*2 param combos)
+    # unique_cartesian_product([1,3], [2,4]) gives [[1,1,3,3],[2,4,2,4]]
+    fullcombosingle_state = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])  # x0, x1 combinatorial
+    fullcombosingle_param = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])  # p0, p1 combinatorial
+    # combine_grids repeats states for each param, tiles params
+    # States: [[1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3],[2,2,2,2,4,4,4,4,2,2,2,2,4,4,4,4]]
+    # Params: [[1,1,3,3,1,1,3,3,1,1,3,3,1,1,3,3],[2,4,2,4,2,4,2,4,2,4,2,4,2,4,2,4]]
+    statefullcombdouble = extend_test_array(
+        np.repeat(fullcombosingle_state, 4, axis=1), system.initial_values
+    )
+    paramfullcombdouble = extend_test_array(
+        np.tile(fullcombosingle_param, (1, 4)), system.parameters
+    )
+    
     inits, params = grid_builder(testdict, kind="combinatorial")
     assert_array_equal(params, paramfullcombdouble)
     assert_array_equal(inits, statefullcombdouble)
 
+    # Verbatim from dict - pairs row-wise: 2 runs
+    verbatim_state = extend_test_array(
+        np.asarray([[1, 3], [2, 4]]), system.initial_values
+    )
+    verbatim_param = extend_test_array(
+        np.asarray([[1, 3], [2, 4]]), system.parameters
+    )
     inits, params = grid_builder(testdict, kind="verbatim")
-    assert_array_equal(inits, state_testarray1)
-    assert_array_equal(params, param_testarray1)
+    assert_array_equal(inits, verbatim_state)
+    assert_array_equal(params, verbatim_param)
 
     inits, params = grid_builder(
         params=testparamdict, states=teststatedict, kind="combinatorial"
@@ -563,20 +610,20 @@ def test_call_outputs(system, grid_builder):
 
 
 def extend_test_array(array, values_object):
-    """Extend a 2D array to match the system's initial values size.
+    """Extend a 2D array to match the system's variable count.
     
-    Input array is in (run, variable) format. Output is padded and transposed
-    to (variable, run) format to match BatchGridBuilder output.
+    Input array is in (variable, run) format. Output is padded in variable
+    dimension to match values_object.n variables.
     """
-    # Pad in variable dimension (axis 1)
-    padded = np.pad(
-        array,
-        ((0, 0), (0, values_object.n - array.shape[1])),
-        mode="constant",
-        constant_values=values_object.values_array[array.shape[1] :],
+    n_vars = array.shape[0]
+    n_runs = array.shape[1]
+    if n_vars >= values_object.n:
+        return array[:values_object.n, :]
+    # Pad with default values for missing variables
+    padding = np.column_stack(
+        [values_object.values_array[n_vars:]] * n_runs
     )
-    # Transpose to (variable, run) format
-    return padded.T
+    return np.vstack([array, padding])
 
 
 def test_docstring_examples(grid_builder, system, tolerance):
@@ -642,15 +689,15 @@ def test_docstring_examples(grid_builder, system, tolerance):
         atol=tolerance.abs_tight,
     )
 
-    # Example 2: verbatim arrays
-    params = np.array([[0.1, 0.2], [10, 20]])
-    states = np.array([[1.0, 2.0], [0.5, 1.5]])
+    # Example 2: verbatim arrays in (variable, run) format
+    params = np.array([[0.1, 0.2], [10, 20]])  # 2 vars, 2 runs
+    states = np.array([[1.0, 2.0], [0.5, 1.5]])  # 2 vars, 2 runs
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="verbatim"
     )
-    # Expected arrays in (variable, run) format
-    expected_initial = np.array([[1.0, 2.0, 1.2], [0.5, 1.5, 1.2]]).T
-    expected_params = np.array([[0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]).T
+    # Expected arrays in (variable, run) format - extended with defaults
+    expected_initial = np.array([[1.0, 2.0], [0.5, 1.5], [1.2, 1.2]])
+    expected_params = np.array([[0.1, 0.2], [10.0, 20.0], [1.1, 1.1]])
     assert_allclose(
         initial_states,
         expected_initial,
@@ -664,17 +711,19 @@ def test_docstring_examples(grid_builder, system, tolerance):
         atol=tolerance.abs_tight,
     )
 
-    # Example 3: combinatorial arrays
+    # Example 3: combinatorial arrays (2 runs * 2 runs = 4 total runs)
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="combinatorial"
     )
     # Expected arrays in (variable, run) format
+    # States: each column repeats for each param run
+    # Params: columns tile for each state run
     expected_initial = np.array(
-        [[1.0, 2.0, 1.2], [1.0, 2.0, 1.2], [0.5, 1.5, 1.2], [0.5, 1.5, 1.2]]
-    ).T
+        [[1.0, 1.0, 2.0, 2.0], [0.5, 0.5, 1.5, 1.5], [1.2, 1.2, 1.2, 1.2]]
+    )
     expected_params = np.array(
-        [[0.1, 0.2, 1.1], [10.0, 20.0, 1.1], [0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]
-    ).T
+        [[0.1, 0.2, 0.1, 0.2], [10.0, 20.0, 10.0, 20.0], [1.1, 1.1, 1.1, 1.1]]
+    )
     assert_allclose(
         initial_states,
         expected_initial,
@@ -780,8 +829,9 @@ def test_grid_builder_precision_enforcement(system, precision):
     assert params.dtype == precision
     
     # Test with mixed array and dict inputs (verbatim with matching lengths)
+    # Array is (variable, run) format: 2 vars, 2 runs
     inits, params = grid_builder(
-        states=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+        states=[[1.0, 2.0], [4.0, 5.0]],
         params={param_names[0]: [7.0, 8.0]},
         kind="verbatim"
     )
@@ -791,8 +841,9 @@ def test_grid_builder_precision_enforcement(system, precision):
     system.update({'precision': np.float32})
 
     # Test with mixed array and dict inputs (verbatim with matching lengths)
+    # Array is (variable, run) format: 2 vars, 2 runs
     inits, params = grid_builder(
-        states=[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+        states=[[1.0, 2.0], [4.0, 5.0]],
         params={param_names[0]: [7.0, 8.0]},
         kind="verbatim"
     )
