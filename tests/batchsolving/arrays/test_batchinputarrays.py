@@ -53,7 +53,14 @@ def input_arrays_manager(precision, solver, input_test_settings):
 
 @pytest.fixture(scope="function")
 def sample_input_arrays(solver, input_test_settings, precision):
-    """Create sample input arrays for testing based on real solver"""
+    """Create sample input arrays for testing based on real solver
+    
+    Arrays are created in user-facing format (run, variable) to match
+    what BatchGridBuilder.grid_arrays() returns. The InputArrays manager
+    will transpose these to internal format (variable, run).
+    
+    driver_coefficients uses a simplified 2D format for testing.
+    """
     num_runs = input_test_settings["num_runs"]
     dtype = precision
 
@@ -61,11 +68,14 @@ def sample_input_arrays(solver, input_test_settings, precision):
     parameters_count = solver.system_sizes.parameters
     forcing_count = solver.system_sizes.drivers
 
+    # User-facing format: (run, variable) - will be transposed internally
     return {
-        "initial_values": np.random.rand(variables_count, num_runs).astype(
+        "initial_values": np.random.rand(num_runs, variables_count).astype(
             dtype
         ),
-        "parameters": np.random.rand(parameters_count, num_runs).astype(dtype),
+        "parameters": np.random.rand(num_runs, parameters_count).astype(dtype),
+        # driver_coefficients uses simplified format (forcing, num_runs)
+        # matching internal (variable, run) layout for this test
         "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
             dtype
         ),
@@ -276,14 +286,17 @@ class TestInputArrays:
         input_arrays_manager.initialise(host_indices)
 
         # Check that device arrays now match host arrays
+        # Arrays are transposed from user format (run, variable) to
+        # internal format (variable, run)
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.initial_values.array),
-            sample_input_arrays["initial_values"],
+            sample_input_arrays["initial_values"].T,
         )
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.parameters.array),
-            sample_input_arrays["parameters"],
+            sample_input_arrays["parameters"].T,
         )
+        # driver_coefficients uses internal format directly in fixture
         np.testing.assert_array_equal(
             np.array(input_arrays_manager.device.driver_coefficients.array),
             sample_input_arrays["driver_coefficients"],

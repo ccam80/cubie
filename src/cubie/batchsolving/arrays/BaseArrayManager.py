@@ -679,11 +679,26 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        For 3D arrays, this creates a new array with strides matching the
-        memory manager's ``_stride_order``, then copies data. For 2D and
-        1D arrays, the original array is returned unchanged.
+        For 2D arrays, expects input in (run, variable) format from user
+        and transposes to (variable, run) for run-contiguous device layout.
+        For 3D arrays, creates a new array with strides matching the memory
+        manager's ``_stride_order``, then copies data.
         """
-        if len(array.shape) != 3 or stride_order is None:
+        if stride_order is None:
+            return array
+
+        # Handle 2D arrays: transpose from user format (run, variable)
+        # to device format (variable, run) for run-contiguous layout
+        if len(array.shape) == 2:
+            # User provides (n_runs, n_variables), we need (n_variables, n_runs)
+            # Check if stride_order indicates variable-first layout
+            if len(stride_order) == 2 and stride_order[0] == "variable":
+                # Transpose to get (variable, run) from (run, variable)
+                return np.ascontiguousarray(array.T)
+            return array
+
+        # Handle 3D arrays
+        if len(array.shape) != 3:
             return array
 
         target = self._memory_manager.create_host_array(

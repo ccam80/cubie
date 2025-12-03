@@ -508,10 +508,12 @@ class SolveResult:
         Returns
         -------
         NDArray
-            Combined array along the last axis or a copy of the active array.
+            Combined array along the variable axis (axis=1) for 3D arrays,
+            or a copy of the active array.
         """
         if state_active and observables_active:
-            return np.concatenate((state, observables), axis=-1)
+            # Concatenate along variable axis (axis=1) for (time, variable, run)
+            return np.concatenate((state, observables), axis=1)
         elif state_active:
             return state.copy()
         elif observables_active:
@@ -542,11 +544,12 @@ class SolveResult:
         Returns
         -------
         np.ndarray
-            Combined summary array.
+            Combined summary array along the variable axis (axis=1).
         """
         if summarise_states and summarise_observables:
+            # Concatenate along variable axis (axis=1) for (time, variable, run)
             return np.concatenate(
-                (state_summaries, observable_summaries), axis=-1
+                (state_summaries, observable_summaries), axis=1
             )
         elif summarise_states:
             return state_summaries.copy()

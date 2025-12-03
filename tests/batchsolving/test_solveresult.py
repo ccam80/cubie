@@ -38,7 +38,7 @@ class TestSolveResultStaticMethods:
     @pytest.mark.parametrize(
         "state_flag, obs_flag, expected",
         [
-            (True, True, lambda s, o: np.concatenate((s, o), axis=-1)),
+            (True, True, lambda s, o: np.concatenate((s, o), axis=1)),
             (True, False, lambda s, o: s),
             (False, True, lambda s, o: o),
             (False, False, lambda s, o: np.array([])),
@@ -46,6 +46,7 @@ class TestSolveResultStaticMethods:
     )
     def test_combine_time_domain_arrays(self, state_flag, obs_flag, expected):
         """Test time domain array combination with different active flags."""
+        # Arrays with shape (time, variable, run) = (2, 1, 2)
         s = np.array([[[1, 2]], [[3, 4]]])
         o = np.array([[[5, 6]], [[7, 8]]])
         result = SolveResult.combine_time_domain_arrays(
@@ -57,7 +58,7 @@ class TestSolveResultStaticMethods:
     @pytest.mark.parametrize(
         "state_flag, obs_flag, expected",
         [
-            (True, True, lambda s, o: np.concatenate((s, o), axis=-1)),
+            (True, True, lambda s, o: np.concatenate((s, o), axis=1)),
             (True, False, lambda s, o: s),
             (False, True, lambda s, o: o),
             (False, False, lambda s, o: np.array([])),
@@ -65,6 +66,7 @@ class TestSolveResultStaticMethods:
     )
     def test_combine_summaries_array(self, state_flag, obs_flag, expected):
         """Test summaries array combination with different active flags."""
+        # Arrays with shape (time, variable, run) = (2, 1, 2)
         s = np.array([[[10, 20]], [[30, 40]]])
         o = np.array([[[50, 60]], [[70, 80]]])
         result = SolveResult.combine_summaries_array(
@@ -493,9 +495,10 @@ class TestSolveResultPandasIntegration:
             assert td_df.shape == (array_shape[0], expected_cols)
 
         # Check summaries DataFrame columns match legend
+        # With layout (time, variable, run): shape[2] is n_runs
         if result.summaries_array.size > 0:
             expected_sum_cols = (
-                len(result.summaries_legend) * array_shape[1]
+                len(result.summaries_legend) * array_shape[2]
                 if result.summaries_array.ndim == 3
                 else len(result.summaries_legend)
             )

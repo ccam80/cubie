@@ -891,8 +891,10 @@ class TestMemoryManager:
             expected_chunks = 4
         else:
             expected_chunks = 2
+        # With stride order (time, variable, run):
+        # run is at index 2, time is at index 0
         if chunk_axis == "run":
-            chunk_index = 1
+            chunk_index = 2
         elif chunk_axis == "time":
             chunk_index = 0
 
