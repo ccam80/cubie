@@ -35,7 +35,6 @@ from cubie.outputhandling.output_functions import (
     OutputFunctions,
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 from tests.integrators.cpu_reference import (
     CPUAdaptiveController,
     CPUODESystem,
@@ -152,28 +151,13 @@ def _build_loop_instance(
     precision: np.dtype,
     system: SymbolicODE,
     step_object: Any,
-    loop_buffer_sizes: LoopBufferSizes,
+    buffer_settings: LoopBufferSettings,
     output_functions: OutputFunctions,
     step_controller: Any,
     solver_settings: Dict[str, Any],
     driver_array: Optional[ArrayInterpolator],
 ) -> IVPLoop:
     """Construct an :class:`IVPLoop` instance for device loop tests."""
-    
-    n_error = loop_buffer_sizes.state if step_object.is_adaptive else 0
-    
-    # Build buffer settings with all-shared layout
-    buffer_settings = LoopBufferSettings(
-        n_states=loop_buffer_sizes.state,
-        n_parameters=loop_buffer_sizes.parameters,
-        n_drivers=loop_buffer_sizes.drivers,
-        n_observables=loop_buffer_sizes.observables,
-        state_summary_buffer_height=loop_buffer_sizes.state_summaries,
-        observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
-        n_error=n_error,
-        n_counters=0
-    )
-    
     driver_function = _get_driver_function(driver_array)
     return IVPLoop(
         precision=precision,
@@ -722,7 +706,7 @@ def loop(
     precision,
     system,
     step_object,
-    loop_buffer_sizes,
+    buffer_settings,
     output_functions,
     step_controller,
     solver_settings,
@@ -733,7 +717,7 @@ def loop(
         precision=precision,
         system=system,
         step_object=step_object,
-        loop_buffer_sizes=loop_buffer_sizes,
+        buffer_settings=buffer_settings,
         output_functions=output_functions,
         step_controller=step_controller,
         solver_settings=solver_settings,
@@ -746,7 +730,7 @@ def loop_mutable(
     precision,
     system,
     step_object_mutable,
-    loop_buffer_sizes_mutable,
+    buffer_settings_mutable,
     output_functions_mutable,
     step_controller_mutable,
     solver_settings,
@@ -757,7 +741,7 @@ def loop_mutable(
         precision=precision,
         system=system,
         step_object=step_object_mutable,
-        loop_buffer_sizes=loop_buffer_sizes_mutable,
+        buffer_settings=buffer_settings_mutable,
         output_functions=output_functions_mutable,
         step_controller=step_controller_mutable,
         solver_settings=solver_settings,
@@ -873,18 +857,34 @@ def initial_state(system, precision, request):
 
 
 @pytest.fixture(scope="session")
-def loop_buffer_sizes(system, output_functions):
-    """Loop buffer sizes derived from the system and output configuration."""
-
-    return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
+def buffer_settings(system, output_functions, step_object):
+    """Buffer settings derived from the system and output configuration."""
+    n_error = system.sizes.states if step_object.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
+    )
 
 
 @pytest.fixture(scope="function")
-def loop_buffer_sizes_mutable(system, output_functions_mutable):
-    """Function-scoped buffer sizes derived from the mutable outputs."""
-
-    return LoopBufferSizes.from_system_and_output_fns(
-        system, output_functions_mutable
+def buffer_settings_mutable(system, output_functions_mutable, step_object_mutable):
+    """Function-scoped buffer settings derived from the mutable outputs."""
+    n_error = system.sizes.states if step_object_mutable.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions_mutable.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions_mutable.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
     )
 
 
