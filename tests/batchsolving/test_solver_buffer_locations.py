@@ -4,6 +4,7 @@ import pytest
 
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.loops.ode_loop import ALL_BUFFER_LOCATION_PARAMETERS
+from cubie.integrators.algorithms import ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
 
 
 class TestBufferLocationFiltering:
@@ -123,3 +124,53 @@ class TestBufferLocationFiltering:
         
         # Cache should be invalid after buffer location change
         assert not loop.cache_valid
+
+
+class TestAlgorithmBufferLocationFiltering:
+    """Test algorithm buffer location parameter handling in Solver."""
+
+    def test_erk_buffer_location_from_init(self, system, precision):
+        """ERK buffer locations should be settable from Solver init."""
+        solver = Solver(
+            system,
+            algorithm='erk',
+            stage_rhs_location='shared',
+            stage_accumulator_location='shared',
+        )
+        algo_step = solver.kernel.single_integrator._algo_step
+        buffer_settings = algo_step.compile_settings.buffer_settings
+        assert buffer_settings.stage_rhs_location == 'shared'
+        assert buffer_settings.stage_accumulator_location == 'shared'
+
+    def test_erk_buffer_locations_local(self, system, precision):
+        """ERK with local buffers should report zero shared memory."""
+        solver = Solver(
+            system,
+            algorithm='erk',
+            stage_rhs_location='local',
+            stage_accumulator_location='local',
+        )
+        algo_step = solver.kernel.single_integrator._algo_step
+        buffer_settings = algo_step.compile_settings.buffer_settings
+        assert buffer_settings.shared_memory_elements == 0
+        assert buffer_settings.local_memory_elements > 0
+
+    def test_erk_buffer_locations_shared(self, system, precision):
+        """ERK with shared buffers should report nonzero shared memory."""
+        solver = Solver(
+            system,
+            algorithm='erk',
+            stage_rhs_location='shared',
+            stage_accumulator_location='shared',
+        )
+        algo_step = solver.kernel.single_integrator._algo_step
+        buffer_settings = algo_step.compile_settings.buffer_settings
+        assert buffer_settings.shared_memory_elements > 0
+
+    def test_algorithm_buffer_location_params_combined(self):
+        """Verify combined algorithm buffer location parameters."""
+        # Check that expected params are in the combined set
+        assert 'stage_rhs_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
+        assert 'stage_accumulator_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
+        assert 'stage_increment_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
+        assert 'solver_scratch_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS

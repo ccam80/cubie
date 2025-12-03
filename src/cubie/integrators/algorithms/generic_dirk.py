@@ -400,6 +400,10 @@ class DIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
+        stage_increment_location: str = 'local',
+        stage_base_location: str = 'shared',
+        accumulator_location: str = 'shared',
+        solver_scratch_location: str = 'shared',
     ) -> None:
         """Initialise the DIRK step configuration.
         
@@ -461,10 +465,14 @@ class DIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
-        # Create default buffer_settings for compile_settings
+        # Create buffer_settings with user-provided locations
         buffer_settings = DIRKBufferSettings(
             n=n,
             stage_count=tableau.stage_count,
+            stage_increment_location=stage_increment_location,
+            stage_base_location=stage_base_location,
+            accumulator_location=accumulator_location,
+            solver_scratch_location=solver_scratch_location,
         )
         config_kwargs = {
             "precision": precision,

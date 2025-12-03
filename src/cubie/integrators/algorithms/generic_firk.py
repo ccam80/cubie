@@ -378,6 +378,10 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
+        solver_scratch_location: str = 'shared',
+        stage_increment_location: str = 'shared',
+        stage_driver_stack_location: str = 'shared',
+        stage_state_location: str = 'local',
     ) -> None:
         """Initialise the FIRK step configuration.
         
@@ -443,11 +447,15 @@ class FIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
-        # Create default buffer_settings for compile_settings
+        # Create buffer_settings with user-provided locations
         buffer_settings = FIRKBufferSettings(
             n=n,
             stage_count=tableau.stage_count,
             n_drivers=n_drivers,
+            solver_scratch_location=solver_scratch_location,
+            stage_increment_location=stage_increment_location,
+            stage_driver_stack_location=stage_driver_stack_location,
+            stage_state_location=stage_state_location,
         )
         config_kwargs = {
             "precision": precision,

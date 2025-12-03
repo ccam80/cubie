@@ -328,6 +328,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
+        stage_rhs_location: str = 'shared',
+        stage_store_location: str = 'shared',
+        cached_auxiliaries_location: str = 'shared',
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
         
@@ -388,12 +391,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        # Create default buffer_settings for compile_settings
+        # Create buffer_settings with user-provided locations
         # cached_auxiliary_count is 0 at init; updated when helpers are built
         buffer_settings = RosenbrockBufferSettings(
             n=n,
             stage_count=tableau.stage_count,
             cached_auxiliary_count=0,
+            stage_rhs_location=stage_rhs_location,
+            stage_store_location=stage_store_location,
+            cached_auxiliaries_location=cached_auxiliaries_location,
         )
         config_kwargs = {
             "precision": precision,

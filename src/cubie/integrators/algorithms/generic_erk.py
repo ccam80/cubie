@@ -348,6 +348,8 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
+        stage_rhs_location: str = 'local',
+        stage_accumulator_location: str = 'local',
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
         
@@ -418,10 +420,12 @@ class ERKStep(ODEExplicitStep):
         'fixed'
         """
 
-        # Create default buffer_settings for compile_settings
+        # Create buffer_settings with user-provided locations
         buffer_settings = ERKBufferSettings(
             n=n,
             stage_count=tableau.stage_count,
+            stage_rhs_location=stage_rhs_location,
+            stage_accumulator_location=stage_accumulator_location,
         )
         config_kwargs = {
             "precision": precision,
