@@ -73,15 +73,22 @@ class OutputArrayContainer(ArrayContainer):
     @classmethod
     def host_factory(cls) -> "OutputArrayContainer":
         """
-        Create a new host memory container.
+        Create a new pinned host memory container.
 
         Returns
         -------
         OutputArrayContainer
-            A new container configured for host memory.
+            A new container configured for pinned host memory.
+
+        Notes
+        -----
+        Uses pinned (page-locked) memory to enable asynchronous
+        device-to-host transfers with CUDA streams. Using ``"host"``
+        memory type instead would result in pageable memory that blocks
+        async transfers due to required intermediate buffering.
         """
         container = cls()
-        container.set_memory_type("host")
+        container.set_memory_type("pinned")
         return container
 
     @classmethod
@@ -239,9 +246,14 @@ class OutputArrays(BaseArrayManager):
         -------
         None
             This method updates the host and device container metadata.
+
+        Notes
+        -----
+        Host containers use pinned memory to enable asynchronous
+        device-to-host transfers with CUDA streams.
         """
         super().__attrs_post_init__()
-        self.host.set_memory_type("host")
+        self.host.set_memory_type("pinned")
         self.device.set_memory_type("device")
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
@@ -382,7 +394,7 @@ class OutputArrays(BaseArrayManager):
                 slot.dtype = self._precision
                 dtype = slot.dtype
             new_arrays[name] = self._memory_manager.create_host_array(
-                newshape, dtype, slot.stride_order
+                newshape, dtype, slot.stride_order, slot.memory_type
             )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)

@@ -102,9 +102,9 @@ class TestInputArrayContainer:
         assert stride_order == ("variable", "run")
 
     def test_host_factory(self):
-        """Test host factory method"""
+        """Test host factory method creates pinned memory container"""
         container = InputArrayContainer.host_factory()
-        assert container.get_managed_array("initial_values").memory_type == "host"
+        assert container.get_managed_array("initial_values").memory_type == "pinned"
 
     def test_device_factory(self):
         """Test device factory method"""
@@ -124,7 +124,7 @@ class TestInputArrays:
 
         # Check memory types are set correctly in post_init
         for _, managed in input_arrays_manager.host.iter_managed_arrays():
-            assert managed.memory_type == "host"
+            assert managed.memory_type == "pinned"
         for _, managed in input_arrays_manager.device.iter_managed_arrays():
             assert managed.memory_type == "device"
 

@@ -48,15 +48,22 @@ class InputArrayContainer(ArrayContainer):
 
     @classmethod
     def host_factory(cls) -> "InputArrayContainer":
-        """Create a container configured for host memory transfers.
+        """Create a container configured for pinned host memory transfers.
 
         Returns
         -------
         InputArrayContainer
-            Host-side container instance.
+            Pinned host-side container instance.
+
+        Notes
+        -----
+        Uses pinned (page-locked) memory to enable asynchronous
+        host-to-device transfers with CUDA streams. Using ``"host"``
+        memory type instead would result in pageable memory that blocks
+        async transfers due to required intermediate buffering.
         """
         container = cls()
-        container.set_memory_type("host")
+        container.set_memory_type("pinned")
         return container
 
     @classmethod
@@ -152,9 +159,14 @@ class InputArrays(BaseArrayManager):
         -------
         None
             This method mutates container configuration in place.
+
+        Notes
+        -----
+        Host containers use pinned memory to enable asynchronous
+        host-to-device transfers with CUDA streams.
         """
         super().__attrs_post_init__()
-        self.host.set_memory_type("host")
+        self.host.set_memory_type("pinned")
         self.device.set_memory_type("device")
 
     def update(
