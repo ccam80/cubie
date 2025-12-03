@@ -954,6 +954,10 @@ class MemoryManager:
         intermediate buffering by the CUDA runtime.
         """
         _ensure_cuda_context()
+        if memory_type not in ("pinned", "host"):
+            raise ValueError(
+                f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
+            )
         use_pinned = memory_type == "pinned"
 
         if len(shape) != 3 or stride_order is None:

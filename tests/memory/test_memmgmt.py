@@ -605,6 +605,16 @@ class TestMemoryManager:
             arr, np.zeros((2, 3, 4), dtype=np.float32)
         )
 
+    def test_create_host_array_invalid_memory_type(self, mgr):
+        """Test create_host_array raises ValueError for invalid memory type."""
+        with pytest.raises(ValueError, match="memory_type must be"):
+            mgr.create_host_array(
+                shape=(2, 3, 4),
+                dtype=np.float32,
+                stride_order=("time", "run", "variable"),
+                memory_type="invalid",
+            )
+
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
