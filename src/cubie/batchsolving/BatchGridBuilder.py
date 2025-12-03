@@ -659,16 +659,16 @@ class BatchGridBuilder:
             elif parray is not None:
                 # Create default state array in (variable, run) format
                 n_runs = parray.shape[1]
-                sarray = np.column_stack(
-                    [self.states.values_array] * n_runs
+                sarray = np.tile(
+                    self.states.values_array[:, np.newaxis], (1, n_runs)
                 )
                 return self._cast_to_precision(sarray, parray)
             # Only states provided as an array-like (no params or request)
             elif sarray is not None:
                 # Create default param array in (variable, run) format
                 n_runs = sarray.shape[1]
-                parray = np.column_stack(
-                    [self.parameters.values_array] * n_runs
+                parray = np.tile(
+                    self.parameters.values_array[:, np.newaxis], (1, n_runs)
                 )
                 return self._cast_to_precision(sarray, parray)
             # No inputs provided; return single-column defaults
@@ -701,8 +701,9 @@ class BatchGridBuilder:
         if arr.shape[0] < values_object.n:
             n_runs = arr.shape[1]
             # Create padding with default values for missing variables
-            padding = np.column_stack(
-                [values_object.values_array[arr.shape[0]:]] * n_runs
+            padding = np.tile(
+                values_object.values_array[arr.shape[0]:, np.newaxis],
+                (1, n_runs)
             )
             arr = np.vstack([arr, padding])
         # If the array has more rows than expected, trim the extras
