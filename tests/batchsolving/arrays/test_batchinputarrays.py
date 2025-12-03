@@ -74,8 +74,8 @@ def sample_input_arrays(solver, input_test_settings, precision):
             dtype
         ),
         "parameters": np.random.rand(num_runs, parameters_count).astype(dtype),
-        # driver_coefficients uses simplified format (forcing, num_runs)
-        # matching internal (variable, run) layout for this test
+        # driver_coefficients uses internal format (forcing, run) directly
+        # since the 3D transpose logic doesn't apply to this 2D test fixture
         "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
             dtype
         ),

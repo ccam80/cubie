@@ -688,12 +688,13 @@ class BaseArrayManager(ABC):
             return array
 
         # Handle 2D arrays: transpose from user format (run, variable)
-        # to device format (variable, run) for run-contiguous layout
+        # to device format (variable, run) for run-contiguous layout.
+        # The condition checks if internal stride_order expects variable-first,
+        # implying user input is run-first and needs transposition.
         if len(array.shape) == 2:
-            # User provides (n_runs, n_variables), we need (n_variables, n_runs)
-            # Check if stride_order indicates variable-first layout
             if len(stride_order) == 2 and stride_order[0] == "variable":
-                # Transpose to get (variable, run) from (run, variable)
+                # User provides (n_runs, n_variables) in run-first format
+                # Transpose to get internal (n_variables, n_runs) format
                 return np.ascontiguousarray(array.T)
             return array
 
