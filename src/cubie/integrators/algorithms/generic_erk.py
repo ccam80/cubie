@@ -348,8 +348,8 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
-        stage_rhs_location: str = 'local',
-        stage_accumulator_location: str = 'local',
+        stage_rhs_location: Optional[str] = None,
+        stage_accumulator_location: Optional[str] = None,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
         
@@ -420,13 +420,16 @@ class ERKStep(ODEExplicitStep):
         'fixed'
         """
 
-        # Create buffer_settings with user-provided locations
-        buffer_settings = ERKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-            stage_rhs_location=stage_rhs_location,
-            stage_accumulator_location=stage_accumulator_location,
-        )
+        # Create buffer_settings - only pass locations if explicitly provided
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+        }
+        if stage_rhs_location is not None:
+            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
+        if stage_accumulator_location is not None:
+            buffer_kwargs['stage_accumulator_location'] = stage_accumulator_location
+        buffer_settings = ERKBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -804,9 +807,7 @@ class ERKStep(ODEExplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        stage_count = self.tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return accumulator_span
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:

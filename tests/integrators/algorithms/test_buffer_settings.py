@@ -142,20 +142,20 @@ class TestDIRKBufferSettings:
         settings = DIRKBufferSettings(n=3, stage_count=4)
 
         assert settings.stage_increment_location == 'local'
-        assert settings.stage_base_location == 'shared'
-        assert settings.accumulator_location == 'shared'
-        assert settings.solver_scratch_location == 'shared'
+        assert settings.stage_base_location == 'local'
+        assert settings.accumulator_location == 'local'
+        assert settings.solver_scratch_location == 'local'
 
     def test_boolean_flags(self):
         """Boolean properties should reflect location settings."""
         settings = DIRKBufferSettings(
             n=3,
             stage_count=4,
-            stage_increment_location='shared',
+            stage_increment_location='local',
         )
 
-        assert settings.use_shared_stage_increment is True
-        assert settings.use_shared_accumulator is True
+        assert settings.use_shared_stage_increment is False
+        assert settings.use_shared_accumulator is False
 
     def test_stage_base_aliases_accumulator_multistage(self):
         """stage_base should alias accumulator when multistage and shared."""
@@ -231,9 +231,9 @@ class TestFIRKBufferSettings:
         """Default locations should match expected values."""
         settings = FIRKBufferSettings(n=3, stage_count=4)
 
-        assert settings.solver_scratch_location == 'shared'
-        assert settings.stage_increment_location == 'shared'
-        assert settings.stage_driver_stack_location == 'shared'
+        assert settings.solver_scratch_location == 'local'
+        assert settings.stage_increment_location == 'local'
+        assert settings.stage_driver_stack_location == 'local'
         assert settings.stage_state_location == 'local'
 
     def test_boolean_flags(self):
@@ -245,7 +245,7 @@ class TestFIRKBufferSettings:
         )
 
         assert settings.use_shared_solver_scratch is False
-        assert settings.use_shared_stage_increment is True
+        assert settings.use_shared_stage_increment is False
 
     def test_all_stages_n(self):
         """all_stages_n should be stage_count * n."""
@@ -331,9 +331,9 @@ class TestRosenbrockBufferSettings:
         """Default locations should be shared for all buffers."""
         settings = RosenbrockBufferSettings(n=3, stage_count=4)
 
-        assert settings.stage_rhs_location == 'shared'
-        assert settings.stage_store_location == 'shared'
-        assert settings.cached_auxiliaries_location == 'shared'
+        assert settings.stage_rhs_location == 'local'
+        assert settings.stage_store_location == 'local'
+        assert settings.cached_auxiliaries_location == 'local'
 
     def test_boolean_flags(self):
         """Boolean properties should reflect location settings."""
@@ -344,7 +344,7 @@ class TestRosenbrockBufferSettings:
         )
 
         assert settings.use_shared_stage_rhs is False
-        assert settings.use_shared_stage_store is True
+        assert settings.use_shared_stage_store is False
 
     def test_stage_store_elements(self):
         """stage_store_elements should be stage_count * n."""
