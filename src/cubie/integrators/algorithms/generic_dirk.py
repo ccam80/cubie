@@ -773,17 +773,14 @@ class DIRKStep(ODEImplicitStep):
 
             # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
+                stage_base = stage_accumulator[:n]
+            else:
                 if stage_base_shared:
-                    stage_base = stage_accumulator[:n]
+                    stage_base = shared[:n]
                 else:
-                    stage_base = cuda.local.array(stage_base_local_size,
-                                                  precision)
+                    stage_base = cuda.local.array(stage_base_local_size, precision)
                     for _i in range(stage_base_local_size):
                         stage_base[_i] = numba_precision(0.0)
-            else:
-                stage_base = cuda.local.array(stage_base_local_size, precision)
-                for _i in range(stage_base_local_size):
-                    stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #
 
