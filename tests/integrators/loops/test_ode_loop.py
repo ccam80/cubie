@@ -190,7 +190,7 @@ LOOP_CASES = [
 # Build, update, getter tests combined
 def test_getters(
     loop_mutable,
-    loop_buffer_sizes,
+    buffer_settings,
     precision,
     solver_settings,
 ):

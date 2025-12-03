@@ -24,7 +24,6 @@ from numpy.typing import ArrayLike
 
 from cubie.cuda_simsafe import compile_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
-from .output_sizes import SummariesBufferSizes
 
 
 @cuda.jit(
@@ -182,7 +181,7 @@ def chain_metrics(
 
 
 def save_summary_factory(
-    buffer_sizes: SummariesBufferSizes,
+    summaries_buffer_height_per_var: int,
     summarised_state_indices: Union[Sequence[int], ArrayLike],
     summarised_observable_indices: Union[Sequence[int], ArrayLike],
     summaries_list: Sequence[str],
@@ -196,9 +195,8 @@ def save_summary_factory(
 
     Parameters
     ----------
-    buffer_sizes
-        ``SummariesBufferSizes`` instance that reports per-variable buffer
-        lengths.
+    summaries_buffer_height_per_var
+        Number of buffer slots required per tracked variable.
     summarised_state_indices
         Sequence of state indices to include in summary calculations.
     summarised_observable_indices
@@ -223,7 +221,8 @@ def save_summary_factory(
 
     save_functions = summary_metrics.save_functions(summaries_list)
 
-    total_buffer_size = int32(buffer_sizes.per_variable)
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
     total_output_size = int32(summary_metrics.summaries_output_height(
         summaries_list))
 

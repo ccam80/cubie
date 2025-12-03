@@ -744,28 +744,6 @@ def test_frequent_summaries(compare_input_output):
     """Test different summary frequencies."""
     pass
 
-
-def test_summaries_buffer_sizes_property(output_functions):
-    """Test that summaries_buffer_sizes property returns correct SummariesBufferSizes object."""
-    from cubie.outputhandling.output_sizes import SummariesBufferSizes
-
-    buffer_sizes = output_functions.summaries_buffer_sizes
-
-    # Verify it returns the correct type
-    assert isinstance(buffer_sizes, SummariesBufferSizes)
-
-    # Verify the values match the individual properties
-    assert buffer_sizes.state == output_functions.state_summaries_buffer_height
-    assert (
-        buffer_sizes.observables
-        == output_functions.observable_summaries_buffer_height
-    )
-    assert (
-        buffer_sizes.per_variable
-        == output_functions.summaries_buffer_height_per_var
-    )
-
-
 def test_output_array_heights_property(output_functions):
     """Test that output_array_heights property returns correct OutputArrayHeights object."""
     from cubie.outputhandling.output_sizes import OutputArrayHeights
