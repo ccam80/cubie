@@ -547,6 +547,74 @@ class TestMemoryManager:
         )
         assert mgr.get_strides(req_2d) is None
 
+    def test_create_host_array_1d(self, mgr):
+        """Test create_host_array returns correct 1D array."""
+        arr = mgr.create_host_array(shape=(10,), dtype=np.float32)
+        assert arr.shape == (10,)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(arr, np.zeros(10, dtype=np.float32))
+
+    def test_create_host_array_2d(self, mgr):
+        """Test create_host_array returns correct 2D array."""
+        arr = mgr.create_host_array(
+            shape=(5, 3),
+            dtype=np.float64,
+            stride_order=("run", "variable"),
+        )
+        assert arr.shape == (5, 3)
+        assert arr.dtype == np.float64
+        np.testing.assert_array_equal(arr, np.zeros((5, 3), dtype=np.float64))
+
+    def test_create_host_array_3d_default_stride(self, mgr):
+        """Test create_host_array returns correct 3D array with default stride."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_3d_custom_stride(self, mgr):
+        """Test create_host_array returns correct 3D array with custom stride."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("run", "variable", "time"),
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_pageable_memory(self, mgr):
+        """Test create_host_array with host (pageable) memory type."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            memory_type="host",
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_invalid_memory_type(self, mgr):
+        """Test create_host_array raises ValueError for invalid memory type."""
+        with pytest.raises(ValueError, match="memory_type must be"):
+            mgr.create_host_array(
+                shape=(2, 3, 4),
+                dtype=np.float32,
+                stride_order=("time", "run", "variable"),
+                memory_type="invalid",
+            )
+
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
     )

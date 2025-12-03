@@ -660,7 +660,8 @@ class BaseArrayManager(ABC):
         return True
 
     def _convert_to_device_strides(
-        self, array: NDArray, stride_order: tuple[str, ...]
+        self, array: NDArray, stride_order: tuple[str, ...],
+        memory_type: str = "pinned"
     ) -> NDArray:
         """
         Convert array to have strides compatible with device allocations.
@@ -671,6 +672,9 @@ class BaseArrayManager(ABC):
             Source array to convert.
         stride_order
             Logical dimension labels in the array's native order.
+        memory_type
+            Memory type for the converted array. Must be ``"pinned"`` or
+            ``"host"``. Defaults to ``"pinned"``.
 
         Returns
         -------
@@ -682,12 +686,17 @@ class BaseArrayManager(ABC):
         For 3D arrays, this creates a new array with strides matching the
         memory manager's ``_stride_order``, then copies data. For 2D and
         1D arrays, the original array is returned unchanged.
+
+        When ``memory_type="pinned"``, the returned array uses pinned
+        (page-locked) memory to enable asynchronous host-to-device transfers
+        with CUDA streams. Using ``memory_type="host"`` creates a pageable
+        array which will block async transfers.
         """
         if len(array.shape) != 3 or stride_order is None:
             return array
 
         target = self._memory_manager.create_host_array(
-            array.shape, array.dtype, stride_order
+            array.shape, array.dtype, stride_order, memory_type
         )
         # Check if strides already match
         if array.strides == target.strides:
@@ -727,7 +736,7 @@ class BaseArrayManager(ABC):
         managed = self.host.get_managed_array(label)
         # Convert to strides compatible with device allocations
         new_array = self._convert_to_device_strides(
-            new_array, managed.stride_order
+            new_array, managed.stride_order, managed.memory_type
         )
         if current_array is not None and self._arrays_equal(
             new_array, current_array
