@@ -7,13 +7,12 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
+from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.step_control import get_controller
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
 from cubie.outputhandling.output_functions import OutputFunctions
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from tests._utils import assert_integration_outputs, run_device_loop
 
@@ -102,13 +101,11 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 def _build_loop(
     system,
     solver_settings,
+    buffer_settings,
     output_functions,
     precision,
     driver_array=None,
 ):
-    loop_buffer_sizes = LoopBufferSizes.from_system_and_output_fns(
-        system, output_functions
-    )
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
@@ -142,20 +139,6 @@ def _build_loop(
         precision=precision,
         settings=controller_settings,
     )
-    
-    n_error = loop_buffer_sizes.state if step_object.is_adaptive else 0
-    
-    # Build buffer settings with all-shared layout
-    buffer_settings = LoopBufferSettings(
-        n_states=loop_buffer_sizes.state,
-        n_parameters=loop_buffer_sizes.parameters,
-        n_drivers=loop_buffer_sizes.drivers,
-        n_observables=loop_buffer_sizes.observables,
-        state_summary_buffer_height=loop_buffer_sizes.state_summaries,
-        observable_summary_buffer_height=loop_buffer_sizes.observable_summaries,
-        n_error=n_error,
-        n_counters=0,
-    )
 
     loop = IVPLoop(
         precision=precision,
@@ -184,6 +167,7 @@ def test_time_driver_array_matches_function(
     precision,
     time_driver_systems,
     time_driver_solver_settings,
+    buffer_settings,
     sinusoid_driver_array,
     single_integrator_run
 ):
@@ -213,12 +197,14 @@ def test_time_driver_array_matches_function(
     loop_function = _build_loop(
         function_system,
         solver_settings,
+        buffer_settings,
         output_functions_function,
         precision,
     )
     loop_driver = _build_loop(
         interpolated_system,
         solver_settings,
+        buffer_settings,
         output_functions_driver,
         precision,
         driver_array=driver_array,
