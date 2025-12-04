@@ -234,8 +234,6 @@ class FIRKStep(ODEImplicitStep):
         precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        n_arraysize = n
-        n_drivers_arraysize = n_drivers
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)

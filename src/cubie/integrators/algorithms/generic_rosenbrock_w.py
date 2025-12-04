@@ -549,7 +549,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
 
-        n_arraysize = n
         n = int32(n)
         stage_count = int32(self.stage_count)
         stages_except_first = stage_count - int32(1)

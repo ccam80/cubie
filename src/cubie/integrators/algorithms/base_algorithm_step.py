@@ -136,7 +136,6 @@ class ButcherTableau:
     def a_flat(self, precision):
         """Return a flattened (1d) row-major version of the `a` matrix."""
         typed_rows = self.typed_rows(self.a, precision)
-        stage_count = self.stage_count
         flat_list: list = []
         for row in typed_rows:
             flat_list.extend(row)

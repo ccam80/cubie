@@ -605,7 +605,6 @@ class DIRKStep(ODEImplicitStep):
         precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)

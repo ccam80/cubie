@@ -49,7 +49,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
-        driver_function = driver_function
         n = int32(n)
 
         solver_shared_elements = self.solver_shared_elements

@@ -692,12 +692,8 @@ class CUDAFactory(ABC):
                 for attr_key in (f"_{key}", key):
                     if in_attr(attr_key, nested_obj):
                         old_value = getattr(nested_obj, attr_key)
-                        try:
-                            value_changed = old_value != value
-                        except ValueError:
-                            value_changed = not array_equal(
-                                asarray(old_value), asarray(value)
-                            )
+                        value_changed = old_value != value
+
                         updated = False
                         if np.any(value_changed):
                             setattr(nested_obj, attr_key, value)
@@ -708,12 +704,8 @@ class CUDAFactory(ABC):
             elif isinstance(nested_obj, dict):
                 if key in nested_obj:
                     old_value = nested_obj[key]
-                    try:
-                        value_changed = old_value != value
-                    except ValueError:
-                        value_changed = not array_equal(
-                            asarray(old_value), asarray(value)
-                        )
+                    value_changed = old_value != value
+
                     updated = False
                     if np.any(value_changed):
                         nested_obj[key] = value

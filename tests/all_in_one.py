@@ -1,7 +1,7 @@
 """All-in-one debug file for Numba lineinfo debugging.
 
 All CUDA device functions are consolidated in this single file to enable
-proper line-level debugging with Numba's lineinfo feature.
+proper line-level debugging with Numba's lineinfo.
 """
 # ruff: noqa: E402
 from math import ceil, floor
@@ -915,9 +915,6 @@ def dirk_step_inline_factory(
         #            Stage 0: may reuse cached values                     #
         # --------------------------------------------------------------- #
 
-        first_step = first_step_flag != int16(0)
-        prev_state_accepted = accepted_flag != int16(0)
-
         # Only use cache if all threads in warp can - otherwise no gain
         use_cached_rhs = False
         if first_same_as_last and multistage:
@@ -1192,7 +1189,6 @@ def erk_step_inline_factory(
     stage_accumulator_in_shared = use_shared_erk_stage_accumulator
     # stage_cache aliasing: prefers stage_rhs if shared, else accumulator
     # if shared, else needs persistent_local
-    stage_cache_in_shared = stage_rhs_in_shared or stage_accumulator_in_shared
     stage_cache_aliases_rhs = stage_rhs_in_shared
     stage_cache_aliases_accumulator = (not stage_rhs_in_shared and
                                        stage_accumulator_in_shared)
@@ -2430,8 +2426,6 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     d_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
 
     # Create device arrays for inputs (BatchInputArrays pattern)
-    itemsize = np.dtype(precision).itemsize
-
     d_inits = cuda.device_array((n_runs, n_states), dtype=precision,
                              order='F')
     d_inits.copy_to_device(inits)

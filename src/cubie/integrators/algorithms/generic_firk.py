@@ -587,8 +587,6 @@ class FIRKStep(ODEImplicitStep):
         precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        n_arraysize = n
-        n_drivers_arraysize = n_drivers
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
@@ -608,7 +606,6 @@ class FIRKStep(ODEImplicitStep):
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
-        # accumulates_output = 1
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row

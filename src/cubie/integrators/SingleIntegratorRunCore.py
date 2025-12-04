@@ -23,7 +23,6 @@ from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import (
     IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
 )
-from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
@@ -453,8 +452,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         system_sizes=self.system_sizes
         
         # Build buffer settings, preserving existing locations unless updated.
-        # Get current buffer settings from the loop's compile_settings.
-        current_buffer_settings = self._loop.compile_settings.buffer_settings
         n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
         buffer_settings = LoopBufferSettings(
             n_states=system_sizes.states,
