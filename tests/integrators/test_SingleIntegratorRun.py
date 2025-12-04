@@ -271,7 +271,6 @@ class TestSingleIntegratorRun:
             "summary_output_height_per_variable": "summaries_output_height_per_var",
             "n_summarised_states": "n_summarised_states",
             "n_summarised_observables": "n_summarised_observables",
-            "summaries_buffer_sizes": "summaries_buffer_sizes",
             "output_array_heights": "output_array_heights",
             "summary_legend_per_variable": "summary_legend_per_variable",
         }
@@ -410,11 +409,6 @@ def test_update_routes_to_children(
     controller_settings = _settings_to_dict(run._step_controller.settings_dict)
     algo_settings = _settings_to_dict(run._algo_step.settings_dict)
     assert controller_settings["dt"] == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
-    )
-    assert algo_settings["dt"] == pytest.approx(
         new_dt,
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,

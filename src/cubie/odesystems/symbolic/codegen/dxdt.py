@@ -28,6 +28,7 @@ DXDT_TEMPLATE = (
     "def {func_name}(constants, precision):\n"
     '    """Auto-generated dxdt factory."""\n'
     "{const_lines}"
+    "    \n"
     "    @cuda.jit((precision[::1],\n"
     "               precision[::1],\n"
     "               precision[::1],\n"

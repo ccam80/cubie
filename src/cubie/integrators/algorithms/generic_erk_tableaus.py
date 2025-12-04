@@ -467,6 +467,33 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
 #: Tsitouras 5(4) tableau (Tsit5) with an embedded error estimate.
 #: Tsitouras, Ch. (2011). "Runge–Kutta pairs of order 5(4) satisfying only the
 #: first column simplifying assumption." Applied Numerical Mathematics, 56(10–11).
+
+# Note: the b_hat vector in the paper cited is not used in most libraries; it
+# represents the d (b - b_hat) vector, and the final entry is incorrect (b7
+# = -1/66). I can't find explicit derivations for the fix - it is mentioned
+# here https://arxiv.org/pdf/2108.12590#page=1.89 and used in:
+# https://github.com/SciML/OrdinaryDiffEq.jl/blob/master/lib/OrdinaryDiffEqTsit5/src/tsit_tableaus.jl
+# https://github.com/rtqichen/torchdiffeq/blob/master/torchdiffeq/_impl/tsit5.py
+# https://github.com/patrick-kidger/diffrax/blob/main/diffrax/_solver/tsit5.py
+tsitouras_b = (
+        0.09646076681806523,
+        0.01,
+        0.4798896504144996,
+        1.379008574103742,
+        -3.290069515436081,
+        2.324710524099774,
+        0.0,
+    )
+tsitouras_d = (
+        -1.780011052225771443378550607539534775944678804333659557637450799792588061629796e-03,
+        -8.164344596567469032236360633546862401862537590159047610940604670770447527463931e-04,
+        7.880878010261996010314727672526304238628733777103128603258129604952959142646516e-03,
+        -1.44711007173262907537165147972635116720922712343167677619514233896760819649515e-01,
+        5.823571654525552250199376106520421794260781239567387797673045438803694038950012e-01,
+        -4.580821059291869466616365188325542974428047279788398179474684434732070620889539e-01,
+        1 / 66
+)
+tsitouras_b_hat = tuple(b - d for b, d in zip(tsitouras_b, tsitouras_d))
 TSITOURAS_54_TABLEAU = ERKTableau(
     a=(
         (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -518,15 +545,7 @@ TSITOURAS_54_TABLEAU = ERKTableau(
         2.324710524099774,
         0.0,
     ),
-    b_hat=(
-        0.001780011052226,
-        0.000816434459657,
-        -0.007880878010262,
-        0.144711007173263,
-        -0.582357165452555,
-        0.458082105929187,
-        1.0 / 66.0,
-    ),
+    b_hat=tsitouras_b_hat,
     c=(0.0, 0.161, 0.327, 0.9, 0.9800255409045097, 1.0, 1.0),
     order=5,
 )

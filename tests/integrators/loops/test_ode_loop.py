@@ -18,7 +18,7 @@ DEFAULT_OVERRIDES = {
     'dt': 0.001,
     'dt_min': 1e-8,
     'dt_max': 0.5,
-    'dt_save': 0.01953125,
+    'dt_save': 0.02,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
@@ -190,7 +190,7 @@ LOOP_CASES = [
 # Build, update, getter tests combined
 def test_getters(
     loop_mutable,
-    loop_buffer_sizes,
+    buffer_settings,
     precision,
     solver_settings,
 ):
@@ -385,3 +385,92 @@ def test_all_summary_metrics_numerical_check(
     )
     
     assert device_loop_outputs.status == 0, "Integration should complete successfully"
+
+
+@pytest.mark.parametrize("precision_override",
+                         [np.float32],
+                         indirect=True,
+                         ids=[""])
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'output_types': ['state', 'time'],
+                             'duration': 1e-4,
+                             'dt_save': 2e-5, #representable in f32 - 2e6*1.0
+                             't0': 1.0,
+                             'algorithm': "euler",
+                             'dt': 1e-7, # smaller than 1f32 eps
+                         }],
+                         indirect=True,
+                         ids=[""])
+def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
+    """Verify time accumulates correctly with float32 precision and small dt."""
+    assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(1.00008))
+
+
+@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
+                         indirect=True)
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'output_types': ['state', 'time'],
+                             'duration': 1e-3,
+                             'dt_save': 2e-4,
+                             't0': 1e2,
+                             'algorithm': 'euler',
+                             'dt': 1e-6,
+                         }],
+                         indirect=True,
+                         ids=[""])
+def test_large_t0_with_small_steps(device_loop_outputs, precision):
+    """Verify long integrations with small steps complete correctly."""
+    # There may be an ulp of error here, that's fine, we're testing the
+    # ability to accumulate time during long examples.
+    assert np.isclose(device_loop_outputs.state[-2,-1],
+                      precision(100.0008),
+                      atol=2e-7)
+
+
+
+@pytest.mark.parametrize("precision_override",
+                         [np.float32],
+                         indirect=True,
+                         ids=[""])
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                             'duration': 1e-4,
+                             'dt_save': 2e-5,
+                             't0': 1.0,
+                             'algorithm': 'crank_nicolson',
+                             'step_controller': 'PI',
+                             'output_types': ['state', 'time'],
+                             'dt_min': 1e-7,
+                             'dt_max': 1e-6, # smaller than eps * t0
+                         }],
+                         indirect=True)
+def test_adaptive_controller_with_float32(device_loop_outputs, precision):
+    """Verify adaptive controllers work with float32 and small dt_min."""
+    assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(
+            1.00008))
+    #Testing second-last sample as the final sample overshoots t_end in this
+                                                             # case
+
+@pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "duration": 0.2000,
+            "settling_time": 0.1,
+            "t0": 1.0,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 1e-2,
+            "dt_save": 0.1,
+        }
+    ],
+    indirect=True,
+)
+def test_save_at_settling_time_boundary(device_loop_outputs, precision):
+    """Test save point occurring exactly at settling_time boundary."""
+    # Should complete successfully with first save at t=settling_time
+    assert device_loop_outputs.state[-1,-1] == precision(1.2)
+    assert device_loop_outputs.state[-2,-1] == precision(1.1)

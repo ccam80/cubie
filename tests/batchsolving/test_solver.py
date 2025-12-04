@@ -578,15 +578,51 @@ def test_solver_state_and_observable_summaries(solver):
     assert solver.state_summaries is not None
     assert solver.observable_summaries is not None
 
-
-def test_solver_summaries_buffer_sizes(solver):
-    """Test summaries buffer sizes property."""
-    buffer_sizes = solver.summaries_buffer_sizes
-    assert buffer_sizes is not None
-
-
 def test_solver_num_runs_property(solver):
     """Test num_runs property."""
     num_runs = solver.num_runs
     # num_runs might be None before solving, so just check it's accessible
     assert num_runs is not None or num_runs is None
+
+
+# ============================================================================
+# Time Precision Tests (float64 time accumulation)
+# ============================================================================
+
+
+@pytest.mark.parametrize("precision_override",
+                         [np.float32],
+                         indirect=True)
+@pytest.mark.parametrize("solver_settings_override",
+                         [{'dt':1e-3}],
+                         indirect=True,
+ids=[""])
+def test_solver_stores_time_as_float64(solver_mutable):
+    """Verify Solver stores time parameters as float64."""
+    # Set time parameters as float32
+    solver_mutable.kernel.duration = np.float32(10.0)
+    solver_mutable.kernel.warmup = np.float32(1.0)
+    solver_mutable.kernel.t0 = np.float32(5.0)
+    
+    # Verify retrieved as float64
+    assert isinstance(solver_mutable.kernel.duration, (float, np.floating))
+    assert isinstance(solver_mutable.kernel.warmup, (float, np.floating))
+    assert isinstance(solver_mutable.kernel.t0, (float, np.floating))
+    
+    # Verify values preserved
+    assert np.isclose(solver_mutable.kernel.duration, 10.0)
+    assert np.isclose(solver_mutable.kernel.warmup, 1.0)
+    assert np.isclose(solver_mutable.kernel.t0, 5.0)
+
+
+@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
+                         indirect=True)
+def test_time_precision_independent_of_state_precision(system, solver_mutable):
+    """Verify time precision is float64 regardless of state precision."""
+
+    solver_mutable.kernel.duration = 5.0
+    solver_mutable.kernel.t0 = 1.0
+    
+    # Time should be float64 even when state precision is float32
+    assert solver_mutable.kernel.duration == np.float64(5.0)
+    assert solver_mutable.kernel.t0 == np.float64(1.0)

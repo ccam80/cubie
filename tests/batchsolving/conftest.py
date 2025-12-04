@@ -107,10 +107,12 @@ def cpu_batch_results(
     initial_sets, parameter_sets = batch_input_arrays
     results: list[BatchResult] = []
     coefficients = driver_array.coefficients if driver_array is not None else None
-    for idx in range(initial_sets.shape[0]):
+    # Arrays are in (variable, run) format - iterate over run dimension (axis 1)
+    n_runs = initial_sets.shape[1]
+    for idx in range(n_runs):
         loop_result = cpu_loop_runner(
-            initial_values=initial_sets[idx, :],
-            parameters=parameter_sets[idx, :],
+            initial_values=initial_sets[:, idx],
+            parameters=parameter_sets[:, idx],
             driver_coefficients=coefficients
         )
         results.append(
@@ -123,13 +125,14 @@ def cpu_batch_results(
             )
         )
 
-    state_stack = np.stack([r.state for r in results], axis=1)
-    observables_stack = np.stack([r.observables for r in results], axis=1)
+    # Stack along axis=2 to get (time, variable, run) format
+    state_stack = np.stack([r.state for r in results], axis=2)
+    observables_stack = np.stack([r.observables for r in results], axis=2)
     state_summaries_stack = np.stack(
-        [r.state_summaries for r in results], axis=1
+        [r.state_summaries for r in results], axis=2
     )
     observable_summaries_stack = np.stack(
-        [r.observable_summaries for r in results], axis=1
+        [r.observable_summaries for r in results], axis=2
     )
     status_or = 0
     for r in results:

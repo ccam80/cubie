@@ -1,7 +1,7 @@
 """Base classes and shared configuration for integration step factories."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Optional, Set, Any, Union, Tuple, Sequence
+from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
 import warnings
 
 import attrs
@@ -15,7 +15,6 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
-    opt_gttype_validator,
 )
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -25,7 +24,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'algorithm',
     'precision', 'n', 'dxdt_function', 'observables_function',
     'driver_function', 'get_solver_helper_fn', "driver_del_t",
-    'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
+    'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
     'n_drivers',
@@ -116,6 +115,31 @@ class ButcherTableau:
                 tuple(numba_precision(value) for value in padded)
             )
         return tuple(typed_rows)
+
+    def typed_columns(
+            self,
+            rows: Sequence[Sequence[float]],
+            numba_precision: type,
+    ) -> Tuple[Tuple[float, ...], ...]:
+        """Transpose and convert tableau rows to the requested precision.
+
+        Pad rows to the configured stage count, convert each entry using
+        ``numba_precision``, and return the data in column-major order.
+        """
+        typed_rows = self.typed_rows(rows, numba_precision)
+        stage_count = self.stage_count
+        return tuple(
+            tuple(row[col_idx] for row in typed_rows)
+            for col_idx in range(stage_count)
+        )
+
+    def a_flat(self, precision):
+        """Return a flattened (1d) row-major version of the `a` matrix."""
+        typed_rows = self.typed_rows(self.a, precision)
+        flat_list: list = []
+        for row in typed_rows:
+            flat_list.extend(row)
+        return tuple(precision(value) for value in flat_list)
 
     def typed_vector(
         self,
@@ -278,8 +302,6 @@ class BaseStepConfig(ABC):
         Number of state entries advanced by each step call.
     n_drivers
         Number of external driver signals consumed by the step (>= 0).
-    dt
-        Optional fixed step size supplied by explicit algorithms.
     dxdt_function
         Device function that evaluates the system right-hand side.
     observables_function
@@ -299,10 +321,6 @@ class BaseStepConfig(ABC):
 
     n: int = attrs.field(default=1, validator=getype_validator(int, 1))
     n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
-    dt: Optional[float] = attrs.field(
-        default=None,
-        validator=opt_gttype_validator(float, 0)
-    )
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -519,11 +537,6 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the number of state variables advanced per step."""
 
         return self.compile_settings.n
-
-    @property
-    def dt(self) -> Union[float, None]:
-        """Return the configured explicit step size."""
-        return self.compile_settings.dt
 
     @property
     def controller_defaults(self) -> StepControlDefaults:

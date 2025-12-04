@@ -79,13 +79,13 @@ class CPUAdaptiveController:
         return self._prev_dt
 
     def error_norm(self, state_prev: Array, state_new: Array, error: Array) -> float:
-        error = np.maximum(np.abs(error), 1e-12)
+        error = np.maximum(np.abs(error), 1e-16)
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new)
         )
-        nrm2 = np.sum((scale * scale) / (error * error))
-        norm = nrm2 / len(error)
-        return self.precision(norm)
+        ratio = error / scale
+        nrm2 = np.sum(ratio * ratio) / len(error)
+        return self.precision(nrm2)
 
     def propose_dt(
         self,
@@ -103,7 +103,7 @@ class CPUAdaptiveController:
             error=error_vector,
         )
 
-        accept = errornorm >= self.precision(1.0)
+        accept = errornorm <= self.precision(1.0)
 
         current_dt = self.dt
         gain = self._gain(
@@ -119,11 +119,6 @@ class CPUAdaptiveController:
         self._prev_dt = current_dt
         self._prev_prev_nrm2 = self._prev_nrm2
         self._prev_nrm2 = errornorm
-
-        if unclamped_dt < self.dt_min:
-            raise ValueError(
-                f"dt < dt_min: {unclamped_dt} < {self.dt_min} exceeded"
-            )
 
         return accept
 
@@ -146,15 +141,15 @@ class CPUAdaptiveController:
         kd_exp = precision(self.kd * expo_fraction)
 
         if self.kind == "i":
-            exponent = expo_fraction
+            exponent = -expo_fraction
             gain = self.safety * precision(errornorm ** exponent)
 
         elif self.kind == "pi":
             prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
             gain = (
                 self.safety
-                * precision(errornorm ** kp_exp)
-                * precision(prev ** ki_exp)
+                * precision(errornorm ** -kp_exp)
+                * precision(prev ** -ki_exp)
             )
 
         elif self.kind == "pid":
@@ -168,9 +163,9 @@ class CPUAdaptiveController:
             )
             gain = (
                 self.safety
-                * precision(errornorm ** kp_exp)
-                * precision(prev_nrm2 ** ki_exp)
-                * precision(prev_prev ** kd_exp)
+                * precision(errornorm ** -kp_exp)
+                * precision(prev_nrm2 ** -ki_exp)
+                * precision(prev_prev ** -kd_exp)
             )
 
         elif self.kind == "gustafsson":
@@ -187,23 +182,21 @@ class CPUAdaptiveController:
                 ((one + two * M) * self.gamma) / (niters_eff + two * M),
             )
             gain_basic = precision(
-                self.safety * fac * (errornorm ** expo_fraction)
+                self.safety * fac * (errornorm ** -expo_fraction)
             )
 
-            use_gus = (
-                accept and (self._prev_dt > 0.0) and (self._prev_nrm2 > 0.0)
+            # Always compute gain_gus, then fallback to gain_basic if needed
+            ratio = nrm2_prev / (errornorm * errornorm)
+            gain_gus = (
+                self.safety
+                * (current_dt / dt_prev)
+                * precision(ratio ** -expo_fraction)
+                * self.gamma
             )
-            if use_gus:
-                ratio = (errornorm * errornorm) / nrm2_prev
-                gain_gus = (
-                    self.safety
-                    * (current_dt / dt_prev)
-                    * precision(ratio ** expo_fraction)
-                    * self.gamma
-                )
-                gain = gain_gus if gain_gus < gain_basic else gain_basic
-            else:
-                gain = gain_basic
+            gain = gain_gus if gain_gus < gain_basic else gain_basic
+            # Fallback to gain_basic if step not accepted or no previous dt
+            use_gus = accept and (self._prev_dt > precision(1e-16))
+            gain = gain if use_gus else gain_basic
         else:
             gain = precision(1.0)
 

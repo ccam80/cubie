@@ -1343,9 +1343,6 @@ def test_algorithm(
             "is_adaptive getter"
         assert step_object.is_multistage is properties["is_multistage"],\
             "is_multistage getter"
-        assert step_object.persistent_local_required \
-            == properties["persistent_local_required"], \
-            "persistent_local_required getter"
         assert (
             step_object.threads_per_step == properties["threads_per_step"]
         ), "threads_per_step getter"
@@ -1364,19 +1361,6 @@ def test_algorithm(
     expected_order = _expected_order(step_object, tableau)
     assert step_object.order == expected_order, "order getter"
 
-    extra_shared = system._jacobian_aux_count or 0
-    expected_shared, expected_local = _expected_memory_requirements(
-        step_object,
-        tableau,
-        system.sizes.states,
-        extra_shared,
-    )
-    assert (
-        step_object.shared_memory_required == expected_shared
-    ), "shared_memory_required getter"
-    assert (
-        step_object.local_scratch_required == expected_local
-    ), "local_scratch_required getter"
 
     if properties is not None and properties["is_implicit"]:
         if algorithm == "rosenbrock":
@@ -1425,12 +1409,6 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping set"
         assert callable(system.get_solver_helper)
-    elif properties is not None:
-        assert step_object.dt == pytest.approx(
-            solver_settings["dt"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
 
     if step_object.is_implicit:
         if algorithm == "rosenbrock":
@@ -1491,15 +1469,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
-    else:
-        new_dt = precision(solver_settings["dt"]) * precision(0.5)
-        recognised = step_object.update({"dt": new_dt})
-        assert "dt" in recognised, "dt recognised"
-        assert step_object.dt == pytest.approx(
-            new_dt,
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "dt update"
 
     # Test equality for a single step
     tolerances = {
@@ -1554,7 +1523,6 @@ def test_tableau_controller_defaults(step_class, tableau, expected_dict):
     step = step_class(
         precision=np.float32,
         n=3,
-        dt=None,
         tableau=tableau,
     )
     

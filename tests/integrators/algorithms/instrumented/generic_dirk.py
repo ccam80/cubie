@@ -3,6 +3,7 @@
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
@@ -11,6 +12,9 @@ from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
+)
+from cubie.integrators.algorithms.generic_dirk import (
+    DIRKBufferSettings,
 )
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
@@ -54,6 +58,12 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
+    buffer_settings: Optional[DIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(DIRKBufferSettings)
+        ),
+    )
 
 
 class DIRKStep(ODEImplicitStep):
@@ -63,7 +73,6 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -82,6 +91,11 @@ class DIRKStep(ODEImplicitStep):
         """Initialise the DIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
+        # Create buffer_settings
+        buffer_settings = DIRKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -102,10 +116,9 @@ class DIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
         
@@ -186,19 +199,18 @@ class DIRKStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        stage_count = tableau.stage_count
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
+        n_arraysize = n
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
+        stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
         has_driver_function = driver_function is not None
@@ -207,7 +219,7 @@ class DIRKStep(ODEImplicitStep):
         first_same_as_last = self.first_same_as_last
         can_reuse_accepted_start = self.can_reuse_accepted_start
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
@@ -223,54 +235,74 @@ class DIRKStep(ODEImplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
-        accumulator_length = max(stage_count - 1, 0) * n
-        solver_shared_elements = self.solver_shared_elements
+        accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Shared memory indices
-        acc_start = 0
-        acc_end = accumulator_length
-        solver_start = acc_end
-        solver_end = acc_end + solver_shared_elements
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        stage_increment_shared = buffer_settings.use_shared_stage_increment
+        stage_base_shared = buffer_settings.use_shared_stage_base
+        accumulator_shared = buffer_settings.use_shared_accumulator
+        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_increment_slice = shared_indices.stage_increment
+        # stage_base aliases accumulator when multistage, so no dedicated slice
+        accumulator_slice = shared_indices.accumulator
+        solver_scratch_slice = shared_indices.solver_scratch
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_increment_local_size = local_sizes.nonzero('stage_increment')
+        stage_base_local_size = local_sizes.nonzero('stage_base')
+        accumulator_local_size = local_sizes.nonzero('accumulator')
+        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
 
         # no cover: start
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
-                int32[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,
@@ -310,53 +342,124 @@ class DIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            stage_increment = cuda.local.array(n, numba_precision)
-            base_state_snapshot = cuda.local.array(n, numba_precision)
-            observable_count = proposed_observables.shape[0]
+            # ----------------------------------------------------------- #
+            # Shared and local buffer guide:
+            # stage_accumulator: size (stage_count-1) * n, shared memory.
+            #   Default behaviour:
+            #       - Stores accumulated explicit contributions for successors.
+            #       - Slice k feeds the base state for stage k+1.
+            #   Reuse:
+            #       - stage_base: first slice (size n)
+            #           - Holds the working state during the current stage.
+            #           - New data lands only after the prior stage has finished.
+            # solver_scratch: size solver_shared_elements, shared memory.
+            #   Default behaviour:
+            #       - Provides workspace for the Newton iteration helpers.
+            #   Reuse:
+            #       - stage_rhs: first slice (size n)
+            #           - Carries the Newton residual and then the stage rhs.
+            #           - Once a stage closes we reuse it for the next residual,
+            #             so no live data remains.
+            #       - increment_cache: second slice (size n)
+            #           - Receives the accepted increment at step end for FSAL.
+            #           - Solver stops touching it once convergence is reached.
+            #   Note:
+            #       - Evaluation state is computed inline by operators and
+            #         residuals; no dedicated buffer required.
+            # stage_increment: size n, shared or local memory.
+            #   Default behaviour:
+            #       - Starts as the Newton guess and finishes as the step.
+            #       - Copied into increment_cache once the stage closes.
+            # proposed_state: size n, global memory.
+            #   Default behaviour:
+            #       - Carries the running solution with each stage update.
+            #       - Only updated after a stage converges, keeping data stable.
+            # proposed_drivers / proposed_observables: size n each, global.
+            #   Default behaviour:
+            #       - Refresh to the stage time before rhs or residual work.
+            #       - Later stages reuse only the newest values, so no clashes.
+            # ----------------------------------------------------------- #
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
+            if stage_increment_shared:
+                stage_increment = shared[stage_increment_slice]
             else:
-                dt_value = dt_scalar
-            current_time = time_scalar
-            end_time = current_time + dt_value
+                stage_increment = cuda.local.array(stage_increment_local_size,
+                                                   precision)
+                for _i in range(stage_increment_local_size):
+                    stage_increment[_i] = numba_precision(0.0)
 
-            stage_accumulator = shared[acc_start:acc_end]
-            solver_scratch = shared[solver_start:solver_end]
-            stage_rhs = solver_scratch[:n]
-            increment_cache = solver_scratch[n:2*n]
-            # Third slice reserved for the solver eval_state buffer.
+            if accumulator_shared:
+                stage_accumulator = shared[accumulator_slice]
+            else:
+                stage_accumulator = cuda.local.array(accumulator_local_size,
+                                                     precision)
+                for _i in range(accumulator_local_size):
+                    stage_accumulator[_i] = numba_precision(0.0)
 
-            #Alias stage base onto first stage accumulator - lifetimes disjoint
+            if solver_scratch_shared:
+                solver_scratch = shared[solver_scratch_slice]
+            else:
+                solver_scratch = cuda.local.array(solver_scratch_local_size,
+                                                  precision)
+                for _i in range(solver_scratch_local_size):
+                    solver_scratch[_i] = numba_precision(0.0)
+
+            # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
                 stage_base = stage_accumulator[:n]
             else:
-                stage_base = cuda.local.array(n, numba_precision)
+                if stage_base_shared:
+                    stage_base = shared[:n]
+                else:
+                    stage_base = cuda.local.array(stage_base_local_size, precision)
+                    for _i in range(stage_base_local_size):
+                        stage_base[_i] = numba_precision(0.0)
+
+            # --------------------------------------------------------------- #
+            # Instrumentation local buffers
+            base_state_snapshot = cuda.local.array(n_arraysize, numba_precision)
+            observable_count = proposed_observables.shape[0]
+
+            current_time = time_scalar
+            end_time = current_time + dt_scalar
+            stage_rhs = solver_scratch[:n]
+
+            # increment_cache and rhs_cache persist between steps for FSAL.
+            # When solver_scratch is shared, slice from it; when local, use
+            # persistent_local to maintain state between step invocations.
+            if solver_scratch_shared:
+                increment_cache = solver_scratch[n:int32(2)*n]
+                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs when shared
+            else:
+                increment_cache = persistent_local[:n]
+                rhs_cache = persistent_local[n:int32(2)*n]
 
             for idx in range(n):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
-                stage_increment[idx] = increment_cache[idx] # cache spent
+                stage_increment[idx] = increment_cache[idx]  # cache spent
 
             status_code = int32(0)
             # --------------------------------------------------------------- #
-            #            Stage 0: operates out of supplied buffers            #
+            #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #
 
             first_step = first_step_flag != int16(0)
-            prev_state_accepted = accepted_flag != int16(0)
-            use_cached_rhs = False
+
             # Only use cache if all threads in warp can - otherwise no gain
+            use_cached_rhs = False
             if first_same_as_last and multistage:
-                if not first_step_flag:
+                if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False
 
-            stage_time = current_time + dt_value * stage_time_fractions[0]
+            stage_time = current_time + dt_scalar * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]
 
             for idx in range(n):
@@ -364,23 +467,26 @@ class DIRKStep(ODEImplicitStep):
                 if accumulates_output:
                     proposed_state[idx] = typed_zero
 
-            # Only caching achievable is reusing rhs for FSAL
             if use_cached_rhs:
-                # RHS is aliased onto solver scratch cache at step-end already
-                pass
+                # Load cached RHS from persistent storage (when solver_scratch
+                # is local, rhs_cache points to persistent_local; when shared,
+                # it aliases stage_rhs so this is a no-op)
+                if not solver_scratch_shared:
+                    for idx in range(n):
+                        stage_rhs[idx] = rhs_cache[idx]
 
             else:
                 if can_reuse_accepted_start:
-                    for idx in range(drivers_buffer.shape[0]):
+                    for idx in range(int32(drivers_buffer.shape[0])):
                         # Use step-start driver values
                         proposed_drivers[idx] = drivers_buffer[idx]
 
                 else:
                     if has_driver_function:
                         driver_function(
-                                stage_time,
-                                driver_coeffs,
-                                proposed_drivers,
+                            stage_time,
+                            driver_coeffs,
+                            proposed_drivers,
                         )
                 if stage_implicit[0]:
                     status_code |= nonlinear_solver(
@@ -388,7 +494,7 @@ class DIRKStep(ODEImplicitStep):
                         parameters,
                         proposed_drivers,
                         stage_time,
-                        dt_value,
+                        dt_scalar,
                         diagonal_coeffs[0],
                         stage_base,
                         solver_scratch,
@@ -407,9 +513,11 @@ class DIRKStep(ODEImplicitStep):
                     )
 
                     for idx in range(n):
-                        stage_base[idx] += diagonal_coeff * stage_increment[idx]
+                        stage_base[idx] += (
+                            diagonal_coeff * stage_increment[idx]
+                        )
 
-                # Get obs->dxdt from establish stage_base
+                # Get obs->dxdt from stage_base
                 observables_function(
                         stage_base,
                         parameters,
@@ -467,22 +575,28 @@ class DIRKStep(ODEImplicitStep):
             #            Stages 1-s: must refresh obs/drivers                 #
             # --------------------------------------------------------------- #
 
-            for stage_idx in range(1, stage_count):
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
+            for prev_idx in range(stages_except_first):
+                stage_offset = prev_idx * n
+                stage_idx = prev_idx + int32(1)
+                matrix_col = stage_rhs_coeffs[prev_idx]
+
+                # Stream previous stage's RHS into accumulators for successors
+                # Only stream to current stage and later (not already-processed)
+                for successor_idx in range(stages_except_first):
+                    # Accumulator at index i is for stage i+1
+                    # At prev_idx, current stage is prev_idx+1, so stream to
+                    # accumulators with index >= prev_idx
+                    if successor_idx >= prev_idx:
+                        coeff = matrix_col[successor_idx + int32(1)]
+                        row_offset = successor_idx * n
+                        for idx in range(n):
+                            contribution = coeff * stage_rhs[idx] * dt_scalar
+                            stage_accumulator[row_offset + idx] += contribution
+
                 stage_time = (
                     current_time
-                    + dt_value * stage_time_fractions[stage_idx]
+                    + dt_scalar * stage_time_fractions[stage_idx]
                 )
-
-                # Fill accumulators with previous step's contributions
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    base = (successor_idx - 1) * n
-                    for idx in range(n):
-                        state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                        contribution = state_coeff * stage_rhs[idx] * dt_value
-                        stage_accumulator[base + idx] += contribution
 
                 if has_driver_function:
                     driver_function(
@@ -494,8 +608,8 @@ class DIRKStep(ODEImplicitStep):
                 for driver_idx in range(proposed_drivers_out.shape[1]):
                     proposed_drivers_out[stage_idx, driver_idx] = proposed_drivers[driver_idx]
 
-                # Just grab a view of the completed accumulator slice
-                stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
+                # Convert accumulator slice to state by adding y_n
+                stage_base = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
                     stage_base[idx] += state[idx]
 
@@ -510,7 +624,7 @@ class DIRKStep(ODEImplicitStep):
                         parameters,
                         proposed_drivers,
                         stage_time,
-                        dt_value,
+                        dt_scalar,
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_scratch,
@@ -581,11 +695,11 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] *= dt_scalar
                     proposed_state[idx] += state[idx]
                 if has_error:
                     if accumulates_error:
-                        error[idx] *= dt_value
+                        error[idx] *= dt_scalar
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
@@ -606,8 +720,14 @@ class DIRKStep(ODEImplicitStep):
             )
 
             #Cache end-step values as appropriate
+            # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
+                # Save RHS to cache (when solver_scratch is local, rhs_cache
+                # points to persistent_local; when shared, aliases stage_rhs)
+                if first_same_as_last:
+                    if not solver_scratch_shared:
+                        rhs_cache[idx] = stage_rhs[idx]
 
             return status_code
         # no cover: end
@@ -652,8 +772,14 @@ class DIRKStep(ODEImplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for increment_cache when solver_scratch uses local memory.
+        When solver_scratch is shared, increment_cache aliases it and no
+        persistent local is needed.
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def is_implicit(self) -> bool:

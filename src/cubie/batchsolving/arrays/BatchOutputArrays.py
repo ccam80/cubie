@@ -29,28 +29,28 @@ class OutputArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observables: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     state_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observable_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
@@ -65,23 +65,30 @@ class OutputArrayContainer(ArrayContainer):
     iteration_counters: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.int32,
-            stride_order=("run", "time", "variable"),
-            shape=(1, 1, 4),
+            stride_order=("time", "variable", "run"),
+            shape=(1, 4, 1),
         )
     )
 
     @classmethod
     def host_factory(cls) -> "OutputArrayContainer":
         """
-        Create a new host memory container.
+        Create a new pinned host memory container.
 
         Returns
         -------
         OutputArrayContainer
-            A new container configured for host memory.
+            A new container configured for pinned host memory.
+
+        Notes
+        -----
+        Uses pinned (page-locked) memory to enable asynchronous
+        device-to-host transfers with CUDA streams. Using ``"host"``
+        memory type instead would result in pageable memory that blocks
+        async transfers due to required intermediate buffering.
         """
         container = cls()
-        container.set_memory_type("host")
+        container.set_memory_type("pinned")
         return container
 
     @classmethod
@@ -92,10 +99,10 @@ class OutputArrayContainer(ArrayContainer):
         Returns
         -------
         OutputArrayContainer
-            A new container configured for mapped memory.
+            A new container configured for device memory.
         """
         container = cls()
-        container.set_memory_type("mapped")
+        container.set_memory_type("device")
         return container
 
 
@@ -179,7 +186,7 @@ class ActiveOutputs:
         )
         self.iteration_counters = (
             output_arrays.host.iteration_counters.array is not None
-            and output_arrays.host.iteration_counters.array.size > 1
+            and output_arrays.host.iteration_counters.array.size > 4
         )
 
 
@@ -239,10 +246,15 @@ class OutputArrays(BaseArrayManager):
         -------
         None
             This method updates the host and device container metadata.
+
+        Notes
+        -----
+        Host containers use pinned memory to enable asynchronous
+        device-to-host transfers with CUDA streams.
         """
         super().__attrs_post_init__()
-        self.host.set_memory_type("host")
-        self.device.set_memory_type("mapped")
+        self.host.set_memory_type("pinned")
+        self.device.set_memory_type("device")
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
         """
@@ -381,7 +393,9 @@ class OutputArrays(BaseArrayManager):
             if np.issubdtype(dtype, np.floating):
                 slot.dtype = self._precision
                 dtype = slot.dtype
-            new_arrays[name] = np.zeros(newshape, dtype=dtype)
+            new_arrays[name] = self._memory_manager.create_host_array(
+                newshape, dtype, slot.stride_order, slot.memory_type
+            )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
             dtype = slot.dtype
@@ -391,7 +405,7 @@ class OutputArrays(BaseArrayManager):
 
     def finalise(self, host_indices: ChunkIndices) -> None:
         """
-        Copy mapped arrays to host array slices.
+        Copy device arrays to host array slices.
 
         Parameters
         ----------
@@ -405,27 +419,28 @@ class OutputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method copies mapped device arrays over the specified slice
-        of host arrays. The copy operation may trigger CUDA runtime
-        synchronization.
+        This method queues async transfers from device arrays to host
+        arrays using the solver's registered stream.
         """
+        from_ = []
+        to_ = []
+
         for array_name, slot in self.host.iter_managed_arrays():
-            array = slot.array
             device_array = self.device.get_array(array_name)
-            if getattr(self.active_outputs, array_name):
-                stride_order = slot.stride_order
-                if self._chunk_axis in stride_order:
-                    chunk_index = stride_order.index(self._chunk_axis)
-                    slice_tuple = slice_variable_dimension(
-                            host_indices, chunk_index, len(stride_order)
-                    )
-                    target_slice = slice_tuple
-                else:
-                    target_slice = Ellipsis
-                array[target_slice] = device_array.copy()
-                # I'm not sure that we can stream a Mapped transfer,
-                # as transfer is managed by the CUDA runtime. If we just
-                # overwrite, that might jog the cuda runtime to synchronize.
+            host_array = slot.array
+            stride_order = slot.stride_order
+
+            if self._chunk_axis in stride_order:
+                chunk_index = stride_order.index(self._chunk_axis)
+                slice_tuple = slice_variable_dimension(
+                    host_indices, chunk_index, len(stride_order)
+                )
+                to_.append(host_array[slice_tuple])
+            else:
+                to_.append(host_array)
+            from_.append(device_array)
+
+        self.from_device(from_, to_)
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

@@ -14,10 +14,8 @@ from cubie.outputhandling.output_functions import OutputFunctionCache, OutputFun
 from cubie.outputhandling.output_sizes import (
     BatchInputSizes,
     BatchOutputSizes,
-    LoopBufferSizes,
     OutputArrayHeights,
     SingleRunOutputSizes,
-    SummariesBufferSizes,
 )
 from cubie.outputhandling.summarymetrics import register_metric, summary_metrics
 
@@ -28,8 +26,6 @@ __all__ = [
     "OutputFunctionCache",
     "OutputFunctions",
     "OutputArrayHeights",
-    "SummariesBufferSizes",
-    "LoopBufferSizes",
     "SingleRunOutputSizes",
     "BatchInputSizes",
     "BatchOutputSizes",

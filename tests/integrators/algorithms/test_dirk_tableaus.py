@@ -38,10 +38,5 @@ def test_dirk_step_accepts_tableau_instance(precision):
 
     custom_name = "lobatto_iiic_3"
     custom_tableau = DIRK_TABLEAU_REGISTRY[custom_name]
-    step = DIRKStep(
-        precision=precision,
-        n=2,
-        dt=0.1,
-        tableau=custom_tableau,
-    )
+    step = DIRKStep(precision=precision, n=2, tableau=custom_tableau)
     assert step.compile_settings.tableau is custom_tableau
