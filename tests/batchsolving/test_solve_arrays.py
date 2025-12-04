@@ -307,5 +307,5 @@ class TestSolveArraysConsistency:
         )
 
         # Results should match
-        assert result_dict.time_domain_array.shape == \
-               result_arrays.time_domain_array.shape
+        assert (result_dict.time_domain_array.shape
+                == result_arrays.time_domain_array.shape)
