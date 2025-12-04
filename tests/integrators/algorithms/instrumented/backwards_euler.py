@@ -1,16 +1,14 @@
-"""Backward Euler step with instrumented Newton–Krylov solver."""
+"""Backward Euler step implementation using Newton–Krylov."""
 
 from typing import Callable, Optional
 
-import numpy as np
 from numba import cuda, int16, int32
+import numpy as np
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import (
-    StepCache,
-    StepControlDefaults,
-)
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 from .matrix_free_solvers import (
@@ -18,12 +16,9 @@ from .matrix_free_solvers import (
     inst_newton_krylov_solver_factory,
 )
 
-
-ALGO_CONSTANTS = {
-    "beta": 1.0,
-    "gamma": 1.0,
-    "M": np.eye,
-}
+ALGO_CONSTANTS = {'beta': 1.0,
+                  'gamma': 1.0,
+                  'M': np.eye}
 
 BE_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -31,7 +26,6 @@ BE_DEFAULTS = StepControlDefaults(
         "dt": 1e-3,
     }
 )
-
 
 class BackwardsEulerStep(ODEImplicitStep):
     """Backward Euler step solved with matrix-free Newton–Krylov."""
@@ -53,16 +47,47 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_damping: float = 0.85,
         newton_max_backtracks: int = 25,
     ) -> None:
-        """Initialise the backward Euler step configuration."""
+        """Initialise the backward Euler step configuration.
 
-        beta = ALGO_CONSTANTS["beta"]
-        gamma = ALGO_CONSTANTS["gamma"]
-        mass_matrix = ALGO_CONSTANTS["M"](n, dtype=precision)
+        Parameters
+        ----------
+        precision
+            Precision applied to device buffers.
+        n
+            Number of state entries advanced per step.
+        dxdt_function
+            Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        get_solver_helper_fn
+            Callable returning device helpers used by the nonlinear solver.
+        preconditioner_order
+            Order of the truncated Neumann preconditioner.
+        krylov_tolerance
+            Tolerance used by the linear solver.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver.
+        linear_correction_type
+            Identifier for the linear correction strategy.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver.
+        newton_damping
+            Damping factor applied within Newton updates.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver.
+        """
+        beta = ALGO_CONSTANTS['beta']
+        gamma = ALGO_CONSTANTS['gamma']
+        M = ALGO_CONSTANTS['M'](n, dtype=precision)
         config = ImplicitStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
             beta=beta,
             gamma=gamma,
-            M=mass_matrix,
+            M=M,
             n=n,
             preconditioner_order=preconditioner_order,
             krylov_tolerance=krylov_tolerance,
@@ -80,14 +105,16 @@ class BackwardsEulerStep(ODEImplicitStep):
         super().__init__(config, BE_DEFAULTS.copy())
 
     def build_implicit_helpers(self) -> Callable:
-        """Return the instrumented nonlinear solver for backward Euler."""
+        """Construct the nonlinear solver chain used by implicit methods."""
 
+        precision = self.precision
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
         n = config.n
+
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
@@ -97,6 +124,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
+
         residual = get_fn(
             "stage_residual",
             beta=beta,
@@ -104,6 +132,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
+
         operator = get_fn(
             "linear_operator",
             beta=beta,
@@ -112,19 +141,36 @@ class BackwardsEulerStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        linear_solver = inst_linear_solver_factory(operator, n=n,
-                                                   preconditioner=preconditioner,
-                                                   correction_type=config.linear_correction_type,
-                                                   tolerance=config.krylov_tolerance,
-                                                   max_iters=config.max_linear_iters,
-                                                   precision=config.precision)
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
+        correction_type = config.linear_correction_type
+
+        linear_solver = inst_linear_solver_factory(
+            operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=correction_type,
+            tolerance=krylov_tolerance,
+            max_iters=max_linear_iters,
+            precision=precision,
+        )
+
+        newton_tolerance = config.newton_tolerance
+        max_newton_iters = config.max_newton_iters
+        newton_damping = config.newton_damping
+        newton_max_backtracks = config.newton_max_backtracks
 
         nonlinear_solver = inst_newton_krylov_solver_factory(
-            residual_function=residual, linear_solver=linear_solver, n=n,
-            tolerance=config.newton_tolerance,
-            max_iters=config.max_newton_iters, damping=config.newton_damping,
-            max_backtracks=config.newton_max_backtracks,
-            precision=config.precision)
+            residual_function=residual,
+            linear_solver=linear_solver,
+            n=n,
+            tolerance=newton_tolerance,
+            max_iters=max_newton_iters,
+            damping=newton_damping,
+            max_backtracks=newton_max_backtracks,
+            precision=precision,
+        )
+
         return nonlinear_solver
 
     def build_step(
@@ -137,11 +183,36 @@ class BackwardsEulerStep(ODEImplicitStep):
         n: int,
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
-        """Build the device function for a backward Euler step."""
+        """Build the device function for a backward Euler step.
+
+        Parameters
+        ----------
+        solver_fn
+            Device nonlinear solver produced by the implicit helper chain.
+        dxdt_fn
+            Device derivative function for the ODE system.
+        observables_function
+            Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        numba_precision
+            Numba precision corresponding to the configured precision.
+        n
+            Dimension of the state vector.
+        n_drivers
+            Number of driver signals provided to the system.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step function and solver.
+        """
 
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
+        driver_function = driver_function
         solver_shared_elements = self.solver_shared_elements
+        n = int32(n)
 
         @cuda.jit(
             (
@@ -162,15 +233,15 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:, ::1],
                 numba_precision[:, ::1],
                 numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
                 numba_precision[:, :, ::1],
                 numba_precision[:, :, ::1],
                 numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
                 int16,
@@ -191,7 +262,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             proposed_drivers,
             observables,
             proposed_observables,
-            error,
+            error,  # Non-adaptive algorithms receive a zero-length slice.
             residuals,
             jacobian_updates,
             stage_states,
@@ -217,20 +288,58 @@ class BackwardsEulerStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
+            """Perform one backward Euler update.
+
+            Parameters
+            ----------
+            state
+                Device array storing the current state.
+            proposed_state
+                Device array receiving the updated state.
+            parameters
+                Device array of static model parameters.
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
+                Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
+            observables
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
+            error
+                Device array capturing solver diagnostics. Fixed-step
+                algorithms receive a zero-length slice that can be repurposed
+                as scratch when available.
+            dt_scalar
+                Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
+            shared
+                Device array providing shared scratch buffers.
+            persistent_local
+                Device array for persistent local storage (unused here).
+
+            Returns
+            -------
+            int
+                Status code returned by the nonlinear solver.
+            """
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            solver_scratch = shared[:solver_shared_elements]
+            solver_scratch = shared[: solver_shared_elements]
             observable_count = proposed_observables.shape[0]
 
-            for idx in range(n):
-                guess_value = solver_scratch[idx]
-                proposed_state[idx] = guess_value
-                residuals[0, idx] = typed_zero
-                jacobian_updates[0, idx] = typed_zero
-                stage_states[0, idx] = typed_zero
-                stage_derivatives[0, idx] = typed_zero
-                stage_increments[0, idx] = typed_zero
+            # LOGGING: Initialize instrumentation arrays
+            for i in range(n):
+                proposed_state[i] = solver_scratch[i]
+                residuals[0, i] = typed_zero
+                jacobian_updates[0, i] = typed_zero
+                stage_states[0, i] = typed_zero
+                stage_derivatives[0, i] = typed_zero
+                stage_increments[0, i] = typed_zero
 
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = typed_zero
@@ -238,13 +347,14 @@ class BackwardsEulerStep(ODEImplicitStep):
                 stage_drivers[0, driver_idx] = typed_zero
 
             next_time = time_scalar + dt_scalar
-
             if has_driver_function:
                 driver_function(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
                 )
+
+            # LOGGING: Record stage drivers
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
@@ -271,14 +381,13 @@ class BackwardsEulerStep(ODEImplicitStep):
                 linear_preconditioned_vectors,
             )
 
-            for idx in range(n):
-                increment_value = proposed_state[idx]
-                residual_value = solver_scratch[idx + n]
-                solver_scratch[idx] = increment_value
-                proposed_state[idx] = increment_value + state[idx]
-                stage_increments[0, idx] = increment_value
-                residuals[0, idx] = residual_value
-                stage_states[0, idx] = proposed_state[idx]
+            # LOGGING: Record increment, residual, and state values
+            for i in range(n):
+                solver_scratch[i] = proposed_state[i]
+                proposed_state[i] += state[i]
+                stage_increments[0, i] = solver_scratch[i]
+                residuals[0, i] = solver_scratch[i + n]
+                stage_states[0, i] = proposed_state[i]
 
             observables_function(
                 proposed_state,
@@ -288,6 +397,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 next_time,
             )
 
+            # LOGGING: Record observables
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
@@ -300,10 +410,10 @@ class BackwardsEulerStep(ODEImplicitStep):
                 next_time,
             )
 
-            for idx in range(n):
-                rhs_value = stage_rhs[idx]
-                stage_derivatives[0, idx] = rhs_value
-                jacobian_updates[0, idx] = typed_zero
+            # LOGGING: Record derivatives
+            for i in range(n):
+                stage_derivatives[0, i] = stage_rhs[i]
+                jacobian_updates[0, i] = typed_zero
 
             return status
 
@@ -340,12 +450,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         return 0
 
     @property
-    def stage_count(self) -> int:
-        """Backward Euler advances a single implicit stage."""
-
-        return 1
-
-    @property
     def is_adaptive(self) -> bool:
         """Return ``False`` because backward Euler is fixed step."""
 
@@ -366,7 +470,6 @@ class BackwardsEulerStep(ODEImplicitStep):
     @property
     def order(self) -> int:
         """Return the classical order of the backward Euler method."""
-
         return 1
 
     @property
@@ -377,6 +480,4 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def identifier(self) -> str:
-        """Return the identifier describing this algorithm."""
-
         return "backwards_euler"

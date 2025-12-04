@@ -1,19 +1,16 @@
-"""Explicit Euler integration step with instrumentation support."""
+"""Explicit Euler step implementation."""
 
 from typing import Callable, Optional
 
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
-from cubie.integrators.algorithms.base_algorithm_step import (
-    StepCache,
-    StepControlDefaults,
-)
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
     ODEExplicitStep,
 )
-
 
 EE_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -22,9 +19,8 @@ EE_DEFAULTS = StepControlDefaults(
     }
 )
 
-
 class ExplicitEulerStep(ODEExplicitStep):
-    """Forward Euler step instrumented to expose intermediate buffers."""
+    """Forward Euler integration step for explicit ODE updates."""
 
     def __init__(
         self,
@@ -35,16 +31,32 @@ class ExplicitEulerStep(ODEExplicitStep):
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
     ) -> None:
-        """Initialise the instrumented explicit Euler configuration."""
+        """Initialise the explicit Euler step configuration.
 
+        Parameters
+        ----------
+        precision
+            Precision applied to device buffers.
+        n
+            Number of state entries advanced per step.
+        dxdt_function
+            Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating spline drivers at arbitrary
+            times.
+        get_solver_helper_fn
+            Present for interface parity with implicit steps and ignored here.
+        """
         config = ExplicitStepConfig(
             precision=precision,
-            n=n,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
-            get_solver_helper_fn=get_solver_helper_fn,
+            n=n,
         )
+
         super().__init__(config, EE_DEFAULTS.copy())
 
     def build_step(
@@ -55,11 +67,35 @@ class ExplicitEulerStep(ODEExplicitStep):
         numba_precision: type,
         n: int,
         n_drivers: int,
-    ) -> StepCache:  # pragma: no cover - device function
-        """Compile the explicit Euler device step with instrumentation."""
+    ) -> StepCache:
+        """Build the device function for an explicit Euler step.
+
+        Parameters
+        ----------
+        dxdt_function
+            Device derivative function used within the update.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        numba_precision
+            Numba precision corresponding to the configured precision.
+        n
+            Dimension of the state vector.
+        n_drivers
+            Number of driver signals provided to the system.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step function.
+        """
 
         has_driver_function = driver_function is not None
+        driver_function = driver_function
+        n = int32(n)
 
+        # no cover: start
         @cuda.jit(
             (
                 numba_precision[::1],
@@ -108,7 +144,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             proposed_drivers,
             observables,
             proposed_observables,
-            error,
+            error,  # Non-adaptive algorithms receive a zero-length slice.
             residuals,
             jacobian_updates,
             stage_states,
@@ -134,8 +170,47 @@ class ExplicitEulerStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
+            """Advance the state with a single explicit Euler update.
+
+            Parameters
+            ----------
+            state
+                Device array storing the current state.
+            proposed_state
+                Device array receiving the updated state.
+            parameters
+                Device array of static model parameters.
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
+                Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
+            observables
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
+            error
+                Device array reserved for error estimates. Non-adaptive
+                algorithms receive a zero-length slice that can be reused as
+                scratch.
+            dt_scalar
+                Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
+            shared
+                Device array providing shared scratch buffers.
+            persistent_local
+                Device array for persistent local storage (unused here).
+
+            Returns
+            -------
+            int
+                Status code indicating successful completion.
+            """
             typed_zero = numba_precision(0.0)
 
+            # LOGGING: Record stage 0 initial state
             for idx in range(n):
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
@@ -146,23 +221,24 @@ class ExplicitEulerStep(ODEExplicitStep):
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = drivers_buffer[driver_idx]
 
+            # error buffer unused; stage dx/dt in proposed_state instead.
+            dxdt_buffer = proposed_state
             dxdt_function(
                 state,
                 parameters,
                 drivers_buffer,
                 observables,
-                proposed_state,
+                dxdt_buffer,
                 time_scalar,
             )
 
+            # LOGGING: Record stage 0 derivatives and increments
             for idx in range(n):
-                stage_derivatives[0, idx] = proposed_state[idx]
-                stage_increments[0, idx] = dt_scalar * proposed_state[idx]
+                stage_derivatives[0, idx] = dxdt_buffer[idx]
+                stage_increments[0, idx] = dt_scalar * dxdt_buffer[idx]
 
-            for idx in range(n):
-                proposed_state[idx] = (
-                    state[idx] + dt_scalar * proposed_state[idx]
-                )
+            for i in range(n):
+                proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
             next_time = time_scalar + dt_scalar
             if has_driver_function:
@@ -171,7 +247,6 @@ class ExplicitEulerStep(ODEExplicitStep):
                     driver_coefficients,
                     proposed_drivers,
                 )
-
             observables_function(
                 proposed_state,
                 parameters,
@@ -179,35 +254,26 @@ class ExplicitEulerStep(ODEExplicitStep):
                 proposed_observables,
                 next_time,
             )
-
-            for idx in range(error.shape[0]):
-                error[idx] = typed_zero
-
             return int32(0)
-
+        # no cover: end
+        
         return StepCache(step=step, nonlinear_solver=None)
 
     @property
-    def stage_count(self) -> int:
-        """Return the single-stage structure of explicit Euler."""
-
-        return 1
-
-    @property
     def shared_memory_required(self) -> int:
-        """Explicit Euler reuses the base shared memory calculation."""
+        """Shared memory usage expressed in precision-sized entries."""
 
         return super().shared_memory_required
 
     @property
     def local_scratch_required(self) -> int:
-        """Explicit Euler does not require persistent local scratch."""
+        """Local scratch usage expressed in precision-sized entries."""
 
         return 0
 
     @property
     def algorithm_shared_elements(self) -> int:
-        """Explicit Euler allocates no additional shared elements."""
+        """Explicit Euler does not reserve shared scratch."""
 
         return 0
 
@@ -219,24 +285,20 @@ class ExplicitEulerStep(ODEExplicitStep):
 
     @property
     def threads_per_step(self) -> int:
-        """Return the number of CUDA threads required per step."""
-
+        """Return the number of threads used per step."""
         return 1
 
     @property
     def is_multistage(self) -> bool:
-        """Explicit Euler advances a single stage per step."""
-
+        """Return ``False`` because explicit Euler is a single-stage method."""
         return False
 
     @property
     def is_adaptive(self) -> bool:
-        """Explicit Euler does not compute an error estimate."""
-
+        """Return ``False`` because explicit Euler has no error estimator."""
         return False
 
     @property
     def order(self) -> int:
-        """Classical order of accuracy for explicit Euler."""
-
+        """Return the classical order of the explicit Euler method."""
         return 1
