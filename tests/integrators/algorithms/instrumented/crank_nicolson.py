@@ -7,8 +7,10 @@ import numpy as np
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
-    StepControlDefaults
+from cubie.integrators.algorithms.base_algorithm_step import (
+    StepCache,
+    StepControlDefaults,
+)
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 from .matrix_free_solvers import (
