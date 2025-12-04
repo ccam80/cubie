@@ -17,6 +17,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
+from cubie.odesystems.ODEData import SystemSizes
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
@@ -36,6 +37,113 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.time_logger import _default_timelogger
+
+
+def validate_solver_arrays(
+    initial_values: np.ndarray,
+    parameters: np.ndarray,
+    system_sizes: "SystemSizes",
+    precision: PrecisionDType,
+) -> None:
+    """Validate array shapes and types for solve_arrays().
+
+    Parameters
+    ----------
+    initial_values
+        Initial state values array to validate.
+    parameters
+        Parameter values array to validate.
+    system_sizes
+        SystemSizes instance describing expected dimensions.
+    precision
+        Expected dtype for floating-point arrays.
+
+    Raises
+    ------
+    TypeError
+        If arrays are not numpy ndarrays.
+    ValueError
+        If array shapes or dtypes do not match expectations.
+        If arrays are not C-contiguous.
+
+    Notes
+    -----
+    This function performs shape and dtype validation for Level 2 API.
+    It does not validate array contents (e.g., physical plausibility).
+    """
+    # Check types
+    if not isinstance(initial_values, np.ndarray):
+        raise TypeError(
+            f"initial_values must be a numpy ndarray, got {type(initial_values)}"
+        )
+    if not isinstance(parameters, np.ndarray):
+        raise TypeError(
+            f"parameters must be a numpy ndarray, got {type(parameters)}"
+        )
+
+    # Check shapes have correct number of dimensions
+    if initial_values.ndim != 2:
+        raise ValueError(
+            f"initial_values must be 2D (n_states, n_runs), "
+            f"got shape {initial_values.shape}"
+        )
+    if parameters.ndim != 2:
+        raise ValueError(
+            f"parameters must be 2D (n_params, n_runs), "
+            f"got shape {parameters.shape}"
+        )
+
+    # Check number of states matches
+    n_states_expected = system_sizes.states
+    n_states_actual = initial_values.shape[0]
+    if n_states_actual != n_states_expected:
+        raise ValueError(
+            f"initial_values has wrong number of states: expected "
+            f"{n_states_expected}, got {n_states_actual}"
+        )
+
+    # Check number of parameters matches
+    n_params_expected = system_sizes.parameters
+    n_params_actual = parameters.shape[0]
+    if n_params_actual != n_params_expected:
+        raise ValueError(
+            f"parameters has wrong number of parameters: expected "
+            f"{n_params_expected}, got {n_params_actual}"
+        )
+
+    # Check that n_runs matches between arrays
+    n_runs_inits = initial_values.shape[1]
+    n_runs_params = parameters.shape[1]
+    if n_runs_inits != n_runs_params:
+        raise ValueError(
+            f"initial_values and parameters have mismatched n_runs: "
+            f"initial_values has {n_runs_inits}, parameters has {n_runs_params}"
+        )
+
+    # Check dtypes match precision
+    expected_dtype = np.dtype(precision)
+    if initial_values.dtype != expected_dtype:
+        raise ValueError(
+            f"initial_values dtype mismatch: expected {expected_dtype}, "
+            f"got {initial_values.dtype}"
+        )
+    if parameters.dtype != expected_dtype:
+        raise ValueError(
+            f"parameters dtype mismatch: expected {expected_dtype}, "
+            f"got {parameters.dtype}"
+        )
+
+    # Check C-contiguous memory layout
+    if not initial_values.flags['C_CONTIGUOUS']:
+        raise ValueError(
+            "initial_values must be C-contiguous. "
+            "Use np.ascontiguousarray() to convert."
+        )
+    if not parameters.flags['C_CONTIGUOUS']:
+        raise ValueError(
+            "parameters must be C-contiguous. "
+            "Use np.ascontiguousarray() to convert."
+        )
 
 
 def solve_ivp(
@@ -393,9 +501,10 @@ class Solver:
                  "driver_del_t": self.driver_interpolator.driver_del_t}
             )
 
-        self.kernel.run(
-            inits=inits,
-            params=params,
+        # Delegate to solve_arrays() after grid construction
+        return self.solve_arrays(
+            initial_values=inits,
+            parameters=params,
             driver_coefficients=self.driver_interpolator.coefficients,
             duration=duration,
             warmup=settling_time,
@@ -403,7 +512,115 @@ class Solver:
             blocksize=blocksize,
             stream=stream,
             chunk_axis=chunk_axis,
+            results_type=results_type,
+            # Note: don't pass kwargs - already applied above
         )
+
+    def solve_arrays(
+        self,
+        initial_values: np.ndarray,
+        parameters: np.ndarray,
+        driver_coefficients: Optional[np.ndarray] = None,
+        duration: float = 1.0,
+        warmup: float = 0.0,
+        t0: float = 0.0,
+        blocksize: int = 256,
+        stream: Any = None,
+        chunk_axis: str = "run",
+        results_type: str = "full",
+        **kwargs: Any,
+    ) -> SolveResult:
+        """Solve a batch initial value problem using pre-built numpy arrays.
+
+        Mid-level API for intermediate users who provide pre-built arrays
+        in (variable, run) format. Skips label resolution and grid
+        construction but handles memory allocation, chunking, and
+        host/device transfers.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state values as numpy array with shape (n_states, n_runs).
+            Dtype must match system precision.
+        parameters
+            Parameter values as numpy array with shape (n_params, n_runs).
+            Dtype must match system precision.
+        driver_coefficients
+            Optional Horner-ordered driver interpolation coefficients.
+            If None, uses placeholder coefficients from driver_interpolator.
+        duration
+            Total integration time. Default is 1.0.
+        warmup
+            Warm-up period before recording outputs. Default is 0.0.
+        t0
+            Initial integration time. Default is 0.0.
+        blocksize
+            CUDA block size for kernel launch. Default is 256.
+        stream
+            CUDA stream for execution. None uses the solver's default stream.
+        chunk_axis
+            Dimension along which to chunk when memory is limited.
+            Default is "run".
+        results_type
+            Format of returned results. Options are "full", "numpy",
+            "numpy_per_summary", "raw", and "pandas". Default is "full".
+        **kwargs
+            Additional options forwarded to update().
+
+        Returns
+        -------
+        SolveResult
+            Collected results from the integration run.
+
+        Raises
+        ------
+        TypeError
+            If initial_values or parameters are not numpy ndarrays.
+        ValueError
+            If array shapes or dtypes do not match system expectations.
+
+        See Also
+        --------
+        Solver.solve : High-level API with dictionary inputs.
+        BatchSolverKernel.execute : Low-level API with device arrays.
+
+        Examples
+        --------
+        >>> solver = Solver(system, algorithm="euler")
+        >>> inits = np.array([[0.1, 0.2], [0.3, 0.4]], dtype=np.float32)
+        >>> params = np.array([[1.0, 2.0]], dtype=np.float32)
+        >>> result = solver.solve_arrays(inits, params, duration=1.0)
+        """
+        # Apply kwargs updates if any
+        if kwargs:
+            self.update(kwargs, silent=True)
+
+        # Validate arrays
+        validate_solver_arrays(
+            initial_values,
+            parameters,
+            self.system_sizes,
+            self.precision,
+        )
+
+        # Use provided or placeholder driver coefficients
+        if driver_coefficients is None:
+            driver_coefficients = self.driver_interpolator.coefficients
+
+        # Call kernel.run() with arrays
+        self.kernel.run(
+            inits=initial_values,
+            params=parameters,
+            driver_coefficients=driver_coefficients,
+            duration=duration,
+            warmup=warmup,
+            t0=t0,
+            blocksize=blocksize,
+            stream=stream,
+            chunk_axis=chunk_axis,
+        )
+
+        # Sync and return result
         self.memory_manager.sync_stream(self.kernel)
         return SolveResult.from_solver(self, results_type=results_type)
 

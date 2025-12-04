@@ -145,3 +145,21 @@ def cpu_batch_results(
         observable_summaries=observable_summaries_stack,
         status=status_or,
     )
+
+
+@pytest.fixture(scope="function")
+def simple_initial_values(system):
+    """Create simple initial values for testing."""
+    return {
+        list(system.initial_values.names)[0]: [0.1, 0.5],
+        list(system.initial_values.names)[1]: [0.2, 0.6],
+    }
+
+
+@pytest.fixture(scope="function")
+def simple_parameters(system):
+    """Create simple parameters for testing."""
+    return {
+        list(system.parameters.names)[0]: [1.0, 2.0],
+        list(system.parameters.names)[1]: [0.5, 1.5],
+    }
