@@ -1,9 +1,9 @@
-"""Crank–Nicolson integration step with instrumentation."""
+"""Crank–Nicolson step with embedded backward Euler error estimation."""
 
 from typing import Callable, Optional
 
-import numpy as np
 from numba import cuda, int16, int32
+import numpy as np
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
@@ -18,12 +18,9 @@ from .matrix_free_solvers import (
     inst_newton_krylov_solver_factory,
 )
 
-
-ALGO_CONSTANTS = {
-    "beta": 1.0,
-    "gamma": 1.0,
-    "M": np.eye,
-}
+ALGO_CONSTANTS = {'beta': 1.0,
+                  'gamma': 1.0,
+                  'M': np.eye}
 
 CN_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -38,8 +35,6 @@ CN_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
-
-
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
@@ -60,17 +55,54 @@ class CrankNicolsonStep(ODEImplicitStep):
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 10,
     ) -> None:
-        """Initialise the Crank–Nicolson step configuration."""
+        """Initialise the Crank–Nicolson step configuration.
 
-        beta = ALGO_CONSTANTS["beta"]
-        gamma = ALGO_CONSTANTS["gamma"]
-        mass_matrix = ALGO_CONSTANTS["M"](n, dtype=precision)
+        Parameters
+        ----------
+        precision
+            Precision applied to device buffers.
+        n
+            Number of state entries advanced per step.
+        dxdt_function
+            Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        get_solver_helper_fn
+            Callable returning device helpers used by the nonlinear solver.
+        preconditioner_order
+            Order of the truncated Neumann preconditioner.
+        krylov_tolerance
+            Tolerance used by the linear solver.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver.
+        linear_correction_type
+            Identifier for the linear correction strategy.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver.
+        newton_damping
+            Damping factor applied within Newton updates.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver.
+
+        Returns
+        -------
+        None
+            This constructor updates internal configuration state.
+        """
+
+        beta = ALGO_CONSTANTS['beta']
+        gamma = ALGO_CONSTANTS['gamma']
+        M = ALGO_CONSTANTS['M'](n, dtype=precision)
 
         config = ImplicitStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
             beta=beta,
             gamma=gamma,
-            M=mass_matrix,
+            M=M,
             n=n,
             preconditioner_order=preconditioner_order,
             krylov_tolerance=krylov_tolerance,
@@ -88,14 +120,16 @@ class CrankNicolsonStep(ODEImplicitStep):
         super().__init__(config, CN_DEFAULTS)
 
     def build_implicit_helpers(self) -> Callable:
-        """Return the instrumented nonlinear solver for Crank–Nicolson."""
+        """Construct the nonlinear solver chain used by implicit methods."""
 
+        precision = self.precision
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
         n = config.n
+
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
@@ -105,6 +139,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
+
         residual = get_fn(
             "stage_residual",
             beta=beta,
@@ -112,6 +147,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
+
         operator = get_fn(
             "linear_operator",
             beta=beta,
@@ -120,19 +156,36 @@ class CrankNicolsonStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        linear_solver = inst_linear_solver_factory(operator, n=n,
-                                                   preconditioner=preconditioner,
-                                                   correction_type=config.linear_correction_type,
-                                                   tolerance=config.krylov_tolerance,
-                                                   max_iters=config.max_linear_iters,
-                                                   precision=config.precision)
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
+        correction_type = config.linear_correction_type
+
+        linear_solver = inst_linear_solver_factory(
+            operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=correction_type,
+            tolerance=krylov_tolerance,
+            max_iters=max_linear_iters,
+            precision=precision,
+        )
+
+        newton_tolerance = config.newton_tolerance
+        max_newton_iters = config.max_newton_iters
+        newton_damping = config.newton_damping
+        newton_max_backtracks = config.newton_max_backtracks
 
         nonlinear_solver = inst_newton_krylov_solver_factory(
-            residual_function=residual, linear_solver=linear_solver, n=n,
-            tolerance=config.newton_tolerance,
-            max_iters=config.max_newton_iters, damping=config.newton_damping,
-            max_backtracks=config.newton_max_backtracks,
-            precision=config.precision)
+            residual_function=residual,
+            linear_solver=linear_solver,
+            n=n,
+            tolerance=newton_tolerance,
+            max_iters=max_newton_iters,
+            damping=newton_damping,
+            max_backtracks=newton_max_backtracks,
+            precision=precision,
+        )
+
         return nonlinear_solver
 
     def build_step(
@@ -162,39 +215,39 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
-                int32[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,
@@ -448,14 +501,8 @@ class CrankNicolsonStep(ODEImplicitStep):
         return 0
 
     @property
-    def stage_count(self) -> int:
-        """Crank–Nicolson evaluates a single implicit stage."""
-
-        return 1
-
-    @property
     def is_adaptive(self) -> bool:
-        """Return True; the embedded error estimate enables adaptivity."""
+        """Return ``True`` because the embedded error estimate enables adaptivity."""
 
         return True
 

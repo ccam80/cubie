@@ -3,6 +3,7 @@
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
@@ -10,6 +11,9 @@ from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
+)
+from cubie.integrators.algorithms.generic_firk import (
+    FIRKBufferSettings,
 )
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
@@ -54,6 +58,12 @@ class FIRKStepConfig(ImplicitStepConfig):
     tableau: FIRKTableau = attrs.field(
         default=DEFAULT_FIRK_TABLEAU,
     )
+    buffer_settings: Optional[FIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(FIRKBufferSettings)
+        ),
+    )
 
     @property
     def stage_count(self) -> int:
@@ -93,6 +103,12 @@ class FIRKStep(ODEImplicitStep):
         """Initialise the FIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
+        # Create buffer_settings
+        buffer_settings = FIRKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+            n_drivers=n_drivers,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -113,6 +129,7 @@ class FIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
         
         config = FIRKStepConfig(**config_kwargs)
@@ -214,13 +231,19 @@ class FIRKStep(ODEImplicitStep):
         """Compile the FIRK device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
-        stage_count = self.stage_count
-        all_stages_n = config.all_stages_n
+        n_arraysize = n
+        n_drivers_arraysize = n_drivers
+        n = int32(n)
+        n_drivers = int32(n_drivers)
+        stage_count = int32(self.stage_count)
+        all_stages_n = int32(config.all_stages_n)
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
+
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
@@ -244,47 +267,63 @@ class FIRKStep(ODEImplicitStep):
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
-        solver_shared_elements = int32(self.solver_shared_elements)
-        stage_driver_total = int32(stage_count * n_drivers)
-        drivers_start = int32(solver_shared_elements)
-        drivers_end = solver_shared_elements + stage_driver_total
-        stages_start = drivers_end
-        stages_end = stages_start + all_stages_n
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
+        stage_increment_shared = buffer_settings.use_shared_stage_increment
+        stage_driver_stack_shared = buffer_settings.use_shared_stage_driver_stack
+        stage_state_shared = buffer_settings.use_shared_stage_state
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        solver_scratch_slice = shared_indices.solver_scratch
+        stage_increment_slice = shared_indices.stage_increment
+        stage_driver_stack_slice = shared_indices.stage_driver_stack
+        stage_state_slice = shared_indices.stage_state
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
+        stage_increment_local_size = local_sizes.nonzero('stage_increment')
+        stage_driver_stack_local_size = local_sizes.nonzero('stage_driver_stack')
+        stage_state_local_size = local_sizes.nonzero('stage_state')
         # no cover: start
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
-                int32[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,
@@ -324,17 +363,51 @@ class FIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            stage_state = cuda.local.array(n, numba_precision)
+
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
+            if stage_state_shared:
+                stage_state = shared[stage_state_slice]
+            else:
+                stage_state = cuda.local.array(stage_state_local_size,
+                                               precision)
+                for _i in range(stage_state_local_size):
+                    stage_state[_i] = numba_precision(0.0)
+
+            if solver_scratch_shared:
+                solver_scratch = shared[solver_scratch_slice]
+            else:
+                solver_scratch = cuda.local.array(
+                    solver_scratch_local_size, precision
+                )
+                for _i in range(solver_scratch_local_size):
+                    solver_scratch[_i] = numba_precision(0.0)
+
+            if stage_increment_shared:
+                stage_increment = shared[stage_increment_slice]
+            else:
+                stage_increment = cuda.local.array(stage_increment_local_size,
+                                                   precision)
+                for _i in range(stage_increment_local_size):
+                    stage_increment[_i] = numba_precision(0.0)
+
+            if stage_driver_stack_shared:
+                stage_driver_stack = shared[stage_driver_stack_slice]
+            else:
+                stage_driver_stack = cuda.local.array(
+                    stage_driver_stack_local_size, precision
+                )
+                for _i in range(stage_driver_stack_local_size):
+                    stage_driver_stack[_i] = numba_precision(0.0)
+            # ----------------------------------------------------------- #
+
             observable_count = proposed_observables.shape[0]
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
-
-            stage_increment = shared[stages_start:stages_end]
-            stage_driver_stack = shared[drivers_start:drivers_end]
-            solver_scratch = shared[:solver_shared_elements]
-            stage_rhs_flat = solver_scratch[:all_stages_n]
             status_code = int32(0)
+            stage_rhs_flat = solver_scratch[:all_stages_n]
 
             for idx in range(n):
                 if accumulates_output:
@@ -342,19 +415,21 @@ class FIRKStep(ODEImplicitStep):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
 
+            # Fill stage_drivers_stack if driver arrays provided
             if has_driver_function:
                 for stage_idx in range(stage_count):
-                    stage_time = time_scalar + (
-                        stage_time_fractions[stage_idx] * dt_scalar
+                    stage_time = (
+                        current_time
+                        + dt_scalar * stage_time_fractions[stage_idx]
                     )
                     driver_offset = stage_idx * n_drivers
                     driver_slice = stage_driver_stack[
-                        driver_offset : driver_offset + n_drivers
+                        driver_offset:driver_offset + n_drivers
                     ]
                     driver_function(
-                        stage_time,
-                        driver_coeffs,
-                        driver_slice,
+                            stage_time,
+                            driver_coeffs,
+                            driver_slice
                     )
 
             solver_ret = nonlinear_solver(
