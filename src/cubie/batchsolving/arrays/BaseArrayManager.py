@@ -419,7 +419,7 @@ class BaseArrayManager(ABC):
         if arr1.shape != arr2.shape:
             return False
         if check_type:
-            if arr1.dtype != arr2.dtype:
+            if arr1.dtype is not arr2.dtype:
                 return False
         if shape_only:
             return True
@@ -705,7 +705,7 @@ class BaseArrayManager(ABC):
         if len(array.shape) == 2:
             return array
 
-        # Handle 3D arrays only
+        # Only convert 3D arrays; return others unchanged
         if len(array.shape) != 3:
             return array
 
@@ -774,7 +774,8 @@ class BaseArrayManager(ABC):
         new_array = self._convert_to_device_strides(
             new_array, managed.stride_order, managed.memory_type
         )
-        # Fast path: if current exists and arrays are identical, skip update
+        # Fast path: if current exists and arrays have matching shape/dtype
+        # (and optionally content when shape_only=False), skip update
         if current_array is not None and self._arrays_equal(
             new_array, current_array, shape_only=shape_only
         ):
