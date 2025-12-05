@@ -400,9 +400,11 @@ class OutputArrays(BaseArrayManager):
                 dtype = slot.dtype
             # Fast path: skip allocation if existing array matches
             current = slot.array
-            if (current is not None
-                    and current.shape == newshape
-                    and current.dtype == dtype):
+            if (
+                current is not None
+                and current.shape == newshape
+                and current.dtype == dtype
+            ):
                 new_arrays[name] = current
             else:
                 new_arrays[name] = self._memory_manager.create_host_array(
