@@ -271,7 +271,7 @@ class OutputArrays(BaseArrayManager):
             This method updates cached arrays in place.
         """
         new_arrays = self.update_from_solver(solver_instance)
-        self.update_host_arrays(new_arrays, shape_only=True)
+        self.update_host_arrays(new_arrays)
         self.allocate()
 
     @property
@@ -373,10 +373,6 @@ class OutputArrays(BaseArrayManager):
         """
         Update sizes and precision from solver, returning new host arrays.
 
-        Only creates new pinned arrays when existing arrays do not match
-        the expected shape and dtype. This avoids expensive pinned memory
-        allocation on repeated solver runs with identical configurations.
-
         Parameters
         ----------
         solver_instance
@@ -386,7 +382,6 @@ class OutputArrays(BaseArrayManager):
         -------
         dict[str, numpy.ndarray]
             Host arrays with updated shapes for ``update_host_arrays``.
-            Arrays that already match are still included for consistency.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
@@ -398,18 +393,9 @@ class OutputArrays(BaseArrayManager):
             if np.issubdtype(dtype, np.floating):
                 slot.dtype = self._precision
                 dtype = slot.dtype
-            # Fast path: skip allocation if existing array matches
-            current = slot.array
-            if (
-                current is not None
-                and current.shape == newshape
-                and current.dtype == dtype
-            ):
-                new_arrays[name] = current
-            else:
-                new_arrays[name] = self._memory_manager.create_host_array(
-                    newshape, dtype, slot.stride_order, slot.memory_type
-                )
+            new_arrays[name] = self._memory_manager.create_host_array(
+                newshape, dtype, slot.stride_order, slot.memory_type
+            )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
             dtype = slot.dtype

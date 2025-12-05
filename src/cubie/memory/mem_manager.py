@@ -95,8 +95,9 @@ def _ensure_cuda_context() -> None:
                 raise RuntimeError(
                     "CUDA context is None - GPU may not be accessible"
                 )
-            # Skip memory info check for performance; context existence
-            # is sufficient validation for most operations
+            # Verify context is functional by checking memory info
+            # This will fail if GPU is not responsive
+            _ = ctx.get_memory_info()
         except Exception as e:
             # Provide helpful error message instead of segfault
             raise RuntimeError(

@@ -311,6 +311,22 @@ class BatchSolverKernel(CUDAFactory):
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
 
+        pad = 4 if self.shared_memory_needs_padding else 0
+        padded_bytes = self.shared_memory_bytes + pad
+        dynamic_sharedmem = int(
+            padded_bytes * min(chunk_params.runs, blocksize)
+        )
+
+        blocksize, dynamic_sharedmem = self.limit_blocksize(
+            blocksize,
+            dynamic_sharedmem,
+            padded_bytes,
+            numruns,
+        )
+        threads_per_loop = self.single_integrator.threads_per_loop
+        runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
+        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
+
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
 
@@ -324,8 +340,12 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_warmup = np.float64(0.0)
                 chunk_t0 = t0 + np.float64(i) * chunk_params.duration
 
-            # Delegate kernel launch to execute()
-            self.execute(
+            self.kernel[
+                BLOCKSPERGRID,
+                (threads_per_loop, runsperblock),
+                stream,
+                dynamic_sharedmem,
+            ](
                 self.input_arrays.device_initial_values,
                 self.input_arrays.device_parameters,
                 self.input_arrays.device_driver_coefficients,
@@ -338,8 +358,7 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_params.duration,
                 chunk_warmup,
                 chunk_t0,
-                blocksize,
-                stream,
+                numruns,
             )
             # We don't want to sync between chunks, we should queue runs and
             # transfers in the stream and sync before final result fetch.
@@ -347,136 +366,6 @@ class BatchSolverKernel(CUDAFactory):
 
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
-
-        if self.profileCUDA:  # pragma: no cover
-            cuda.profile_stop()
-
-    def execute(
-        self,
-        device_initial_values,
-        device_parameters,
-        device_driver_coefficients,
-        device_state_output,
-        device_observables_output,
-        device_state_summaries_output,
-        device_observable_summaries_output,
-        device_iteration_counters,
-        device_status_codes,
-        duration: float,
-        warmup: float = 0.0,
-        t0: float = 0.0,
-        blocksize: int = 256,
-        stream: Optional[Any] = None,
-    ) -> None:
-        """Execute the integration kernel with pre-allocated device arrays.
-
-        Low-level API for advanced users who manage their own device memory.
-        Skips all host/device transfers and memory allocation. The caller
-        is responsible for ensuring all device arrays have correct shapes,
-        dtypes, and memory layout.
-
-        Parameters
-        ----------
-        device_initial_values
-            Device array of shape (n_states, n_runs) with initial conditions.
-        device_parameters
-            Device array of shape (n_params, n_runs) with parameter values.
-        device_driver_coefficients
-            Device array of shape (n_segments, n_drivers, order+1) with
-            Horner-ordered driver interpolation coefficients.
-        device_state_output
-            Device array where state trajectories are written.
-        device_observables_output
-            Device array where observable trajectories are written.
-        device_state_summaries_output
-            Device array for state summary reductions.
-        device_observable_summaries_output
-            Device array for observable summary reductions.
-        device_iteration_counters
-            Device array for iteration counter values at each save point.
-        device_status_codes
-            Device array for per-run solver status codes.
-        duration
-            Duration of the simulation window.
-        warmup
-            Warmup time before the main simulation. Default is 0.0.
-        t0
-            Initial integration time. Default is 0.0.
-        blocksize
-            CUDA block size for kernel execution. Default is 256.
-        stream
-            CUDA stream for execution. None uses the solver's default stream.
-
-        Returns
-        -------
-        None
-            Results are written directly to the provided device arrays.
-
-        Notes
-        -----
-        This is the lowest-level API entry point. No validation is performed
-        on the input arrays. Ensure arrays match the expected shapes and
-        dtypes for the configured system before calling.
-
-        See Also
-        --------
-        BatchSolverKernel.run : Internal method handling array management.
-        Solver.solve : High-level API handling grid construction.
-        Solver.solve_arrays : Mid-level API with numpy array inputs.
-        """
-        if stream is None:
-            stream = self.stream
-
-        # Time parameters always use float64 for accumulation accuracy
-        duration = np.float64(duration)
-        warmup = np.float64(warmup)
-        t0 = np.float64(t0)
-
-        # Get number of runs from device array shape
-        numruns = device_initial_values.shape[1]
-
-        # Calculate shared memory requirements
-        pad = 4 if self.shared_memory_needs_padding else 0
-        padded_bytes = self.shared_memory_bytes + pad
-        dynamic_sharedmem = int(padded_bytes * min(numruns, blocksize))
-
-        # Limit block size based on shared memory constraints
-        blocksize, dynamic_sharedmem = self.limit_blocksize(
-            blocksize,
-            dynamic_sharedmem,
-            padded_bytes,
-            numruns,
-        )
-
-        # Calculate grid/block dimensions
-        threads_per_loop = self.single_integrator.threads_per_loop
-        runsperblock = int(blocksize / threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
-
-        if self.profileCUDA:  # pragma: no cover
-            cuda.profile_start()
-
-        # Launch the kernel with provided device arrays
-        self.kernel[
-            BLOCKSPERGRID,
-            (threads_per_loop, runsperblock),
-            stream,
-            dynamic_sharedmem,
-        ](
-            device_initial_values,
-            device_parameters,
-            device_driver_coefficients,
-            device_state_output,
-            device_observables_output,
-            device_state_summaries_output,
-            device_observable_summaries_output,
-            device_iteration_counters,
-            device_status_codes,
-            duration,
-            warmup,
-            t0,
-            numruns,
-        )
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()

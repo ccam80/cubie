@@ -324,24 +324,6 @@ class TestOutputArrays:
         assert output_arrays_manager._precision == solver.precision
         assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
 
-    def test_update_from_solver_fast_path(self, output_arrays_manager, solver):
-        """Test that update_from_solver reuses arrays when shape/dtype match."""
-        # First call allocates arrays
-        output_arrays_manager.update(solver)
-
-        # Store references to existing arrays
-        original_state = output_arrays_manager.host.state.array
-        original_observables = output_arrays_manager.host.observables.array
-        original_status_codes = output_arrays_manager.host.status_codes.array
-
-        # Second call with same solver should reuse arrays
-        new_arrays = output_arrays_manager.update_from_solver(solver)
-
-        # Arrays should be the same objects (not reallocated)
-        assert new_arrays["state"] is original_state
-        assert new_arrays["observables"] is original_observables
-        assert new_arrays["status_codes"] is original_status_codes
-
     def test_initialise_method(self, output_arrays_manager, solver):
         """Test initialise method (no-op for outputs)"""
         # Set up the manager
