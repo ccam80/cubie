@@ -271,7 +271,7 @@ class OutputArrays(BaseArrayManager):
             This method updates cached arrays in place.
         """
         new_arrays = self.update_from_solver(solver_instance)
-        self.update_host_arrays(new_arrays)
+        self.update_host_arrays(new_arrays, shape_only=True)
         self.allocate()
 
     @property
