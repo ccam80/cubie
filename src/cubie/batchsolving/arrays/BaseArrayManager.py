@@ -405,8 +405,8 @@ class BaseArrayManager(ABC):
         check_type
             Check dtype equality. Defaults to ``True``.
         shape_only
-            Only check shape equality, skip element comparison. Faster
-            for output arrays that will be overwritten. Defaults to
+            Skip element comparison; only check shape and optionally dtype.
+            Faster for output arrays that will be overwritten. Defaults to
             ``False``.
 
         Returns

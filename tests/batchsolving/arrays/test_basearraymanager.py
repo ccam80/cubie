@@ -583,6 +583,12 @@ class TestBaseArrayManager:
         assert test_arrmgr._arrays_equal(arr1, arr2) is False
         assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is True
 
+    def test_arrays_equal_shape_only_different_dtype(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True but different dtype"""
+        arr1 = np.zeros((10, 5, 3), dtype=np.float32)
+        arr2 = np.zeros((10, 5, 3), dtype=np.float64)
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is False
+
     def test_update_host_array_no_change(self, test_arrmgr):
         """Test update_host_array when arrays are equal"""
         current = np.array([1, 2, 3])
