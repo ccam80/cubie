@@ -390,10 +390,11 @@ class BaseArrayManager(ABC):
         self,
             arr1: Optional[NDArray],
             arr2: Optional[NDArray],
-            check_type: bool=True,
+            check_type: bool = True,
+            shape_only: bool = False,
     ) -> bool:
         """
-        Check if two arrays are equal in shape and content.
+        Check if two arrays are equal in shape and optionally content.
 
         Parameters
         ----------
@@ -401,6 +402,12 @@ class BaseArrayManager(ABC):
             First array or ``None``.
         arr2
             Second array or ``None``.
+        check_type
+            Check dtype equality. Defaults to ``True``.
+        shape_only
+            Only check shape equality, skip element comparison. Faster
+            for output arrays that will be overwritten. Defaults to
+            ``False``.
 
         Returns
         -------
@@ -409,9 +416,13 @@ class BaseArrayManager(ABC):
         """
         if arr1 is None or arr2 is None:
             return arr1 is arr2
+        if arr1.shape != arr2.shape:
+            return False
         if check_type:
-            if arr1.dtype is not arr2.dtype:
+            if arr1.dtype != arr2.dtype:
                 return False
+        if shape_only:
+            return True
         return np.array_equal(arr1, arr2)
 
     def update_sizes(self, sizes: ArraySizingClass) -> None:
@@ -694,23 +705,42 @@ class BaseArrayManager(ABC):
         if len(array.shape) == 2:
             return array
 
-        # Handle 3D arrays
+        # Handle 3D arrays only
         if len(array.shape) != 3:
+            return array
+
+        # Fast path: compute expected strides before allocating target
+        desired_order = self._memory_manager._stride_order
+        if stride_order == desired_order:
+            return array
+
+        # Compute expected strides to check if conversion is needed
+        shape = array.shape
+        itemsize = array.dtype.itemsize
+        dims = {name: size for name, size in zip(stride_order, shape)}
+        expected_strides = {}
+        current_stride = itemsize
+        for name in reversed(desired_order):
+            expected_strides[name] = current_stride
+            current_stride *= dims[name]
+        expected_strides = tuple(
+            expected_strides[dim] for dim in stride_order
+        )
+
+        # Skip allocation if strides already match
+        if array.strides == expected_strides:
             return array
 
         target = self._memory_manager.create_host_array(
             array.shape, array.dtype, stride_order, memory_type
         )
-        # Check if strides already match
-        if array.strides == target.strides:
-            return array
-
         # Copy data to array with matching strides
         target[:] = array
         return target
 
     def _update_host_array(
-        self, new_array: NDArray, current_array: Optional[NDArray], label: str
+        self, new_array: NDArray, current_array: Optional[NDArray], label: str,
+        shape_only: bool = False
     ) -> None:
         """
         Mark host arrays for overwrite or reallocation based on updates.
@@ -723,6 +753,9 @@ class BaseArrayManager(ABC):
             Previously stored host array or ``None``.
         label
             Array name used to index tracking lists.
+        shape_only
+            Only check shape equality when comparing arrays. Faster for
+            output arrays that will be overwritten. Defaults to ``False``.
 
         Raises
         ------
@@ -741,29 +774,34 @@ class BaseArrayManager(ABC):
         new_array = self._convert_to_device_strides(
             new_array, managed.stride_order, managed.memory_type
         )
+        # Fast path: if current exists and arrays are identical, skip update
         if current_array is not None and self._arrays_equal(
-            new_array, current_array
+            new_array, current_array, shape_only=shape_only
         ):
             return None
+        # Handle new array (current is None)
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
             self.host.attach(label, new_array)
-        elif not self._arrays_equal(new_array, current_array):
-            if current_array.shape != new_array.shape:
-                if label not in self._needs_reallocation:
-                    self._needs_reallocation.append(label)
-                if label not in self._needs_overwrite:
-                    self._needs_overwrite.append(label)
-                if 0 in new_array.shape:
-                    newshape = (1,) * len(current_array.shape)
-                    new_array = np.zeros(newshape, dtype=managed.dtype)
-            else:
+            return None
+        # Arrays differ; determine if shape changed or just values
+        if current_array.shape != new_array.shape:
+            if label not in self._needs_reallocation:
+                self._needs_reallocation.append(label)
+            if label not in self._needs_overwrite:
                 self._needs_overwrite.append(label)
-            self.host.attach(label, new_array)
+            if 0 in new_array.shape:
+                newshape = (1,) * len(current_array.shape)
+                new_array = np.zeros(newshape, dtype=managed.dtype)
+        else:
+            self._needs_overwrite.append(label)
+        self.host.attach(label, new_array)
         return None
 
-    def update_host_arrays(self, new_arrays: Dict[str, NDArray]) -> None:
+    def update_host_arrays(
+        self, new_arrays: Dict[str, NDArray], shape_only: bool = False
+    ) -> None:
         """
         Update host arrays and record allocation requirements.
 
@@ -771,6 +809,9 @@ class BaseArrayManager(ABC):
         ----------
         new_arrays
             Dictionary mapping array names to new host arrays.
+        shape_only
+            Only check shape equality when comparing arrays. Faster for
+            output arrays that will be overwritten. Defaults to ``False``.
 
         Returns
         -------
@@ -800,7 +841,8 @@ class BaseArrayManager(ABC):
         for array_name in new_arrays:
             current_array = self.host.get_array(array_name)
             self._update_host_array(
-                new_arrays[array_name], current_array, array_name
+                new_arrays[array_name], current_array, array_name,
+                shape_only=shape_only
             )
 
     def allocate(self) -> None:

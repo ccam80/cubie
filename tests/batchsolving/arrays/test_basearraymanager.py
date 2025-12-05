@@ -564,6 +564,25 @@ class TestBaseArrayManager:
         arr2 = np.array([4, 5, 6])
         assert test_arrmgr._arrays_equal(arr1, arr2) is False
 
+    def test_arrays_equal_shape_only_same_shape(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for same shape arrays"""
+        arr1 = np.array([1, 2, 3])
+        arr2 = np.array([4, 5, 6])
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is True
+
+    def test_arrays_equal_shape_only_different_shape(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for different shape arrays"""
+        arr1 = np.array([1, 2, 3])
+        arr2 = np.array([4, 5])
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is False
+
+    def test_arrays_equal_shape_only_3d(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for 3D arrays"""
+        arr1 = np.zeros((10, 5, 3))
+        arr2 = np.ones((10, 5, 3))
+        assert test_arrmgr._arrays_equal(arr1, arr2) is False
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is True
+
     def test_update_host_array_no_change(self, test_arrmgr):
         """Test update_host_array when arrays are equal"""
         current = np.array([1, 2, 3])
