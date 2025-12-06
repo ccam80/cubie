@@ -264,16 +264,17 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        precision = self.precision
-        duration = precision(duration)
-        warmup = precision(warmup)
-        t0 = precision(t0)
+        # Time parameters always use float64 for accumulation accuracy
+        duration = np.float64(duration)
+        warmup = np.float64(warmup)
+        t0 = np.float64(t0)
 
         self._duration = duration
         self._warmup = warmup
         self._t0 = t0
 
-        numruns = inits.shape[0]
+        # inits is in (variable, run) format - run count is in shape[1]
+        numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
         # Queue allocations
@@ -336,8 +337,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = precision(0.0)
-                chunk_t0 = t0 + precision(i) * chunk_params.duration
+                chunk_warmup = np.float64(0.0)
+                chunk_t0 = t0 + np.float64(i) * chunk_params.duration
 
             self.kernel[
                 BLOCKSPERGRID,
@@ -399,7 +400,7 @@ class BatchSolverKernel(CUDAFactory):
         The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
         on CC7* hardware. Larger requests reduce per-thread L1 availability.
         """
-        while dynamic_sharedmem > 32768:
+        while dynamic_sharedmem >= 32768:
             if blocksize < 32:
                 warn(
                     "Block size has been reduced to less than 32 threads, "
@@ -499,15 +500,15 @@ class BatchSolverKernel(CUDAFactory):
                 precision[:, ::1],
                 precision[:, ::1],
                 precision[:, :, ::1],
-                precision[:, :, :],
-                precision[:, :, :],
-                precision[:, :, :],
-                precision[:, :, :],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
                 int32[:, :, :],
                 int32[::1],
-                precision,
-                precision,
-                precision,
+                float64,
+                float64,
+                float64,
                 int32,
             ),
             **compile_kwargs,
@@ -523,9 +524,9 @@ class BatchSolverKernel(CUDAFactory):
             iteration_counters_output,
             status_codes_output,
             duration,
-            warmup=precision(0.0),
-            t0=precision(0.0),
-            n_runs=1,
+            warmup,
+            t0,
+            n_runs,
         ):
             """Execute the compiled single-run loop for each batch chunk.
 
@@ -584,20 +585,20 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-            rx_inits = inits[run_index, :]
-            rx_params = params[run_index, :]
-            rx_state = state_output[:, run_index * save_state, :]
+            rx_inits = inits[:, run_index]
+            rx_params = params[:, run_index]
+            rx_state = state_output[:, :, run_index * save_state]
             rx_observables = observables_output[
-                :, run_index * save_observables, :
+                :, :, run_index * save_observables
             ]
             rx_state_summaries = state_summaries_output[
-                :, run_index * save_observables, :
+                :, :, run_index * save_state_summaries
             ]
             rx_observables_summaries = observables_summaries_output[
-                :, run_index * save_state_summaries, :
+                :, :, run_index * save_observable_summaries
             ]
             rx_iteration_counters = iteration_counters_output[
-                run_index, :, :
+                :, :, run_index
             ]
             status = loopfunction(
                 rx_inits,
@@ -628,14 +629,14 @@ class BatchSolverKernel(CUDAFactory):
         n_parameters = int(system_sizes.parameters)
         n_observables = int(system_sizes.observables)
         integration_kernel.critical_shapes = (
-            (1, n_states),  # inits - [n_runs, n_states]
-            (1, n_parameters),  # params - [n_runs, n_parameters]
-            (100,n_states,6),  # d_coefficients - complex driver array
-            (100, 1, n_states), # state_output
-            (100, 1, n_observables),  # observables_output
-            (100, 1, n_observables), # state_summaries_output
-            (100, 1, n_observables), # observables_summaries_output
-            (100, 1, 4), # iteration_counters_output
+            (n_states, 1),  # inits - [n_states, n_runs]
+            (n_parameters, 1),  # params - [n_parameters, n_runs]
+            (100, n_states, 6),  # d_coefficients - (time, variable, run)
+            (100, n_states, 1),  # state_output - (time, variable, run)
+            (100, n_observables, 1),  # observables_output
+            (100, n_observables, 1),  # state_summaries_output
+            (100, n_observables, 1),  # observables_summaries_output
+            (100, 4, 1),  # iteration_counters_output - (time, 4, run)
             (1,),  # status_codes_output
             None,  # duration - scalar
             None,  # warmup - scalar
@@ -774,6 +775,8 @@ class BatchSolverKernel(CUDAFactory):
         """
         if self.precision == np.float64:
             return False
+        elif self.shared_memory_elements == 0:
+            return False
         elif self.shared_memory_elements % 2 == 0:
             return True
         else:
@@ -849,11 +852,11 @@ class BatchSolverKernel(CUDAFactory):
     def duration(self) -> float:
         """Requested integration duration."""
 
-        return self.precision(self._duration)
+        return np.float64(self._duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        self._duration = self.precision(value)
+        self._duration = np.float64(value)
 
     @property
     def dt(self) -> Optional[float]:
@@ -865,31 +868,43 @@ class BatchSolverKernel(CUDAFactory):
     def warmup(self) -> float:
         """Configured warmup duration."""
 
-        return self.precision(self._warmup)
+        return np.float64(self._warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        self._warmup = self.precision(value)
+        self._warmup = np.float64(value)
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
 
-        return self.precision(self._t0)
+        return np.float64(self._t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        self._t0 = self.precision(value)
+        self._t0 = np.float64(value)
 
     @property
     def output_length(self) -> int:
-        """Number of saved trajectory samples in the main run."""
-
-        return int(np.ceil(self.duration / self.single_integrator.dt_save))
+        """Number of saved trajectory samples in the main run.
+        
+        Includes both initial state (at t=t0 or t=settling_time) and final
+        state (at t=t_end) for complete trajectory coverage.
+        """
+        return (int(
+                np.floor(self.precision(self.duration) /
+                        self.precision(self.single_integrator.dt_save)))
+                + 1)
 
     @property
     def summaries_length(self) -> int:
-        """Number of summary intervals across the integration window."""
+        """Number of summary intervals across the integration window.
+        
+        Note: Summaries use ceil(duration/dt_summarise) WITHOUT the +1
+        because summary intervals represent aggregated metrics across time
+        windows, not point-in-time snapshots. Interval semantics differ
+        from save point semantics (see output_length).
+        """
 
         return int(
             np.ceil(self._duration / self.single_integrator.dt_summarise)
@@ -897,7 +912,13 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def warmup_length(self) -> int:
-        """Number of warmup save intervals completed before capturing output."""
+        """Number of warmup save intervals completed before capturing output.
+        
+        Note: Warmup uses ceil(warmup/dt_save) WITHOUT the +1 because warmup
+        saves are transient and discarded after settling. The final warmup
+        state becomes the initial state of the main run, so there is no need
+        to save both endpoints in the warmup phase.
+        """
 
         return int(np.ceil(self._warmup / self.single_integrator.dt_save))
 
@@ -972,12 +993,6 @@ class BatchSolverKernel(CUDAFactory):
         """Three-dimensional output sizes for batched runs."""
 
         return BatchOutputSizes.from_solver(self)
-
-    @property
-    def summaries_buffer_sizes(self) -> Any:
-        """Device buffer sizes required for summary reductions."""
-
-        return self.single_integrator.summaries_buffer_sizes
 
     @property
     def summary_legend_per_variable(self) -> Any:

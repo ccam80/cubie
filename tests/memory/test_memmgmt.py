@@ -114,7 +114,7 @@ def mem_manager_override(request):
 
 @pytest.fixture(scope="function")
 def mem_manager_settings(mem_manager_override):
-    defaults = {"mode": "passive", "stride_order": ("time", "run", "variable")}
+    defaults = {"mode": "passive", "stride_order": ("time", "variable", "run")}
     if mem_manager_override:
         for key, value in mem_manager_override.items():
             if key in defaults:
@@ -376,7 +376,7 @@ class TestMemoryManager:
             shape=(2, 3, 4),
             dtype=np.float32,
             memory="device",
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
         )
         assert mgr.get_strides(req) is None
         # Custom stride order, should return a tuple
@@ -384,13 +384,13 @@ class TestMemoryManager:
             shape=(2, 3, 4),
             dtype=np.float32,
             memory="device",
-            stride_order=("run", "variable", "time"),
+            stride_order=("time", "run", "variable"),
         )
         strides = mgr.get_strides(req2)
-        # Manually computed strides for shape (2,3,4) and order (run, variable, time)
+        # Manually computed strides for shape (2,3,4) and order (time, run, variable)
         # Should match what MemoryManager.get_strides returns
         itemsize = req2.dtype().itemsize
-        expected = (12, 4, 24)
+        expected = (48, 4, 12)
         assert strides == expected
 
     def test_set_global_stride_ordering(self, mgr):
@@ -523,7 +523,7 @@ class TestMemoryManager:
             shape=(2, 3, 4),
             dtype=np.float32,
             memory="device",
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
         )
         assert mgr.get_strides(req_default) is None
         # 3D array, custom stride order
@@ -531,12 +531,12 @@ class TestMemoryManager:
             shape=(2, 3, 4),
             dtype=np.float32,
             memory="device",
-            stride_order=("run", "variable", "time"),
+            stride_order=("time", "run", "variable"),
         )
         strides = mgr.get_strides(req_custom)
         # Should match manual calculation
         itemsize = req_custom.dtype().itemsize
-        expected = (12, 4, 24)
+        expected = (48, 4, 12)
         assert strides == expected
         # 2D array, should always be None
         req_2d = ArrayRequest(
@@ -546,6 +546,74 @@ class TestMemoryManager:
             stride_order=("variable", "run"),
         )
         assert mgr.get_strides(req_2d) is None
+
+    def test_create_host_array_1d(self, mgr):
+        """Test create_host_array returns correct 1D array."""
+        arr = mgr.create_host_array(shape=(10,), dtype=np.float32)
+        assert arr.shape == (10,)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(arr, np.zeros(10, dtype=np.float32))
+
+    def test_create_host_array_2d(self, mgr):
+        """Test create_host_array returns correct 2D array."""
+        arr = mgr.create_host_array(
+            shape=(5, 3),
+            dtype=np.float64,
+            stride_order=("run", "variable"),
+        )
+        assert arr.shape == (5, 3)
+        assert arr.dtype == np.float64
+        np.testing.assert_array_equal(arr, np.zeros((5, 3), dtype=np.float64))
+
+    def test_create_host_array_3d_default_stride(self, mgr):
+        """Test create_host_array returns correct 3D array with default stride."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_3d_custom_stride(self, mgr):
+        """Test create_host_array returns correct 3D array with custom stride."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("run", "variable", "time"),
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_pageable_memory(self, mgr):
+        """Test create_host_array with host (pageable) memory type."""
+        arr = mgr.create_host_array(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            memory_type="host",
+        )
+        assert arr.shape == (2, 3, 4)
+        assert arr.dtype == np.float32
+        np.testing.assert_array_equal(
+            arr, np.zeros((2, 3, 4), dtype=np.float32)
+        )
+
+    def test_create_host_array_invalid_memory_type(self, mgr):
+        """Test create_host_array raises ValueError for invalid memory type."""
+        with pytest.raises(ValueError, match="memory_type must be"):
+            mgr.create_host_array(
+                shape=(2, 3, 4),
+                dtype=np.float32,
+                stride_order=("time", "run", "variable"),
+                memory_type="invalid",
+            )
 
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
@@ -705,22 +773,23 @@ class TestMemoryManager:
                 shape=(100, 200, 50),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("time", "run", "variable"),
+                stride_order=("time", "variable", "run"),
             ),
             "arr2": ArrayRequest(
                 shape=(50, 400, 25),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("time", "run", "variable"),
+                stride_order=("time", "variable", "run"),
             ),
         }
 
-        # Chunk by run dimension (index 1)
+        # Chunk by run dimension (index 2)
         chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
 
-        # arr1: (100, 200, 50) -> (100, 50, 50) since 200/4 = 50
-        assert chunked["arr1"].shape == (100, 50, 50)  # 200/4 = 50
-        assert chunked["arr2"].shape == (50, 100, 25)  # 400/4 = 100
+        # arr1: (100, 200, 50) -> (100, 200, 13) since ceil(50/4) = 13
+        # arr2: (50, 400, 25) -> (50, 400, 7) since ceil(25/4) = 7
+        assert chunked["arr1"].shape == (100, 200, 13)
+        assert chunked["arr2"].shape == (50, 400, 7)
 
         # Chunk by time dimension (index 0)
         chunked_time = mgr.chunk_arrays(requests, numchunks=2, axis="time")
@@ -891,8 +960,10 @@ class TestMemoryManager:
             expected_chunks = 4
         else:
             expected_chunks = 2
+        # With stride order (time, variable, run):
+        # run is at index 2, time is at index 0
         if chunk_axis == "run":
-            chunk_index = 1
+            chunk_index = 2
         elif chunk_axis == "time":
             chunk_index = 0
 

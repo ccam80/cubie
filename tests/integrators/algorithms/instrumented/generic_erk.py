@@ -3,6 +3,7 @@
 from typing import Callable, Optional
 
 import attrs
+from attrs import validators
 from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
@@ -10,6 +11,9 @@ from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
+)
+from cubie.integrators.algorithms.generic_erk import (
+    ERKBufferSettings,
 )
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
@@ -48,6 +52,12 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
+    buffer_settings: Optional[ERKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(ERKBufferSettings)
+        ),
+    )
 
     @property
     def first_same_as_last(self) -> bool:
@@ -62,7 +72,6 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -79,6 +88,11 @@ class ERKStep(ODEExplicitStep):
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
         """
 
+        # Create buffer_settings
+        buffer_settings = ERKBufferSettings(
+            n=n,
+            stage_count=tableau.stage_count,
+        )
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -88,10 +102,8 @@ class ERKStep(ODEExplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
+            "buffer_settings": buffer_settings,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
         config = ERKStepConfig(**config_kwargs)
         
         if tableau.has_error_estimate:
@@ -108,75 +120,104 @@ class ERKStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
 
-        stage_count = tableau.stage_count
-        accumulator_length = max(stage_count - 1, 0) * n
         typed_zero = numba_precision(0.0)
+        n_arraysize = n
+        n = int32(n)
+        stage_count = int32(tableau.stage_count)
+        stages_except_first = stage_count - int32(1)
+        accumulator_length = (tableau.stage_count - 1) * n_arraysize
 
         has_driver_function = driver_function is not None
+        first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
-        first_same_as_last = self.first_same_as_last
-        is_controller_fixed = self.is_controller_fixed
-        dt_compile = dt
 
-        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
-        error_weights = tableau.error_weights(numba_precision)
-        if error_weights is None or not has_error:
-            error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_nodes = tableau.typed_vector(tableau.c, numba_precision)
+
+        if has_error:
+            error_weights = tableau.error_weights(numba_precision)
+        else:
+            error_weights = tuple(typed_zero for _ in range(stage_count))
 
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
+
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
+
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
+        stage_accumulator_shared = buffer_settings.use_shared_stage_accumulator
+        stage_cache_shared = buffer_settings.use_shared_stage_cache
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_rhs_slice = shared_indices.stage_rhs
+        stage_accumulator_slice = shared_indices.stage_accumulator
+        stage_cache_slice = shared_indices.stage_cache
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
+        stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
+        stage_cache_local_size = local_sizes.nonzero('stage_cache')
 
         # no cover: start
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, :, ::1],
+                numba_precision[:, ::1],
+                numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,
@@ -216,21 +257,69 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
-            stage_rhs = cuda.local.array(n, numba_precision)
+            # ----------------------------------------------------------- #
+            # Shared and local buffer guide:
+            # stage_accumulator: size (stage_count-1) * n, shared or local.
+            #   Default behaviour:
+            #       - Holds finished stage rhs * dt for later stage sums.
+            #       - Slice k stores contributions streamed into stage k+1.
+            #   Reuse:
+            #       - stage_cache: first slice (size n)
+            #           - Saves the FSAL rhs when the tableau supports it.
+            #           - Cache survives after the loop so no live slice is hit.
+            # proposed_state: size n, global memory.
+            #   Default behaviour:
+            #       - Starts as the accepted state and gathers stage updates.
+            #       - Each stage applies its weighted increment before moving on.
+            # proposed_drivers / proposed_observables: size n each, global.
+            #   Default behaviour:
+            #       - Refresh to the current stage time before rhs evaluation.
+            #       - Later stages only read the newest values, so nothing lingers.
+            # stage_rhs: size n, shared or local memory.
+            #   Default behaviour:
+            #       - Holds the current stage rhs before scaling by dt.
+            #   Reuse:
+            #       - When FSAL hits we copy cached rhs here before touching
+            #         shared memory, keeping lifetimes separate.
+            # error: size n, global memory (adaptive runs only).
+            #   Default behaviour:
+            #       - Accumulates error-weighted f(y_jn) during the loop.
+            #       - Cleared at loop entry so prior steps cannot leak in.
+            # ----------------------------------------------------------- #
+
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
+            if stage_rhs_shared:
+                stage_rhs = shared[stage_rhs_slice]
+            else:
+                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+                for _i in range(stage_rhs_local_size):
+                    stage_rhs[_i] = typed_zero
+
+            if stage_accumulator_shared:
+                stage_accumulator = shared[stage_accumulator_slice]
+            else:
+                stage_accumulator = cuda.local.array(
+                    stage_accumulator_local_size, precision
+                )
+                for _i in range(stage_accumulator_local_size):
+                    stage_accumulator[_i] = typed_zero
+
+            if multistage:
+                # stage_cache persists between steps for FSAL optimization.
+                # When shared, slice from shared memory; when local, use
+                # persistent_local to maintain state between step invocations.
+                if stage_cache_shared:
+                    stage_cache = shared[stage_cache_slice]
+                else:
+                    stage_cache = persistent_local[:stage_cache_local_size]
+            # ----------------------------------------------------------- #
 
             observable_count = proposed_observables.shape[0]
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
-            else:
-                dt_value = dt_scalar
             current_time = time_scalar
-            end_time = current_time + dt_value
-
-            stage_accumulator = shared[:accumulator_length]
-            if multistage:
-                stage_cache = stage_accumulator[:n]
+            end_time = current_time + dt_scalar
 
             for idx in range(n):
                 if accumulates_output:
@@ -287,7 +376,7 @@ class ERKStep(ODEExplicitStep):
 
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
-                stage_increments[0, idx] = dt_value * stage_rhs[idx]
+                stage_increments[0, idx] = dt_scalar * stage_rhs[idx]
 
             for idx in range(n):
                 increment = stage_rhs[idx]
@@ -305,29 +394,31 @@ class ERKStep(ODEExplicitStep):
             #            Stages 1-s: refresh observables and drivers       #
             # ----------------------------------------------------------- #
 
-            for stage_idx in range(1, stage_count):
+            for prev_idx in range(stages_except_first):
+                stage_offset = prev_idx * n
+                stage_idx = prev_idx + int32(1)
+                matrix_col = stage_rhs_coeffs[prev_idx]
 
                 # Stream last result into the accumulators
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
-
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - 1) * n
+                for successor_idx in range(stages_except_first):
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
                     for idx in range(n):
-                        # 1x duplicated FMUL to avoid a memory save/load - nice
                         increment = stage_rhs[idx]
-                        contribution = state_coeff * increment
-                        stage_accumulator[base + idx] += contribution
+                        stage_accumulator[row_offset + idx] += (
+                            coeff * increment
+                        )
 
-                stage_offset = (stage_idx - 1) * n
-                dt_stage = dt_value * stage_nodes[stage_idx]
+                base = stage_offset
+                dt_stage = dt_scalar * stage_nodes[stage_idx]
                 stage_time = current_time + dt_stage
 
+                # Convert accumulated gradients sum(f(y_nj) into a state y_j
                 for idx in range(n):
-                    stage_accumulator[stage_offset + idx] *= dt_value
-                    stage_accumulator[stage_offset + idx] += state[idx]
+                    stage_accumulator[base] = (
+                        stage_accumulator[base] * dt_scalar + state[idx]
+                    )
+                    base += int32(1)
 
                 stage_state = stage_accumulator[stage_offset:stage_offset + n]
 
@@ -370,7 +461,7 @@ class ERKStep(ODEExplicitStep):
                 for idx in range(n):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
                     stage_increments[stage_idx, idx] = (
-                        dt_value * stage_rhs[idx]
+                        dt_scalar * stage_rhs[idx]
                     )
 
                 # Accumulate f(y_jn) terms or capture direct stage state
@@ -396,13 +487,13 @@ class ERKStep(ODEExplicitStep):
 
                 # Scale and shift f(Y_n) value if accumulated
                 if accumulates_output:
-                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] *= dt_scalar
                     proposed_state[idx] += state[idx]
 
                 if has_error:
                     # Scale error if accumulated
                     if accumulates_error:
-                        error[idx] *= dt_value
+                        error[idx] *= dt_scalar
 
                     #Or form error from difference if captured from a-row
                     else:
@@ -442,9 +533,7 @@ class ERKStep(ODEExplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        stage_count = self.tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return accumulator_span
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:
@@ -453,8 +542,13 @@ class ERKStep(ODEExplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n for stage_cache when neither stage_rhs nor stage_accumulator
+        uses shared memory. When either is shared, stage_cache aliases it.
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def order(self) -> int:

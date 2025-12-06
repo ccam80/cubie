@@ -7,17 +7,12 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop
-from cubie.integrators.loops.ode_loop_config import (
-    LoopLocalIndices,
-    LoopSharedIndices,
-)
+from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
 from cubie.integrators.step_control import get_controller
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
 from cubie.outputhandling.output_functions import OutputFunctions
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from tests._utils import assert_integration_outputs, run_device_loop
 
@@ -26,8 +21,9 @@ from tests._utils import assert_integration_outputs, run_device_loop
 def time_driver_solver_settings(precision):
     settings = {
         "algorithm": "euler",
-        "duration": precision(1.0),
-        "warmup": precision(0.0),
+        "duration": 1.0,
+        "warmup": 0.0,
+        "t0": 0.0,
         "dt_min": precision(0.05),
         "dt_max": precision(0.05),
         "dt_save": precision(0.05),
@@ -109,9 +105,6 @@ def _build_loop(
     precision,
     driver_array=None,
 ):
-    loop_buffer_sizes = LoopBufferSizes.from_system_and_output_fns(
-        system, output_functions
-    )
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
@@ -145,30 +138,26 @@ def _build_loop(
         precision=precision,
         settings=controller_settings,
     )
-    shared_indices = LoopSharedIndices.from_sizes(
-        n_states=loop_buffer_sizes.state,
-        n_observables=loop_buffer_sizes.observables,
-        n_parameters=loop_buffer_sizes.parameters,
-        n_drivers=loop_buffer_sizes.drivers,
-        state_summaries_buffer_height=(
-            loop_buffer_sizes.state_summaries
-        ),
-        observable_summaries_buffer_height=(
-            loop_buffer_sizes.observable_summaries
-        ),
-        n_error=(
-            loop_buffer_sizes.state if step_object.is_adaptive else 0
-        ),
+
+    # Build buffer settings for this specific system
+    n_error = system.sizes.states if step_object.is_adaptive else 0
+    buffer_settings = LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
     )
-    local_indices = LoopLocalIndices.from_sizes(
-        controller_len=step_controller.local_memory_elements,
-        algorithm_len=step_object.persistent_local_required,
-    )
+
     loop = IVPLoop(
         precision=precision,
-        shared_indices=shared_indices,
-        local_indices=local_indices,
+        buffer_settings=buffer_settings,
         compile_flags=output_functions.compile_flags,
+        controller_local_len=step_controller.local_memory_elements,
+        algorithm_local_len=step_object.persistent_local_required,
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,

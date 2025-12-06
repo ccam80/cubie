@@ -44,7 +44,7 @@ class TestArrays(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -52,7 +52,7 @@ class TestArrays(ArrayContainer):
     observables: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -60,7 +60,7 @@ class TestArrays(ArrayContainer):
     state_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -68,7 +68,7 @@ class TestArrays(ArrayContainer):
     observable_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -81,7 +81,7 @@ class TestArraysSimple(ArrayContainer):
     arr1: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -89,7 +89,7 @@ class TestArraysSimple(ArrayContainer):
     arr2: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
+            stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             memory_type="host",
         )
@@ -106,7 +106,7 @@ def arraytest_overrides(request):
 
 @pytest.fixture(scope="function")
 def arraytest_settings(arraytest_overrides):
-    stride_template = ("time", "run", "variable")
+    stride_template = ("time", "variable", "run")
     settings = {
         "hostshape1": (4, 3, 4),
         "hostshape2": (4, 3, 4),
@@ -564,6 +564,31 @@ class TestBaseArrayManager:
         arr2 = np.array([4, 5, 6])
         assert test_arrmgr._arrays_equal(arr1, arr2) is False
 
+    def test_arrays_equal_shape_only_same_shape(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for same shape arrays"""
+        arr1 = np.array([1, 2, 3])
+        arr2 = np.array([4, 5, 6])
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is True
+
+    def test_arrays_equal_shape_only_different_shape(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for different shape arrays"""
+        arr1 = np.array([1, 2, 3])
+        arr2 = np.array([4, 5])
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is False
+
+    def test_arrays_equal_shape_only_3d(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True for 3D arrays"""
+        arr1 = np.zeros((10, 5, 3))
+        arr2 = np.ones((10, 5, 3))
+        assert test_arrmgr._arrays_equal(arr1, arr2) is False
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is True
+
+    def test_arrays_equal_shape_only_different_dtype(self, test_arrmgr):
+        """Test arrays_equal with shape_only=True but different dtype"""
+        arr1 = np.zeros((10, 5, 3), dtype=np.float32)
+        arr2 = np.zeros((10, 5, 3), dtype=np.float64)
+        assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is False
+
     def test_update_host_array_no_change(self, test_arrmgr):
         """Test update_host_array when arrays are equal"""
         current = np.array([1, 2, 3])
@@ -638,10 +663,10 @@ class TestBaseArrayManager:
                 ),
             }
         )
-        cuda.to_device(test_arrmgr.host.state.array, to=test_arrmgr.device.state.array)
-        cuda.to_device(
-            test_arrmgr.host.observables.array, to=test_arrmgr.device.observables.array
-        )
+
+        # Set device arrays to non-zero values directly
+        test_arrmgr.device.state.array[:] = 1.0
+        test_arrmgr.device.observables.array[:] = 1.0
 
         test1 = test_arrmgr.device.state.array.copy_to_host()
         test2 = test_arrmgr.device.observables.array.copy_to_host()
@@ -1063,10 +1088,13 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Arrays should be updated and marked for overwrite
-        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
-        assert (
-            test_manager_with_sizing.host.observables.array
-            is new_arrays["observables"]
+        # Note: stride conversion may create new array objects
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.state.array, new_arrays["state"]
+        )
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.observables.array,
+            new_arrays["observables"]
         )
         assert "state" in test_manager_with_sizing._needs_overwrite
         assert "observables" in test_manager_with_sizing._needs_overwrite
@@ -1091,7 +1119,10 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Array should be updated and marked for reallocation
-        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
+        # Note: stride conversion may create new array objects
+        np.testing.assert_array_equal(
+            test_manager_with_sizing.host.state.array, new_arrays["state"]
+        )
         assert "state" in test_manager_with_sizing._needs_reallocation
 
     def test_update_host_arrays_size_mismatch(

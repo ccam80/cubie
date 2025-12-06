@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from numba import cuda
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -38,7 +39,7 @@ def test_kernel_builds(solverkernel):
             {}),
         ("three_chamber",
          {"output_types": ["state", "observables", "time", "mean", "rms"],
-          'dt': 0.0025,
+          'dt': 0.001,
           'dt_save': 0.1,
           'dt_summarise': 0.3,
           "duration": 0.3}, {})
@@ -72,15 +73,17 @@ def test_run(
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
-
+    cuda.synchronize()
     state = solverkernel.state
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries
     observable_summaries = solverkernel.observable_summaries
+    iteration_counters = solverkernel.iteration_counters
     device = LoopRunResult(state=state,
                            observables=observables,
                            state_summaries=state_summaries,
                            observable_summaries=observable_summaries,
+                           counters=iteration_counters,
                            status=0)
 
     assert_integration_outputs(device=device,
