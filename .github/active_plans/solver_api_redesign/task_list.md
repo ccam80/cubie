@@ -16,7 +16,7 @@ Parallel Opportunities: Tasks within Group 3 can be parallelized
 ---
 
 ## Task Group 1: Input Classification Helper - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -96,12 +96,18 @@ Parallel Opportunities: Tasks within Group 3 can be parallelized
    - Integration: Called at start of solve() method
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (53 lines added)
+- Functions/Methods Added/Modified:
+  * _classify_inputs() method added to Solver class (lines 325-377)
+- Implementation Summary:
+  Added private method to classify input types as 'dict', 'array', or 'device'. Method checks for dictionary inputs first, then CUDA device arrays via __cuda_array_interface__, then validates numpy arrays have correct 2D shape with matching run counts against system_sizes. Falls back to 'dict' for edge cases.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Array Validation Helper - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Group 1
 
 **Required Context**:
@@ -178,12 +184,18 @@ Parallel Opportunities: Tasks within Group 3 can be parallelized
    - Note: Verify Tuple is already imported (it is on line 7)
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (40 lines added)
+- Functions/Methods Added/Modified:
+  * _validate_arrays() method added to Solver class (lines 379-418)
+- Implementation Summary:
+  Added private method to validate and prepare pre-built numpy arrays for kernel execution. Method casts arrays to system precision dtype if needed, and ensures C-contiguous memory layout by copying if necessary. Tuple import already present in file.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Modified solve() and New build_grid() - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2
 
 **Required Context**:
@@ -370,12 +382,19 @@ Parallel Opportunities: Tasks within Group 3 can be parallelized
    - Integration: Wraps existing grid_builder call
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (updated docstring ~30 lines, added branching logic ~20 lines, added build_grid method ~40 lines)
+- Functions/Methods Added/Modified:
+  * solve() method updated with input classification branching (lines 420-531)
+  * build_grid() public method added (lines 533-572)
+- Implementation Summary:
+  Modified solve() to classify inputs and branch to appropriate path. Dict inputs use grid_builder, array inputs go through _validate_arrays(), device arrays pass through directly. Added comprehensive docstring explaining the three processing paths. Added build_grid() public method that wraps grid_builder for users who want to pre-build grids for reuse.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Tests - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2, 3
 
 **Required Context**:
@@ -673,7 +692,26 @@ Parallel Opportunities: Tasks within Group 3 can be parallelized
    - Integration: Validates US-4 backward compatibility
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/test_solver.py (~260 lines added)
+- Functions/Methods Added/Modified:
+  * test_classify_inputs_dict()
+  * test_classify_inputs_mixed()
+  * test_classify_inputs_array()
+  * test_classify_inputs_mismatched_runs()
+  * test_classify_inputs_wrong_var_count()
+  * test_classify_inputs_1d_arrays()
+  * test_validate_arrays_dtype_cast()
+  * test_validate_arrays_contiguity()
+  * test_build_grid_returns_correct_shape()
+  * test_build_grid_combinatorial()
+  * test_build_grid_precision()
+  * test_solve_with_prebuilt_arrays()
+  * test_solve_array_path_matches_dict_path()
+  * test_solve_dict_path_backward_compatible()
+- Implementation Summary:
+  Added comprehensive tests for all new functionality. Tests cover input classification (dict, array, mixed, mismatched, wrong shapes), array validation (dtype casting, contiguity), build_grid (shapes, combinatorial, precision), and solve fast paths (prebuilt arrays, path equivalence, backward compatibility).
+- Issues Flagged: None
 
 ---
 

@@ -322,10 +322,105 @@ class Solver:
                     )
                 output_settings[outkey] = indices
 
+    def _classify_inputs(
+        self,
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+    ) -> str:
+        """Classify input types to determine optimal processing path.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state values as dict or array.
+        parameters
+            Parameter values as dict or array.
+
+        Returns
+        -------
+        str
+            Classification: 'dict', 'array', or 'device'.
+
+        Notes
+        -----
+        Returns 'dict' when either input is a dictionary, triggering
+        full grid construction. Returns 'array' when both inputs are
+        numpy arrays with matching run counts in (n_vars, n_runs) format.
+        Returns 'device' when both have __cuda_array_interface__.
+        """
+        # If either input is a dict, use grid builder path
+        if isinstance(initial_values, dict) or isinstance(parameters, dict):
+            return 'dict'
+
+        # Check for device arrays (CUDA arrays with interface)
+        init_is_device = hasattr(initial_values, '__cuda_array_interface__')
+        param_is_device = hasattr(parameters, '__cuda_array_interface__')
+        if init_is_device and param_is_device:
+            return 'device'
+
+        # Check for numpy arrays with correct shapes
+        if isinstance(initial_values, np.ndarray) and isinstance(
+            parameters, np.ndarray
+        ):
+            # Must be 2D arrays in (n_vars, n_runs) format
+            if initial_values.ndim == 2 and parameters.ndim == 2:
+                n_states = self.system_sizes.n_states
+                n_params = self.system_sizes.n_parameters
+                # Verify variable counts match system expectations
+                if (initial_values.shape[0] == n_states and
+                        parameters.shape[0] == n_params):
+                    # Verify run counts match
+                    if initial_values.shape[1] == parameters.shape[1]:
+                        return 'array'
+
+        # Default to dict path (grid builder handles conversion)
+        return 'dict'
+
+    def _validate_arrays(
+        self,
+        initial_values: np.ndarray,
+        parameters: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Validate and prepare pre-built arrays for kernel execution.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state array in (n_states, n_runs) format.
+        parameters
+            Parameter array in (n_params, n_runs) format.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Validated arrays cast to system precision and made
+            C-contiguous if necessary.
+
+        Notes
+        -----
+        Arrays are cast to the system precision dtype and copied
+        to ensure C-contiguous memory layout when needed.
+        """
+        precision = self.precision
+
+        # Cast to correct dtype if needed
+        if initial_values.dtype != precision:
+            initial_values = initial_values.astype(precision)
+        if parameters.dtype != precision:
+            parameters = parameters.astype(precision)
+
+        # Ensure C-contiguous layout
+        if not initial_values.flags['C_CONTIGUOUS']:
+            initial_values = np.ascontiguousarray(initial_values)
+        if not parameters.flags['C_CONTIGUOUS']:
+            parameters = np.ascontiguousarray(parameters)
+
+        return initial_values, parameters
+
     def solve(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float,np.ndarray]]],
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,
@@ -342,9 +437,14 @@ class Solver:
         Parameters
         ----------
         initial_values
-            Initial state values for each integration run.
+            Initial state values for each integration run. Accepts
+            dictionaries mapping state names to values for grid
+            construction, or pre-built arrays in (n_states, n_runs)
+            format for fast-path execution.
         parameters
-            Parameter values for each run.
+            Parameter values for each run. Accepts dictionaries
+            mapping parameter names to values, or pre-built arrays
+            in (n_params, n_runs) format.
         drivers
             Driver samples or configuration matching
             :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
@@ -364,6 +464,7 @@ class Solver:
             ``"run"``.
         grid_type
             Strategy for constructing the integration grid from inputs.
+            Only used when dict inputs trigger grid construction.
         results_type
             Format of returned results, for example ``"full"`` or ``"numpy"``.
         **kwargs
@@ -373,13 +474,35 @@ class Solver:
         -------
         SolveResult
             Collected results from the integration run.
+
+        Notes
+        -----
+        Input type detection determines the processing path:
+
+        - Dictionary inputs trigger grid construction via
+          :class:`BatchGridBuilder`
+        - Pre-built numpy arrays with correct shapes skip grid
+          construction for improved performance
+        - Device arrays receive minimal processing before kernel
+          execution
         """
         if kwargs:
             self.update(kwargs, silent=True)
 
-        inits, params = self.grid_builder(
-            states=initial_values, params=parameters, kind=grid_type
-        )
+        # Classify inputs to determine processing path
+        input_type = self._classify_inputs(initial_values, parameters)
+
+        if input_type == 'dict':
+            # Dictionary inputs: use grid builder (existing behavior)
+            inits, params = self.grid_builder(
+                states=initial_values, params=parameters, kind=grid_type
+            )
+        elif input_type == 'array':
+            # Pre-built arrays: validate and use directly (fast path)
+            inits, params = self._validate_arrays(initial_values, parameters)
+        else:
+            # Device arrays: use directly with minimal processing
+            inits, params = initial_values, parameters
 
         fn_changed = False  # ensure defined if drivers is None
         if drivers is not None:
@@ -406,6 +529,47 @@ class Solver:
         )
         self.memory_manager.sync_stream(self.kernel)
         return SolveResult.from_solver(self, results_type=results_type)
+
+    def build_grid(
+        self,
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        grid_type: str = "verbatim",
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build parameter and state grids for external use.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state values as dictionaries mapping state names
+            to value sequences, or arrays in (n_states, n_runs) format.
+        parameters
+            Parameter values as dictionaries mapping parameter names
+            to value sequences, or arrays in (n_params, n_runs) format.
+        grid_type
+            Strategy for constructing the grid. ``"combinatorial"``
+            produces all combinations while ``"verbatim"`` preserves
+            column-wise pairings. Default is ``"verbatim"``.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Tuple of (initial_values, parameters) arrays in
+            (n_vars, n_runs) format with system precision dtype.
+            These arrays can be passed directly to :meth:`solve`
+            for fast-path execution.
+
+        Examples
+        --------
+        >>> inits, params = solver.build_grid(
+        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
+        ...     grid_type="combinatorial"
+        ... )
+        >>> result = solver.solve(inits, params)  # Uses fast path
+        """
+        return self.grid_builder(
+            states=initial_values, params=parameters, kind=grid_type
+        )
 
     def update(
         self,
