@@ -319,7 +319,7 @@ None - Event registration is internal, no user input
    - Edge cases: None
    - Integration: Place after set_verbosity() call
 
-3. **Register kernel_run_total event in BatchSolverKernel.__init__**
+3. **Register kernel_run_total and gpu_workload events in BatchSolverKernel.__init__**
    - File: src/cubie/batchsolving/BatchSolverKernel.py
    - Action: Add import and event registration
    - Details:
@@ -334,19 +334,9 @@ None - Event registration is internal, no user input
          description='Total wall-clock time for BatchSolverKernel.run()'
      )
      _default_timelogger.register_event(
-         label='kernel_launch',
+         label='gpu_workload',
          category='runtime',
-         description='GPU kernel execution time per chunk'
-     )
-     _default_timelogger.register_event(
-         label='h2d_transfer',
-         category='runtime',
-         description='Host-to-device transfer time for all arrays'
-     )
-     _default_timelogger.register_event(
-         label='d2h_transfer',
-         category='runtime',
-         description='Device-to-host transfer time for all arrays'
+         description='GPU execution time for all operations'
      )
      ```
    - Edge cases: None
@@ -456,34 +446,28 @@ None - Timing is internal, no user input
              
              # ... existing setup code (lines 264-299) ...
              
-             # Create ONE CUDAEvent for ALL h2d transfers
-             h2d_event = CUDAEvent(
-                 'h2d_transfer', 'runtime', _default_timelogger
+             # Create ONE CUDAEvent for ALL GPU operations
+             # (h2d transfers, kernel launches, and d2h transfers are
+             # interleaved per chunk in the existing code structure)
+             gpu_event = CUDAEvent(
+                 'gpu_workload', 'runtime', _default_timelogger
              )
-             h2d_event.record_start(stream)
+             gpu_event.record_start(stream)
              
-             # Process all chunks' h2d transfers first
+             if self.profileCUDA:  # pragma: no cover
+                 cuda.profile_start()
+             
+             # Existing interleaved loop - no restructuring needed
              for i in range(self.chunks):
                  indices = slice(
                      i * chunk_params.size, (i + 1) * chunk_params.size
                  )
                  self.input_arrays.initialise(indices)
                  self.output_arrays.initialise(indices)
-             
-             h2d_event.record_end(stream)
-             
-             # Kernel launches with per-chunk CUDAEvents
-             for i in range(self.chunks):
-                 # Create per-chunk kernel event
-                 kernel_event = CUDAEvent(
-                     f'kernel_launch_{i}', 'runtime', _default_timelogger
-                 )
                  
                  if (chunk_axis == "time") and (i != 0):
-                     chunk_warmup = precision(0.0)
-                     chunk_t0 = t0 + precision(i) * chunk_params.duration
-                 
-                 kernel_event.record_start(stream)
+                     chunk_warmup = np.float64(0.0)
+                     chunk_t0 = t0 + np.float64(i) * chunk_params.duration
                  
                  self.kernel[
                      BLOCKSPERGRID,
@@ -494,34 +478,22 @@ None - Timing is internal, no user input
                      # ... existing kernel args ...
                  )
                  
-                 kernel_event.record_end(stream)
-             
-             # Create ONE CUDAEvent for ALL d2h transfers
-             d2h_event = CUDAEvent(
-                 'd2h_transfer', 'runtime', _default_timelogger
-             )
-             d2h_event.record_start(stream)
-             
-             for i in range(self.chunks):
-                 indices = slice(
-                     i * chunk_params.size, (i + 1) * chunk_params.size
-                 )
                  self.input_arrays.finalise(indices)
                  self.output_arrays.finalise(indices)
              
-             d2h_event.record_end(stream)
+             gpu_event.record_end(stream)
              
-             if self.profileCUDA:
+             if self.profileCUDA:  # pragma: no cover
                  cuda.profile_stop()
          finally:
              _default_timelogger.stop_event('kernel_run_total')
      ```
    - Edge cases:
-     - Consolidated h2d_transfer and d2h_transfer (ONE event each)
-     - Per-chunk kernel_launch_{i} events
+     - Single gpu_workload event covers interleaved h2d/kernel/d2h operations
      - NO stream.synchronize() during this method
+     - Preserves existing loop structure (no restructuring)
      - Profile start/stop preserved if enabled
-   - Integration: Major restructuring of run() method
+   - Integration: Minimal changes - add event creation and record calls
 
 **Outcomes**:
 

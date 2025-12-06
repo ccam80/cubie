@@ -87,14 +87,17 @@ self._cuda_events: list[CUDAEvent] = []
 ### 3. Event Model
 
 **Events Using CUDAEvent (GPU timing):**
-- `kernel_launch_{chunk_idx}` - One per kernel launch per chunk
-- `h2d_transfer` - ONE event for ALL host-to-device transfers
-- `d2h_transfer` - ONE event for ALL device-to-host transfers
+- `gpu_workload` - ONE event covering ALL GPU work (transfers + kernels) in run()
 
 **Events Using Standard TimeLogger (wall-clock):**
 - `solve_ivp_total` - Full solve_ivp() duration
 - `solver_solve_total` - Full Solver.solve() duration
 - `kernel_run_total` - Full BatchSolverKernel.run() duration
+
+**Note:** The original plan proposed separate h2d_transfer, kernel_launch, and d2h_transfer
+events. However, the actual code structure interleaves these operations per chunk, making
+separate consolidated events impossible without restructuring the code. The `gpu_workload`
+event captures the total GPU-side time for all operations.
 
 **Registration:**
 All events registered with category='runtime'
@@ -148,40 +151,44 @@ def solve(self, ...):
 - Consolidated CUDAEvent for h2d transfers
 - Consolidated CUDAEvent for d2h transfers
 
-**Consolidated Transfer Pattern:**
+**Interleaved Chunk Pattern (Matches Actual Code Structure):**
+
+The actual code interleaves h2d, kernel, and d2h operations within a single loop per chunk.
+This means we cannot have ONE consolidated h2d event and ONE consolidated d2h event 
+spanning all chunks - they would overlap on the GPU timeline.
+
+Instead, we record events at the boundaries of the entire run() method:
 
 ```python
 def run(self, ...):
     _default_timelogger.start_event('kernel_run_total')
     
-    # Create ONE CUDAEvent for ALL h2d transfers
-    h2d_event = CUDAEvent('h2d_transfer', 'runtime', _default_timelogger)
-    h2d_event.record_start(stream)
+    # Create ONE CUDAEvent for the entire GPU workload
+    gpu_event = CUDAEvent('gpu_workload', 'runtime', _default_timelogger)
+    gpu_event.record_start(stream)
     
     for i in range(self.chunks):
-        # All h2d transfers for this chunk
+        indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
+        
+        # h2d transfers for this chunk
         self.input_arrays.initialise(indices)
-    
-    h2d_event.record_end(stream)  # After ALL transfers
-    
-    # Per-chunk kernel launches
-    for i in range(self.chunks):
-        kernel_event = CUDAEvent(f'kernel_launch_{i}', 'runtime', ...)
-        kernel_event.record_start(stream)
-        self.kernel[...]  # Launch
-        kernel_event.record_end(stream)
-    
-    # Create ONE CUDAEvent for ALL d2h transfers
-    d2h_event = CUDAEvent('d2h_transfer', 'runtime', _default_timelogger)
-    d2h_event.record_start(stream)
-    
-    for i in range(self.chunks):
+        self.output_arrays.initialise(indices)
+        
+        # Kernel launch for this chunk
+        self.kernel[...](...)
+        
+        # d2h transfers for this chunk
+        self.input_arrays.finalise(indices)
         self.output_arrays.finalise(indices)
     
-    d2h_event.record_end(stream)  # After ALL transfers
+    gpu_event.record_end(stream)  # After ALL chunks complete
     
     _default_timelogger.stop_event('kernel_run_total')
 ```
+
+**Note:** The current code structure interleaves initialise/kernel/finalise per chunk.
+This is by design for memory efficiency with chunked execution. The GPU event captures
+the total GPU-side workload time including all transfers and kernel launches.
 
 **CRITICAL: No sync_stream() calls during this method!**
 The sync happens in Solver.solve() after run() returns.
@@ -219,14 +226,12 @@ The sync happens in Solver.solve() after run() returns.
 - Zero overhead when timing disabled
 
 ### Zero-Duration Events
-- Always record h2d_transfer even if no arrays to transfer
-- Always record d2h_transfer even if no arrays to transfer
+- Always record gpu_workload even if no work to do
 - Event with 0.0 duration is valid and logged
 
 ### Multi-Chunk Execution
-- One h2d_transfer event spanning ALL chunks' h2d transfers
-- One kernel_launch_{i} event PER chunk
-- One d2h_transfer event spanning ALL chunks' d2h transfers
+- One gpu_workload event covers ALL chunks (interleaved h2d + kernel + d2h)
+- Event records from first initialise() to last finalise()
 
 ### Stream Synchronization
 - NO sync during BatchSolverKernel.run()
@@ -246,20 +251,19 @@ The sync happens in Solver.solve() after run() returns.
 1. solve_ivp() → start_event('solve_ivp_total')
 2. Solver.solve() → start_event('solver_solve_total')
 3. BatchSolverKernel.run() → start_event('kernel_run_total')
-4. Create h2d_event, record_start
-5. For each chunk: initialise() (no timing here)
-6. h2d_event.record_end
-7. For each chunk: create kernel_event, record_start, launch, record_end
-8. Create d2h_event, record_start
-9. For each chunk: finalise() (no timing here)
-10. d2h_event.record_end
-11. stop_event('kernel_run_total')
-12. run() returns to solve()
-13. sync_stream()
-14. retrieve_cuda_events() → calculates all GPU timings
-15. stop_event('solver_solve_total')
-16. solve() returns to solve_ivp()
-17. stop_event('solve_ivp_total')
+4. Create gpu_event, record_start(stream)
+5. For each chunk:
+   - initialise() (h2d transfers)
+   - kernel launch
+   - finalise() (d2h transfers)
+6. gpu_event.record_end(stream)
+7. stop_event('kernel_run_total')
+8. run() returns to solve()
+9. sync_stream()
+10. retrieve_cuda_events() → calculates GPU timing
+11. stop_event('solver_solve_total')
+12. solve() returns to solve_ivp()
+13. stop_event('solve_ivp_total')
 
 ## File Modification Summary
 
