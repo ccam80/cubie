@@ -364,8 +364,8 @@ class Solver:
         ):
             # Must be 2D arrays in (n_vars, n_runs) format
             if initial_values.ndim == 2 and parameters.ndim == 2:
-                n_states = self.system_sizes.n_states
-                n_params = self.system_sizes.n_parameters
+                n_states = self.system_sizes.states
+                n_params = self.system_sizes.parameters
                 # Verify variable counts match system expectations
                 if (initial_values.shape[0] == n_states and
                         parameters.shape[0] == n_params):

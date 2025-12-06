@@ -641,7 +641,7 @@ def test_classify_inputs_dict(solver, simple_initial_values, simple_parameters):
 
 def test_classify_inputs_mixed(solver, system):
     """Test that mixed inputs (dict + array) are classified as 'dict'."""
-    n_states = solver.system_sizes.n_states
+    n_states = solver.system_sizes.states
     inits_array = np.ones((n_states, 2), dtype=solver.precision)
     params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
 
@@ -650,7 +650,7 @@ def test_classify_inputs_mixed(solver, system):
 
     # Test the reverse case
     inits_dict = {list(system.initial_values.names)[0]: [0.1, 0.2]}
-    n_params = solver.system_sizes.n_parameters
+    n_params = solver.system_sizes.parameters
     params_array = np.ones((n_params, 2), dtype=solver.precision)
 
     result = solver._classify_inputs(inits_dict, params_array)
@@ -659,8 +659,8 @@ def test_classify_inputs_mixed(solver, system):
 
 def test_classify_inputs_array(solver):
     """Test that matching numpy arrays are classified as 'array'."""
-    n_states = solver.system_sizes.n_states
-    n_params = solver.system_sizes.n_parameters
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
     n_runs = 4
 
     inits = np.ones((n_states, n_runs), dtype=solver.precision)
@@ -672,8 +672,8 @@ def test_classify_inputs_array(solver):
 
 def test_classify_inputs_mismatched_runs(solver):
     """Test that mismatched run counts fall back to 'dict'."""
-    n_states = solver.system_sizes.n_states
-    n_params = solver.system_sizes.n_parameters
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
 
     inits = np.ones((n_states, 3), dtype=solver.precision)
     params = np.ones((n_params, 5), dtype=solver.precision)
@@ -684,7 +684,7 @@ def test_classify_inputs_mismatched_runs(solver):
 
 def test_classify_inputs_wrong_var_count(solver):
     """Test that wrong variable counts fall back to 'dict'."""
-    n_params = solver.system_sizes.n_parameters
+    n_params = solver.system_sizes.parameters
     n_runs = 4
 
     # Wrong number of states
@@ -697,8 +697,8 @@ def test_classify_inputs_wrong_var_count(solver):
 
 def test_classify_inputs_1d_arrays(solver):
     """Test that 1D arrays fall back to 'dict'."""
-    n_states = solver.system_sizes.n_states
-    n_params = solver.system_sizes.n_parameters
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
 
     inits = np.ones(n_states, dtype=solver.precision)
     params = np.ones(n_params, dtype=solver.precision)
@@ -714,8 +714,8 @@ def test_classify_inputs_1d_arrays(solver):
 
 def test_validate_arrays_dtype_cast(solver):
     """Test that arrays are cast to system precision."""
-    n_states = solver.system_sizes.n_states
-    n_params = solver.system_sizes.n_parameters
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
     n_runs = 2
 
     # Create arrays with wrong dtype
@@ -731,8 +731,8 @@ def test_validate_arrays_dtype_cast(solver):
 
 def test_validate_arrays_contiguity(solver):
     """Test that non-contiguous arrays are made contiguous."""
-    n_states = solver.system_sizes.n_states
-    n_params = solver.system_sizes.n_parameters
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
     n_runs = 4
 
     # Create F-contiguous arrays
@@ -769,8 +769,8 @@ def test_build_grid_returns_correct_shape(
     assert isinstance(params, np.ndarray)
     assert inits.ndim == 2
     assert params.ndim == 2
-    assert inits.shape[0] == solver.system_sizes.n_states
-    assert params.shape[0] == solver.system_sizes.n_parameters
+    assert inits.shape[0] == solver.system_sizes.states
+    assert params.shape[0] == solver.system_sizes.parameters
     # Verbatim: run count matches input length
     assert inits.shape[1] == params.shape[1]
 
