@@ -1,5 +1,7 @@
 # Summary Update Timing Decoupling
 
+> **UPDATE NOTICE**: Plan updated after merging main branch (Dec 2024). Code structure has changed but core user stories and requirements remain valid. See task_list.md for updated implementation details.
+
 ## User Stories
 
 ### Story 1: Summary-Only Output with Appropriate Update Intervals

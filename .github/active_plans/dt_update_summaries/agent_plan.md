@@ -1,5 +1,12 @@
 # Technical Implementation Plan: dt_update_summaries
 
+> **UPDATE NOTICE**: This plan has been updated after merging main branch (Dec 2024).
+> Key structural changes:
+> - `LoopSharedIndices` → `LoopSliceIndices` (now part of `LoopBufferSettings`)
+> - ODELoopConfig now uses `buffer_settings` parameter
+> - IVPLoop constructor signature updated with `controller_local_len` and `algorithm_local_len`
+> - Core concepts and implementation approach remain unchanged
+
 ## Component Overview
 
 This implementation separates the concerns of state saving (`dt_save`) and summary metric updates (`dt_update_summaries`) in CuBIE's integration loop architecture.
@@ -151,9 +158,10 @@ def __attrs_post_init__(self):
 def __init__(
     self,
     precision: PrecisionDType,
-    shared_indices: LoopSharedIndices,
-    local_indices: LoopLocalIndices,
+    buffer_settings: LoopBufferSettings,  # UPDATED from shared_indices/local_indices
     compile_flags: OutputCompileFlags,
+    controller_local_len: int = 0,
+    algorithm_local_len: int = 0,
     dt_save: float = 0.1,
     dt_summarise: float = 1.0,
     dt_update_summaries: Optional[float] = None,  # NEW
