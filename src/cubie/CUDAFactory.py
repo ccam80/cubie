@@ -593,6 +593,11 @@ class CUDAFactory(ABC):
                 recognized |= r
                 updated |= u
 
+            # Check nested attrs classes and dicts if not found at top level
+            r, u = self._check_nested_update(key, value)
+            recognized |= r
+            updated |= u
+
             if recognized:
                 recognized_params.append(key)
             if updated:
@@ -651,6 +656,64 @@ class CUDAFactory(ABC):
 
         return recognized, updated
 
+    def _check_nested_update(self, key: str, value: Any) -> Tuple[bool, bool]:
+        """Check nested attrs classes and dicts for a matching key.
+
+        Searches one level of nesting within compile_settings attributes.
+        If an attribute is an attrs class or dict, checks whether the key
+        exists as a field/key within it. Uses the same comparison logic
+        as _check_and_update.
+
+        Parameters
+        ----------
+        key
+            Attribute name to search for in nested structures
+        value
+            New value for the attribute
+
+        Returns
+        -------
+        tuple (bool, bool)
+            recognized: The key was found in a nested structure
+            updated: The value has changed and was updated
+
+        Notes
+        -----
+        Only updates values when the new value is type-compatible with the
+        existing attribute. This prevents accidental type mismatches when
+        a key name collides across different nested structures.
+        """
+        for field in attrs.fields(type(self._compile_settings)):
+            nested_obj = getattr(self._compile_settings, field.name)
+
+            # Check if nested object is an attrs class
+            if attrs.has(type(nested_obj)):
+                # Check with underscore prefix first, then without
+                for attr_key in (f"_{key}", key):
+                    if in_attr(attr_key, nested_obj):
+                        old_value = getattr(nested_obj, attr_key)
+                        value_changed = old_value != value
+
+                        updated = False
+                        if np.any(value_changed):
+                            setattr(nested_obj, attr_key, value)
+                            updated = True
+                        return True, updated
+
+            # Check if nested object is a dict
+            elif isinstance(nested_obj, dict):
+                if key in nested_obj:
+                    old_value = nested_obj[key]
+                    value_changed = old_value != value
+
+                    updated = False
+                    if np.any(value_changed):
+                        nested_obj[key] = value
+                        updated = True
+                    return True, updated
+
+        return False, False
+
     def _invalidate_cache(self):
         """Mark cached outputs as invalid."""
         self._cache_valid = False
@@ -670,14 +733,14 @@ class CUDAFactory(ABC):
         self._cache_valid = True
         
         # Trigger compilation by running a placeholder kernel
-        # if _default_timelogger.verbosity is not None:
-        for field in attrs.fields(type(self._cache)):
-            device_func = getattr(self._cache, field.name)
-            if device_func is None or device_func == -1:
-                continue
-            if hasattr(device_func, 'py_func'):
-                event_name = f"compile_{field.name}"
-                self.specialize_and_compile(device_func, event_name)
+        if _default_timelogger.verbosity is not None:
+            for field in attrs.fields(type(self._cache)):
+                device_func = getattr(self._cache, field.name)
+                if device_func is None or device_func == -1:
+                    continue
+                if hasattr(device_func, 'py_func'):
+                    event_name = f"compile_{field.name}"
+                    self.specialize_and_compile(device_func, event_name)
 
     def get_cached_output(self, output_name):
         """Return a named cached output.

@@ -34,10 +34,12 @@ https://doi.org/10.1023/A:1021900219772
 from typing import Callable, Optional, Tuple
 
 import attrs
+from attrs import validators
 import numpy as np
 from numba import cuda, int16, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -51,6 +53,194 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+
+
+@attrs.define
+class RosenbrockLocalSizes(LocalSizes):
+    """Local array sizes for Rosenbrock buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    stage_rhs : int
+        Stage RHS buffer size.
+    stage_store : int
+        Stage store buffer size.
+    cached_auxiliaries : int
+        Cached auxiliaries buffer size.
+    """
+
+    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
+    stage_store: int = attrs.field(validator=getype_validator(int, 0))
+    cached_auxiliaries: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class RosenbrockSliceIndices(SliceIndices):
+    """Slice container for Rosenbrock shared memory buffer layouts.
+
+    Attributes
+    ----------
+    stage_rhs : slice
+        Slice covering the stage RHS buffer (empty if local).
+    stage_store : slice
+        Slice covering the stage store buffer.
+    cached_auxiliaries : slice
+        Slice covering the cached auxiliaries buffer.
+    local_end : int
+        Offset of the end of algorithm-managed shared memory.
+    """
+
+    stage_rhs: slice = attrs.field()
+    stage_store: slice = attrs.field()
+    cached_auxiliaries: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class RosenbrockBufferSettings(BufferSettings):
+    """Configuration for Rosenbrock step buffer sizes and memory locations.
+
+    Controls memory locations for stage_rhs, stage_store, and
+    cached_auxiliaries buffers used during Rosenbrock integration steps.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    stage_count : int
+        Number of RK stages.
+    cached_auxiliary_count : int
+        Number of cached auxiliary entries for Jacobian helpers.
+    stage_rhs_location : str
+        Memory location for stage RHS buffer: 'local' or 'shared'.
+    stage_store_location : str
+        Memory location for stage store buffer: 'local' or 'shared'.
+    cached_auxiliaries_location : str
+        Memory location for cached auxiliaries: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    cached_auxiliary_count: int = attrs.field(
+        default=0, validator=getype_validator(int, 0)
+    )
+    stage_rhs_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    stage_store_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    cached_auxiliaries_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_stage_rhs(self) -> bool:
+        """Return True if stage_rhs buffer uses shared memory."""
+        return self.stage_rhs_location == 'shared'
+
+    @property
+    def use_shared_stage_store(self) -> bool:
+        """Return True if stage_store buffer uses shared memory."""
+        return self.stage_store_location == 'shared'
+
+    @property
+    def use_shared_cached_auxiliaries(self) -> bool:
+        """Return True if cached_auxiliaries buffer uses shared memory."""
+        return self.cached_auxiliaries_location == 'shared'
+
+    @property
+    def stage_store_elements(self) -> int:
+        """Return stage store elements (stage_count * n)."""
+        return self.stage_count * self.n
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required.
+
+        Includes stage_rhs, stage_store, and cached_auxiliaries
+        if configured for shared memory.
+        """
+        total = 0
+        if self.use_shared_stage_rhs:
+            total += self.n
+        if self.use_shared_stage_store:
+            total += self.stage_store_elements
+        if self.use_shared_cached_auxiliaries:
+            total += self.cached_auxiliary_count
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required.
+
+        Includes buffers configured with location='local'.
+        """
+        total = 0
+        if not self.use_shared_stage_rhs:
+            total += self.n
+        if not self.use_shared_stage_store:
+            total += self.stage_store_elements
+        if not self.use_shared_cached_auxiliaries:
+            total += self.cached_auxiliary_count
+        return total
+
+    @property
+    def local_sizes(self) -> RosenbrockLocalSizes:
+        """Return RosenbrockLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return RosenbrockLocalSizes(
+            stage_rhs=self.n,
+            stage_store=self.stage_store_elements,
+            cached_auxiliaries=self.cached_auxiliary_count,
+        )
+
+    @property
+    def shared_indices(self) -> RosenbrockSliceIndices:
+        """Return RosenbrockSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_stage_rhs:
+            stage_rhs_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_rhs_slice = slice(0, 0)
+
+        if self.use_shared_stage_store:
+            stage_store_slice = slice(ptr, ptr + self.stage_store_elements)
+            ptr += self.stage_store_elements
+        else:
+            stage_store_slice = slice(0, 0)
+
+        if self.use_shared_cached_auxiliaries:
+            cached_auxiliaries_slice = slice(
+                ptr, ptr + self.cached_auxiliary_count
+            )
+            ptr += self.cached_auxiliary_count
+        else:
+            cached_auxiliaries_slice = slice(0, 0)
+
+        return RosenbrockSliceIndices(
+            stage_rhs=stage_rhs_slice,
+            stage_store=stage_store_slice,
+            cached_auxiliaries=cached_auxiliaries_slice,
+            local_end=ptr,
+        )
+
+
+# Buffer location parameters for Rosenbrock algorithms
+ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_rhs_location",
+    "stage_store_location",
+    "cached_auxiliaries_location",
+}
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -113,6 +303,12 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
     tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
     time_derivative_fn: Optional[Callable] = attrs.field(default=None)
     driver_del_t: Optional[Callable] = attrs.field(default=None)
+    buffer_settings: Optional[RosenbrockBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(RosenbrockBufferSettings)
+        ),
+    )
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -122,7 +318,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float] = None,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -133,6 +328,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
+        stage_rhs_location: Optional[str] = None,
+        stage_store_location: Optional[str] = None,
+        cached_auxiliaries_location: Optional[str] = None,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
         
@@ -148,9 +346,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dt
-            Initial or fixed step size. When ``None``, the step size is
-            determined by the controller defaults.
         dxdt_function
             Compiled CUDA device function computing state derivatives.
         observables_function
@@ -196,6 +391,20 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
+        # Create buffer_settings - only pass locations if explicitly provided
+        # cached_auxiliary_count is 0 at init; updated when helpers are built
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+            'cached_auxiliary_count': 0,
+        }
+        if stage_rhs_location is not None:
+            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
+        if stage_store_location is not None:
+            buffer_kwargs['stage_store_location'] = stage_store_location
+        if cached_auxiliaries_location is not None:
+            buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
+        buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -212,10 +421,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": tableau_value.gamma,
             "M": mass,
+            "buffer_settings": buffer_settings,
         }
-        if dt is not None:
-            config_kwargs["dt"] = dt
-        
+
         config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
 
@@ -268,7 +476,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
         self._cached_auxiliary_count = get_fn("cached_aux_count")
-
+        self.compile_settings.buffer_settings.cached_auxiliary_count = (
+            self._cached_auxiliary_count
+        )
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -307,7 +517,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_del_t = config.driver_del_t
         numba_precision = config.numba_precision
         n = config.n
-        dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
 
@@ -319,7 +528,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             driver_del_t,
             numba_precision,
             n,
-            dt,
             config.n_drivers,
         )
 
@@ -332,28 +540,26 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_del_t: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the Rosenbrock-W device step."""
 
         config = self.compile_settings
+        precision = self.precision
         tableau = config.tableau
         (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
-        
-        # Capture dt and controller type for compile-time optimization
-        dt_compile = dt
-        is_controller_fixed = self.is_controller_fixed
 
-        stage_count = self.stage_count
+        n = int32(n)
+        stage_count = int32(self.stage_count)
+        stages_except_first = stage_count - int32(1)
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
-        a_coeffs = tableau.typed_rows(tableau.a, numba_precision)
-        C_coeffs = tableau.typed_rows(tableau.C, numba_precision)
+        a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+        C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
         gamma_stages = tableau.typed_gamma_stages(numba_precision)
-        gamma = tableau.gamma
+        gamma = numba_precision(tableau.gamma)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
@@ -367,35 +573,50 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
         b_hat_row = tableau.b_hat_matches_a_row
+        if b_row is not None:
+            b_row = int32(b_row)
+        if b_hat_row is not None:
+            b_hat_row = int32(b_hat_row)
 
-        stage_buffer_n = stage_count * n
-        cached_auxiliary_count = self.cached_auxiliary_count
-        stage_rhs_start = 0
-        stage_rhs_end = stage_rhs_start + n
-        stage_store_start = stage_rhs_end
-        stage_store_end = stage_store_start + stage_buffer_n
-        aux_start = stage_store_end
-        aux_end = aux_start + cached_auxiliary_count
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
+        stage_store_shared = buffer_settings.use_shared_stage_store
+        cached_auxiliaries_shared = buffer_settings.use_shared_cached_auxiliaries
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_rhs_slice = shared_indices.stage_rhs
+        stage_store_slice = shared_indices.stage_store
+        cached_auxiliaries_slice = shared_indices.cached_auxiliaries
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
+        stage_store_local_size = local_sizes.nonzero('stage_store')
+        cached_auxiliaries_local_size = local_sizes.nonzero('cached_auxiliaries')
 
         # no cover: start
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
-                int32[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,
@@ -420,38 +641,48 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         ):
             # ----------------------------------------------------------- #
             # Shared and local buffer guide:
-            # stage_rhs: size n, shared memory.
+            # stage_rhs: size n, shared or local memory.
             #   - Receives the stage right-hand side and doubles as a residual
             #     buffer before each linear solve.
-            # stage_store: size stage_count * n, shared memory.
+            # stage_store: size stage_count * n, shared or local memory.
             #   - Slice i caches the accepted stage increment K_i.
             #   - Stage slices double as the initial guess for the following
             #     stage and provide the stage state when assembling rhs values.
             #   - The final slice stores the scaled d f / d t vector until the
             #     last stage recomputes it immediately before use.
-            # cached_auxiliaries: size cached_auxiliary_count, shared memory.
+            # cached_auxiliaries: size cached_auxiliary_count, shared or local.
             #   - Provides Jacobian helper data prepared before the loop.
             # ----------------------------------------------------------- #
 
-            # Use compile-time constant dt if fixed controller, else runtime dt
-            if is_controller_fixed:
-                dt_value = dt_compile
+            # ----------------------------------------------------------- #
+            # Selective allocation from local or shared memory
+            # ----------------------------------------------------------- #
+            if stage_rhs_shared:
+                stage_rhs = shared[stage_rhs_slice]
             else:
-                dt_value = dt_scalar
-            
+                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+
+            if stage_store_shared:
+                stage_store = shared[stage_store_slice]
+            else:
+                stage_store = cuda.local.array(stage_store_local_size, precision)
+
+            if cached_auxiliaries_shared:
+                cached_auxiliaries = shared[cached_auxiliaries_slice]
+            else:
+                cached_auxiliaries = cuda.local.array(
+                    cached_auxiliaries_local_size, precision
+                )
+            # ----------------------------------------------------------- #
+
             current_time = time_scalar
-            end_time = current_time + dt_value
-
-            stage_rhs = shared[stage_rhs_start:stage_rhs_end]
-            stage_store = shared[stage_store_start:stage_store_end]
-            cached_auxiliaries = shared[aux_start:aux_end]
-
-            final_stage_base = n * (stage_count - 1)
+            end_time = current_time + dt_scalar
+            final_stage_base = n * (stage_count - int32(1))
             time_derivative = stage_store[
                 final_stage_base : final_stage_base + n
             ]
 
-            inv_dt = numba_precision(1.0) / dt_value
+            inv_dt = numba_precision(1.0) / dt_scalar
 
             prepare_jacobian(
                 state,
@@ -489,12 +720,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
-                time_derivative[idx] *= dt_value
+                time_derivative[idx] *= dt_scalar
                 if has_error:
                     error[idx] = typed_zero
 
             status_code = int32(0)
-            stage_time = current_time + dt_value * stage_time_fractions[0]
+            stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #
             #            Stage 0: uses starting values                        #
@@ -514,12 +745,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 f_value = stage_rhs[idx]
                 rhs_value = (
                         (f_value + gamma_stages[0] * time_derivative[idx])
-                        * dt_value
+                        * dt_scalar
                 )
                 stage_rhs[idx] = rhs_value * gamma
 
             # Create an unused reference for solver signature consistency.
-            base_state_placeholder = shared[0:0]
+            base_state_placeholder = shared[int32(0):int32(0)]
 
             # Use stored copy as the initial guess for the first stage.
             status_code |= linear_solver(
@@ -529,40 +760,52 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 base_state_placeholder,
                 cached_auxiliaries,
                 stage_time,
-                dt_value,
+                dt_scalar,
                 numba_precision(1.0),
                 stage_rhs,
                 stage_increment,
+                shared,
             )
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] += stage_increment[idx] * solution_weights[0]
+                    proposed_state[idx] += (stage_increment[idx] *
+                                            solution_weights[int32(0)])
                 if has_error and accumulates_error:
-                    error[idx] += stage_increment[idx] * error_weights[0]
+                    error[idx] += stage_increment[idx] * error_weights[
+                        int32(0)]
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
             # --------------------------------------------------------------- #
-            for stage_idx in range(1, stage_count):
+            for prev_idx in range(stages_except_first):
+                stage_idx = prev_idx + int32(1)
+                stage_offset = stage_idx * n
                 # Fill buffers with previous step's contributions
                 stage_gamma = gamma_stages[stage_idx]
                 stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * Y_nj))
-                stage_slice = stage_store[
-                    n * stage_idx : n * (stage_idx + 1)
-                ]
+                # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * K_j))
+                stage_slice = stage_store[stage_offset:stage_offset + n]
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
-                for predecessor_offset in range(stage_idx):
-                    a_coeff = a_coeffs[stage_idx][predecessor_offset]
-                    base_idx = predecessor_offset * n
-                    for idx in range(n):
-                        prior_val = stage_store[base_idx + idx]
-                        stage_slice[idx] += a_coeff * prior_val
+
+                # Accumulate contributions from predecessor stages
+                # Loop over all stages for static loop bounds (better unrolling)
+                # Zero coefficients from strict lower triangular structure
+                for predecessor_idx in range(stages_except_first):
+                    a_col = a_coeffs[predecessor_idx]
+                    a_coeff = a_col[stage_idx]
+                    # Only accumulate valid predecessors (coefficient will be
+                    # zero for predecessor_idx >= stage_idx due to strict
+                    # lower triangular structure)
+                    if predecessor_idx < stage_idx:
+                        base_idx = predecessor_idx * n
+                        for idx in range(n):
+                            prior_val = stage_store[base_idx + idx]
+                            stage_slice[idx] += a_coeff * prior_val
 
                 # Get t + c_i * dt parts
                 if has_driver_function:
@@ -590,8 +833,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 # Capture precalculated outputs here, before overwrite
-                # i.e. sum[i<j](a_ij * y_nj)
-                # if not accumulates output, b_row never == stage_idx.
                 if b_row == stage_idx:
                     for idx in range(n):
                         proposed_state[idx] = stage_slice[idx]
@@ -600,7 +841,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         error[idx] = stage_slice[idx]
 
                 # Overwrite the final accumulator slice with time-derivative
-                if stage_idx == stage_count - 1:
+                if stage_idx == stage_count - int32(1):
                     if has_driver_function:
                         driver_del_t(
                             current_time,
@@ -617,29 +858,31 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         current_time,
                     )
                     for idx in range(n):
-                        time_derivative[idx] *= dt_value
+                        time_derivative[idx] *= dt_scalar
 
-                # Add C_ij*Y_j/dt + dt * gamma_i * d/dt terms to rhs
+                # Add C_ij*K_j/dt + dt * gamma_i * d/dt terms to rhs
                 for idx in range(n):
                     correction = numba_precision(0.0)
-                    # stage_store access pattern n-strided - OK in shared mem
-                    for predecessor_offset in range(stage_idx):
-                        c_coeff = C_coeffs[stage_idx][predecessor_offset]
-                        prior_idx = predecessor_offset * n + idx
-                        prior_val = stage_store[prior_idx]
-                        correction += c_coeff * prior_val
+                    # Loop over all stages for static loop bounds
+                    for predecessor_idx in range(stages_except_first):
+                        c_col = C_coeffs[predecessor_idx]
+                        c_coeff = c_col[stage_idx]
+                        # Only accumulate valid predecessors
+                        if predecessor_idx < stage_idx:
+                            prior_idx = predecessor_idx * n + idx
+                            prior_val = stage_store[prior_idx]
+                            correction += c_coeff * prior_val
 
                     f_stage_val = stage_rhs[idx]
                     deriv_val = stage_gamma * time_derivative[idx]
                     rhs_value = f_stage_val + correction * inv_dt + deriv_val
-                    stage_rhs[idx] = rhs_value * dt_value * gamma
-
+                    stage_rhs[idx] = rhs_value * dt_scalar * gamma
 
                 # Alias slice of stage storage for convenience/readability
                 stage_increment = stage_slice
 
                 # Use previous stage's solution as a guess for this stage
-                previous_base = n * (stage_idx - 1)
+                previous_base = prev_idx * n
                 for idx in range(n):
                     stage_increment[idx] = stage_store[previous_base + idx]
 
@@ -650,10 +893,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     base_state_placeholder,
                     cached_auxiliaries,
                     stage_time,
-                    dt_value,
+                    dt_scalar,
                     numba_precision(1.0),
                     stage_rhs,
                     stage_increment,
+                    shared,
                 )
 
                 if accumulates_output:

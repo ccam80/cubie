@@ -1,5 +1,4 @@
 """Gustafsson predictive step controller."""
-
 from typing import Callable, Optional, Union
 
 import numpy as np
@@ -10,8 +9,12 @@ from attrs import define, field
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
-from cubie._utils import PrecisionDType, getype_validator, inrangetype_validator
-from cubie.cuda_simsafe import selp
+from cubie._utils import (
+    PrecisionDType,
+    getype_validator,
+    inrangetype_validator,
+)
+from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -189,19 +192,34 @@ class GustafssonController(BaseAdaptiveStepController):
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
         gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma
-        unity_gain = precision(1.0)
+        typed_one = precision(1.0)
+        typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
-        deadband_disabled = (
-            (deadband_min == unity_gain)
-            and (deadband_max == unity_gain)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
+        deadband_disabled = (deadband_min == typed_one) and (
+                deadband_max == typed_one
         )
-
+        numba_precision = self.compile_settings.numba_precision
+        n = int32(n)
+        inv_n = precision(1.0 / n)
+        # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
+            [
+                (
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    numba_precision[::1],
+                    int32,
+                    int32[::1],
+                    numba_precision[::1],
+                )
+            ],
             device=True,
             inline=True,
-            fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_gustafsson(
             dt, state, state_prev, error, niters, accept_out, local_temp
@@ -235,26 +253,26 @@ class GustafssonController(BaseAdaptiveStepController):
             dt_prev = max(local_temp[0], precision(1e-16))
             err_prev = max(local_temp[1], precision(1e-16))
 
-            nrm2 = precision(0.0)
+            nrm2 = typed_zero
             for i in range(n):
                 error_i = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                ratio = tol / error_i
+                ratio = error_i / tol
                 nrm2 += ratio * ratio
 
-            nrm2 = precision(nrm2/n)
-            accept = nrm2 >= precision(1.0)
+            nrm2 = nrm2 * inv_n
+            accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
             denom = precision(niters + 2 * max_newton_iters)
             tmp = gain_numerator / denom
             fac = gamma if gamma < tmp else tmp
-            gain_basic = precision(safety * fac * (nrm2 ** expo))
+            gain_basic = precision(safety * fac * (nrm2 ** (-expo)))
 
-            ratio = (nrm2*nrm2) / err_prev
-            gain_gus = precision(safety * (dt[0] /dt_prev) * (ratio ** expo) *
+            ratio = err_prev / (nrm2 * nrm2)
+            gain_gus = precision(safety * (dt[0] /dt_prev) * (ratio ** -expo) *
                                  gamma)
             gain = gain_gus if gain_gus < gain_basic else gain_basic
             gain = gain if (accept and dt_prev > precision(1e-16)) else (
@@ -266,7 +284,7 @@ class GustafssonController(BaseAdaptiveStepController):
                     (gain >= deadband_min)
                     and (gain <= deadband_max)
                 )
-                gain = selp(within_deadband, unity_gain, gain)
+                gain = selp(within_deadband, typed_one, gain)
             dt_new_raw = current_dt * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 

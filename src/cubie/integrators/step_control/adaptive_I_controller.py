@@ -1,5 +1,4 @@
 """Adaptive integral step controller."""
-
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
@@ -7,9 +6,10 @@ from numpy._typing import ArrayLike
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
-    BaseAdaptiveStepController, AdaptiveStepControlConfig
+    BaseAdaptiveStepController,
+    AdaptiveStepControlConfig,
 )
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import compile_kwargs, selp
 
 import numpy as np
 
@@ -130,20 +130,35 @@ class AdaptiveIController(BaseAdaptiveStepController):
             CUDA device function implementing the integral controller.
         """
         order_exponent = precision(1.0 / (2 * (1 + algorithm_order)))
-        unity_gain = precision(1.0)
+        typed_one = precision(1.0)
+        typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
+        safety = precision(safety)
+        min_gain = precision(min_gain)
+        max_gain = precision(max_gain)
         deadband_disabled = (
-            (deadband_min == unity_gain)
-            and (deadband_max == unity_gain)
+            (deadband_min == typed_one)
+            and (deadband_max == typed_one)
         )
+        n = int32(n)
+        inv_n = precision(1.0 / n)
 
+        precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
+                [(
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    int32,
+                    int32[::1],
+                    precision[::1],
+                )],
             device=True,
             inline=True,
-            fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_I(
             dt,
@@ -178,26 +193,27 @@ class AdaptiveIController(BaseAdaptiveStepController):
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
-            nrm2 = precision(0.0)
+            nrm2 = typed_zero
             for i in range(n):
-                error_i = max(abs(error[i]), precision(1e-12))
-                tol = atol[i] + rtol[i] * max(
-                    abs(state[i]), abs(state_prev[i])
+                error_i = max(abs(error[i]), precision(1e-16))
+                tol = (
+                    atol[i] + rtol[i] * max(abs(state[i]), abs(state_prev[i]))
                 )
-                nrm2 += (tol * tol) / (error_i * error_i)
+                ratio = error_i / tol
+                nrm2 += ratio * ratio
 
-            nrm2 = precision(nrm2/n)
-            accept = nrm2 >= precision(1.0)
+            nrm2 = nrm2 * inv_n
+            accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
-            gaintmp = safety * (nrm2 ** order_exponent)
+            gaintmp = precision(safety * nrm2 ** (-order_exponent))
             gain = clamp(gaintmp, min_gain, max_gain)
             if not deadband_disabled:
                 within_deadband = (
                     (gain >= deadband_min)
                     and (gain <= deadband_max)
                 )
-                gain = selp(within_deadband, unity_gain, gain)
+                gain = selp(within_deadband, typed_one, gain)
 
             # Update step from the current dt
             dt_new_raw = dt[0] * gain

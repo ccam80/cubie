@@ -20,9 +20,9 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
-from cubie.integrators.loops.ode_loop import IVPLoop
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
+from cubie.integrators.loops.ode_loop import (
+    IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
+)
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
@@ -329,27 +329,37 @@ class SingleIntegratorRunCore(CUDAFactory):
         IVPLoop
             Configured loop instance ready for CUDA compilation.
         """
-        shared_indices = LoopSharedIndices.from_sizes(
+        n_counters = 4 if compile_flags.save_counters else 0
+        
+        # Extract buffer location kwargs from loop_settings to pass to
+        # LoopBufferSettings. Only pass locations explicitly provided by user.
+        buffer_location_kwargs = {
+            key: loop_settings[key]
+            for key in ALL_BUFFER_LOCATION_PARAMETERS
+            if key in loop_settings
+        }
+        buffer_settings = LoopBufferSettings(
             n_states=n_states,
-            n_observables=n_observables,
             n_parameters=n_parameters,
             n_drivers=n_drivers,
-            state_summaries_buffer_height=state_summaries_buffer_height,
-            observable_summaries_buffer_height=observable_summaries_buffer_height,
+            n_observables=n_observables,
+            state_summary_buffer_height=state_summaries_buffer_height,
+            observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
-            save_counters=compile_flags.save_counters,
-        )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=controller_local_elements,
-            algorithm_len=algorithm_local_elements,
+            n_counters=n_counters,
+            **buffer_location_kwargs,
         )
 
         loop_kwargs = dict(loop_settings)
+        # Remove buffer location kwargs - they're now in buffer_settings
+        for key in ALL_BUFFER_LOCATION_PARAMETERS:
+            loop_kwargs.pop(key, None)
         loop_kwargs.update(
             precision=precision,
-            shared_indices=shared_indices,
-            local_indices=local_indices,
+            buffer_settings=buffer_settings,
             compile_flags=compile_flags,
+            controller_local_len=controller_local_elements,
+            algorithm_local_len=algorithm_local_elements,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -440,24 +450,27 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         #Recalculate settings derived from changes in children
         system_sizes=self.system_sizes
-        shared_indices = LoopSharedIndices.from_sizes(
+        
+        # Build buffer settings, preserving existing locations unless updated.
+        n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
+        buffer_settings = LoopBufferSettings(
             n_states=system_sizes.states,
-            n_observables=system_sizes.parameters,
-            n_parameters=system_sizes.observables,
+            n_parameters=system_sizes.parameters,
             n_drivers=system_sizes.drivers,
-            state_summaries_buffer_height=self._output_functions
-            .state_summaries_buffer_height,
-            observable_summaries_buffer_height=self._output_functions
-            .observable_summaries_buffer_height,
+            n_observables=system_sizes.observables,
+            state_summary_buffer_height=self._output_functions
+                .state_summaries_buffer_height,
+            observable_summary_buffer_height=self._output_functions
+                .observable_summaries_buffer_height,
             n_error=self.n_error,
-            save_counters=self._output_functions.compile_flags.save_counters,
+            n_counters=n_counters,
         )
-        local_indices = LoopLocalIndices.from_sizes(
-            controller_len=self._step_controller.local_memory_elements,
-            algorithm_len=self._algo_step.persistent_local_required,
-        )
-        updates_dict.update({'shared_buffer_indices': shared_indices,
-                             'local_indices': local_indices})
+
+        updates_dict.update({
+            'buffer_settings': buffer_settings,
+            'controller_local_len': self._step_controller.local_memory_elements,
+            'algorithm_local_len': self._algo_step.persistent_local_required,
+        })
 
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)

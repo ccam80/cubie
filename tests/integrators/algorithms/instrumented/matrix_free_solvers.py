@@ -32,6 +32,8 @@ def inst_linear_solver_factory(
     precision_scalar = from_dtype(precision_dtype)
     typed_zero = precision_scalar(0.0)
     tol_squared = tolerance * tolerance
+    n_val = int32(n)
+    max_iters_val = int32(max_iters)
 
     # no cover: start
     @cuda.jit(device=True)
@@ -57,7 +59,7 @@ def inst_linear_solver_factory(
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -65,12 +67,12 @@ def inst_linear_solver_factory(
         converged = acc <= tol_squared
 
         log_slot = int32(slot_index)
-        for i in range(n):
+        for i in range(n_val):
             linear_initial_guesses[log_slot, i] = x[i]
 
         status = int32(4)
         iteration = int32(0)
-        while iteration < max_iters:
+        while iteration < max_iters_val:
             if preconditioned:
                 preconditioner(
                     state,
@@ -85,7 +87,7 @@ def inst_linear_solver_factory(
                     temp,
                 )
             else:
-                for i in range(n):
+                for i in range(n_val):
                     preconditioned_vec[i] = rhs[i]
 
             operator_apply(
@@ -102,12 +104,12 @@ def inst_linear_solver_factory(
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -120,14 +122,14 @@ def inst_linear_solver_factory(
             alpha_effective = selp(converged, 0.0, alpha)
 
             acc = typed_zero
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            for i in range(n):
+            for i in range(n_val):
                 linear_iteration_guesses[log_slot, iteration, i] = x[i]
                 linear_residuals[log_slot, iteration, i] = rhs[i]
                 linear_preconditioned_vectors[log_slot, iteration, i] = (
@@ -172,6 +174,8 @@ def inst_linear_solver_cached_factory(
     precision_scalar = from_dtype(precision_dtype)
     typed_zero = precision_scalar(0.0)
     tol_squared = tolerance * tolerance
+    n_val = int32(n)
+    max_iters_val = int32(max_iters)
 
     # no cover: start
     @cuda.jit(device=True)
@@ -209,7 +213,7 @@ def inst_linear_solver_cached_factory(
             temp
         )
         acc = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -218,11 +222,11 @@ def inst_linear_solver_cached_factory(
 
         status = int32(4)
         log_slot = int32(slot_index)
-        for i in range(n):
+        for i in range(n_val):
             linear_initial_guesses[log_slot, i] = x[i]
 
         iteration = int32(0)
-        while iteration < max_iters:
+        while iteration < max_iters_val:
             if preconditioned:
                 preconditioner(
                     state,
@@ -238,7 +242,7 @@ def inst_linear_solver_cached_factory(
                     temp,
                 )
             else:
-                for i in range(n):
+                for i in range(n_val):
                     preconditioned_vec[i] = rhs[i]
 
             operator_apply(
@@ -256,12 +260,12 @@ def inst_linear_solver_cached_factory(
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -274,14 +278,14 @@ def inst_linear_solver_cached_factory(
             alpha_effective = selp(converged, 0.0, alpha)
 
             acc = typed_zero
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            for i in range(n):
+            for i in range(n_val):
                 linear_iteration_guesses[log_slot, iteration, i] = x[i]
                 linear_residuals[log_slot, iteration, i] = rhs[i]
                 linear_preconditioned_vectors[log_slot, iteration, i] = (
@@ -325,30 +329,33 @@ def inst_newton_krylov_solver_factory(
     typed_one = numba_precision(1.0)
     typed_damping = numba_precision(damping)
     status_active = int32(-1)
+    n = int32(n)
+    max_iters = int32(max_iters)
+    max_backtracks = int32(max_backtracks)
 
     # no cover: start
     @cuda.jit(
-            [(numba_precision[:],
-             numba_precision[:],
-             numba_precision[:],
+            [(numba_precision[::1],
+             numba_precision[::1],
+             numba_precision[::1],
              numba_precision,
              numba_precision,
              numba_precision,
-             numba_precision[:],
-             numba_precision[:],
-             int32[:],
+             numba_precision[::1],
+             numba_precision[::1],
+             int32[::1],
              int32,
-             numba_precision[:,:],
-             numba_precision[:,:],
-             numba_precision[:,:],
-             numba_precision[:],
-             numba_precision[:],
-             numba_precision[:],
-             numba_precision[:,:],
-             numba_precision[:,:],
-             numba_precision[:,:],
-             numba_precision[:],
-             numba_precision[:,:],
+             numba_precision[:, ::1],
+             numba_precision[:, ::1],
+             numba_precision[:, ::1],
+             numba_precision[::1],
+             numba_precision[::1],
+             numba_precision[::1],
+             numba_precision[:, ::1],
+             numba_precision[:, :, ::1],
+             numba_precision[:, :, ::1],
+             numba_precision[:, ::1],
+             numba_precision[:, :, ::1],
              )],
             device=True,
             inline=True)
@@ -525,7 +532,7 @@ def inst_newton_krylov_solver_factory(
         counters[0] = iters_count + int32(1)
         counters[1] = total_krylov_iters
 
-        status |= (iters_count + 1) << 16
+        status |= (iters_count + int32(1)) << 16
         return status
 
     # no cover: end

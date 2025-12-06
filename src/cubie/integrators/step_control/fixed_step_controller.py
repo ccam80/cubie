@@ -3,6 +3,7 @@
 
 from attrs import define, field
 from numba import cuda, int32
+from cubie.cuda_simsafe import compile_kwargs
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.step_control.base_step_controller import (
@@ -99,15 +100,23 @@ class FixedStepController(BaseStepController):
         Callable
             CUDA device function that keeps the step size constant.
         """
-
+        precision = self.compile_settings.numba_precision
         @cuda.jit(
+                [(
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    precision[::1],
+                    int32,
+                    int32[::1],
+                    precision[::1],
+                )],
             device=True,
             inline=True,
-            fastmath=True,
-            lineinfo=True,
+            **compile_kwargs,
         )
         def controller_fixed_step(
-            dt, state, state_prev, error, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out, local_temp
         ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 
@@ -121,6 +130,8 @@ class FixedStepController(BaseStepController):
                 Previous state vector.
             error : device array
                 Estimated local error vector.
+            niters : int32
+                Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             local_temp : device array

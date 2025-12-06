@@ -85,8 +85,9 @@ def run_reference_loop(
 
     initial_state = inputs["initial_values"].astype(precision, copy=True)
     params = inputs["parameters"].astype(precision, copy=True)
-    duration = precision(solver_settings["duration"])
-    warmup = precision(solver_settings["warmup"])
+    duration = np.float64(solver_settings["duration"])
+    warmup = np.float64(solver_settings["warmup"])
+    t0 = np.float64(solver_settings["t0"])
     dt_save = precision(solver_settings["dt_save"])
     dt_summarise = precision(solver_settings["dt_summarise"])
 
@@ -119,59 +120,50 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = int(np.ceil(duration / dt_save))
+    max_save_samples = (int(np.floor(precision(duration) / precision(dt_save)))
+                        + 1)
 
     state = initial_state.copy()
     state_history = []
     observable_history = []
     time_history = []
-    t = precision(0.0)
-    drivers_initial = driver_evaluator(precision(t))
+    t = t0
+    t32 = precision(t)
+    drivers_initial = driver_evaluator(t32)
     observables = evaluator.observables(
         state,
         params,
         drivers_initial,
-        t,
+        t32,
     )
 
-    if warmup > precision(0.0):
-        next_save_time = warmup
+    if warmup > np.float64(0.0):
+        next_save_time = precision(warmup + t0)
+        save_idx = 0
     else:
-        next_save_time = dt_save
+        next_save_time = precision(warmup + t0 + (dt_save))
         state_history = [state.copy()]
         observable_history.append(observables.copy())
-        time_history = [t]
+        time_history = [precision(t)]
+        save_idx = 1
 
-    end_time = precision(warmup + duration)
-    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
-    fixed_step_count = 0
-    equality_breaker = (
-        precision(1e-7)
-        if precision is np.float32
-        else precision(1e-14)
-    )
+    end_time = precision(warmup + t0 + duration)
+
     status_flags = 0
-    save_idx = 0
 
-    while save_idx < max_save_samples:
+
+    while next_save_time <= end_time:
         dt = controller.dt
         do_save = False
-        if controller.is_adaptive:
-            if t + dt + equality_breaker >= next_save_time:
-                dt = precision(next_save_time - t)
-                do_save = True
-        else:
-            if (fixed_step_count + 1) % fixed_steps_per_save == 0:
-                do_save = True
-                fixed_step_count = 0
-            else:
-                fixed_step_count += 1
+        if t32 + dt >= next_save_time:
+            dt = precision(next_save_time - t32)
+            do_save = True
 
         result = stepper.step(
             state=state,
             params=params,
             dt=dt,
-            time=precision(t),
+            time=t32,
         )
 
         step_status = int(result.status)
@@ -187,14 +179,15 @@ def run_reference_loop(
 
         state = result.state.copy()
         observables = result.observables.copy()
-        t += precision(dt)
+        t = t + dt
+        t32 = precision(t)
 
         if do_save:
             if len(state_history) < max_save_samples:
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
-                time_history.append(precision(t - warmup))
-            next_save_time += dt_save
+                time_history.append(precision(t32 - warmup))
+            next_save_time = next_save_time + dt_save
             save_idx += 1
 
     state_output = _collect_saved_outputs(
@@ -211,6 +204,8 @@ def run_reference_loop(
         precision,
     )
     if save_time:
+        if len(time_history) < state_output.shape[0]:
+            time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
     summarise_every = int(np.ceil(dt_summarise / dt_save))

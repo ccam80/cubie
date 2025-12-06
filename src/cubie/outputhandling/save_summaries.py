@@ -19,17 +19,17 @@ The process consists of:
 
 from typing import Callable, Sequence, Union
 
-from numba import cuda
+from numba import cuda, int32
 from numpy.typing import ArrayLike
 
+from cubie.cuda_simsafe import compile_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
-from .output_sizes import SummariesBufferSizes
 
 
 @cuda.jit(
     device=True,
     inline=True,
-    lineinfo=True,
+    **compile_kwargs,
 )
 def do_nothing(
     buffer,
@@ -124,7 +124,7 @@ def chain_metrics(
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def wrapper(
         buffer,
@@ -181,7 +181,7 @@ def chain_metrics(
 
 
 def save_summary_factory(
-    buffer_sizes: SummariesBufferSizes,
+    summaries_buffer_height_per_var: int,
     summarised_state_indices: Union[Sequence[int], ArrayLike],
     summarised_observable_indices: Union[Sequence[int], ArrayLike],
     summaries_list: Sequence[str],
@@ -195,9 +195,8 @@ def save_summary_factory(
 
     Parameters
     ----------
-    buffer_sizes
-        ``SummariesBufferSizes`` instance that reports per-variable buffer
-        lengths.
+    summaries_buffer_height_per_var
+        Number of buffer slots required per tracked variable.
     summarised_state_indices
         Sequence of state indices to include in summary calculations.
     summarised_observable_indices
@@ -217,13 +216,15 @@ def save_summary_factory(
     variables, applying the chained summary metrics to each variable's buffer
     and saving results to the appropriate output arrays.
     """
-    num_summarised_states = len(summarised_state_indices)
-    num_summarised_observables = len(summarised_observable_indices)
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
 
     save_functions = summary_metrics.save_functions(summaries_list)
 
-    total_buffer_size = buffer_sizes.per_variable
-    total_output_size = summary_metrics.summaries_output_height(summaries_list)
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
+    total_output_size = int32(summary_metrics.summaries_output_height(
+        summaries_list))
 
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
     buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
@@ -252,7 +253,7 @@ def save_summary_factory(
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def save_summary_metrics_func(
         buffer_state_summaries,

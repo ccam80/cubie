@@ -95,9 +95,8 @@ def _ensure_cuda_context() -> None:
                 raise RuntimeError(
                     "CUDA context is None - GPU may not be accessible"
                 )
-            # Verify context is functional by checking memory info
-            # This will fail if GPU is not responsive
-            _ = ctx.get_memory_info()
+            # Skip memory info check for performance; context existence
+            # is sufficient validation for most operations
         except Exception as e:
             # Provide helpful error message instead of segfault
             raise RuntimeError(
@@ -298,7 +297,8 @@ class MemoryManager:
         default=Factory(list), validator=val.instance_of(list)
     )
     _stride_order: tuple[str, str, str] = attrs.field(
-        default=("time", "run", "variable"), validator=val.instance_of(tuple)
+        default=("time", "variable", "run"), validator=val.instance_of(
+                    tuple)
     )
     _queued_allocations: Dict[str, Dict] = attrs.field(
         default=Factory(dict), validator=val.instance_of(dict)
@@ -908,6 +908,91 @@ class MemoryManager:
                 strides = tuple(strides[dim] for dim in array_native_order)
 
         return strides
+
+    def create_host_array(
+        self,
+        shape: tuple[int, ...],
+        dtype: type,
+        stride_order: Optional[tuple[str, ...]] = None,
+        memory_type: str = "pinned",
+    ) -> np.ndarray:
+        """
+        Create a host array with strides matching the memory manager's order.
+
+        Parameters
+        ----------
+        shape
+            Shape of the array to create.
+        dtype
+            Data type for the array elements.
+        stride_order
+            Logical dimension labels in the array's native order. For 3D
+            arrays this should be a tuple like ``('time', 'run', 'variable')``.
+            When omitted, a C-contiguous array is returned.
+        memory_type
+            Memory type for the host array. Must be ``"pinned"`` or
+            ``"host"``. Defaults to ``"pinned"``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Host array with strides compatible with device allocations.
+
+        Notes
+        -----
+        For 3D arrays, this method creates an array with strides that match
+        the memory manager's ``_stride_order``. The array is created by
+        allocating with the desired stride order, then transposing back to
+        the native order. This ensures that ``copy_to_host`` operations
+        succeed when copying from device arrays allocated with custom strides.
+
+        When ``memory_type="pinned"``, the array uses pinned (page-locked)
+        memory which enables truly asynchronous device-to-host transfers
+        with CUDA streams. Using ``memory_type="host"`` creates a regular
+        pageable array which will block async transfers due to required
+        intermediate buffering by the CUDA runtime.
+        """
+        _ensure_cuda_context()
+        if memory_type not in ("pinned", "host"):
+            raise ValueError(
+                f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
+            )
+        use_pinned = memory_type == "pinned"
+
+        if len(shape) != 3 or stride_order is None:
+            if use_pinned:
+                arr = cuda.pinned_array(shape, dtype=dtype)
+                arr.fill(0)
+            else:
+                arr = np.zeros(shape, dtype=dtype)
+            return arr
+
+        desired_order = self._stride_order
+        if stride_order == desired_order:
+            if use_pinned:
+                arr = cuda.pinned_array(shape, dtype=dtype)
+                arr.fill(0)
+            else:
+                arr = np.zeros(shape, dtype=dtype)
+            return arr
+
+        # Build shape in desired stride order
+        shape_map = {
+            name: size for name, size in zip(stride_order, shape)
+        }
+        ordered_shape = tuple(shape_map[dim] for dim in desired_order)
+
+        # Create array in desired stride order (contiguous in that order)
+        if use_pinned:
+            arr = cuda.pinned_array(ordered_shape, dtype=dtype)
+            arr.fill(0)
+        else:
+            arr = np.zeros(ordered_shape, dtype=dtype)
+
+        # Compute transpose axes to return to native order
+        # We need axes that map desired_order -> stride_order
+        axes = tuple(desired_order.index(dim) for dim in stride_order)
+        return arr.transpose(axes)
 
     def get_available_single(self, instance_id: int) -> int:
         """

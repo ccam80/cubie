@@ -7,8 +7,10 @@ during integration.
 
 from typing import Callable, Sequence, Union
 
-from numba import cuda
+from numba import cuda, int32
 from numpy.typing import ArrayLike
+
+from cubie.cuda_simsafe import compile_kwargs
 
 
 def save_state_factory(
@@ -56,13 +58,13 @@ def save_state_factory(
     ``output_observables_slice``, and ``output_counters_slice`` in place.
     """
     # Extract sizes from heights object
-    nobs = len(saved_observable_indices)
-    nstates = len(saved_state_indices)
+    nobs = int32(len(saved_observable_indices))
+    nstates = int32(len(saved_state_indices))
 
     @cuda.jit(
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def save_state_func(
         current_state,
@@ -122,7 +124,7 @@ def save_state_factory(
             output_states_slice[nstates] = current_step
         
         if save_counters:
-            for i in range(4):
+            for i in range(int32(4)):
                 output_counters_slice[i] = current_counters[i]
         # no cover: stop
 

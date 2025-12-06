@@ -35,7 +35,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dt: Optional[float],
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
@@ -57,9 +56,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dt
-            Optional fixed step size for fixed-step algorithms. When ``None``
-            the controller default is used.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -124,7 +120,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        dt: Optional[float],
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the Crank–Nicolson step.
@@ -143,8 +138,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        dt
-            Fixed step size supplied for fixed-step execution.
+        n_drivers
+            Number of driver signals provided to the system.
 
         Returns
         -------
@@ -156,27 +151,28 @@ class CrankNicolsonStep(ODEImplicitStep):
         be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
+        n = int32(n)
 
         solver_shared_elements = self.solver_shared_elements
 
         @cuda.jit(
             (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :, :],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[:, :, ::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
+                numba_precision[::1],
                 numba_precision,
                 numba_precision,
                 int16,
                 int16,
-                numba_precision[:],
-                numba_precision[:],
-                int32[:],
+                numba_precision[::1],
+                numba_precision[::1],
+                int32[::1],
             ),
             device=True,
             inline=True,

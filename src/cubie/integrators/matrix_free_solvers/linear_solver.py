@@ -4,15 +4,151 @@ This module builds CUDA device functions that implement steepest-descent or
 minimal-residual iterations without forming Jacobian matrices explicitly.
 The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
+
+Buffer settings classes for memory allocation configuration are also defined
+here, providing selective allocation between shared and local memory.
 """
 
 from typing import Callable, Optional
 
+import attrs
+from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie._utils import getype_validator, PrecisionDType
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+
+
+@attrs.define
+class LinearSolverLocalSizes(LocalSizes):
+    """Local array sizes for linear solver buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    preconditioned_vec : int
+        Preconditioned vector buffer size.
+    temp : int
+        Temporary vector buffer size.
+    """
+
+    preconditioned_vec: int = attrs.field(validator=getype_validator(int, 0))
+    temp: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class LinearSolverSliceIndices(SliceIndices):
+    """Slice container for linear solver shared memory buffer layouts.
+
+    Attributes
+    ----------
+    preconditioned_vec : slice
+        Slice covering the preconditioned vector buffer (empty if local).
+    temp : slice
+        Slice covering the temporary vector buffer.
+    local_end : int
+        Offset of the end of solver-managed shared memory.
+    """
+
+    preconditioned_vec: slice = attrs.field()
+    temp: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class LinearSolverBufferSettings(BufferSettings):
+    """Configuration for linear solver buffer sizes and memory locations.
+
+    Controls whether preconditioned_vec and temp buffers use shared or
+    local memory during Krylov iteration.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables (length of vectors).
+    preconditioned_vec_location : str
+        Memory location for preconditioned vector: 'local' or 'shared'.
+    temp_location : str
+        Memory location for temporary vector: 'local' or 'shared'.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    preconditioned_vec_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    temp_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+
+    @property
+    def use_shared_preconditioned_vec(self) -> bool:
+        """Return True if preconditioned_vec uses shared memory."""
+        return self.preconditioned_vec_location == 'shared'
+
+    @property
+    def use_shared_temp(self) -> bool:
+        """Return True if temp buffer uses shared memory."""
+        return self.temp_location == 'shared'
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required."""
+        total = 0
+        if self.use_shared_preconditioned_vec:
+            total += self.n
+        if self.use_shared_temp:
+            total += self.n
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required."""
+        total = 0
+        if not self.use_shared_preconditioned_vec:
+            total += self.n
+        if not self.use_shared_temp:
+            total += self.n
+        return total
+
+    @property
+    def local_sizes(self) -> LinearSolverLocalSizes:
+        """Return LinearSolverLocalSizes instance with buffer sizes.
+
+        The returned object provides nonzero sizes suitable for
+        cuda.local.array allocation.
+        """
+        return LinearSolverLocalSizes(
+            preconditioned_vec=self.n,
+            temp=self.n,
+        )
+
+    @property
+    def shared_indices(self) -> LinearSolverSliceIndices:
+        """Return LinearSolverSliceIndices instance with shared memory layout.
+
+        The returned object contains slices for each buffer's region
+        in shared memory. Local buffers receive empty slices.
+        """
+        ptr = 0
+
+        if self.use_shared_preconditioned_vec:
+            preconditioned_vec_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            preconditioned_vec_slice = slice(0, 0)
+
+        if self.use_shared_temp:
+            temp_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            temp_slice = slice(0, 0)
+
+        return LinearSolverSliceIndices(
+            preconditioned_vec=preconditioned_vec_slice,
+            temp=temp_slice,
+            local_end=ptr,
+        )
 
 
 def linear_solver_factory(
@@ -23,6 +159,7 @@ def linear_solver_factory(
     tolerance: float = 1e-6,
     max_iters: int = 100,
     precision: PrecisionDType = np.float64,
+    buffer_settings: Optional[LinearSolverBufferSettings] = None,
 ) -> Callable:
     """Create a CUDA device function implementing steepest-descent or MR.
 
@@ -45,12 +182,18 @@ def linear_solver_factory(
         Maximum number of iterations permitted.
     precision
         Floating-point precision used when building the device function.
+    buffer_settings
+        Optional buffer settings controlling memory allocation. When provided,
+        the solver uses selective allocation between shared and local memory.
+        When None (default), all buffers use local memory.
 
     Returns
     -------
     Callable
         CUDA device function returning ``0`` on convergence and ``4`` when the
-        iteration limit is reached.
+        iteration limit is reached. When buffer_settings specifies shared
+        memory, the function signature includes a shared memory array
+        parameter.
 
     Notes
     -----
@@ -68,28 +211,48 @@ def linear_solver_factory(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
     preconditioned = 1 if preconditioner is not None else 0
-
+    n_val = int32(n)
+    max_iters = int32(max_iters)
     precision = from_dtype(precision)
     typed_zero = precision(0.0)
-    tol_squared = tolerance * tolerance
+    tol_squared = precision(tolerance * tolerance)
+
+    # Extract buffer settings as compile-time constants
+    if buffer_settings is None:
+        buffer_settings = LinearSolverBufferSettings(n=n)
+
+    # Unpack boolean flags for selective allocation (compile-time constants)
+    precond_vec_shared = buffer_settings.use_shared_preconditioned_vec
+    temp_shared = buffer_settings.use_shared_temp
+
+    # Unpack slice indices for shared memory layout
+    slice_indices = buffer_settings.shared_indices
+    precond_vec_slice = slice_indices.preconditioned_vec
+    temp_slice = slice_indices.temp
+
+    # Unpack local sizes for local array allocation
+    local_sizes = buffer_settings.local_sizes
+    precond_vec_local_size = local_sizes.nonzero('preconditioned_vec')
+    temp_local_size = local_sizes.nonzero('temp')
 
     # no cover: start
     @cuda.jit(
         [
-            (precision[:],
-             precision[:],
-             precision[:],
-             precision[:],
+            (precision[::1],
+             precision[::1],
+             precision[::1],
+             precision[::1],
              precision,
              precision,
              precision,
-             precision[:],
-             precision[:],
+             precision[::1],
+             precision[::1],
+             precision[::1],
             )
         ],
         device=True,
         inline=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def linear_solver(
         state,
@@ -101,6 +264,7 @@ def linear_solver_factory(
         a_ij,
         rhs,
         x,
+        shared,
     ):
         """Run one preconditioned steepest-descent or minimal-residual solve.
 
@@ -126,6 +290,8 @@ def linear_solver_factory(
         x
             Iterand provided as the initial guess and overwritten with the
             final solution.
+        shared
+            Shared memory array for selective buffer allocation.
 
         Returns
         -------
@@ -142,12 +308,21 @@ def linear_solver_factory(
         ``drivers`` are treated as read-only context values.
         """
 
-        preconditioned_vec = cuda.local.array(n, precision)
-        temp = cuda.local.array(n, precision)
+        # Selective memory allocation based on buffer_settings
+        if precond_vec_shared:
+            preconditioned_vec = shared[precond_vec_slice]
+        else:
+            preconditioned_vec = cuda.local.array(precond_vec_local_size,
+                                                  precision)
+
+        if temp_shared:
+            temp = shared[temp_slice]
+        else:
+            temp = cuda.local.array(temp_local_size, precision)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -171,7 +346,7 @@ def linear_solver_factory(
                     temp,
                 )
             else:
-                for i in range(n):
+                for i in range(n_val):
                     preconditioned_vec[i] = rhs[i]
 
             operator_apply(
@@ -188,12 +363,12 @@ def linear_solver_factory(
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -206,7 +381,7 @@ def linear_solver_factory(
             alpha_effective = selp(converged, precision(0.0), alpha)
 
             acc = typed_zero
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
@@ -233,8 +408,38 @@ def linear_solver_cached_factory(
     tolerance: float = 1e-6,
     max_iters: int = 100,
     precision: PrecisionDType = np.float64,
+    buffer_settings: Optional[LinearSolverBufferSettings] = None,
 ) -> Callable:
-    """Create a CUDA linear solver that forwards cached auxiliaries."""
+    """Create a CUDA linear solver that forwards cached auxiliaries.
+
+    Parameters
+    ----------
+    operator_apply
+        Callback that overwrites its output vector with ``F @ v``.
+    n
+        Length of the one-dimensional residual and search-direction vectors.
+    preconditioner
+        Approximate inverse preconditioner. If ``None`` the identity
+        preconditioner is used.
+    correction_type
+        Line-search strategy. Must be ``"steepest_descent"`` or
+        ``"minimal_residual"``.
+    tolerance
+        Target on the squared residual norm that signals convergence.
+    max_iters
+        Maximum number of iterations permitted.
+    precision
+        Floating-point precision used when building the device function.
+    buffer_settings
+        Optional buffer settings controlling memory allocation. When provided,
+        the solver uses selective allocation between shared and local memory.
+        When None (default), all buffers use local memory.
+
+    Returns
+    -------
+    Callable
+        CUDA device function that runs the linear solver with cached aux.
+    """
 
     sd_flag = 1 if correction_type == "steepest_descent" else 0
     mr_flag = 1 if correction_type == "minimal_residual" else 0
@@ -243,16 +448,36 @@ def linear_solver_cached_factory(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
     preconditioned = 1 if preconditioner is not None else 0
+    n_val = int32(n)
+    max_iters = int32(max_iters)
 
     precision_dtype = np.dtype(precision)
     precision_scalar = from_dtype(precision_dtype)
     typed_zero = precision_scalar(0.0)
     tol_squared = tolerance * tolerance
 
+    # Extract buffer settings as compile-time constants
+    if buffer_settings is None:
+        buffer_settings = LinearSolverBufferSettings(n=n)
+
+    # Unpack boolean flags for selective allocation (compile-time constants)
+    precond_vec_shared = buffer_settings.use_shared_preconditioned_vec
+    temp_shared = buffer_settings.use_shared_temp
+
+    # Unpack slice indices for shared memory layout
+    slice_indices = buffer_settings.shared_indices
+    precond_vec_slice = slice_indices.preconditioned_vec
+    temp_slice = slice_indices.temp
+
+    # Unpack local sizes for local array allocation
+    local_sizes = buffer_settings.local_sizes
+    precond_vec_local_size = local_sizes.nonzero('preconditioned_vec')
+    temp_local_size = local_sizes.nonzero('temp')
+
     # no cover: start
     @cuda.jit(
         device=True,
-        lineinfo=True,
+        **compile_kwargs,
     )
     def linear_solver_cached(
         state,
@@ -265,19 +490,28 @@ def linear_solver_cached_factory(
         a_ij,
         rhs,
         x,
+        shared,
     ):
         """Run one cached preconditioned steepest-descent or MR solve."""
 
-        # Short life vectors declared locally for l
-        preconditioned_vec = cuda.local.array(n, precision_scalar)
-        temp = cuda.local.array(n, precision_scalar)
+        # Selective memory allocation based on buffer_settings
+        if precond_vec_shared:
+            preconditioned_vec = shared[precond_vec_slice]
+        else:
+            preconditioned_vec = cuda.local.array(precond_vec_local_size,
+                                                  precision_scalar)
+
+        if temp_shared:
+            temp = shared[temp_slice]
+        else:
+            temp = cuda.local.array(temp_local_size, precision_scalar)
 
         operator_apply(
             state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
                 x, temp
         )
         acc = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -302,7 +536,7 @@ def linear_solver_cached_factory(
                     temp,
                 )
             else:
-                for i in range(n):
+                for i in range(n_val):
                     preconditioned_vec[i] = rhs[i]
 
             operator_apply(
@@ -320,12 +554,12 @@ def linear_solver_cached_factory(
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -335,10 +569,10 @@ def linear_solver_cached_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, precision(0.0), alpha)
+            alpha_effective = selp(converged, precision_scalar(0.0), alpha)
 
             acc = typed_zero
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]

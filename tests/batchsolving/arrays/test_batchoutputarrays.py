@@ -25,7 +25,7 @@ def output_test_settings(output_test_overrides):
     settings = {
         "num_runs": 5,
         "dtype": np.float32,
-        "memory": "mapped",
+        "memory": "device",
         "stream_group": "default",
         "memory_proportion": None,
     }
@@ -68,17 +68,17 @@ def sample_output_arrays(solver, output_test_settings, precision):
     observables_count = solver.system_sizes.observables
 
     return {
-        "state": np.random.rand(time_points, num_runs, variables_count).astype(
+        "state": np.random.rand(time_points, variables_count, num_runs).astype(
             dtype
         ),
         "observables": np.random.rand(
-            time_points, num_runs, observables_count
+            time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, variables_count
+            max(0, time_points - 2), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), num_runs, observables_count
+            max(0, time_points - 2), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
@@ -110,7 +110,7 @@ class TestOutputArrayContainer:
         """Test that stride order is set correctly"""
         container = OutputArrayContainer()
         stride_order = container.state.stride_order
-        assert stride_order == ("time", "run", "variable")
+        assert stride_order == ("time", "variable", "run")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""
@@ -118,14 +118,14 @@ class TestOutputArrayContainer:
         assert container.state.memory_type == "device"
 
     def test_host_factory(self):
-        """Test host factory method"""
+        """Test host factory method creates pinned memory container"""
         container = OutputArrayContainer.host_factory()
-        assert container.state.memory_type == "host"
+        assert container.state.memory_type == "pinned"
 
     def test_device_factory(self):
         """Test device factory method"""
         container = OutputArrayContainer.device_factory()
-        assert container.state.memory_type == "mapped"
+        assert container.state.memory_type == "device"
 
 
 class TestActiveOutputs:
@@ -208,9 +208,9 @@ class TestOutputArrays:
 
         # Check memory types are set correctly in post_init
         for _, managed in output_arrays_manager.host.iter_managed_arrays():
-            assert managed.memory_type == "host"
+            assert managed.memory_type == "pinned"
         for _, managed in output_arrays_manager.device.iter_managed_arrays():
-            assert managed.memory_type == "mapped"
+            assert managed.memory_type == "device"
 
     def test_from_solver_factory(self, solver):
         """Test creating OutputArrays from solver"""
@@ -323,6 +323,24 @@ class TestOutputArrays:
 
         assert output_arrays_manager._precision == solver.precision
         assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
+
+    def test_update_from_solver_fast_path(self, output_arrays_manager, solver):
+        """Test that update_from_solver reuses arrays when shape/dtype match."""
+        # First call allocates arrays
+        output_arrays_manager.update(solver)
+
+        # Store references to existing arrays
+        original_state = output_arrays_manager.host.state.array
+        original_observables = output_arrays_manager.host.observables.array
+        original_status_codes = output_arrays_manager.host.status_codes.array
+
+        # Second call with same solver should reuse arrays
+        new_arrays = output_arrays_manager.update_from_solver(solver)
+
+        # Arrays should be the same objects (not reallocated)
+        assert new_arrays["state"] is original_state
+        assert new_arrays["observables"] is original_observables
+        assert new_arrays["status_codes"] is original_status_codes
 
     def test_initialise_method(self, output_arrays_manager, solver):
         """Test initialise method (no-op for outputs)"""
@@ -489,20 +507,21 @@ def test_output_arrays_with_different_systems(output_arrays_manager, solver):
     output_arrays_manager.update(solver)
 
     # Verify the arrays match the system's requirements
+    # With stride order (time, variable, run), variable is at index 1
     assert (
-        output_arrays_manager.state.shape[2]
+        output_arrays_manager.state.shape[1]
         == solver.output_array_heights.state
     )
     assert (
-        output_arrays_manager.observables.shape[2]
+        output_arrays_manager.observables.shape[1]
         == solver.output_array_heights.observables
     )
     assert (
-        output_arrays_manager.state_summaries.shape[2]
+        output_arrays_manager.state_summaries.shape[1]
         == solver.output_array_heights.state_summaries
     )
     assert (
-        output_arrays_manager.observable_summaries.shape[2]
+        output_arrays_manager.observable_summaries.shape[1]
         == solver.output_array_heights.observable_summaries
     )
 

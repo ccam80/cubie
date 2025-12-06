@@ -1,10 +1,12 @@
-"""Sizing helpers for output buffers and arrays.
+"""Sizing helpers for output arrays.
 
-The classes in this module compute buffer and array shapes needed for CUDA
-batch solving, covering temporary loop storage as well as host-visible output
-layouts. Each class inherits from :class:`ArraySizingClass`, which offers a
-utility for coercing zero-sized buffers to a minimum of one element for safe
-allocation.
+The classes in this module compute output array shapes needed for CUDA
+batch solving host-visible output layouts. Each class inherits from
+:class:`ArraySizingClass`, which offers a utility for coercing zero-sized
+buffers to a minimum of one element for safe allocation.
+
+Internal loop buffer sizing is handled by
+:class:`cubie.integrators.loops.ode_loop.LoopBufferSettings`.
 """
 
 from typing import TYPE_CHECKING, Optional, Tuple
@@ -12,13 +14,10 @@ from typing import TYPE_CHECKING, Optional, Tuple
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     from cubie.outputhandling.output_functions import OutputFunctions
-    from cubie.odesystems.baseODE import BaseODE
-    from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 from abc import ABC
 
 import attrs
-from numpy import ceil
 
 from cubie._utils import ensure_nonzero_size
 
@@ -56,171 +55,6 @@ class ArraySizingClass(ABC):
             if isinstance(value, (int, tuple)):
                 setattr(new_obj, field.name, ensure_nonzero_size(value))
         return new_obj
-
-
-@attrs.define
-class SummariesBufferSizes(ArraySizingClass):
-    """Buffer heights for summary metric staging buffers.
-
-    Attributes
-    ----------
-    state : int, default 1
-        Number of summary slots required for state variables.
-    observables : int, default 1
-        Number of summary slots required for observable variables.
-    per_variable : int, default 1
-        Number of slots to reserve for each tracked variable.
-
-    Notes
-    -----
-    The :meth:`from_output_fns` constructor is typically used to mirror the
-    configuration held by :class:`cubie.outputhandling.output_functions.OutputFunctions`.
-    """
-
-    state: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    observables: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    per_variable: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-
-    @classmethod
-    def from_output_fns(
-        cls, output_fns: "OutputFunctions"
-    ) -> "SummariesBufferSizes":
-        """Build a sizing instance from configured output functions.
-
-        Parameters
-        ----------
-        output_fns
-            Output function factory carrying summary buffer settings.
-
-        Returns
-        -------
-        SummariesBufferSizes
-            Buffer heights derived from the output configuration.
-        """
-        return cls(
-            output_fns.state_summaries_buffer_height,
-            output_fns.observable_summaries_buffer_height,
-            output_fns.summaries_buffer_height_per_var,
-        )
-
-
-@attrs.define
-class LoopBufferSizes(ArraySizingClass):
-    """Staging buffer sizes consumed inside the integrator loop.
-
-    Attributes
-    ----------
-    state_summaries : int, default 1
-        Height of the state summary scratch buffer.
-    observable_summaries : int, default 1
-        Height of the observable summary scratch buffer.
-    state : int, default 1
-        Number of state values staged per system evaluation.
-    observables : int, default 1
-        Number of observable values staged per system evaluation.
-    dxdt : int, default 1
-        Number of derivative entries staged per step.
-    parameters : int, default 1
-        Width of the parameter slice requested by the model.
-    drivers : int, default 1
-        Width of the external driver slice requested by the model.
-
-    Notes
-    -----
-    The sizing combines state and derivative counts from the ODE system with
-    summary staging requirements derived from :class:`SummariesBufferSizes`.
-    """
-
-    state_summaries: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    observable_summaries: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    state: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    observables: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    dxdt: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    parameters: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-    drivers: int = attrs.field(
-        default=1, validator=attrs.validators.instance_of(int)
-    )
-
-    @classmethod
-    def from_system_and_output_fns(
-        cls,
-        system: "BaseODE",
-        output_fns: "OutputFunctions",
-    ) -> "LoopBufferSizes":
-        """Combine system and output settings into loop buffer sizes.
-
-        Parameters
-        ----------
-        system
-            ODE instance exposing a ``sizes`` attribute with state, observable,
-            parameter, and driver counts.
-        output_fns
-            Output function factory describing required summary buffers.
-
-        Returns
-        -------
-        LoopBufferSizes
-            Aggregated staging dimensions for the integration loop.
-        """
-        summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
-        system_sizes = system.sizes
-        obj = cls(
-            summary_sizes.state,
-            summary_sizes.observables,
-            system_sizes.states,
-            system_sizes.observables,
-            system_sizes.states,
-            system_sizes.parameters,
-            system_sizes.drivers,
-        )
-        return obj
-
-    @classmethod
-    def from_solver(
-        cls, solver_instance: "BatchSolverKernel"
-    ) -> "LoopBufferSizes":
-        """Mirror the buffer sizing defined by a batch solver.
-
-        Parameters
-        ----------
-        solver_instance
-            Batch solver kernel exposing ``system_sizes`` and
-            ``summaries_buffer_sizes`` attributes.
-
-        Returns
-        -------
-        LoopBufferSizes
-            Staging buffer requirements copied from the solver instance.
-        """
-        system_sizes = solver_instance.system_sizes
-        summary_sizes = solver_instance.summaries_buffer_sizes
-        return cls(
-            summary_sizes.state,
-            summary_sizes.observables,
-            system_sizes.states,
-            system_sizes.observables,
-            system_sizes.states,
-            system_sizes.parameters,
-            system_sizes.drivers,
-        )
 
 
 @attrs.define
@@ -372,55 +206,6 @@ class SingleRunOutputSizes(ArraySizingClass):
 
         return obj
 
-    @classmethod
-    def from_output_fns_and_run_settings(
-        cls,
-        output_fns: "OutputFunctions",
-        run_settings: "IntegratorRunSettings",
-    ) -> "SingleRunOutputSizes":
-        """Derive shapes directly from configuration objects.
-
-        Parameters
-        ----------
-        output_fns
-            Output function factory describing saved variables.
-        run_settings
-            Integration run settings providing durations and save cadences.
-
-        Returns
-        -------
-        SingleRunOutputSizes
-            Array shapes for one simulation run.
-
-        Notes
-        -----
-        Primarily used by tests; production code prefers
-        :meth:`from_solver` to remain aligned with solver metadata.
-        """
-        heights = OutputArrayHeights.from_output_fns(output_fns)
-        output_samples = int(
-            ceil(run_settings.duration / run_settings.dt_save)
-        )
-        summarise_samples = int(
-            ceil(run_settings.duration / run_settings.dt_summarise)
-        )
-
-        state = (output_samples, heights.state)
-        observables = (output_samples, heights.observables)
-        state_summaries = (summarise_samples, heights.state_summaries)
-        observable_summaries = (
-            summarise_samples,
-            heights.observable_summaries,
-        )
-        obj = cls(
-            state,
-            observables,
-            state_summaries,
-            observable_summaries,
-        )
-
-        return obj
-
 
 @attrs.define
 class BatchInputSizes(ArraySizingClass):
@@ -432,14 +217,14 @@ class BatchInputSizes(ArraySizingClass):
     Attributes
     ----------
     initial_values : tuple[int, int], default (1, 1)
-        Shape of initial values array as (n_runs, n_states).
+        Shape of initial values array as (n_states, n_runs).
     parameters : tuple[int, int], default (1, 1)
-        Shape of parameters array as (n_runs, n_parameters).
+        Shape of parameters array as (n_parameters, n_runs).
     driver_coefficients : tuple[int or None, int, int or None],
         default (1, 1, 1)
         Shape of the driver coefficient array as
         (num_segments, num_drivers, polynomial_degree).
-    stride_order : tuple[str, ...], default ("run", "variable")
+    stride_order : tuple[str, ...], default ("variable", "run")
         Order of dimensions in the input arrays.
     """
 
@@ -454,7 +239,7 @@ class BatchInputSizes(ArraySizingClass):
     )
 
     stride_order: Tuple[str, ...] = attrs.field(
-        default=("run", "variable"),
+        default=("variable", "run"),
         validator=attrs.validators.deep_iterable(
             attrs.validators.in_(["run", "variable"])
         ),
@@ -469,19 +254,18 @@ class BatchInputSizes(ArraySizingClass):
         Parameters
         ----------
         solver_instance
-            Batch solver kernel exposing ``num_runs`` and loop buffer sizes.
+            Batch solver kernel exposing ``num_runs`` and system sizes.
 
         Returns
         -------
         BatchInputSizes
             Input array dimensions for the batch run.
         """
-        loopBufferSizes = LoopBufferSizes.from_solver(solver_instance)
+        system_sizes = solver_instance.system_sizes
         num_runs = solver_instance.num_runs
-        initial_values = (num_runs, loopBufferSizes.state)
-        parameters = (num_runs, loopBufferSizes.parameters)
-        driver_coefficients = (None, loopBufferSizes.drivers, None)
-
+        initial_values = (system_sizes.states, num_runs)
+        parameters = ( system_sizes.parameters, num_runs)
+        driver_coefficients = (None,  system_sizes.drivers, None)
         obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 
@@ -490,26 +274,25 @@ class BatchInputSizes(ArraySizingClass):
 class BatchOutputSizes(ArraySizingClass):
     """Output array sizes for batch integration runs.
 
-    This class provides 3D array sizes (time × run × variable) for output
+    This class provides 3D array sizes (time × variable × run) for output
     arrays from batch integration runs.
 
     Attributes
     ----------
     state : tuple[int, int, int], default (1, 1, 1)
-        Shape of state output array as (time_samples, n_runs,
-         n_variables).
+        Shape of state output array as (time_samples, n_variables, n_runs).
     observables : tuple[int, int, int], default (1, 1, 1)
-        Shape of observable output array as (time_samples, n_runs,
-        n_variables).
+        Shape of observable output array as (time_samples, n_variables,
+        n_runs).
     state_summaries : tuple[int, int, int], default (1, 1, 1)
-        Shape of state summary array as (summary_samples, n_runs,
-        n_summaries).
+        Shape of state summary array as (summary_samples, n_summaries,
+        n_runs).
     observable_summaries : tuple[int, int, int], default (1, 1, 1)
-        Shape of observable summary array as (summary_samples, n_runs,
-        n_summaries).
+        Shape of observable summary array as (summary_samples, n_summaries,
+        n_runs).
     status_codes : tuple[int], default (1,)
         Shape of the status code output array indexed by run.
-    stride_order : tuple[str, ...], default ("time", "run", "variable")
+    stride_order : tuple[str, ...], default ("time", "variable", "run")
         Order of dimensions in the output arrays.
     """
 
@@ -529,10 +312,10 @@ class BatchOutputSizes(ArraySizingClass):
         default=(1,), validator=attrs.validators.instance_of(Tuple)
     )
     iteration_counters: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 4), validator=attrs.validators.instance_of(Tuple)
+        default=(1, 4, 1), validator=attrs.validators.instance_of(Tuple)
     )
     stride_order: Tuple[str, ...] = attrs.field(
-        default=("time", "run", "variable"),
+        default=("time", "variable", "run"),
         validator=attrs.validators.deep_iterable(
             attrs.validators.in_(["time", "run", "variable"])
         ),
@@ -564,32 +347,32 @@ class BatchOutputSizes(ArraySizingClass):
         num_runs = solver_instance.num_runs
         state = (
             single_run_sizes.state[0],
-            num_runs,
             single_run_sizes.state[1],
+            num_runs,
         )
         observables = (
             single_run_sizes.observables[0],
-            num_runs,
             single_run_sizes.observables[1],
+            num_runs,
         )
         state_summaries = (
             single_run_sizes.state_summaries[0],
-            num_runs,
             single_run_sizes.state_summaries[1],
+            num_runs,
         )
         observable_summaries = (
             single_run_sizes.observable_summaries[0],
-            num_runs,
             single_run_sizes.observable_summaries[1],
+            num_runs,
         )
         status_codes = (num_runs,)
         
-        # Iteration counters have shape (n_runs, n_saves, 4)
+        # Iteration counters have shape (n_saves, 4, n_runs)
         # where 4 is for [Newton, Krylov, steps, rejections]
         iteration_counters = (
-            num_runs,
             single_run_sizes.state[0],  # n_saves
             4,
+            num_runs,
         )
         
         obj = cls(

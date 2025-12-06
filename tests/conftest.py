@@ -18,9 +18,11 @@ from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
-from cubie.integrators.loops.ode_loop import IVPLoop, ALL_LOOP_SETTINGS
-from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
-    LoopLocalIndices
+from cubie.integrators.loops.ode_loop import (
+    IVPLoop,
+    ALL_LOOP_SETTINGS,
+    LoopBufferSettings,
+)
 
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -32,7 +34,6 @@ from cubie.outputhandling.output_functions import (
     OutputFunctions,
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 from tests.integrators.cpu_reference import (
     CPUAdaptiveController,
     CPUODESystem,
@@ -52,7 +53,7 @@ from tests.system_fixtures import (
 
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
-
+np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -149,36 +150,20 @@ def _build_loop_instance(
     precision: np.dtype,
     system: SymbolicODE,
     step_object: Any,
-    loop_buffer_sizes: LoopBufferSizes,
+    buffer_settings: LoopBufferSettings,
     output_functions: OutputFunctions,
     step_controller: Any,
     solver_settings: Dict[str, Any],
     driver_array: Optional[ArrayInterpolator],
 ) -> IVPLoop:
     """Construct an :class:`IVPLoop` instance for device loop tests."""
-
-    shared_indices = LoopSharedIndices.from_sizes(
-        n_states=loop_buffer_sizes.state,
-        n_observables=loop_buffer_sizes.observables,
-        n_parameters=loop_buffer_sizes.parameters,
-        n_drivers=loop_buffer_sizes.drivers,
-        state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
-        observable_summaries_buffer_height=
-        loop_buffer_sizes.observable_summaries,
-        n_error=(
-            loop_buffer_sizes.state if step_object.is_adaptive else 0
-        ),
-    )
-    local_indices = LoopLocalIndices.from_sizes(
-        controller_len=step_controller.local_memory_elements,
-        algorithm_len=step_object.persistent_local_required,
-    )
     driver_function = _get_driver_function(driver_array)
     return IVPLoop(
         precision=precision,
-        shared_indices=shared_indices,
-        local_indices=local_indices,
+        buffer_settings=buffer_settings,
         compile_flags=output_functions.compile_flags,
+        controller_local_len=step_controller.local_memory_elements,
+        algorithm_local_len=step_object.persistent_local_required,
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
@@ -193,6 +178,8 @@ def _build_loop_instance(
         dt_max=step_controller.dt_max,
         is_adaptive=step_controller.is_adaptive,
     )
+
+
 def _build_cpu_step_controller(
     precision: np.dtype,
     step_controller_settings: Dict[str, Any],
@@ -343,8 +330,9 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
-        "duration": precision(1.0),
-        "warmup": precision(0.0),
+        "duration": np.float64(1.0),
+        "warmup": np.float64(0.0),
+        "t0": np.float64(0.0),
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
@@ -389,7 +377,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     float_keys = {
         "duration",
         "warmup",
-        "dt"
+        "dt",
         "dt_min",
         "dt_max",
         "dt_save",
@@ -717,7 +705,7 @@ def loop(
     precision,
     system,
     step_object,
-    loop_buffer_sizes,
+    buffer_settings,
     output_functions,
     step_controller,
     solver_settings,
@@ -728,7 +716,7 @@ def loop(
         precision=precision,
         system=system,
         step_object=step_object,
-        loop_buffer_sizes=loop_buffer_sizes,
+        buffer_settings=buffer_settings,
         output_functions=output_functions,
         step_controller=step_controller,
         solver_settings=solver_settings,
@@ -741,7 +729,7 @@ def loop_mutable(
     precision,
     system,
     step_object_mutable,
-    loop_buffer_sizes_mutable,
+    buffer_settings_mutable,
     output_functions_mutable,
     step_controller_mutable,
     solver_settings,
@@ -752,7 +740,7 @@ def loop_mutable(
         precision=precision,
         system=system,
         step_object=step_object_mutable,
-        loop_buffer_sizes=loop_buffer_sizes_mutable,
+        buffer_settings=buffer_settings_mutable,
         output_functions=output_functions_mutable,
         step_controller=step_controller_mutable,
         solver_settings=solver_settings,
@@ -868,18 +856,34 @@ def initial_state(system, precision, request):
 
 
 @pytest.fixture(scope="session")
-def loop_buffer_sizes(system, output_functions):
-    """Loop buffer sizes derived from the system and output configuration."""
-
-    return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
+def buffer_settings(system, output_functions, step_object):
+    """Buffer settings derived from the system and output configuration."""
+    n_error = system.sizes.states if step_object.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
+    )
 
 
 @pytest.fixture(scope="function")
-def loop_buffer_sizes_mutable(system, output_functions_mutable):
-    """Function-scoped buffer sizes derived from the mutable outputs."""
-
-    return LoopBufferSizes.from_system_and_output_fns(
-        system, output_functions_mutable
+def buffer_settings_mutable(system, output_functions_mutable, step_object_mutable):
+    """Function-scoped buffer settings derived from the mutable outputs."""
+    n_error = system.sizes.states if step_object_mutable.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=system.sizes.states,
+        n_parameters=system.sizes.parameters,
+        n_drivers=system.sizes.drivers,
+        n_observables=system.sizes.observables,
+        state_summary_buffer_height=output_functions_mutable.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions_mutable.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
     )
 
 
