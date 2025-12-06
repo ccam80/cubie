@@ -550,13 +550,13 @@ class BatchGridBuilder:
                 idx = self.parameters.get_indices([k])[0]
                 params_array[idx] = np.asarray(v).item()
             params_array = params_array[np.newaxis, :]
-            
+
             initial_values_array = np.copy(self.states.values_array)
             for k, v in state_request.items():
                 idx = self.states.get_indices([k])[0]
                 initial_values_array[idx] = np.asarray(v).item()
             initial_values_array = initial_values_array[np.newaxis, :]
-            
+
             return self._cast_to_precision(
                 initial_values_array, params_array
             )
