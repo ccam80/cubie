@@ -46,7 +46,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "pi"},
+        {"algorithm": "crank_nicolson", "step_controller": "pid"},
         id="crank_nicolson_pi",
     ),
     pytest.param(
@@ -81,7 +81,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "cash-karp-54", "step_controller": "pi"},
+        {"algorithm": "cash-karp-54", "step_controller": "pid"},
         id="erk-cash-karp-54",
         marks=pytest.mark.specific_algos,
     ),
@@ -91,7 +91,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "bogacki-shampine-32", "step_controller": "pi"},
+        {"algorithm": "bogacki-shampine-32", "step_controller": "pid"},
         id="erk-bogacki-shampine-32",
         marks=pytest.mark.specific_algos,
     ),

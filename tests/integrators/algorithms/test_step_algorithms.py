@@ -469,33 +469,33 @@ STEP_CASES = [
     pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
     pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
     pytest.param({"algorithm": "crank_nicolson"}, id="crank_nicolson"),
-    pytest.param({"algorithm": "rosenbrock", "step_controller": "pi"}, id="rosenbrock"),
-    pytest.param({"algorithm": "erk", "step_controller": "pi"}, id="erk"),
-    pytest.param({"algorithm": "dirk", "step_controller": "pi"}, id="dirk"),
-    pytest.param({"algorithm": "firk", "step_controller": "pi"}, id="firk"),
+    pytest.param({"algorithm": "rosenbrock", "step_controller": "pid"}, id="rosenbrock"),
+    pytest.param({"algorithm": "erk", "step_controller": "pid"}, id="erk"),
+    pytest.param({"algorithm": "dirk", "step_controller": "pid"}, id="dirk"),
+    pytest.param({"algorithm": "firk", "step_controller": "pid"}, id="firk"),
     # Specific ERK tableaus
-    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pi"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pi"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "fehlberg-45", "step_controller": "pi"}, id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pi"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pid"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pid"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "fehlberg-45", "step_controller": "pid"}, id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pid"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "dop853", "step_controller": "pi"}, id="erk-dop853", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "tsit5", "step_controller": "pi"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "vern7", "step_controller": "pi"}, id="erk-vern7", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "dop853", "step_controller": "pid"}, id="erk-dop853", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "tsit5", "step_controller": "pid"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "vern7", "step_controller": "pid"}, id="erk-vern7", marks=pytest.mark.specific_algos),
     # Specific DIRK tableaus
     pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pi"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pid"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
-    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pi"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pi"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pid"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
     # Specific FIRK tableaus
     pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
     # Specific Rosenbrock-W tableaus
-    pytest.param({"algorithm": "ros3p", "step_controller": "pi"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
@@ -526,14 +526,14 @@ CACHE_REUSE_CASES = [
     pytest.param(
         {
             "algorithm": "sdirk_2_2",
-            "step_controller": "pi"
+            "step_controller": "pid"
         },
         id="dirk-sdirk-2-2-cache",
     ),
     pytest.param(
         {
             "algorithm": "ros3p",
-            "step_controller": "pi"
+            "step_controller": "pid"
         },
         id="rosenbrock-ros3p-cache",
     ),
@@ -1508,14 +1508,14 @@ def test_algorithm(
         (ERKStep, ERK_TABLEAU_REGISTRY["classical-rk4"], {"step_controller": "fixed"}),
         (ERKStep, ERK_TABLEAU_REGISTRY["heun-21"], {"step_controller": "fixed"}),
         # ERK adaptive tableaus default to PI
-        (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pi"}),
-        (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pi"}),
+        (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pid"}),
+        (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pid"}),
         # DIRK with error estimate defaults to PI
-        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pi"}),
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pid"}),
         # FIRK with error estimate defaults to PI
-        (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pi"}),
+        (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI
-        (GenericRosenbrockWStep, DEFAULT_ROSENBROCK_TABLEAU, {"step_controller": "pi"}),
+        (GenericRosenbrockWStep, DEFAULT_ROSENBROCK_TABLEAU, {"step_controller": "pid"}),
     ],
 )
 def test_tableau_controller_defaults(step_class, tableau, expected_dict):

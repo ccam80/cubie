@@ -538,8 +538,8 @@ def assert_summary_metrics_config(output_functions, settings, tolerance):
     ("crank_nicolson", "i"),
     ("rk23", "gustafsson"),  # Embedded RK with Gustafsson
     ("rk45", "pid"),  # Embedded RK with PID
-    ("dopri54", "pi"),  # ERK with PI
-    ("tsit5", "pi"),  # Rosenbrock-type with PI
+    ("dopri54", "pid"),  # ERK with PI
+    ("tsit5", "pid"),  # Rosenbrock-type with PI
 ])
 def test_comprehensive_config_plumbing(
     solver_mutable, solver_settings, system, precision, tolerance,

@@ -126,9 +126,9 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "newton_max_backtracks": 25,
         "min_gain": precision(0.2),
         "max_gain": precision(2.0),
-        "kp": precision(1 / 18),
-        "ki": precision(1 / 9),
-        "kd": precision(1 / 18),
+        "kp": precision(0.7),
+        "ki": precision(0.0),
+        "kd": precision(-0.4),
         "deadband_min": precision(1.0),
         "deadband_max": precision(1.2),
     }
