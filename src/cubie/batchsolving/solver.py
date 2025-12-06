@@ -393,13 +393,11 @@ class Solver:
         Returns
         -------
         Tuple[np.ndarray, np.ndarray]
-            Validated arrays cast to system precision and made
-            C-contiguous if necessary.
+            Validated arrays cast to system precision.
 
         Notes
         -----
-        Arrays are cast to the system precision dtype and copied
-        to ensure C-contiguous memory layout when needed.
+        Arrays are cast to the system precision dtype when needed.
         """
         precision = self.precision
 
