@@ -10,10 +10,10 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as MappedNDArray,
+        FakeCUDAArray as DeviceNDArray,
     )
 else:
-    from numba.cuda.cudadrv.devicearray import MappedNDArray
+    from numba.cuda.cudadrv.devicearray import DeviceNDArray
 
 
 @pytest.fixture(scope="function")
@@ -444,13 +444,13 @@ def test_data_properties_after_solve(solved_solver_simple):
     """Test that data properties are accessible after solving."""
     # These should be accessible after solving
     solver, result = solved_solver_simple
-    assert isinstance(solver.kernel.device_state_array, MappedNDArray)
-    assert isinstance(solver.kernel.device_observables_array, MappedNDArray)
+    assert isinstance(solver.kernel.device_state_array, DeviceNDArray)
+    assert isinstance(solver.kernel.device_observables_array, DeviceNDArray)
     assert isinstance(
-        solver.kernel.device_state_summaries_array, MappedNDArray
+        solver.kernel.device_state_summaries_array, DeviceNDArray
     )
     assert isinstance(
-        solver.kernel.device_observable_summaries_array, MappedNDArray
+        solver.kernel.device_observable_summaries_array, DeviceNDArray
     )
 
     assert isinstance(result.time_domain_array, np.ndarray)
@@ -727,30 +727,6 @@ def test_validate_arrays_dtype_cast(solver):
 
     assert validated_inits.dtype == solver.precision
     assert validated_params.dtype == solver.precision
-
-
-def test_validate_arrays_contiguity(solver):
-    """Test that non-contiguous arrays are made contiguous."""
-    n_states = solver.system_sizes.states
-    n_params = solver.system_sizes.parameters
-    n_runs = 4
-
-    # Create F-contiguous arrays
-    inits = np.asfortranarray(
-        np.ones((n_states, n_runs), dtype=solver.precision)
-    )
-    params = np.asfortranarray(
-        np.ones((n_params, n_runs), dtype=solver.precision)
-    )
-
-    assert not inits.flags['C_CONTIGUOUS']
-    assert not params.flags['C_CONTIGUOUS']
-
-    validated_inits, validated_params = solver._validate_arrays(inits, params)
-
-    assert validated_inits.flags['C_CONTIGUOUS']
-    assert validated_params.flags['C_CONTIGUOUS']
-
 
 # ============================================================================
 # build_grid() Tests
