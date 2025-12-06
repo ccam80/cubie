@@ -405,15 +405,9 @@ class Solver:
 
         # Cast to correct dtype if needed
         if initial_values.dtype != precision:
-            initial_values = initial_values.astype(precision)
+            initial_values = initial_values.astype(precision, copy=False)
         if parameters.dtype != precision:
-            parameters = parameters.astype(precision)
-
-        # Ensure C-contiguous layout
-        if not initial_values.flags['C_CONTIGUOUS']:
-            initial_values = np.ascontiguousarray(initial_values)
-        if not parameters.flags['C_CONTIGUOUS']:
-            parameters = np.ascontiguousarray(parameters)
+            parameters = parameters.astype(precision, copy=False)
 
         return initial_values, parameters
 
