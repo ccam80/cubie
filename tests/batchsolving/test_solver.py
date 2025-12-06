@@ -10,10 +10,10 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as MappedNDArray,
+        FakeCUDAArray as DeviceNDArray,
     )
 else:
-    from numba.cuda.cudadrv.devicearray import MappedNDArray
+    from numba.cuda.cudadrv.devicearray import DeviceNDArray
 
 
 @pytest.fixture(scope="function")
@@ -444,13 +444,13 @@ def test_data_properties_after_solve(solved_solver_simple):
     """Test that data properties are accessible after solving."""
     # These should be accessible after solving
     solver, result = solved_solver_simple
-    assert isinstance(solver.kernel.device_state_array, MappedNDArray)
-    assert isinstance(solver.kernel.device_observables_array, MappedNDArray)
+    assert isinstance(solver.kernel.device_state_array, DeviceNDArray)
+    assert isinstance(solver.kernel.device_observables_array, DeviceNDArray)
     assert isinstance(
-        solver.kernel.device_state_summaries_array, MappedNDArray
+        solver.kernel.device_state_summaries_array, DeviceNDArray
     )
     assert isinstance(
-        solver.kernel.device_observable_summaries_array, MappedNDArray
+        solver.kernel.device_observable_summaries_array, DeviceNDArray
     )
 
     assert isinstance(result.time_domain_array, np.ndarray)
@@ -626,3 +626,259 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
     # Time should be float64 even when state precision is float32
     assert solver_mutable.kernel.duration == np.float64(5.0)
     assert solver_mutable.kernel.t0 == np.float64(1.0)
+
+
+# ============================================================================
+# Input Classification Tests
+# ============================================================================
+
+
+def test_classify_inputs_dict(solver, simple_initial_values, simple_parameters):
+    """Test that dict inputs are classified as 'dict'."""
+    result = solver._classify_inputs(simple_initial_values, simple_parameters)
+    assert result == 'dict'
+
+
+def test_classify_inputs_mixed(solver, system):
+    """Test that mixed inputs (dict + array) are classified as 'dict'."""
+    n_states = solver.system_sizes.states
+    inits_array = np.ones((n_states, 2), dtype=solver.precision)
+    params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
+
+    result = solver._classify_inputs(inits_array, params_dict)
+    assert result == 'dict'
+
+    # Test the reverse case
+    inits_dict = {list(system.initial_values.names)[0]: [0.1, 0.2]}
+    n_params = solver.system_sizes.parameters
+    params_array = np.ones((n_params, 2), dtype=solver.precision)
+
+    result = solver._classify_inputs(inits_dict, params_array)
+    assert result == 'dict'
+
+
+def test_classify_inputs_array(solver):
+    """Test that matching numpy arrays are classified as 'array'."""
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
+    n_runs = 4
+
+    inits = np.ones((n_states, n_runs), dtype=solver.precision)
+    params = np.ones((n_params, n_runs), dtype=solver.precision)
+
+    result = solver._classify_inputs(inits, params)
+    assert result == 'array'
+
+
+def test_classify_inputs_mismatched_runs(solver):
+    """Test that mismatched run counts fall back to 'dict'."""
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
+
+    inits = np.ones((n_states, 3), dtype=solver.precision)
+    params = np.ones((n_params, 5), dtype=solver.precision)
+
+    result = solver._classify_inputs(inits, params)
+    assert result == 'dict'
+
+
+def test_classify_inputs_wrong_var_count(solver):
+    """Test that wrong variable counts fall back to 'dict'."""
+    n_params = solver.system_sizes.parameters
+    n_runs = 4
+
+    # Wrong number of states
+    inits = np.ones((999, n_runs), dtype=solver.precision)
+    params = np.ones((n_params, n_runs), dtype=solver.precision)
+
+    result = solver._classify_inputs(inits, params)
+    assert result == 'dict'
+
+
+def test_classify_inputs_1d_arrays(solver):
+    """Test that 1D arrays fall back to 'dict'."""
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
+
+    inits = np.ones(n_states, dtype=solver.precision)
+    params = np.ones(n_params, dtype=solver.precision)
+
+    result = solver._classify_inputs(inits, params)
+    assert result == 'dict'
+
+
+# ============================================================================
+# Array Validation Tests
+# ============================================================================
+
+
+def test_validate_arrays_dtype_cast(solver):
+    """Test that arrays are cast to system precision."""
+    n_states = solver.system_sizes.states
+    n_params = solver.system_sizes.parameters
+    n_runs = 2
+
+    # Create arrays with wrong dtype
+    wrong_dtype = np.float64 if solver.precision == np.float32 else np.float32
+    inits = np.ones((n_states, n_runs), dtype=wrong_dtype)
+    params = np.ones((n_params, n_runs), dtype=wrong_dtype)
+
+    validated_inits, validated_params = solver._validate_arrays(inits, params)
+
+    assert validated_inits.dtype == solver.precision
+    assert validated_params.dtype == solver.precision
+
+# ============================================================================
+# build_grid() Tests
+# ============================================================================
+
+
+def test_build_grid_returns_correct_shape(
+    solver, simple_initial_values, simple_parameters
+):
+    """Test that build_grid returns arrays with correct shapes."""
+    inits, params = solver.build_grid(
+        simple_initial_values, simple_parameters, grid_type="verbatim"
+    )
+
+    assert isinstance(inits, np.ndarray)
+    assert isinstance(params, np.ndarray)
+    assert inits.ndim == 2
+    assert params.ndim == 2
+    assert inits.shape[0] == solver.system_sizes.states
+    assert params.shape[0] == solver.system_sizes.parameters
+    # Verbatim: run count matches input length
+    assert inits.shape[1] == params.shape[1]
+
+
+def test_build_grid_combinatorial(
+    solver, simple_initial_values, simple_parameters
+):
+    """Test that build_grid with combinatorial creates product grid."""
+    inits, params = solver.build_grid(
+        simple_initial_values, simple_parameters, grid_type="combinatorial"
+    )
+
+    # Combinatorial produces more runs than verbatim
+    n_init_values = len(list(simple_initial_values.values())[0])
+    n_param_values = len(list(simple_parameters.values())[0])
+    # Number of runs is product of all value counts
+    assert inits.shape[1] >= n_init_values
+    assert params.shape[1] >= n_param_values
+
+
+def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
+    """Test that build_grid returns arrays with correct precision."""
+    inits, params = solver.build_grid(
+        simple_initial_values, simple_parameters
+    )
+
+    assert inits.dtype == solver.precision
+    assert params.dtype == solver.precision
+
+
+# ============================================================================
+# solve() Fast Path Tests
+# ============================================================================
+
+
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                            "duration": 0.05,
+                            "dt_save": 0.02,
+                            "dt_summarise": 0.04,
+                            "output_types": ["state", "time"]
+                         }],
+                         indirect=True
+)
+def test_solve_with_prebuilt_arrays(
+    solver, simple_initial_values, simple_parameters, driver_settings
+):
+    """Test that solve() works with pre-built arrays (fast path)."""
+    # First build the grid
+    inits, params = solver.build_grid(
+        simple_initial_values, simple_parameters, grid_type="verbatim"
+    )
+
+    # Now solve with the pre-built arrays
+    result = solver.solve(
+        initial_values=inits,
+        parameters=params,
+        drivers=driver_settings,
+        duration=0.05,
+    )
+
+    assert isinstance(result, SolveResult)
+
+
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                            "duration": 0.05,
+                            "dt_save": 0.02,
+                            "dt_summarise": 0.04,
+                            "output_types": ["state", "time"]
+                         }],
+                         indirect=True
+)
+def test_solve_array_path_matches_dict_path(
+    solver, simple_initial_values, simple_parameters, driver_settings
+):
+    """Test that array fast path produces same results as dict path."""
+    # Solve with dict inputs
+    result_dict = solver.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        grid_type="verbatim",
+    )
+
+    # Build grid and solve with arrays
+    inits, params = solver.build_grid(
+        simple_initial_values, simple_parameters, grid_type="verbatim"
+    )
+    result_array = solver.solve(
+        initial_values=inits,
+        parameters=params,
+        drivers=driver_settings,
+        duration=0.05,
+    )
+
+    # Results should match
+    assert (result_dict.time_domain_array.shape
+            == result_array.time_domain_array.shape)
+    np.testing.assert_allclose(
+        result_dict.time_domain_array,
+        result_array.time_domain_array,
+        rtol=1e-5,
+        atol=1e-7,
+    )
+
+
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                            "duration": 0.05,
+                            "dt_save": 0.02,
+                            "dt_summarise": 0.04,
+                            "output_types": ["state"]
+                         }],
+                         indirect=True
+)
+def test_solve_dict_path_backward_compatible(
+    solver, simple_initial_values, simple_parameters, driver_settings
+):
+    """Test that dict inputs still work exactly as before."""
+    result = solver.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
+    )
+
+    assert isinstance(result, SolveResult)
+    assert hasattr(result, "time_domain_array")
+    assert hasattr(result, "summaries_array")
