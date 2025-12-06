@@ -1,13 +1,20 @@
 # Implementation Task List
 # Feature: dt_update_summaries
 # Plan Reference: .github/active_plans/dt_update_summaries/agent_plan.md
+# 
+# **UPDATE NOTICE**: This task list has been updated after merging main branch.
+# The structure has changed significantly:
+# - LoopSharedIndices is now LoopSliceIndices (part of LoopBufferSettings)
+# - ODELoopConfig now uses buffer_settings parameter
+# - Line numbers updated to match current code structure
+#
 
 ## Task Group 1: Add dt_update_summaries to ODELoopConfig - SEQUENTIAL
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop_config.py (lines 376-539)
+- File: src/cubie/integrators/loops/ode_loop_config.py (lines 141-322)
 - File: src/cubie/_utils.py (for validators: gttype_validator, opt_gttype_validator)
 
 **Input Validation Required**:
@@ -21,7 +28,7 @@
    - Action: Modify
    - Details:
      ```python
-     # Add after line 440 (_dt_summarise attribute):
+     # Add after line 211 (_dt_summarise attribute):
      _dt_update_summaries: Optional[float] = field(
          default=None,
          validator=opt_gttype_validator(float, 0)
@@ -35,7 +42,7 @@
    - Action: Modify
    - Details:
      ```python
-     # Add after dt_summarise property (after line 509):
+     # Add after dt_summarise property (after line 293):
      @property
      def dt_update_summaries(self) -> float:
          """Return the summary update interval."""
@@ -54,7 +61,7 @@
    - Action: Modify
    - Details:
      ```python
-     # Add after saves_per_summary property (after line 489):
+     # Add after saves_per_summary property (after line 273):
      @property
      def updates_per_summary(self) -> int:
          """Return the number of updates between summary outputs."""
@@ -68,7 +75,7 @@
    - Action: Create
    - Details:
      ```python
-     # Add after is_adaptive field definition (after line 484):
+     # Add after is_adaptive field definition (after line 255):
      def __attrs_post_init__(self):
          """Validate dt_update_summaries and set default if needed."""
          # Set default to dt_save if not provided
@@ -97,7 +104,7 @@
 **Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 39-46)
+- File: src/cubie/integrators/loops/ode_loop.py (lines 643-650)
 
 **Input Validation Required**: None (just adding to a set)
 
@@ -107,7 +114,7 @@
    - Action: Modify
    - Details:
      ```python
-     # Modify ALL_LOOP_SETTINGS set (lines 39-46):
+     # Modify ALL_LOOP_SETTINGS set (lines 643-650):
      ALL_LOOP_SETTINGS = {
          "dt_save",
          "dt_summarise",
@@ -130,7 +137,7 @@
 **Dependencies**: Groups 1, 2
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 92-134)
+- File: src/cubie/integrators/loops/ode_loop.py (lines 671-759)
 
 **Input Validation Required**: 
 - dt_update_summaries: Must be Optional[float], defaults to None
@@ -142,13 +149,14 @@
    - Action: Modify
    - Details:
      ```python
-     # Add parameter after dt_summarise (around line 99):
+     # Add parameter after dt_summarise (around line 724):
      def __init__(
          self,
          precision: PrecisionDType,
-         shared_indices: LoopSharedIndices,
-         local_indices: LoopLocalIndices,
+         buffer_settings: LoopBufferSettings,
          compile_flags: OutputCompileFlags,
+         controller_local_len: int = 0,
+         algorithm_local_len: int = 0,
          dt_save: float = 0.1,
          dt_summarise: float = 1.0,
          dt_update_summaries: Optional[float] = None,  # NEW
@@ -163,10 +171,11 @@
    - Action: Modify
    - Details:
      ```python
-     # Modify ODELoopConfig instantiation (around line 114-132):
+     # Modify ODELoopConfig instantiation (around line 739-758):
      config = ODELoopConfig(
-         shared_buffer_indices=shared_indices,
-         local_indices=local_indices,
+         buffer_settings=buffer_settings,
+         controller_local_len=controller_local_len,
+         algorithm_local_len=algorithm_local_len,
          save_state_fn=save_state_func,
          update_summaries_fn=update_summaries_func,
          save_summaries_fn=save_summaries_func,
@@ -193,7 +202,7 @@
    - Action: Modify
    - Details:
      ```python
-     # Add to docstring parameter list (around line 66):
+     # Add to docstring parameter list (around line 690):
      """
      ...
      dt_summarise
@@ -219,12 +228,12 @@
 **Dependencies**: Groups 1, 2, 3
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 152-565)
+- File: src/cubie/integrators/loops/ode_loop.py (lines 778-1330)
 - Specific sections:
-  - Timing constants setup (lines 204-209)
-  - Fixed-step logic (lines 418-438)
-  - Adaptive-step logic (lines 439-442)
-  - Save/update logic (lines 518-560)
+  - Timing constants setup (lines 830-838)
+  - Loop state initialization (lines 1116-1180)
+  - Adaptive-step logic (lines 1181-1195)
+  - Save/update logic (lines 1282-1328)
 
 **Input Validation Required**: None (all validation in ODELoopConfig)
 
@@ -234,131 +243,107 @@
    - Action: Modify
    - Details:
      ```python
-     # Modify timing constants section (around lines 204-209):
+     # Modify timing constants section (around lines 830-838):
      # Timing values
      saves_per_summary = config.saves_per_summary
      updates_per_summary = config.updates_per_summary  # NEW
      dt_save = precision(config.dt_save)
-     dt_summarise = precision(config.dt_summarise)  # NEW (was missing)
      dt_update_summaries = precision(config.dt_update_summaries)  # NEW
      dt0 = precision(config.dt0)
      dt_min = precision(config.dt_min)
-     steps_per_save = int32(ceil(precision(dt_save) / precision(dt0)))
-     steps_per_update = int32(ceil(precision(dt_update_summaries) / precision(dt0)))  # NEW
+     # save_last is not yet piped up from this level, but is intended and
+     # included in loop logic
+     save_last = False
      ```
-   - Edge cases: steps_per_update could be 1 (update every step) - valid
+   - Edge cases: dt_update_summaries could equal dt_save (backward compatible)
    - Integration: Captured in loop closure for device function
 
-2. **Add update tracking variables to fixed-step mode initialization**
+2. **Add update_idx and next_update_summary to loop state initialization**
    - File: src/cubie/integrators/loops/ode_loop.py
    - Action: Modify
    - Details:
      ```python
-     # Add after fixed_mode initialization (around line 419):
-     if fixed_mode:
-         step_counter = int32(0)
-         update_counter = int32(0)  # NEW
-     ```
-   - Edge cases: Only needed in fixed_mode
-   - Integration: Tracks steps for summary updates
-
-3. **Add update_idx and next_update_summary to loop state initialization**
-   - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
-   - Details:
-     ```python
-     # Find initialization section (around lines 380-400)
-     # Add alongside save_idx initialization:
+     # Find initialization section (around lines 1116-1180)
+     # Add alongside save_idx initialization (around line 1117):
      save_idx = int32(0)
      summary_idx = int32(0)
-     update_idx = int32(0)  # NEW
-     next_save = precision(dt_save)
-     next_update_summary = precision(dt_update_summaries)  # NEW (for adaptive)
+     update_idx = int32(0)  # NEW - tracks number of summary updates
+     
+     # Also add next_update_summary for adaptive mode (around line 1125):
+     if settling_time > precision(0.0):
+         # Don't save t0, wait until settling_time
+         next_save = precision(settling_time)
+         next_update_summary = precision(settling_time)  # NEW
+     else:
+         # Seed initial state and save/update summaries
+         next_save = precision(dt_save)
+         next_update_summary = precision(dt_update_summaries)  # NEW
      ```
-   - Edge cases: Both modes need update_idx; only adaptive needs next_update_summary
+   - Edge cases: Both save and update timing need settling_time consideration
    - Integration: Parallel to existing save tracking
 
-4. **Add do_update_summary logic in fixed-step mode**
+3. **Add do_update_summary logic in adaptive mode (separate from do_save)**
    - File: src/cubie/integrators/loops/ode_loop.py
    - Action: Modify
    - Details:
      ```python
-     # Modify fixed-step section (around lines 433-438):
-     if fixed_mode:
-         step_counter += 1
-         update_counter += 1  # NEW
-         accept = True
-         do_save = (step_counter % steps_per_save) == 0
-         do_update_summary = (update_counter % steps_per_update) == 0  # NEW
-         if do_save:
-             step_counter = int32(0)
-         if do_update_summary:  # NEW
-             update_counter = int32(0)  # NEW
+     # Modify adaptive-step section (around lines 1181-1195):
+     # After computing do_save, add do_update_summary:
+     do_save = (t_prec + dt_raw) >= next_save
+     do_update_summary = (t_prec + dt_raw) >= next_update_summary  # NEW
+     dt_eff = selp(do_save, next_save - t_prec, dt_raw)
+     # Alternative if update requires exact hitting:
+     # dt_eff = selp(do_save or do_update_summary, 
+     #               selp(do_save, next_save - t_prec, next_update_summary - t_prec),
+     #               dt_raw)
      ```
-   - Edge cases: Counters reset independently
-   - Integration: Parallel to do_save logic
+   - Edge cases: Both do_save and do_update_summary could be true simultaneously
+   - Integration: Adds independent update tracking parallel to save tracking
 
-5. **Add do_update_summary logic in adaptive-step mode**
+4. **Update next_update_summary in adaptive mode**
    - File: src/cubie/integrators/loops/ode_loop.py
    - Action: Modify
    - Details:
      ```python
-     # Modify adaptive-step section (around lines 439-442):
-     else:
-         do_save = (t + dt[0] + equality_breaker) >= next_save
-         do_update_summary = (t + dt[0] + equality_breaker) >= next_update_summary  # NEW
-         dt_eff = selp(do_save, next_save - t, dt[0])
-         # Consider if dt_eff needs adjustment for do_update_summary
-         # If next_update_summary < next_save, use it instead:
-         dt_eff = selp(
-             do_update_summary and not do_save,
-             next_update_summary - t,
-             dt_eff
-         )  # NEW
-         
-         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
-     ```
-   - Edge cases: When update comes before save, dt_eff must stop at update time
-   - Integration: Similar to do_save logic but independent
-
-6. **Update next_update_summary in adaptive mode**
-   - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
-   - Details:
-     ```python
-     # Add after next_save update (around line 520):
+     # Add after next_save update (around line 1284):
      # Predicated update of next_save; update if save is accepted.
      do_save = accept and do_save
-     next_save = selp(do_save, next_save + dt_save, next_save)
+     if do_save:
+         next_save = selp(do_save, next_save + dt_save, next_save)
      
      # NEW: Predicated update of next_update_summary
      do_update_summary = accept and do_update_summary
-     next_update_summary = selp(
-         do_update_summary,
-         next_update_summary + dt_update_summaries,
-         next_update_summary
-     )
+     if do_update_summary:
+         next_update_summary = selp(
+             do_update_summary,
+             next_update_summary + dt_update_summaries,
+             next_update_summary
+         )
      ```
    - Edge cases: Both updates can occur on same step
    - Integration: Parallel to next_save logic
 
-7. **Restructure save/update/summary logic to separate concerns**
+5. **Restructure save/update/summary logic to separate concerns**
    - File: src/cubie/integrators/loops/ode_loop.py
    - Action: Modify
    - Details:
      ```python
-     # Replace lines 522-554 with:
+     # Replace lines 1283-1318 with:
+     do_save = accept and do_save
+     do_update_summary = accept and do_update_summary  # NEW
+     
      if do_save:
+         next_save = selp(do_save, next_save + dt_save, next_save)
          save_state(
              state_buffer,
              observables_buffer,
              counters_since_save,
-             t,
+             t_prec,
              state_output[save_idx * save_state_bool, :],
              observables_output[save_idx * save_obs_bool, :],
              iteration_counters_output[save_idx * save_counters_bool, :],
          )
-         save_idx += 1
+         save_idx += int32(1)
          
          # Reset iteration counters after save
          if save_counters_bool:
@@ -367,6 +352,11 @@
      
      # NEW: Separate summary update logic
      if do_update_summary:
+         next_update_summary = selp(
+             do_update_summary,
+             next_update_summary + dt_update_summaries,
+             next_update_summary
+         )
          if summarise:
              update_summaries(
                  state_buffer,
@@ -375,8 +365,9 @@
                  observable_summary_buffer,
                  update_idx  # Changed from save_idx
              )
+             update_idx += int32(1)  # NEW
              
-             if (update_idx + 1) % updates_per_summary == 0:
+             if (update_idx % updates_per_summary == int32(0)):
                  save_summaries(
                      state_summary_buffer,
                      observable_summary_buffer,
