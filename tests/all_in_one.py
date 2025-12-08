@@ -4,7 +4,7 @@ All CUDA device functions are consolidated in this single file to enable
 proper line-level debugging with Numba's lineinfo.
 """
 # ruff: noqa: E402
-from math import ceil, floor
+from math import ceil, comb, floor
 from time import perf_counter
 from typing import Optional
 
@@ -549,7 +549,7 @@ def compute_driver_coefficients(input_array, precision, order=3, wrap=True,
             start_row = row_index
             for offset in range(difference_order + 1):
                 coefficient = ((-1) ** (difference_order - offset))
-                coefficient *= math.comb(difference_order, offset)
+                coefficient *= comb(difference_order, offset)
                 segment = offset
                 matrix[start_row, coeff_index(segment, highest_power)] = (
                     precision(coefficient)
@@ -563,7 +563,7 @@ def compute_driver_coefficients(input_array, precision, order=3, wrap=True,
             end_row = row_index
             for offset in range(difference_order + 1):
                 coefficient = ((-1) ** (difference_order - offset))
-                coefficient *= math.comb(difference_order, offset)
+                coefficient *= comb(difference_order, offset)
                 segment = num_segments - 1 - (difference_order - offset)
                 matrix[end_row, coeff_index(segment, highest_power)] = (
                     precision(coefficient)
