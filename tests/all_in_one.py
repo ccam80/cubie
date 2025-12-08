@@ -59,6 +59,19 @@ n_counters = 4
 # Driver samples: set to None to disable driver interpolation
 # When enabled, provide driver samples as numpy array of shape
 # (num_samples, n_drivers)
+# 
+# Example usage with drivers:
+#   n_drivers = 2
+#   driver_samples = np.zeros((10, 2), dtype=precision)
+#   driver_samples[:, 0] = np.sin(np.linspace(0, 2*np.pi, 10))
+#   driver_samples[:, 1] = np.cos(np.linspace(0, 2*np.pi, 10))
+#   driver_samples[-1, :] = driver_samples[0, :]  # For periodic BC
+#   driver_sample_dt = precision(0.1)
+#   driver_sample_t0 = precision(0.0)
+#   driver_interpolation_order = 3
+#   driver_wrap = True
+#   driver_boundary_condition = 'periodic'
+#
 driver_samples = None  # Will be populated when a system with drivers is added
 driver_sample_dt = precision(0.1)  # Sampling interval for driver data
 driver_sample_t0 = precision(0.0)  # Start time for driver samples
