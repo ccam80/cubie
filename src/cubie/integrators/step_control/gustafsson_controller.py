@@ -32,7 +32,7 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
         validator=inrangetype_validator(float, 0, 1),
     )
     _max_newton_iters: int = field(
-        default=0,
+        default=20,
         validator=getype_validator(int, 0),
     )
 
@@ -269,9 +269,9 @@ class GustafssonController(BaseAdaptiveStepController):
             denom = precision(niters + 2 * max_newton_iters)
             tmp = gain_numerator / denom
             fac = gamma if gamma < tmp else tmp
-            gain_basic = precision(safety * fac * (nrm2 ** (-expo)))
+            gain_basic = precision(fac * (nrm2 ** (-expo)))
 
-            ratio = err_prev / (nrm2 * nrm2)
+            ratio = nrm2 * nrm2  / err_prev
             gain_gus = precision(safety * (dt[0] /dt_prev) * (ratio ** -expo) *
                                  gamma)
             gain = gain_gus if gain_gus < gain_basic else gain_basic

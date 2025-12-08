@@ -127,8 +127,8 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "min_gain": precision(0.2),
         "max_gain": precision(2.0),
         "kp": precision(0.7),
-        "ki": precision(0.0),
-        "kd": precision(-0.4),
+        "ki": precision(-0.4),
+        "kd": precision(0.0),
         "deadband_min": precision(1.0),
         "deadband_max": precision(1.2),
     }

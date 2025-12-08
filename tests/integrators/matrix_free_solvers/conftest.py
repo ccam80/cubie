@@ -170,6 +170,8 @@ def neumann_kernel(precision):
     """
 
     def factory(precond, n, h):
+        scratch_size = n
+
         @cuda.jit
         def kernel(state_init, residual, base_state, out):
             time_scalar = precision(0.0)
@@ -178,7 +180,7 @@ def neumann_kernel(precision):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            scratch = cuda.shared.array(n, precision)
+            scratch = cuda.shared.array(scratch_size, dtype=precision)
             precond(
                 state,
                 parameters,
@@ -198,7 +200,7 @@ def neumann_kernel(precision):
 
 
 @pytest.fixture(scope="function")
-def solver_kernel(precision):
+def solver_kernel():
     """Compile a kernel for linear solver device functions.
 
     Parameters
@@ -211,8 +213,8 @@ def solver_kernel(precision):
     callable
         Factory producing kernels executing ``(state_init, rhs, x)``.
     """
-
-    def factory(solver, n, h):
+    def factory(solver, n, h, precision):
+        scratch_size = 2 * n
         @cuda.jit
         def kernel(state_init, rhs, base_state, x, flag):
             time_scalar = precision(0.0)
@@ -222,7 +224,7 @@ def solver_kernel(precision):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             # Allocate shared memory for solver buffers
-            shared = cuda.shared.array(2 * n, precision)
+            shared = cuda.shared.array(scratch_size, dtype=precision)
             flag[0] = solver(
                 state,
                 parameters,
