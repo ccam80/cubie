@@ -54,6 +54,20 @@ n_drivers = 0
 n_counters = 4
 
 # -------------------------------------------------------------------------
+# Driver Interpolation Configuration (when n_drivers > 0)
+# -------------------------------------------------------------------------
+# Driver samples: set to None to disable driver interpolation
+# When enabled, provide driver samples as numpy array of shape
+# (num_samples, n_drivers)
+driver_samples = None  # Will be populated when a system with drivers is added
+driver_sample_dt = precision(0.1)  # Sampling interval for driver data
+driver_sample_t0 = precision(0.0)  # Start time for driver samples
+driver_interpolation_order = 3  # Polynomial order for spline interpolation
+driver_wrap = True  # Whether drivers wrap past the final segment
+driver_boundary_condition = 'periodic'  # 'natural', 'periodic', 'clamped',
+# 'not-a-knot'
+
+# -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
 duration = precision(1.0)
@@ -359,6 +373,365 @@ def observables_factory(constants, prec):
     def get_observables(state, parameters, drivers, observables, t):
         pass
     return get_observables
+
+
+# =========================================================================
+# DRIVER COEFFICIENT GENERATION
+# =========================================================================
+
+def compute_driver_coefficients(input_array, precision, order=3, wrap=True,
+                                boundary_condition='not-a-knot'):
+    """Compute spline coefficients for driver interpolation.
+    
+    This function replicates ArrayInterpolator._compute_coefficients logic
+    to generate polynomial coefficients for driver inputs.
+    
+    Parameters
+    ----------
+    input_array
+        Array of shape (num_samples, num_drivers) containing driver values.
+    precision
+        NumPy dtype for coefficient precision.
+    order
+        Polynomial order for spline interpolation.
+    wrap
+        Whether drivers wrap past the final segment.
+    boundary_condition
+        Boundary condition: 'natural', 'periodic', 'clamped', 'not-a-knot'.
+        
+    Returns
+    -------
+    numpy.ndarray
+        Coefficient array of shape (num_segments, num_drivers, order+1).
+    """
+    base_inputs = input_array.astype(precision, copy=False)
+    num_inputs = base_inputs.shape[1]
+    
+    pad_with_zeros = (not wrap) and boundary_condition == "clamped"
+    if pad_with_zeros:
+        zero_row = np.zeros((1, num_inputs), dtype=precision)
+        inputs = np.vstack((zero_row, base_inputs, zero_row))
+    else:
+        inputs = base_inputs
+    
+    num_segments = inputs.shape[0] - 1
+    
+    if boundary_condition == "periodic":
+        if not wrap:
+            raise ValueError(
+                "Periodic boundary conditions require wrap=True."
+            )
+        if not np.allclose(inputs[0], inputs[-1]):
+            raise ValueError(
+                "Periodic boundary conditions require first and last "
+                "samples to match."
+            )
+    
+    num_coeffs = num_segments * (order + 1)
+    matrix = np.zeros((num_coeffs, num_coeffs), dtype=precision)
+    rhs = np.zeros((num_coeffs, num_inputs), dtype=precision)
+    row_index = 0
+    
+    def coeff_index(segment: int, power: int) -> int:
+        """Return the flattened coefficient index for segment."""
+        return segment * (order + 1) + power
+    
+    falling = np.zeros((order + 1, order + 1), dtype=precision)
+    falling[:, 0] = precision(1.0)
+    for derivative in range(1, order + 1):
+        for power in range(derivative, order + 1):
+            falling[power, derivative] = (
+                falling[power, derivative - 1]
+                * precision(power - (derivative - 1))
+            )
+    
+    # Function value constraints at left edge of each segment
+    for segment in range(num_segments):
+        matrix[row_index, coeff_index(segment, 0)] = precision(1.0)
+        rhs[row_index] = inputs[segment]
+        row_index += 1
+    
+    # Function value constraints at right edge of each segment
+    for segment in range(num_segments):
+        base = coeff_index(segment, 0)
+        for power in range(order + 1):
+            matrix[row_index, base + power] = precision(1.0)
+        rhs[row_index] = inputs[segment + 1]
+        row_index += 1
+    
+    # Continuity of derivatives across interior knots
+    for segment in range(num_segments - 1):
+        for derivative in range(1, order):
+            base = coeff_index(segment, 0)
+            for power in range(derivative, order + 1):
+                matrix[row_index, base + power] = falling[power, derivative]
+            next_index = coeff_index(segment + 1, derivative)
+            matrix[row_index, next_index] -= falling[derivative, derivative]
+            row_index += 1
+    
+    if boundary_condition == "natural":
+        remaining = order - 1
+        derivative = 2
+        while remaining > 0 and derivative <= order:
+            base_start = coeff_index(0, 0)
+            matrix[row_index, base_start + derivative] = (
+                falling[derivative, derivative]
+            )
+            row_index += 1
+            remaining -= 1
+            if remaining == 0:
+                break
+            base_end = coeff_index(num_segments - 1, 0)
+            for power in range(derivative, order + 1):
+                matrix[row_index, base_end + power] = (
+                    falling[power, derivative]
+                )
+            row_index += 1
+            remaining -= 1
+            derivative += 1
+    
+    elif boundary_condition == "periodic":
+        for derivative in range(1, order):
+            base_last = coeff_index(num_segments - 1, 0)
+            for power in range(derivative, order + 1):
+                matrix[row_index, base_last + power] = (
+                    falling[power, derivative]
+                )
+            base_first = coeff_index(0, derivative)
+            matrix[row_index, base_first] -= falling[
+                derivative, derivative
+            ]
+            row_index += 1
+    
+    elif boundary_condition == "clamped":
+        remaining = order - 1
+        derivative = 1
+        while remaining > 0 and derivative <= order:
+            base_start = coeff_index(0, 0)
+            matrix[row_index, base_start + derivative] = falling[
+                derivative, derivative
+            ]
+            row_index += 1
+            remaining -= 1
+            if remaining == 0:
+                break
+            base_end = coeff_index(num_segments - 1, 0)
+            for power in range(derivative, order + 1):
+                matrix[row_index, base_end + power] = falling[
+                    power, derivative
+                ]
+            row_index += 1
+            remaining -= 1
+            derivative += 1
+    
+    elif boundary_condition == "not-a-knot":
+        constraints_needed = order - 1
+        constraints_added = 0
+        highest_power = order
+        for difference_order in range(1, order):
+            if constraints_added >= constraints_needed:
+                break
+            
+            # Enforce vanishing forward difference at start of grid
+            start_row = row_index
+            for offset in range(difference_order + 1):
+                coefficient = ((-1) ** (difference_order - offset))
+                coefficient *= math.comb(difference_order, offset)
+                segment = offset
+                matrix[start_row, coeff_index(segment, highest_power)] = (
+                    precision(coefficient)
+                )
+            row_index += 1
+            constraints_added += 1
+            if constraints_added >= constraints_needed:
+                break
+            
+            # Mirror the same finite-difference constraint at the end
+            end_row = row_index
+            for offset in range(difference_order + 1):
+                coefficient = ((-1) ** (difference_order - offset))
+                coefficient *= math.comb(difference_order, offset)
+                segment = num_segments - 1 - (difference_order - offset)
+                matrix[end_row, coeff_index(segment, highest_power)] = (
+                    precision(coefficient)
+                )
+            row_index += 1
+            constraints_added += 1
+    
+    if row_index != num_coeffs:
+        raise ValueError(
+            "Failed to assemble square spline system."
+        )
+    
+    solution = np.linalg.solve(matrix, rhs)
+    coefficients = solution.reshape(num_segments, order + 1, num_inputs)
+    coefficients = np.transpose(coefficients, (0, 2, 1))
+    return np.ascontiguousarray(coefficients, dtype=precision)
+
+
+# =========================================================================
+# DRIVER INTERPOLATION FACTORIES
+# =========================================================================
+
+def driver_interpolation_factory(prec, order, num_drivers, num_segments,
+                                 resolution, start_time, wrap, pad_clamped):
+    """Create inline driver evaluation device function.
+    
+    Evaluates polynomial interpolants for driver inputs at a given time.
+    Matches ArrayInterpolator.evaluation_function behavior.
+    
+    Parameters
+    ----------
+    prec
+        Precision dtype (np.float32 or np.float64).
+    order
+        Polynomial order for interpolation.
+    num_drivers
+        Number of driver variables.
+    num_segments
+        Number of polynomial segments.
+    resolution
+        Time spacing between samples (dt).
+    start_time
+        Start time of driver samples (t0).
+    wrap
+        Whether drivers wrap past the final segment.
+    pad_clamped
+        Whether clamped boundary adds ghost segments.
+    """
+    numba_prec = numba_from_dtype(prec)
+    inv_resolution = prec(prec(1.0) / resolution)
+    start_time_val = prec(start_time)
+    num_segments_val = int32(num_segments)
+    num_drivers_val = int32(num_drivers)
+    order_val = int32(order)
+    zero_value = prec(0.0)
+    evaluation_start = prec(start_time_val - (
+        resolution if pad_clamped else prec(0.0)))
+    
+    @cuda.jit(
+        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        device=True,
+        inline=True,
+        **compile_kwargs
+    )
+    def evaluate_drivers(time, coefficients, out):
+        """Evaluate all driver polynomials at time on the device.
+        
+        Parameters
+        ----------
+        time
+            Query time for evaluation.
+        coefficients
+            Segment-major coefficients with shape (segments, drivers, order+1).
+        out
+            Output array to populate with evaluated driver values.
+        """
+        scaled = (time - evaluation_start) * inv_resolution
+        scaled_floor = floor(scaled)
+        idx = int32(scaled_floor)
+        
+        if wrap:
+            seg = int32(idx % num_segments_val)
+            tau = prec(scaled - scaled_floor)
+            in_range = True
+        else:
+            in_range = (scaled >= 0.0) and (scaled <= num_segments_val)
+            seg = selp(idx < 0, int32(0), idx)
+            seg = selp(seg >= num_segments_val,
+                      int32(num_segments_val - 1), seg)
+            tau = scaled - float(seg)
+        
+        # Evaluate polynomials using Horner's rule
+        for driver_idx in range(num_drivers_val):
+            acc = zero_value
+            for k in range(order_val, -1, -1):
+                acc = acc * tau + coefficients[seg, driver_idx, k]
+            out[driver_idx] = acc if in_range else zero_value
+    
+    return evaluate_drivers
+
+
+def driver_derivative_factory(prec, order, num_drivers, num_segments,
+                              resolution, start_time, wrap, pad_clamped):
+    """Create inline driver time derivative device function.
+    
+    Evaluates time derivatives of polynomial interpolants for driver inputs.
+    Matches ArrayInterpolator.driver_del_t behavior.
+    
+    Parameters
+    ----------
+    prec
+        Precision dtype (np.float32 or np.float64).
+    order
+        Polynomial order for interpolation.
+    num_drivers
+        Number of driver variables.
+    num_segments
+        Number of polynomial segments.
+    resolution
+        Time spacing between samples (dt).
+    start_time
+        Start time of driver samples (t0).
+    wrap
+        Whether drivers wrap past the final segment.
+    pad_clamped
+        Whether clamped boundary adds ghost segments.
+    """
+    numba_prec = numba_from_dtype(prec)
+    inv_resolution = prec(prec(1.0) / resolution)
+    start_time_val = prec(start_time)
+    num_segments_val = int32(num_segments)
+    num_drivers_val = int32(num_drivers)
+    order_val = int32(order)
+    zero_value = prec(0.0)
+    evaluation_start = prec(start_time_val - (
+        resolution if pad_clamped else prec(0.0)))
+    
+    @cuda.jit(
+        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        device=True,
+        inline=True,
+        **compile_kwargs
+    )
+    def evaluate_driver_derivatives(time, coefficients, out):
+        """Evaluate time derivative of each driver polynomial.
+        
+        Parameters
+        ----------
+        time
+            Query time for evaluation.
+        coefficients
+            Segment-major coefficients with shape (segments, drivers, order+1).
+        out
+            Output array to populate with evaluated driver derivatives.
+        """
+        scaled = (time - evaluation_start) * inv_resolution
+        scaled_floor = floor(scaled)
+        idx = int32(scaled_floor)
+        
+        if wrap:
+            seg = int32(idx % num_segments_val)
+            tau = prec(scaled - scaled_floor)
+            in_range = True
+        else:
+            in_range = (scaled >= 0.0) and (scaled <= num_segments_val)
+            seg = selp(idx < 0, int32(0), idx)
+            seg = selp(seg >= num_segments_val,
+                      int32(num_segments_val - 1), seg)
+            tau = scaled - float(seg)
+        
+        for driver_idx in range(num_drivers_val):
+            acc = zero_value
+            for k in range(order_val, 0, -1):
+                acc = acc * tau + prec(k) * (
+                    coefficients[seg, driver_idx, k]
+                )
+            out[driver_idx] = (
+                acc * inv_resolution if in_range else zero_value
+            )
+    
+    return evaluate_driver_derivatives
 
 
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
@@ -712,6 +1085,7 @@ def dirk_step_inline_factory(
     nonlinear_solver,
     dxdt_fn,
     observables_function,
+    driver_function,
     n,
     prec,
     tableau,
@@ -726,6 +1100,8 @@ def dirk_step_inline_factory(
         The derivative function.
     observables_function
         The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
     n
         Number of state variables.
     prec
@@ -747,7 +1123,7 @@ def dirk_step_inline_factory(
     stage_count = int32(tableau.stage_count)
 
     # Compile-time toggles
-    has_driver_function = False  # No driver function in this test
+    has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
     multistage = stage_count > 1
     first_same_as_last = False  # SDIRK does not share first/last stage
@@ -945,7 +1321,11 @@ def dirk_step_inline_factory(
 
             else:
                 if has_driver_function:
-                    pass  # driver_function would be called here
+                    driver_function(
+                        stage_time,
+                        driver_coeffs,
+                        proposed_drivers,
+                    )
 
             if stage_implicit[0]:
                 status_code |= nonlinear_solver(
@@ -1025,7 +1405,11 @@ def dirk_step_inline_factory(
                     stage_accumulator[base + idx] += contribution
 
             if has_driver_function:
-                pass  # driver_function would be called here
+                driver_function(
+                    stage_time,
+                    driver_coeffs,
+                    proposed_drivers,
+                )
 
             # Grab a view of the completed accumulator slice, add state
             stage_base = stage_accumulator[(stage_idx-int32(1)) * n:stage_idx
@@ -1098,7 +1482,11 @@ def dirk_step_inline_factory(
                     error[idx] = proposed_state[idx] - error[idx]
 
         if has_driver_function:
-            pass  # driver_function would be called here
+            driver_function(
+                end_time,
+                driver_coeffs,
+                proposed_drivers,
+            )
 
         observables_function(
             proposed_state,
@@ -1124,6 +1512,7 @@ def dirk_step_inline_factory(
 def erk_step_inline_factory(
     dxdt_fn,
     observables_function,
+    driver_function,
     n,
     prec,
     tableau,
@@ -1136,6 +1525,8 @@ def erk_step_inline_factory(
         The derivative function.
     observables_function
         The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
     n
         Number of state variables.
     prec
@@ -1159,7 +1550,7 @@ def erk_step_inline_factory(
     accumulator_length = (tableau.stage_count - 1) * n_arraysize
 
     # Compile-time toggles
-    has_driver_function = False  # No driver function in this test
+    has_driver_function = driver_function is not None
     first_same_as_last = tableau.first_same_as_last
     multistage = stage_count > int32(1)
     has_error = tableau.has_error_estimate
@@ -1375,7 +1766,11 @@ def erk_step_inline_factory(
             # get rhs for next stage
             stage_drivers = proposed_drivers
             if has_driver_function:
-                pass  # driver_function would be called here
+                driver_function(
+                    stage_time,
+                    driver_coeffs,
+                    stage_drivers,
+                )
 
             observables_function(
                     stage_accumulator[stage_offset:stage_offset + n],
@@ -1430,7 +1825,11 @@ def erk_step_inline_factory(
                     error[idx] = proposed_state[idx] - error[idx]
 
         if has_driver_function:
-            pass  # driver_function would be called here
+            driver_function(
+                end_time,
+                driver_coeffs,
+                proposed_drivers,
+            )
 
         observables_function(
             proposed_state,
@@ -1714,12 +2113,45 @@ def controller_PID_factory(
 dxdt_fn = dxdt_factory(constants, precision)
 observables_function = observables_factory(constants, precision)
 
+# Build driver function if drivers are present
+if n_drivers > 0 and driver_samples is not None:
+    # Compute driver coefficients using spline fitting
+    driver_coefficients = compute_driver_coefficients(
+        driver_samples,
+        precision,
+        order=driver_interpolation_order,
+        wrap=driver_wrap,
+        boundary_condition=driver_boundary_condition,
+    )
+    
+    # Determine if boundary adds ghost segments
+    pad_clamped = (not driver_wrap) and (
+        driver_boundary_condition == 'clamped'
+    )
+    num_driver_segments = driver_coefficients.shape[0]
+    
+    # Build driver evaluation function
+    driver_function = driver_interpolation_factory(
+        precision,
+        driver_interpolation_order,
+        n_drivers,
+        num_driver_segments,
+        driver_sample_dt,
+        driver_sample_t0,
+        driver_wrap,
+        pad_clamped,
+    )
+else:
+    driver_function = None
+    driver_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
+
 # Build step function based on algorithm type
 if algorithm_type == 'erk':
     # ERK step for explicit integration
     step_fn = erk_step_inline_factory(
         dxdt_fn,
         observables_function,
+        driver_function,
         n_states,
         precision,
         tableau,
@@ -1772,6 +2204,7 @@ elif algorithm_type == 'dirk':
         newton_solver_fn,
         dxdt_fn,
         observables_function,
+        driver_function,
         n_states,
         precision,
         tableau,
@@ -2423,14 +2856,12 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     params = np.zeros((n_runs, n_parameters), dtype=precision)
     params[:, 0] = rho_values
 
-    d_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
-
     # Create device arrays for inputs (BatchInputArrays pattern)
     d_inits = cuda.device_array((n_runs, n_states), dtype=precision,
                              order='F')
     d_inits.copy_to_device(inits)
     d_params = cuda.to_device(params)
-    d_driver_coefficients = cuda.to_device(d_coefficients)
+    d_driver_coefficients = cuda.to_device(driver_coefficients)
 
     # Create mapped arrays for outputs (BatchOutputArrays pattern)
     # Using stride ordering to match production batch solver memory layout.
