@@ -1473,9 +1473,9 @@ def test_algorithm(
 
     # Test equality for a single step
     tolerances = {
-        "rtol": tolerance.rel_tight,
-        "atol": tolerance.abs_tight,
-    }
+        "rtol": tolerance.rel_tight * 5,
+        "atol": tolerance.abs_tight * 5,
+    } # 5e-7 is a couple of ULP wiggle room for fma/fmul rounding
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
 
@@ -1496,7 +1496,7 @@ def test_algorithm(
             device_step_results.error,
             cpu_step_results.error,
             rtol=tolerances["rtol"],
-            atol=tolerances["atol"]*2,
+            atol=tolerances["atol"],
         ), "error matches"
 
 

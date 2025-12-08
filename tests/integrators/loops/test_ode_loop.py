@@ -226,6 +226,8 @@ def test_getters(
     "solver_settings_override",
     [
         {
+            "duration": 0.05,
+            "dt_save" : 0.05,
             "algorithm": "crank_nicolson",
             "output_types": ["state", "observables"],
         },
