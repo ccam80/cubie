@@ -12,6 +12,7 @@ from cubie.integrators.step_control import get_controller
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
+from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from tests._utils import assert_integration_outputs, run_device_loop
@@ -175,12 +176,75 @@ def _build_loop(
     return loop
 
 
+def build_single_integrator(
+    system,
+    solver_settings,
+    output_functions,
+    precision,
+    driver_array=None,
+):
+    """Build a SingleIntegratorRun for a specific system and settings."""
+    driver_function = (
+        driver_array.evaluation_function if driver_array is not None else None
+    )
+    driver_del_t = (
+        driver_array.driver_del_t if driver_array is not None else None
+    )
+    
+    # Build algorithm settings
+    algorithm_settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS
+    )
+    algorithm_settings["algorithm"] = solver_settings["algorithm"]
+    algorithm_settings["n"] = system.sizes.states
+    algorithm_settings["dxdt_function"] = system.dxdt_function
+    algorithm_settings["observables_function"] = system.observables_function
+    algorithm_settings["get_solver_helper_fn"] = system.get_solver_helper
+    algorithm_settings["n_drivers"] = system.sizes.drivers
+    
+    # Build step controller settings
+    step_control_settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS
+    )
+    step_control_settings["step_controller"] = solver_settings["step_controller"]
+    step_control_settings["n"] = system.sizes.states
+    
+    # Build output settings from solver_settings
+    output_settings = {
+        "dt_save": solver_settings["dt_save"],
+        "output_types": solver_settings["output_types"],
+        "saved_state_indices": solver_settings["saved_state_indices"],
+        "saved_observable_indices": solver_settings["saved_observable_indices"],
+        "summarised_state_indices": solver_settings["summarised_state_indices"],
+        "summarised_observable_indices": solver_settings["summarised_observable_indices"],
+    }
+    
+    # Build loop settings
+    loop_settings = {
+        "dt_save": solver_settings["dt_save"],
+        "dt_summarise": solver_settings["dt_summarise"],
+        "dt_min": solver_settings["dt_min"],
+        "dt_max": solver_settings["dt_max"],
+    }
+    
+    return SingleIntegratorRun(
+        system=system,
+        driver_function=driver_function,
+        driver_del_t=driver_del_t,
+        algorithm_settings=algorithm_settings,
+        step_control_settings=step_control_settings,
+        output_settings=output_settings,
+        loop_settings=loop_settings,
+    )
+
+
 def test_time_driver_array_matches_function(
     precision,
     time_driver_systems,
     time_driver_solver_settings,
     sinusoid_driver_array,
-    single_integrator_run
 ):
     function_system, interpolated_system = time_driver_systems
     solver_settings = time_driver_solver_settings
@@ -205,13 +269,14 @@ def test_time_driver_array_matches_function(
         solver_settings["summarised_observable_indices"],
     )
 
-    loop_function = _build_loop(
+    # Build SingleIntegratorRun instances for each system
+    single_integrator_function = build_single_integrator(
         function_system,
         solver_settings,
         output_functions_function,
         precision,
     )
-    loop_driver = _build_loop(
+    single_integrator_driver = build_single_integrator(
         interpolated_system,
         solver_settings,
         output_functions_driver,
@@ -220,7 +285,7 @@ def test_time_driver_array_matches_function(
     )
 
     reference_result = run_device_loop(
-        single_integrator_run,
+        single_integrator_function,
         system=function_system,
         initial_state=function_system.initial_values.values_array.astype(
             precision, copy=True
@@ -228,7 +293,7 @@ def test_time_driver_array_matches_function(
         solver_config=solver_settings,
     )
     driver_result = run_device_loop(
-        single_integrator_run,
+        single_integrator_driver,
         system=interpolated_system,
         initial_state=interpolated_system.initial_values.values_array.astype(
             precision, copy=True
