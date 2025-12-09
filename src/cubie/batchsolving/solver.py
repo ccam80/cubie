@@ -900,6 +900,11 @@ class Solver:
         return self.kernel.iteration_counters
 
     @property
+    def status_codes(self):
+        """Expose integration status codes."""
+        return self.kernel.status_codes
+
+    @property
     def parameters(self):
         """Expose parameter array used in the last run."""
         return self.kernel.parameters
