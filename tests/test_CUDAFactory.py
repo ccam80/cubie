@@ -440,3 +440,108 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
+
+
+def test_update_compile_settings_unpack_dict_values(factory):
+    """Test that dict values are unpacked and their contents used."""
+    @attrs.define
+    class TestSettings:
+        precision: type = np.float32
+        dt_min: float = 0.001
+        dt_max: float = 1.0
+        tolerance: float = 1e-6
+
+    factory.setup_compile_settings(TestSettings())
+
+    # Pass a dict as a value - it should be unpacked
+    step_controller_settings = {
+        'dt_min': 0.01,
+        'dt_max': 2.0
+    }
+    recognized = factory.update_compile_settings(
+        step_controller_settings=step_controller_settings
+    )
+
+    # The dict should have been unpacked, so dt_min and dt_max are recognized
+    assert 'dt_min' in recognized
+    assert 'dt_max' in recognized
+    assert factory.compile_settings.dt_min == 0.01
+    assert factory.compile_settings.dt_max == 2.0
+
+
+def test_update_compile_settings_unpack_multiple_dicts(factory):
+    """Test unpacking multiple dict values simultaneously."""
+    @attrs.define
+    class TestSettings:
+        precision: type = np.float32
+        dt_min: float = 0.001
+        dt_max: float = 1.0
+        tolerance: float = 1e-6
+        max_iter: int = 100
+
+    factory.setup_compile_settings(TestSettings())
+
+    # Pass multiple dicts as values
+    step_settings = {'dt_min': 0.05, 'dt_max': 5.0}
+    solver_settings = {'tolerance': 1e-8, 'max_iter': 200}
+
+    recognized = factory.update_compile_settings(
+        step_settings=step_settings,
+        solver_settings=solver_settings
+    )
+
+    # All dict contents should be recognized
+    assert 'dt_min' in recognized
+    assert 'dt_max' in recognized
+    assert 'tolerance' in recognized
+    assert 'max_iter' in recognized
+    assert factory.compile_settings.dt_min == 0.05
+    assert factory.compile_settings.dt_max == 5.0
+    assert factory.compile_settings.tolerance == 1e-8
+    assert factory.compile_settings.max_iter == 200
+
+
+def test_update_compile_settings_unpack_dict_with_regular_updates(factory):
+    """Test that dict unpacking works alongside regular updates."""
+    @attrs.define
+    class TestSettings:
+        precision: type = np.float32
+        dt_min: float = 0.001
+        dt_max: float = 1.0
+        tolerance: float = 1e-6
+
+    factory.setup_compile_settings(TestSettings())
+
+    # Mix dict values with regular values
+    step_settings = {'dt_min': 0.02}
+    recognized = factory.update_compile_settings(
+        step_settings=step_settings,
+        tolerance=1e-7
+    )
+
+    assert 'dt_min' in recognized
+    assert 'tolerance' in recognized
+    assert factory.compile_settings.dt_min == 0.02
+    assert factory.compile_settings.tolerance == 1e-7
+
+
+def test_update_compile_settings_unpack_dict_positional(factory):
+    """Test that dict unpacking works with positional updates_dict."""
+    @attrs.define
+    class TestSettings:
+        precision: type = np.float32
+        dt_min: float = 0.001
+        dt_max: float = 1.0
+
+    factory.setup_compile_settings(TestSettings())
+
+    # Pass a dict containing another dict
+    updates = {
+        'step_settings': {'dt_min': 0.03, 'dt_max': 3.0}
+    }
+    recognized = factory.update_compile_settings(updates)
+
+    assert 'dt_min' in recognized
+    assert 'dt_max' in recognized
+    assert factory.compile_settings.dt_min == 0.03
+    assert factory.compile_settings.dt_max == 3.0

@@ -569,6 +569,17 @@ class CUDAFactory(ABC):
             If compile settings have not been set up.
         KeyError
             If an unrecognised parameter is supplied and ``silent`` is ``False``.
+        
+        Notes
+        -----
+        If any value in the updates is itself a dict, its key-value pairs
+        are unpacked and used directly instead of treating the dict as a
+        single value. This allows grouped settings to be passed naturally:
+        
+        ```python
+        step_controller_settings = {'dt_min': 0.01, 'dt_max': 1.0}
+        solver.update_compile_settings(step_controller_settings)
+        ```
         """
         if updates_dict is None:
             updates_dict = {}
@@ -582,6 +593,9 @@ class CUDAFactory(ABC):
             raise ValueError(
                 "Compile settings must be set up using self.setup_compile_settings before updating."
             )
+        
+        # Recursively unpack any dict values
+        updates_dict = self._unpack_dict_values(updates_dict)
 
         recognized_params = []
         updated_params = []
@@ -615,6 +629,34 @@ class CUDAFactory(ABC):
             self._invalidate_cache()
 
         return set(recognized_params)
+
+    def _unpack_dict_values(self, updates_dict: dict) -> dict:
+        """Recursively unpack dict values into flat key-value pairs.
+        
+        Parameters
+        ----------
+        updates_dict
+            Dictionary potentially containing nested dicts as values
+        
+        Returns
+        -------
+        dict
+            Flattened dictionary with dict values unpacked
+        
+        Notes
+        -----
+        If a value in the input dict is itself a dict, its key-value pairs
+        are added to the output dict directly, and the original key is
+        removed. This allows users to pass grouped settings naturally.
+        """
+        result = {}
+        for key, value in updates_dict.items():
+            if isinstance(value, dict):
+                # Unpack the dict value
+                result.update(value)
+            else:
+                result[key] = value
+        return result
 
     def _check_and_update(self,
                           key: str,
