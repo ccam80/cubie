@@ -29,7 +29,7 @@ from cubie.outputhandling.output_sizes import (
     SingleRunOutputSizes,
 )
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, unpack_dict_values
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -779,6 +779,12 @@ class BatchSolverKernel(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        # Flatten nested dict values so that grouped settings can be passed
+        # naturally. For example, step_controller_settings={'dt_min': 0.01}
+        # becomes dt_min=0.01, allowing sub-components to recognize and
+        # apply parameters correctly.
+        updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
+
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= self.single_integrator.update(
                 updates_dict, silent=True
@@ -804,7 +810,8 @@ class BatchSolverKernel(CUDAFactory):
             if not silent:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
 
-        return recognised
+        # Include unpacked dict keys in recognized set
+        return recognised | unpacked_keys
 
     @property
     def precision(self) -> PrecisionDType:

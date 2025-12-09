@@ -995,26 +995,17 @@ def cpu_loop_outputs(
 
 @pytest.fixture(scope="session")
 def device_loop_outputs(
-    loop,
     system,
     single_integrator_run,
-    step_object,
     initial_state,
     solver_settings,
-    step_controller_settings,
-    output_functions,
-    cpu_system,
     driver_array,
 ):
     """Execute the device loop with the provided configuration."""
     return  run_device_loop(
-        loop=loop,
+        singleintegratorrun=single_integrator_run,
         system=system,
         initial_state=initial_state,
-        output_functions=output_functions,
         solver_config=solver_settings,
-        localmem_required=single_integrator_run.local_memory_elements,
-        sharedmem_required=step_object.shared_memory_required +
-                           loop.shared_memory_elements,
         driver_array=driver_array,
     )

@@ -6,11 +6,11 @@ updates and CUDA utilities that are shared across the code base.
 import inspect
 from functools import wraps
 from time import time
-from typing import Any, Mapping, Tuple, Union, Optional, Iterable
+from typing import Any, Mapping, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
 import numpy as np
-from numba import cuda, float32, float64, from_dtype, int32
+from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
     xoroshiro128p_normal_float32,
@@ -305,7 +305,7 @@ def clamp_factory(precision):
 
 
 @cuda.jit(
-    (float64[:], float64[:], int32, xoro_type[:]),
+    # (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -337,7 +337,7 @@ def get_noise_64(
 
 
 @cuda.jit(
-    (float32[:], float32[:], int32, xoro_type[:]),
+    # (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -557,3 +557,76 @@ def ensure_nonzero_size(
             return value
     else:
         return value
+
+
+def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
+    """Unpack dict values into flat key-value pairs.
+    
+    When an update() method receives parameters grouped in dicts, this
+    utility flattens them before distributing to sub-components. The
+    original dict keys are tracked separately so they can be marked as
+    recognized even though they don't correspond to actual parameters.
+    
+    Parameters
+    ----------
+    updates_dict
+        Dictionary potentially containing dicts as values
+    
+    Returns
+    -------
+    Tuple[dict, Set[str]]
+        - dict: Flattened dictionary with dict values unpacked
+        - set: Set of original keys that were unpacked dicts
+    
+    Examples
+    --------
+    >>> result, unpacked = unpack_dict_values({
+    ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
+    ...     'precision': np.float32
+    ... })
+    >>> result
+    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
+    >>> unpacked
+    {'step_settings'}
+    
+    Notes
+    -----
+    If a value in the input dict is itself a dict, its key-value pairs
+    are added to the result dict directly, and the original key is
+    tracked in the unpacked set. Regular key-value pairs are preserved
+    as-is.
+    
+    Only unpacks one level deep - nested dicts within dict values are
+    not recursively unpacked. This allows each level of the update chain
+    to handle its own unpacking.
+    
+    Raises
+    ------
+    ValueError
+        If a key appears both as a regular entry and within an unpacked
+        dict, indicating a collision that would lead to ambiguous behavior.
+    """
+    result = {}
+    unpacked_keys = set()
+    for key, value in updates_dict.items():
+        if isinstance(value, dict):
+            # Check for key collisions before unpacking
+            collision_keys = set(value.keys()) & set(result.keys())
+            if collision_keys:
+                raise ValueError(
+                    f"Key collision detected: the following keys appear "
+                    f"both as regular entries and within an unpacked dict: "
+                    f"{sorted(collision_keys)}"
+                )
+            # Unpack the dict value and track the original key
+            result.update(value)
+            unpacked_keys.add(key)
+        else:
+            # Check if key already exists in result
+            if key in result:
+                raise ValueError(
+                    f"Key collision detected: the key '{key}' appears "
+                    f"multiple times in updates_dict."
+                )
+            result[key] = value
+    return result, unpacked_keys

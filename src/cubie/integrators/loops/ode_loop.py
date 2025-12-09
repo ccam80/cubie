@@ -19,7 +19,7 @@ from numba import cuda, int16, int32, float64, int64
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie._utils import getype_validator, PrecisionDType
+from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      ODELoopConfig)
@@ -1517,6 +1517,13 @@ class IVPLoop(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        # Flatten nested dict values (e.g., loop_settings={'dt_save': 0.01})
+        # into top-level parameters before distributing to compile settings.
+        # This ensures all configuration options are recognized and updated.
+        # Example: {'loop_settings': {'dt_save': 0.01}, 'other': 5}
+        #       -> {'dt_save': 0.01, 'other': 5}
+        updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
+
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
         if not silent and unrecognised:
@@ -1524,4 +1531,5 @@ class IVPLoop(CUDAFactory):
                 f"Unrecognized parameters in update: {unrecognised}. "
                 "These parameters were not updated.",
             )
-        return recognised
+        # Include unpacked dict keys in recognized set
+        return recognised | unpacked_keys

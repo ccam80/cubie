@@ -440,3 +440,4 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
+

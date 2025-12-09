@@ -39,8 +39,8 @@ from cubie.time_logger import _default_timelogger
 
 # Register module-level events
 _default_timelogger.register_event(
-    "solve_ivp", 
-    "runtime", 
+    "solve_ivp",
+    "runtime",
     "Wall-clock time for solve_ivp()"
 )
 _default_timelogger.register_event(
@@ -61,7 +61,8 @@ def solve_ivp(
     settling_time: float = 0.0,
     t0: float = 0.0,
     grid_type: str = "combinatorial",
-    time_logging_level: Optional[str] = 'default',
+    time_logging_level: Optional[str] = None,
+    nan_error_trajectories: bool = True,
     **kwargs: Any,
 ) -> SolveResult:
     """Solve a batch initial value problem.
@@ -94,6 +95,11 @@ def solve_ivp(
     time_logging_level : str or None, default='default'
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
+    nan_error_trajectories : bool, default=True
+        When ``True`` (default), trajectories with nonzero solver status
+        codes are automatically set to NaN, protecting users from analyzing
+        invalid data. When ``False``, all trajectories are returned with
+        original values. Ignored when using ``results_type="raw"``.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
@@ -113,10 +119,10 @@ def solve_ivp(
         time_logging_level=time_logging_level,
         **kwargs,
     )
-    
+
     # Start wall-clock timing
     _default_timelogger.start_event("solve_ivp")
-    
+
     results = solver.solve(
         y0,
         parameters,
@@ -125,12 +131,13 @@ def solve_ivp(
         warmup=settling_time,
         t0=t0,
         grid_type=grid_type,
+        nan_error_trajectories=nan_error_trajectories,
         **kwargs,
     )
-    
+
     # Stop wall-clock timing (summary printed by Solver.solve)
     _default_timelogger.stop_event("solve_ivp")
-    
+
     return results
 
 
@@ -442,6 +449,7 @@ class Solver:
         chunk_axis: str = "run",
         grid_type: str = "verbatim",
         results_type: str = "full",
+        nan_error_trajectories: bool = True,
         **kwargs: Any,
     ) -> SolveResult:
         """Solve a batch initial value problem.
@@ -479,6 +487,11 @@ class Solver:
             Only used when dict inputs trigger grid construction.
         results_type
             Format of returned results, for example ``"full"`` or ``"numpy"``.
+        nan_error_trajectories
+            When ``True`` (default), trajectories with nonzero status codes
+            are automatically set to NaN, making failed runs easy to identify
+            and exclude from analysis. When ``False``, all trajectories are
+            returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
             Additional options forwarded to :meth:`update`.
 
@@ -500,7 +513,7 @@ class Solver:
         """
         if kwargs:
             self.update(kwargs, silent=True)
-        
+
         # Start wall-clock timing for solve
         _default_timelogger.start_event("solver_solve")
 
@@ -543,13 +556,17 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
-        
+
         # Stop wall-clock timing and print runtime summary
         # (CUDA events retrieved automatically by print_summary)
         _default_timelogger.stop_event("solver_solve")
         _default_timelogger.print_summary(category='runtime')
-        
-        return SolveResult.from_solver(self, results_type=results_type)
+
+        return SolveResult.from_solver(
+            self,
+            results_type=results_type,
+            nan_error_trajectories=nan_error_trajectories
+        )
 
     def build_grid(
         self,
@@ -910,6 +927,11 @@ class Solver:
     def iteration_counters(self):
         """Expose iteration counters at each save point."""
         return self.kernel.iteration_counters
+
+    @property
+    def status_codes(self):
+        """Expose integration status codes."""
+        return self.kernel.status_codes
 
     @property
     def parameters(self):

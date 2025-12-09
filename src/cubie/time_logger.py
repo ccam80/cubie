@@ -652,4 +652,4 @@ class TimeLogger:
 
 # Default global logger instance
 # Use set_verbosity() to configure, or access via cubie.time_logger
-_default_timelogger = TimeLogger(verbosity='default')
+_default_timelogger = TimeLogger(verbosity=None)

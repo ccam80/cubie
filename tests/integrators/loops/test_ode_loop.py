@@ -54,11 +54,11 @@ LOOP_CASES = [
         id="crank_nicolson_i",
         marks=pytest.mark.specific_algos,
     ),
-    # pytest.param(
-    #     {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
-    #     id="crank_nicolson_gustafsson",
-    #     marks=pytest.mark.specific_algos,
-    # ), # Gustaffson looping infintely!
+    pytest.param(
+        {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
+        id="crank_nicolson_gustafsson",
+        marks=pytest.mark.specific_algos,
+    ), # Gustaffson looping infintely!
     pytest.param(
         {"algorithm": "erk", "step_controller": "pid"},
         id="erk",
@@ -237,12 +237,8 @@ def test_getters(
 def test_initial_observable_seed_matches_reference(
     device_loop_outputs,
     cpu_loop_outputs,
-    output_functions,
     tolerance,
 ):
-    """Ensure the initial observable snapshot reflects the initial state."""
-    if not output_functions.compile_flags.save_observables:
-        pytest.skip("Observables are not saved for this configuration.")
 
     np.testing.assert_allclose(
         device_loop_outputs.observables[0],
