@@ -48,6 +48,8 @@ def solve_ivp(
     duration: float = 1.0,
     settling_time: float = 0.0,
     t0: float = 0.0,
+    save_variables: Optional[List[str]] = None,
+    summarise_variables: Optional[List[str]] = None,
     grid_type: str = "combinatorial",
     time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
@@ -77,6 +79,16 @@ def solve_ivp(
         Warm-up period prior to storing outputs. Default is ``0.0``.
     t0
         Initial integration time supplied to the solver. Default is ``0.0``.
+    save_variables : list of str, optional
+        Variable names (states or observables) to save in time-domain output.
+        Alternative to specifying saved_states and saved_observables separately.
+        Can be combined with existing parameters using union semantics.
+        Default is ``None``.
+    summarise_variables : list of str, optional
+        Variable names (states or observables) to include in summary calculations.
+        Alternative to specifying summarised_states and summarised_observables.
+        Can be combined with existing parameters using union semantics.
+        Default is ``None``.
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
@@ -99,6 +111,10 @@ def solve_ivp(
     loop_settings = kwargs.pop("loop_settings", None)
     if dt_save is not None:
         kwargs.setdefault("dt_save", dt_save)
+    if save_variables is not None:
+        kwargs.setdefault("save_variables", save_variables)
+    if summarise_variables is not None:
+        kwargs.setdefault("summarise_variables", summarise_variables)
 
     solver = Solver(
         system,
@@ -154,7 +170,11 @@ class Solver:
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
     **kwargs
-        Additional keyword arguments forwarded to internal components.
+        Additional keyword arguments forwarded to internal components. This
+        includes output selection parameters such as ``save_variables`` and
+        ``summarise_variables`` which provide a unified interface for
+        specifying variables to save or summarize without distinguishing
+        between states and observables.
 
     Notes
     -----
@@ -285,8 +305,12 @@ class Solver:
         -----
         Users may supply selectors as labels or integers; this resolver ensures
         that downstream components receive numeric indices and canonical keys.
+        
+        The unified parameters ``save_variables`` and ``summarise_variables``
+        are automatically classified into states and observables using
+        SystemInterface. Results are merged with existing indices using set union,
+        allowing both old and new parameter styles to coexist.
         """
-
         resolvers = {
             "saved_states": self.system_interface.state_indices,
             "saved_state_indices": self.system_interface.state_indices,
@@ -328,6 +352,135 @@ class Solver:
                         f"{outkey} = {output_settings[outkey]}"
                     )
                 output_settings[outkey] = indices
+        
+        # Process save_variables and summarise_variables after converting
+        # label-based parameters to indices. This allows union with both
+        # label-based and index-based existing parameters.
+        has_save_vars = ("save_variables" in output_settings
+                         and output_settings["save_variables"] is not None)
+        has_summarise_vars = ("summarise_variables" in output_settings
+                              and output_settings["summarise_variables"]
+                              is not None)
+        
+        # Process save_variables parameter
+        if has_save_vars:
+            save_vars = output_settings.pop("save_variables")
+            if save_vars:
+                state_idxs, obs_idxs = self._classify_variables(save_vars)
+                self._merge_indices(
+                    output_settings, "saved_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings, "saved_observable_indices", obs_idxs
+                )
+        
+        # Process summarise_variables parameter
+        if has_summarise_vars:
+            summarise_vars = output_settings.pop("summarise_variables")
+            if summarise_vars:
+                state_idxs, obs_idxs = self._classify_variables(
+                    summarise_vars
+                )
+                self._merge_indices(
+                    output_settings, "summarised_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings,
+                    "summarised_observable_indices",
+                    obs_idxs
+                )
+
+    def _merge_indices(
+        self,
+        output_settings: Dict[str, Any],
+        key: str,
+        new_indices: np.ndarray,
+    ) -> None:
+        """Merge new indices with existing indices using union semantics.
+        
+        Parameters
+        ----------
+        output_settings
+            Settings dictionary to update in-place.
+        key
+            Dictionary key for the indices array.
+        new_indices
+            New indices to merge with existing ones.
+        """
+        if key in output_settings and output_settings[key] is not None:
+            existing = output_settings[key]
+            combined = np.union1d(existing, new_indices).astype(np.int16)
+            output_settings[key] = combined
+        elif len(new_indices) > 0:
+            output_settings[key] = new_indices
+
+    def _classify_variables(
+        self,
+        var_names: List[str],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Classify variable names into states and observables.
+        
+        Parameters
+        ----------
+        var_names
+            List of variable names to classify.
+        
+        Returns
+        -------
+        state_indices : np.ndarray
+            Array of state indices (dtype=np.int16).
+        observable_indices : np.ndarray
+            Array of observable indices (dtype=np.int16).
+        
+        Raises
+        ------
+        ValueError
+            If any variable name is not found in states or observables.
+        """
+        state_list = []
+        observable_list = []
+        unrecognized = []
+        
+        for name in var_names:
+            # Try as state first
+            try:
+                idx = self.system_interface.state_indices(
+                    [name], silent=False
+                )
+                state_list.extend(idx.tolist())
+                continue
+            except (KeyError, IndexError):
+                pass
+            
+            # Only try as observable if not found as state
+            try:
+                idx = self.system_interface.observable_indices(
+                    [name], silent=False
+                )
+                observable_list.extend(idx.tolist())
+                continue
+            except (KeyError, IndexError):
+                pass
+            
+            # Only reaches here if neither classification succeeded
+            unrecognized.append(name)
+        
+        if unrecognized:
+            state_names = self.system_interface.states.names
+            obs_names = self.system_interface.observables.names
+            raise ValueError(
+                f"Variables not found in states or observables: "
+                f"{unrecognized}. "
+                f"Available states: {state_names}. "
+                f"Available observables: {obs_names}."
+            )
+        
+        return (
+            np.array(state_list, dtype=np.int16) if state_list
+            else np.array([], dtype=np.int16),
+            np.array(observable_list, dtype=np.int16) if observable_list
+            else np.array([], dtype=np.int16)
+        )
 
     def _classify_inputs(
         self,
@@ -473,7 +626,10 @@ class Solver:
             and exclude from analysis. When ``False``, all trajectories are
             returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
-            Additional options forwarded to :meth:`update`.
+            Additional options forwarded to :meth:`update`. Accepts output
+            configuration including ``save_variables`` and
+            ``summarise_variables`` (lists of variable names that will be
+            automatically classified as states or observables).
 
         Returns
         -------
