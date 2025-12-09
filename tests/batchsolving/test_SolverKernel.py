@@ -45,7 +45,9 @@ def test_kernel_builds(solverkernel):
           "duration": 0.3}, {})
     ),
     ids=["smoke_test", "fire_test"],
-    indirect=True,
+    indirect=True, #I'm no longer certain why the latter is called fire -
+        # its been slimmed back to potentially smaller than smoke, but its
+        # duration is far longer.
 )
 def test_run(
     solverkernel,
