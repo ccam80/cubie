@@ -122,70 +122,107 @@ gain = {
 
 ### Mathematical Formulation
 
-Based on the OrdinaryDiffEq.jl documentation and implementation:
+Based on the actual OrdinaryDiffEq.jl source code:
 
 ```
-Step acceptance:
+Step size computation (stepsize_controller!):
 1. Compute normalized error estimate EEst
 
-2. Accept if: EEst ≤ 1.0
+2. Compute adaptive damping factor:
+   if fac_default_gamma(alg):
+       fac = gamma
+   else:
+       fac = min(gamma, (1 + 2*maxiters)*gamma / (iter + 2*maxiters))
+   
+3. Compute basic step size ratio:
+   expo = 1 / (adaptive_order + 1)
+   qtmp = EEst^expo / fac
+   q = clamp(qtmp, 1/qmax, 1/qmin)
+   
+4. Store q in integrator.qold
 
-3a. If accepted:
-    Δt_{n+1} = Δt_n * (EEst_accept / EEst_n)^(1/k) / q_old
-    
-    where:
-    - EEst_accept = 1.0 (target error)
-    - k = error_order (typically p for embedded (p-1) error estimate)
-    - q_old = previous step size ratio
+Step acceptance (step_accept_controller!):
+5. If success_iter > 0 (not first successful step):
+   expo = 1 / (adaptive_order + 1)
+   qgus = (dtacc / dt) * ((EEst² / erracc)^expo)
+   qgus = clamp(qgus / gamma, 1/qmax, 1/qmin)
+   qacc = max(q, qgus)
+   else:
+   qacc = q
 
-3b. If rejected (first rejection):
-    Δt_n ← Δt_n * 0.1
+6. Apply deadband (qsteady_min to qsteady_max):
+   if qsteady_min ≤ qacc ≤ qsteady_max:
+       qacc = 1.0
 
-3c. If rejected (subsequent):
-    Δt_n ← Δt_n / q_old
+7. Update history and compute new dt:
+   dtacc = dt
+   erracc = max(1e-2, EEst)
+   dt_new = dt / qacc
 
-4. Apply safety factor and limits:
-   Δt_{n+1} = clamp(gamma * Δt_{n+1}, q_min * Δt_n, q_max * Δt_n)
+Step rejection (step_reject_controller!):
+8. If success_iter == 0 (first rejection):
+   dt_new = 0.1 * dt
+   else:
+   dt_new = dt / qold
 ```
 
 ### Key Mathematical Expressions
 
-**Step size update (accepted step):**
+**Adaptive damping factor (identical to CuBIE):**
 ```
-Δtₙ₊₁ = Δtₙ * (1/EEstₙ)^(1/k) / q_old
+fac = min(γ, ((1 + 2M)γ) / (k + 2M))
+```
+where:
+- `γ` = gamma (safety factor)
+- `M` = maxiters (max Newton/FIRK iterations)
+- `k` = iter (actual iterations in current step)
+
+**Basic step size ratio:**
+```
+q = clamp(EEst^(1/(p+1)) / fac, 1/qmax, 1/qmin)
 ```
 
-where `q_old = Δtₙ / Δtₙ₋₁` is tracked from the previous step.
+**Gustafsson predictive ratio (on acceptance with history):**
+```
+qgus = (dtacc / dt) * ((EEst² / erracc)^(1/(p+1)))
+qgus = clamp(qgus / gamma, 1/qmax, 1/qmin)
+qacc = max(q, qgus)
+```
+
+**Note on error representation:** OrdinaryDiffEq.jl's `EEst` is a normalized error that is already dimensionless (like a squared norm without square root), similar to CuBIE's `nrm2`.
 
 **Exponent:**
 ```
-k = error_order
+expo = 1 / (p + 1)
 ```
-Typically `k = p` where `p` is the order of the lower-order method in the embedded pair.
+where `p` is the adaptive order of the method.
 
 **Rejection logic:**
-- First rejection: aggressive 10× reduction
-- Subsequent rejections: divide by previous ratio `q_old`
+- First rejection (`success_iter == 0`): aggressive 10× reduction (`dt * 0.1`)
+- Subsequent rejections: divide by previous ratio (`dt / qold`)
 
 ### Parameters
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `gamma` | 0.9 | Safety factor |
-| `qmin` | 0.2 (1/5) | Minimum step size ratio |
-| `qmax` | 5.0 | Maximum step size ratio |
-| `accept_safety` | ~0.81 | Threshold for accepting predicted changes |
-| `error_order` | Varies | Order of error estimate |
+| `qmin` | 0.2 (1/5) | Minimum inverse step size ratio |
+| `qmax` | 5.0 | Maximum inverse step size ratio |
+| `qsteady_min` | 1.0 | Lower deadband threshold |
+| `qsteady_max` | 1.2 | Upper deadband threshold |
+| `maxiters` | Varies | Maximum iterations for implicit solver |
 
 ### Unique Features
 
-1. **Division by previous ratio `q_old`**: Creates a predictive mechanism that compensates for previous step size changes. If the previous change was conservative (small `q_old`), the current step is more optimistic.
+1. **Ratio-based formulation**: Uses `q = 1/(step_size_multiplier)`, so smaller `q` means larger next step. This is opposite to the typical gain convention.
 
-2. **Two-level rejection strategy**: Distinguishes between first rejection (significant misjudgment → 10× reduction) and subsequent rejections (locally difficult → gentler reduction).
+2. **Maximum selection for Gustafsson**: Uses `qacc = max(q, qgus)`, choosing the **larger** of the two ratios, which corresponds to the **smaller** step size increase (more conservative).
 
-3. **Explicit tracking of step size history**: Maintains `q_old` as state variable throughout integration.
+3. **Squared error ratio with NO additional squaring**: `(EEst² / erracc)^expo` where `EEst` is already like error². This is mathematically: `(ε² / ε²_prev)^(1/(p+1))`.
 
-4. **Simpler formula**: No dependence on Newton iterations or multiple gain calculations.
+4. **Explicit history tracking**: Stores `dtacc` (previous accepted dt) and `erracc` (previous accepted error) separately from current step values.
+
+5. **Only applies Gustafsson on successful steps**: The predictive component only activates after at least one successful step (`success_iter > 0`).
 
 ---
 
@@ -256,69 +293,140 @@ where:
 | Controller | Step Size Formula | Error Terms | History Terms |
 |------------|------------------|-------------|---------------|
 | **CuBIE Gustafsson** | `h_{n+1} = h_n * min(gain_gus, gain_basic)` | `nrm2_n`, `nrm2_{n-1}` | `h_{n-1}`, `niters` |
-| **OrdinaryDiffEq.jl** | `h_{n+1} = h_n * ε_n^(1/k) / q_old` | `ε_n` only | `q_old = h_n/h_{n-1}` |
+| **OrdinaryDiffEq.jl** | `h_{n+1} = h_n / max(q, qgus)` | `EEst_n`, `EEst_{n-1}` | `dt_{n-1}`, `iter` |
 | **Textbook H211b** | `h_{n+1} = h_n * ε_n^(1/(bk)) * ε_{n-1}^(1/(bk)) * ρ_n^(-1/b)` | `ε_n`, `ε_{n-1}` | `ρ_n = h_n/h_{n-1}` |
 
-### Key Differences
+### Critical Mathematical Differences Between CuBIE and OrdinaryDiffEq.jl
 
-#### 1. Error Exponent
+Both implementations are based on the same Gustafsson algorithm but have **subtle yet significant** mathematical differences:
 
-- **CuBIE**: Uses `expo = 1/(2(p+1))` in both basic and Gustafsson gains
-- **OrdinaryDiffEq.jl**: Uses `1/k` where typically `k = p`
-- **Textbook**: Uses `1/(bk)` where `k = p+1` and `b` is tunable (2-6)
+#### 1. Error Representation and Exponent
 
-The CuBIE exponent is derived as `1/(2(p+1))` which for a 5th order method gives `1/12 ≈ 0.083`. The textbook with `b=4` and `p=5` gives `1/(4*6) = 1/24 ≈ 0.042`, making it more conservative.
+**CuBIE:**
+- Error norm: `nrm2 = (1/n) * Σ[(error_i / tol_i)²]` - **squared** without square root
+- Exponent: `expo = 1/(2(p+1))` - the factor of **1/2** compensates for squared norm
+- For p=5: `expo = 1/12 ≈ 0.083`
 
-#### 2. Predictive Mechanism
+**OrdinaryDiffEq.jl:**
+- Error estimate: `EEst` - normalized error (implementation-dependent, typically also squared)
+- Exponent: `expo = 1/(p+1)` - **no factor of 1/2**
+- For p=5: `expo = 1/6 ≈ 0.167`
 
-- **CuBIE**: Uses squared error ratio `(nrm2²/nrm2_prev)^(-expo)` and current/previous step size ratio
-- **OrdinaryDiffEq.jl**: Uses division by previous step size ratio `q_old`
-- **Textbook**: Uses step size ratio raised to `-1/b` power
+**Implication:** If both use squared error norms, OrdinaryDiffEq.jl's larger exponent makes it respond **more aggressively** to error changes.
 
-#### 3. Adaptive Damping
+#### 2. Gustafsson Predictive Term - THE KEY DIFFERENCE
 
-- **CuBIE**: **Unique feature** - adjusts damping factor `fac` based on Newton iteration count:
-  ```
-  fac = min(γ, ((1 + 2M)γ) / (k + 2M))
-  ```
-  This makes the controller more conservative when implicit solves converge slowly.
+**CuBIE:**
+```
+ratio = nrm2 * nrm2 / err_prev    # This is ε⁴ / ε²_prev
+gain_gus = safety * (h_n/h_{n-1}) * (ratio)^(-expo) * gamma
+         = safety * (h_n/h_{n-1}) * (ε⁴/ε²_prev)^(-1/(2(p+1))) * gamma
+         = safety * (h_n/h_{n-1}) * ε^(-2/(p+1)) * ε_prev^(1/(p+1)) * gamma
+```
 
-- **OrdinaryDiffEq.jl**: Fixed safety factor `gamma`, no iteration-dependent adjustment
+**OrdinaryDiffEq.jl:**
+```
+qgus = (dtacc/dt) * ((EEst²/erracc)^expo)
+     = (h_{n-1}/h_n) * ((ε²/ε²_prev)^(1/(p+1)))
+     = (h_{n-1}/h_n) * ε^(-2/(p+1)) * ε_prev^(2/(p+1))
+```
 
-- **Textbook**: Fixed parameters, no iteration dependence
+**Critical Difference:**
+- **CuBIE**: Previous error has exponent `+1/(p+1)`
+- **OrdinaryDiffEq.jl**: Previous error has exponent `+2/(p+1)` (twice as much weight!)
 
-#### 4. Gain Selection Strategy
+This means OrdinaryDiffEq.jl gives **double the weight** to the previous error in the predictive term.
 
-- **CuBIE**: Conservative `min(gain_gus, gain_basic)` - always chooses smaller gain
-- **OrdinaryDiffEq.jl**: Direct calculation, no min/max selection between variants
-- **Textbook**: Single formula, no fallback mechanism
+#### 3. Adaptive Damping - IDENTICAL!
 
-#### 5. Fallback Logic
+**Both implementations use the same formula:**
+```
+fac = min(γ, ((1 + 2M)γ) / (k + 2M))
+```
+where:
+- `γ` = gamma (typically 0.9)
+- `M` = max iterations (maxiters)
+- `k` = actual iterations (niters or iter)
 
-- **CuBIE**: Falls back to basic I-controller gain when:
-  - Step rejected
-  - No previous step history (dt_prev < 1e-16)
-  - Predictive gain exceeds basic gain
+This makes both controllers more conservative when implicit solves converge slowly.
 
-- **OrdinaryDiffEq.jl**: Two-level rejection strategy (10× on first rejection, divide by q_old subsequently)
+#### 4. Gain Selection Strategy - OPPOSITE CONVENTIONS!
 
-- **Textbook**: Typically uniform formula, though implementations may add rejection logic
+**CuBIE:**
+```
+gain = min(gain_gus, gain_basic)   # Choose smaller gain = smaller step increase
+```
+Uses "gain" convention where `h_new = h_old * gain` and smaller gain = more conservative.
 
-#### 6. Historical Information Used
+**OrdinaryDiffEq.jl:**
+```
+qacc = max(q, qgus)                # Choose larger q = smaller step increase
+```
+Uses "ratio" convention where `h_new = h_old / q` and larger q = more conservative.
 
-- **CuBIE**: 
-  - Previous error norm `err_prev`
-  - Previous step size `dt_prev`
-  - Current Newton iterations `niters`
-  
-- **OrdinaryDiffEq.jl**:
-  - Previous step size ratio `q_old`
-  - Current error only
+**Mathematically equivalent strategies** - both choose the more conservative option!
 
-- **Textbook H211b**:
-  - Previous error `ε_{n-1}`
-  - Previous step size ratio `ρ_n`
-  - Current error `ε_n`
+#### 5. When Predictive Term is Applied
+
+**CuBIE:**
+- Applied on every step (if step accepted and history exists)
+- Falls back to `gain_basic` on rejection or no history
+
+**OrdinaryDiffEq.jl:**
+- Applied only after at least one successful step (`success_iter > 0`)
+- Falls back to `q` on first successful step
+
+#### 6. Error Ratio in Predictive Term - THE SQUARED DIFFERENCE
+
+**CuBIE explicitly cubes the current error:**
+```
+ratio = nrm2 * nrm2 / err_prev     # ε⁴ / ε²_prev
+```
+
+**OrdinaryDiffEq.jl squares the error ratio:**
+```
+(EEst² / erracc)                    # (ε²)² / ε²_prev = ε⁴ / ε²_prev
+```
+
+**These are mathematically IDENTICAL** if both use squared norms! The difference in exponents (1/(2(p+1)) vs 1/(p+1)) is what matters.
+
+### Summary: CuBIE vs OrdinaryDiffEq.jl Key Differences
+
+The implementations are **very similar** in structure but differ in critical details:
+
+| Aspect | CuBIE | OrdinaryDiffEq.jl | Impact |
+|--------|-------|------------------|---------|
+| **Error exponent** | `1/(2(p+1))` | `1/(p+1)` | ODE.jl responds 2× faster to error changes |
+| **Previous error weight** | `ε_prev^(1/(p+1))` | `ε_prev^(2/(p+1))` | ODE.jl gives 2× weight to history |
+| **Basic gain computation** | `fac * (ε²)^(-1/(2(p+1)))` | `(ε²)^(-1/(p+1)) / fac` | Mathematically different but same purpose |
+| **Selection strategy** | `min(gain_gus, gain_basic)` | `max(q, qgus)` | Both choose conservative option |
+| **When predictive applied** | Every accepted step | After first success | CuBIE more consistent |
+| **Adaptive damping** | **IDENTICAL** | **IDENTICAL** | Both use same `fac` formula |
+| **Squared error handling** | **IDENTICAL** | **IDENTICAL** | Both use `ε⁴/ε²_prev` |
+
+### Mathematical Implications
+
+1. **Exponent difference:** OrdinaryDiffEq.jl's `1/(p+1)` exponent (vs CuBIE's `1/(2(p+1))`) makes it respond **twice as aggressively** to error changes. For p=5:
+   - CuBIE: `ε^(±1/12) ≈ ε^(±0.083)`
+   - ODE.jl: `ε^(±1/6) ≈ ε^(±0.167)`
+   - If error doubles (ε=2), CuBIE changes step by factor `2^(1/12) ≈ 1.06` (6%), ODE.jl by `2^(1/6) ≈ 1.12` (12%)
+
+2. **Previous error weight:** OrdinaryDiffEq.jl's `ε_prev^(2/(p+1))` gives twice the exponent to historical error compared to CuBIE's `ε_prev^(1/(p+1))`. This makes ODE.jl's predictor **more heavily influenced by past behavior**.
+
+3. **Combined effect on Gustafsson gain:** For error decreasing from ε_prev=2.0 to ε=1.5, with p=5:
+   - CuBIE: `gain_gus ∝ (1.5)^(-2/6) * (2.0)^(1/6) ≈ 0.817 * 1.122 ≈ 0.917`
+   - ODE.jl: `qgus ∝ (1.5)^(-2/6) * (2.0)^(2/6) ≈ 0.817 * 1.260 ≈ 1.030`
+   - ODE.jl gives **13% more weight** to the improving trend
+
+### Historical Information Comparison
+
+| Implementation | Tracks | Uses For |
+|----------------|--------|----------|
+| **CuBIE** | `err_prev`, `dt_prev`, `niters` | Predictive gain, adaptive damping |
+| **OrdinaryDiffEq.jl** | `erracc`, `dtacc`, `qold`, `iter`, `success_iter` | Predictive gain, adaptive damping, rejection logic |
+| **Textbook H211b** | `ε_{n-1}`, `ρ_n` | Symmetric filtering |
+
+Both CuBIE and OrdinaryDiffEq.jl track similar information but use it differently in their predictive formulas.
 
 ---
 
@@ -329,16 +437,18 @@ The CuBIE exponent is derived as `1/(2(p+1))` which for a 5th order method gives
 #### Smooth Problems (slowly varying error)
 
 **CuBIE Gustafsson:**
-- The `min(gain_gus, gain_basic)` strategy produces conservative step size increases
-- Squared error ratio `(nrm2²/nrm2_prev)` is more sensitive to small error changes
-- Adaptive damping with Newton iterations prevents aggressive stepping when convergence is marginal
-- **Result**: Smooth, conservative step size sequence with emphasis on reliability
+- Smaller exponent `1/(2(p+1))` produces gentler step size changes
+- Previous error weight `ε_prev^(1/(p+1))` provides moderate historical influence
+- `min(gain_gus, gain_basic)` always chooses more conservative option
+- Adaptive damping prevents aggressive stepping when Newton convergence is slow
+- **Result**: Smooth, very conservative step size sequence, emphasis on reliability
 
 **OrdinaryDiffEq.jl Predictive:**
-- Division by `q_old` compensates for previous conservatism
-- If previous step was conservative (small `q_old`), next step is more aggressive
-- Simpler formula allows faster step size growth in smooth regions
-- **Result**: More aggressive step size increases in smooth regions, potentially fewer total steps
+- Larger exponent `1/(p+1)` produces more aggressive step size changes (2× faster response)
+- Previous error weight `ε_prev^(2/(p+1))` provides stronger historical influence (2× weight)
+- `max(q, qgus)` chooses more conservative of two ratios (mathematically equivalent to CuBIE's min)
+- After first success, predictive term helps adapt to trends
+- **Result**: More aggressive adaptation to changing error behavior, faster response to improving conditions
 
 **Textbook H211b:**
 - Symmetric error terms `ε_n^(1/(bk)) * ε_{n-1}^(1/(bk))` provide balanced filtering
@@ -388,91 +498,141 @@ The CuBIE exponent is derived as `1/(2(p+1))` which for a 5th order method gives
 
 ### Quantitative Comparison
 
-For a typical 5th-order method with normalized error `ε = 1.5` (error below tolerance by 50%):
+For a typical 5th-order method (p=5) with normalized **squared** error `ε² = 0.5` (error below tolerance):
 
-**CuBIE (assuming accepted step, niters=3, M=20, γ=0.9):**
+**CuBIE (assuming accepted step, niters=3, M=20, γ=0.9, safety=0.9):**
 ```
 expo = 1/(2*6) = 1/12 ≈ 0.083
 fac = min(0.9, (1 + 40)*0.9 / (3 + 40)) ≈ min(0.9, 0.858) = 0.858
-gain_basic = 0.858 * (1/1.5)^(1/12) ≈ 0.858 * 0.968 ≈ 0.831
 
-For Gustafsson gain (assuming error decreased from prev):
-ratio = (1.5)² / 2.0 = 1.125
-gain_gus = 0.9 * (h_n/h_{n-1}) * (1/1.125)^(1/12) * 0.9
-        ≈ 0.81 * (h_n/h_{n-1}) * 0.990
-        
-If h_n/h_{n-1} = 1.1:
-gain_gus ≈ 0.81 * 1.1 * 0.990 ≈ 0.882
+Basic gain:
+nrm2 = 0.5
+gain_basic = 0.858 * (0.5)^(-0.083) ≈ 0.858 * 1.058 ≈ 0.908
 
-gain = min(0.882, 0.831) = 0.831
-Step size decreases by ~17%
+Gustafsson gain (assuming err_prev = 0.8, h_n/h_{n-1} = 1.0):
+ratio = 0.5 * 0.5 / 0.8 = 0.3125
+gain_gus = 0.9 * 1.0 * (0.3125)^(-0.083) * 0.9
+         ≈ 0.81 * 1.098 ≈ 0.889
+
+gain = min(0.889, 0.908) = 0.889
+Step size DECREASES by ~11%
 ```
 
-**OrdinaryDiffEq.jl (assuming k=5, q_old=1.2):**
+**OrdinaryDiffEq.jl (assuming iter=3, M=20, γ=0.9, erracc=0.8, dtacc/dt=1.0):**
 ```
-gain = (1.5)^(1/5) / 1.2 ≈ 1.084 / 1.2 ≈ 0.903
-Step size decreases by ~10%
+expo = 1/6 ≈ 0.167
+fac = min(0.9, (1 + 40)*0.9 / (3 + 40)) ≈ 0.858
+
+Basic ratio:
+EEst = 0.5
+qtmp = (0.5)^(0.167) / 0.858 ≈ 0.890 / 0.858 ≈ 1.037
+q = 1.037 (clamped to range)
+
+Gustafsson ratio (success_iter > 0):
+qgus = 1.0 * ((0.5)² / 0.8)^(0.167)
+     = ((0.25 / 0.8)^(0.167))
+     = (0.3125)^(0.167)
+     ≈ 0.816
+qgus_final = 0.816 / 0.9 ≈ 0.907
+
+qacc = max(1.037, 0.907) = 1.037
+dt_new = dt / 1.037
+Step size DECREASES by ~4%
 ```
 
-**Textbook H211b (assuming b=4, k=6, ε_{n-1}=1.3, ρ_n=1.2):**
+**Key observation:** With error below tolerance (ε² < 1.0), OrdinaryDiffEq.jl actually **increases** the step size more aggressively due to the larger exponent. The example shows ODE.jl reduces less (4%) compared to CuBIE (11%).
+
+**For error above tolerance (ε² = 1.5):**
+
+**CuBIE:**
 ```
-gain = (1.5)^(1/24) * (1.3)^(1/24) * (1.2)^(-1/4)
-     ≈ 1.017 * 1.011 * 0.871 ≈ 0.896
-Step size decreases by ~10%
+gain_basic = 0.858 * (1.5)^(-0.083) ≈ 0.858 * 0.967 ≈ 0.830
+Step size DECREASES by ~17%
 ```
 
-This shows CuBIE is most conservative in this scenario, while OrdinaryDiffEq.jl and textbook H211b are similar and less conservative.
+**OrdinaryDiffEq.jl:**
+```
+qtmp = (1.5)^(0.167) / 0.858 ≈ 1.068 / 0.858 ≈ 1.245
+Step size DECREASES by ~20% (dt/1.245)
+```
+
+**When error exceeds tolerance, OrdinaryDiffEq.jl reduces MORE aggressively** (20% vs 17%).
 
 ### Expected Step Count Differences
 
-Based on the mathematical formulations and typical behavior:
+Based on the mathematical formulations and actual behavior:
 
 **CuBIE Gustafsson:**
-- Most conservative in step size increases (minimum selection strategy)
-- Expected step count: **baseline + 5-15%** compared to standard PI controller
-- Advantage: High reliability, fewer rejected steps on difficult problems
+- Smaller exponent `1/(2(p+1))` produces gentler responses
+- Conservative minimum-selection strategy
+- Expected step count: **similar to OrdinaryDiffEq.jl** for well-behaved problems
+- Advantage: More stable for problems where Newton convergence varies
 
 **OrdinaryDiffEq.jl Predictive:**
-- More aggressive in smooth regions (division by `q_old`)
-- Expected step count: **baseline ± 5%** compared to standard PI controller
-- Advantage: Efficient on problems with alternating smooth/difficult regions
+- Larger exponent `1/(p+1)` produces 2× faster response
+- More aggressive adaptation when error is small
+- More conservative reduction when error is large
+- Expected step count: **similar to CuBIE** for well-behaved problems
+- Advantage: Faster adaptation to changing problem difficulty
 
 **Textbook H211b (b=4):**
 - Smoothest step size sequence
 - Expected step count: **baseline ± 3%** compared to standard PI controller
 - Advantage: Minimal step size oscillation, predictable behavior
 
+**Key insight:** The mathematical differences between CuBIE and OrdinaryDiffEq.jl are **compensating** - ODE.jl's larger exponent is balanced by its different gain selection strategy, resulting in similar overall efficiency but different transient behavior.
+
 ---
 
-## Summary Table
+## Summary Table: CuBIE vs OrdinaryDiffEq.jl
 
-| Aspect | CuBIE Gustafsson | OrdinaryDiffEq.jl Predictive | Textbook H211b |
-|--------|-----------------|----------------------------|----------------|
-| **Error exponent** | `1/(2(p+1))` | `1/k ≈ 1/p` | `1/(bk)` with `k=p+1` |
-| **Adaptivity** | Iteration-dependent | Fixed parameters | Tunable via `b` |
-| **Conservatism** | Most conservative | Moderate | Depends on `b` |
-| **Historical info** | 2 errors, 1 ratio, niters | 1 error, 1 ratio | 2 errors, 1 ratio |
-| **Gain strategy** | Minimum of two gains | Direct calculation | Single formula |
-| **Fallback** | To basic gain | Two-level rejection | Typically none |
-| **Smoothness** | High (min selection) | Moderate | Highest (filtering) |
-| **Aggression** | Low | High | Moderate |
-| **Best for** | Implicit stiff problems | Mixed smooth/difficult | Smooth stiff problems |
-| **Complexity** | High | Low | Moderate |
+| Aspect | CuBIE Gustafsson | OrdinaryDiffEq.jl Predictive |
+|--------|-----------------|----------------------------|
+| **Error exponent** | `1/(2(p+1))` | `1/(p+1)` **(2× larger)** |
+| **Previous error weight** | `ε_prev^(1/(p+1))` | `ε_prev^(2/(p+1))` **(2× larger)** |
+| **Adaptive damping** | **IDENTICAL** `fac = min(γ, ...)` | **IDENTICAL** `fac = min(γ, ...)` |
+| **Error term in predictor** | `(ε⁴/ε²_prev)^(-1/(2(p+1)))` | `(ε⁴/ε²_prev)^(-1/(p+1))` |
+| **Selection strategy** | `min(gain_gus, gain_basic)` | `max(q, qgus)` **(equivalent!)** |
+| **When predictor applies** | Every accepted step | After first success |
+| **Response to error < tol** | Gentler increase | Faster increase **(2×)** |
+| **Response to error > tol** | Gentler decrease | Faster decrease **(2×)** |
+| **Overall efficiency** | **Similar** | **Similar** |
+| **Transient behavior** | Smoother, more damped | Snappier, faster adapting |
+| **Best for** | Implicit methods with varying convergence | General purpose, rapid adaptation |
 
 ---
 
 ## Conclusion
 
-The three implementations represent different design philosophies:
+### CuBIE vs OrdinaryDiffEq.jl: Core Differences
 
-1. **CuBIE's Gustafsson Controller** prioritizes **reliability and stability**, especially for implicit methods. The iteration-dependent damping and conservative minimum-selection strategy make it well-suited for challenging stiff problems where solver convergence is a concern. The trade-off is potentially more total steps due to conservative stepping.
+The implementations are **nearly identical in structure** but differ in **two critical parameters**:
 
-2. **OrdinaryDiffEq.jl's PredictiveController** prioritizes **efficiency and simplicity**. The division by `q_old` creates an elegant predictive mechanism that allows rapid step size adaptation. The two-level rejection strategy provides good handling of sudden difficulty. This is a good general-purpose controller for mixed problem types.
+1. **Exponent:** OrdinaryDiffEq.jl uses `1/(p+1)` while CuBIE uses `1/(2(p+1))` - exactly **half**
+2. **Previous error weight:** OrdinaryDiffEq.jl uses `ε_prev^(2/(p+1))` while CuBIE uses `ε_prev^(1/(p+1))` - exactly **double**
 
-3. **Textbook H211b Controller** prioritizes **smoothness and theoretical guarantees**. The explicit digital filter design based on control theory provides the smoothest step size sequences and formal stability analysis. The tunable bandwidth parameter allows customization for specific problem classes.
+These differences mean:
+- **OrdinaryDiffEq.jl responds 2× faster** to error changes (both increasing and decreasing step size)
+- **OrdinaryDiffEq.jl gives 2× more weight** to historical error trends
+- Both use **identical adaptive damping** based on iteration counts
+- Both use **identical squared error ratios** `ε⁴/ε²_prev` in the predictive term
+- Both **choose the more conservative** option (mathematically equivalent selection)
 
-For practitioners:
-- Use **CuBIE Gustafsson** when reliability is paramount and the problem involves difficult implicit solves
+### Practical Implications
+
+**CuBIE's approach:**
+- More damped, smoother step size changes
+- Less sensitive to error fluctuations
+- Better for problems where error estimates are noisy
+- Matches intention to work like OrdinaryDiffEq with slightly different tuning
+
+**OrdinaryDiffEq.jl's approach:**
+- Snappier response to changing conditions
+- Faster adaptation to improving/degrading situations
+- Better for problems with rapid transients
+- Default choice for general-purpose solving
+
+**Both implementations are sound** - they represent different points on the conservatism-responsiveness trade-off. The mathematical structure is nearly identical, with only the tuning parameters differing by factors of 2.
 - Use **OrdinaryDiffEq.jl Predictive** for general-purpose work with good efficiency
 - Use **Textbook H211b** when step size smoothness is critical or when theoretical guarantees are needed
 
