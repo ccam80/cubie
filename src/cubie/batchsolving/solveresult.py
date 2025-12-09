@@ -132,6 +132,11 @@ class SolveResult:
         Optional NumPy array containing summary results.
     time
         Optional NumPy array containing time values.
+    iteration_counters
+        Optional NumPy array containing iteration counts per run.
+    status_codes
+        Optional NumPy array containing solver status codes per run (0 for
+        success, nonzero for errors). Shape is (n_runs,) with dtype int32.
     time_domain_legend
         Optional mapping from time-domain indices to labels.
     summaries_legend
@@ -165,6 +170,11 @@ class SolveResult:
         validator=val.optional(val.instance_of(np.ndarray)),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
+    status_codes: Optional[NDArray] = attrs.field(
+        default=None,
+        validator=val.optional(val.instance_of(np.ndarray)),
+        eq=attrs.cmp_using(eq=np.array_equal),
+    )
     time_domain_legend: Optional[dict[int, str]] = attrs.field(
         default=attrs.Factory(dict),
         validator=val.optional(val.instance_of(dict)),
@@ -192,6 +202,7 @@ class SolveResult:
         cls,
         solver: Union["Solver", "BatchSolverKernel"],
         results_type: str = "full",
+        nan_error_trajectories: bool = True,
     ) -> Union["SolveResult", dict[str, Any]]:
         """Create a :class:`SolveResult` from a solver instance.
 
@@ -205,6 +216,11 @@ class SolveResult:
             ``"full"``. ``raw`` shortcuts all processing and outputs numpy
             arrays that are a direct copy of the host, without legends or
             supporting information.
+        nan_error_trajectories
+            When ``True`` (default), trajectories with nonzero status codes
+            are set to NaN. When ``False``, all trajectories are returned
+            with original values regardless of status. This parameter is
+            ignored when ``results_type`` is ``"raw"``.
 
         Returns
         -------
@@ -227,6 +243,9 @@ class SolveResult:
         observable_summaries_active = active_outputs.observable_summaries
         solve_settings = solver.solve_info
 
+        # Retrieve status codes for non-raw results
+        status_codes = solver.status_codes if results_type != 'raw' else None
+
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
@@ -247,6 +266,35 @@ class SolveResult:
             observable_summaries_active,
         )
 
+        # Process error trajectories when enabled
+        if (nan_error_trajectories and status_codes is not None
+                and status_codes.size > 0):
+            # Find runs with nonzero status codes
+            error_run_indices = np.where(status_codes != 0)[0]
+
+            if len(error_run_indices) > 0:
+                # Get stride order and find run dimension
+                stride_order = solver.state_stride_order
+                run_index = stride_order.index("run")
+                ndim = len(stride_order)
+
+                # Set error trajectories to NaN using vectorized indexing
+                if time_domain_array.size > 0:
+                    if run_index == 0:
+                        time_domain_array[error_run_indices, :, :] = np.nan
+                    elif run_index == 1:
+                        time_domain_array[:, error_run_indices, :] = np.nan
+                    else:  # run_index == 2
+                        time_domain_array[:, :, error_run_indices] = np.nan
+
+                if summaries_array.size > 0:
+                    if run_index == 0:
+                        summaries_array[error_run_indices, :, :] = np.nan
+                    elif run_index == 1:
+                        summaries_array[:, error_run_indices, :] = np.nan
+                    else:  # run_index == 2
+                        summaries_array[:, :, error_run_indices] = np.nan
+
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
 
         summaries_legend = cls.summary_legend_from_solver(solver)
@@ -257,6 +305,7 @@ class SolveResult:
             summaries_array=summaries_array,
             time=time,
             iteration_counters=solver.iteration_counters,
+            status_codes=status_codes,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,
