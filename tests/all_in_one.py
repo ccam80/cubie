@@ -2684,6 +2684,7 @@ if n_drivers > 0 and driver_input_dict is not None:
     driver_function = driver_function_inline_factory(interpolator)
 else:
     driver_function = None
+    interpolator = None  # Define as None when drivers not present
     # Create dummy coefficients array for kernel signature compatibility
     driver_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
 
