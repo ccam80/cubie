@@ -49,7 +49,7 @@ def solve_ivp(
     settling_time: float = 0.0,
     t0: float = 0.0,
     grid_type: str = "combinatorial",
-    time_logging_level: Optional[str] = 'default',
+    time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
     **kwargs: Any,
 ) -> SolveResult:
