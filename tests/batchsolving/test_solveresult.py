@@ -543,3 +543,41 @@ class TestSolveResultErrorHandling:
 
         per_summary = result.per_summary_arrays
         assert per_summary == {}
+
+
+class TestSolveResultStatusCodes:
+    """Test status_codes attribute in SolveResult."""
+    
+    @pytest.mark.parametrize(
+        "solver_settings_override",
+        [{"output_types": ["state", "observables", "time"],
+          "dt_save": 0.02,
+          "duration": 0.05}],
+        indirect=True,
+    )
+    def test_status_codes_attribute_exists(self, solver_with_arrays):
+        """Verify status_codes attribute is present in SolveResult."""
+        result = SolveResult.from_solver(solver_with_arrays)
+        
+        assert hasattr(result, 'status_codes')
+        assert result.status_codes is not None
+        assert isinstance(result.status_codes, np.ndarray)
+        assert result.status_codes.dtype == np.int32
+        
+        # Verify shape matches number of runs
+        n_runs = solver_with_arrays.num_runs
+        assert result.status_codes.shape == (n_runs,)
+    
+    @pytest.mark.parametrize(
+        "solver_settings_override",
+        [{"output_types": ["state", "observables"],
+          "dt_save": 0.02,
+          "duration": 0.05}],
+        indirect=True,
+    )
+    def test_status_codes_values_all_zero_for_success(self, solver_with_arrays):
+        """Verify successful runs have zero status codes."""
+        result = SolveResult.from_solver(solver_with_arrays)
+        
+        # All successful runs should have status code 0
+        assert np.all(result.status_codes == 0)
