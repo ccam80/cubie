@@ -20,6 +20,7 @@ from cubie._utils import (
     round_sf,
     slice_variable_dimension,
     timing,
+    unpack_dict_values,
 )
 
 
@@ -387,3 +388,131 @@ def test_is_devfnc():
     assert dev_is_device
     assert not kernel_is_device
     assert not noncuda_is_device
+
+
+def test_unpack_dict_values_basic():
+    """Test basic dict unpacking functionality."""
+    # Basic unpacking: dict values are unpacked, regular values pass through
+    input_dict = {
+        'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
+        'precision': np.float32
+    }
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    assert result == {'dt_min': 0.01, 'dt_max': 1.0, 'precision': np.float32}
+    assert unpacked == {'step_settings'}
+
+
+def test_unpack_dict_values_mixed():
+    """Test unpacking with mixed dict and non-dict values."""
+    input_dict = {
+        'controller': {'atol': 1e-5, 'rtol': 1e-3},
+        'algorithm': 'rk4',
+        'output': {'save_state': True}
+    }
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    assert result == {
+        'atol': 1e-5,
+        'rtol': 1e-3,
+        'algorithm': 'rk4',
+        'save_state': True
+    }
+    assert unpacked == {'controller', 'output'}
+
+
+def test_unpack_dict_values_empty():
+    """Test unpacking with empty dict."""
+    result, unpacked = unpack_dict_values({})
+    assert result == {}
+    assert unpacked == set()
+
+
+def test_unpack_dict_values_empty_dict_value():
+    """Test unpacking when a dict value is empty."""
+    input_dict = {'settings': {}, 'value': 42}
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    assert result == {'value': 42}
+    assert unpacked == {'settings'}
+
+
+def test_unpack_dict_values_nested_dicts():
+    """Test that only one level deep is unpacked."""
+    # Nested dicts within dict values are NOT recursively unpacked
+    input_dict = {
+        'outer': {'inner': {'nested': 'value'}, 'regular': 5}
+    }
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    # Should unpack outer, but leave inner as a dict
+    assert result == {'inner': {'nested': 'value'}, 'regular': 5}
+    assert unpacked == {'outer'}
+
+
+def test_unpack_dict_values_no_dicts():
+    """Test when there are no dict values to unpack."""
+    input_dict = {'a': 1, 'b': 2, 'c': 'test'}
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    assert result == input_dict
+    assert unpacked == set()
+
+
+def test_unpack_dict_values_collision_regular_and_unpacked():
+    """Test that key collision between regular entry and unpacked dict raises error."""
+    # A key appears both as a regular entry and within an unpacked dict
+    input_dict = {
+        'dt_min': 0.001,
+        'step_settings': {'dt_min': 0.01}
+    }
+    
+    with pytest.raises(ValueError, match="Key collision detected.*dt_min"):
+        unpack_dict_values(input_dict)
+
+
+def test_unpack_dict_values_collision_multiple_unpacked():
+    """Test that key collision between multiple unpacked dicts raises error."""
+    # Same key appears in two different dict values
+    input_dict = {
+        'settings1': {'dt_min': 0.01},
+        'settings2': {'dt_min': 0.02}
+    }
+    
+    with pytest.raises(ValueError, match="Key collision detected.*dt_min"):
+        unpack_dict_values(input_dict)
+
+
+def test_unpack_dict_values_collision_duplicate_regular():
+    """Test that duplicate regular keys raise error."""
+    # This shouldn't happen in normal Python dict creation, but test the check
+    # Note: Python dicts don't allow duplicate keys, so this tests the robustness
+    # of our implementation. We'll test by processing in order.
+    input_dict = {'a': 1, 'b': {'a': 2}}
+    
+    # Should raise error because 'a' appears in result, then 'b' unpacks 'a'
+    with pytest.raises(ValueError, match="Key collision detected.*a"):
+        unpack_dict_values(input_dict)
+
+
+def test_unpack_dict_values_preserves_types():
+    """Test that unpacking preserves various value types."""
+    input_dict = {
+        'settings': {
+            'int_val': 42,
+            'float_val': 3.14,
+            'str_val': 'test',
+            'bool_val': True,
+            'none_val': None,
+            'list_val': [1, 2, 3],
+        }
+    }
+    result, unpacked = unpack_dict_values(input_dict)
+    
+    assert result['int_val'] == 42
+    assert result['float_val'] == 3.14
+    assert result['str_val'] == 'test'
+    assert result['bool_val'] is True
+    assert result['none_val'] is None
+    assert result['list_val'] == [1, 2, 3]
+    assert unpacked == {'settings'}

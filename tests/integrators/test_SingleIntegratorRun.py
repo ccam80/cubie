@@ -68,7 +68,7 @@ def _settings_to_dict(settings_source):
         },
         {
             "algorithm": "bogacki-shampine-32",
-            "step_controller": "pi",
+            "step_controller": "pid",
             "atol": 1e-5,
             "rtol": 1e-5,
             "dt_min": 1e-7,
@@ -507,7 +507,7 @@ def test_step_controller_overrides_take_precedence(
         algorithm_settings=algorithm_settings,
     )
 
-    assert run.step_controller == "pi"
+    assert run.step_controller == "pid"
     assert run.dt_min == pytest.approx(override_settings["dt_min"])
     assert run.dt_max == pytest.approx(override_settings["dt_max"])
     controller_settings = run._step_controller.settings_dict
@@ -526,7 +526,7 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         "algorithm": "euler",
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
@@ -545,7 +545,7 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         assert issubclass(compat_warnings[0].category, UserWarning)
         warn_msg = str(compat_warnings[0].message).lower()
         assert "euler" in warn_msg
-        assert "pi" in warn_msg
+        assert "pid" in warn_msg
         assert "fixed" in warn_msg
         
         # Controller should be replaced with fixed
@@ -565,7 +565,7 @@ def test_errorless_rk4_tableau_with_adaptive_warns(system):
         "tableau": CLASSICAL_RK4_TABLEAU,
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
@@ -596,7 +596,7 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
         "tableau": DORMAND_PRINCE_54_TABLEAU,
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }

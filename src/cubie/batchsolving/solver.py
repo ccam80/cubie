@@ -49,7 +49,8 @@ def solve_ivp(
     settling_time: float = 0.0,
     t0: float = 0.0,
     grid_type: str = "combinatorial",
-    time_logging_level: Optional[str] = 'default',
+    time_logging_level: Optional[str] = None,
+    nan_error_trajectories: bool = True,
     **kwargs: Any,
 ) -> SolveResult:
     """Solve a batch initial value problem.
@@ -82,6 +83,11 @@ def solve_ivp(
     time_logging_level : str or None, default='default'
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
+    nan_error_trajectories : bool, default=True
+        When ``True`` (default), trajectories with nonzero solver status
+        codes are automatically set to NaN, protecting users from analyzing
+        invalid data. When ``False``, all trajectories are returned with
+        original values. Ignored when using ``results_type="raw"``.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
@@ -109,6 +115,7 @@ def solve_ivp(
         warmup=settling_time,
         t0=t0,
         grid_type=grid_type,
+        nan_error_trajectories=nan_error_trajectories,
         **kwargs,
     )
     return results
@@ -422,6 +429,7 @@ class Solver:
         chunk_axis: str = "run",
         grid_type: str = "verbatim",
         results_type: str = "full",
+        nan_error_trajectories: bool = True,
         **kwargs: Any,
     ) -> SolveResult:
         """Solve a batch initial value problem.
@@ -459,6 +467,11 @@ class Solver:
             Only used when dict inputs trigger grid construction.
         results_type
             Format of returned results, for example ``"full"`` or ``"numpy"``.
+        nan_error_trajectories
+            When ``True`` (default), trajectories with nonzero status codes
+            are automatically set to NaN, making failed runs easy to identify
+            and exclude from analysis. When ``False``, all trajectories are
+            returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
             Additional options forwarded to :meth:`update`.
 
@@ -520,7 +533,52 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
-        return SolveResult.from_solver(self, results_type=results_type)
+        return SolveResult.from_solver(
+            self,
+            results_type=results_type,
+            nan_error_trajectories=nan_error_trajectories
+        )
+
+    def build_grid(
+        self,
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        grid_type: str = "verbatim",
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build parameter and state grids for external use.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state values as dictionaries mapping state names
+            to value sequences, or arrays in (n_states, n_runs) format.
+        parameters
+            Parameter values as dictionaries mapping parameter names
+            to value sequences, or arrays in (n_params, n_runs) format.
+        grid_type
+            Strategy for constructing the grid. ``"combinatorial"``
+            produces all combinations while ``"verbatim"`` preserves
+            column-wise pairings. Default is ``"verbatim"``.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Tuple of (initial_values, parameters) arrays in
+            (n_vars, n_runs) format with system precision dtype.
+            These arrays can be passed directly to :meth:`solve`
+            for fast-path execution.
+
+        Examples
+        --------
+        >>> inits, params = solver.build_grid(
+        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
+        ...     grid_type="combinatorial"
+        ... )
+        >>> result = solver.solve(inits, params)  # Uses fast path
+        """
+        return self.grid_builder(
+            states=initial_values, params=parameters, kind=grid_type
+        )
 
     def build_grid(
         self,
@@ -881,6 +939,11 @@ class Solver:
     def iteration_counters(self):
         """Expose iteration counters at each save point."""
         return self.kernel.iteration_counters
+
+    @property
+    def status_codes(self):
+        """Expose integration status codes."""
+        return self.kernel.status_codes
 
     @property
     def parameters(self):

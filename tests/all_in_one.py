@@ -19,6 +19,7 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
+from cubie.integrators.array_interpolator import ArrayInterpolator
 
 # =========================================================================
 # CONFIGURATION - ALL CONFIGURABLE PARAMETERS AT TOP OF FILE
@@ -29,8 +30,8 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 # -------------------------------------------------------------------------
 # Algorithm type: 'erk' (explicit Runge-Kutta) or 'dirk' (diagonally implicit)
 # Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys for tableau names
-algorithm_type = 'erk'  # 'erk' or 'dirk'
-algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
+algorithm_type = 'dirk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'l_stable_sdirk_4'  # Registry key for the tableau
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -54,13 +55,35 @@ n_drivers = 0
 n_counters = 4
 
 # -------------------------------------------------------------------------
+# Driver Interpolation Configuration (when n_drivers > 0)
+# -------------------------------------------------------------------------
+# Driver input dictionary for ArrayInterpolator
+# When n_drivers > 0, provide a dictionary with:
+#   - Driver signal names as keys with 1D numpy arrays as values
+#   - "dt" or "time": time information for samples
+#   - Optional: "order", "wrap", "boundary_condition"
+# 
+# Example usage with drivers:
+#   driver_input_dict = {
+#       "driver_0": np.sin(np.linspace(0, 2*np.pi, 10)),
+#       "driver_1": np.cos(np.linspace(0, 2*np.pi, 10)),
+#       "dt": 0.1,
+#       "t0": 0.0,
+#       "order": 3,
+#       "wrap": True,
+#       "boundary_condition": "periodic"
+#   }
+#
+driver_input_dict = None
+
+# -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(1.0)
+duration = precision(0.01)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(1.0)
+dt_save = precision(0.01)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -87,8 +110,8 @@ max_backtracks = 15
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
 algorithm_order = 2
-kp = precision(6/5)
-ki = precision(0.0)
+kp = precision(0.7)
+ki = precision(-0.4)
 kd = precision(0.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
@@ -126,7 +149,6 @@ saves_per_summary = int32(2)
 
 # Loop buffers (main integration loop)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
-# TODO: add togglable mem locations to prod code
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
@@ -361,6 +383,162 @@ def observables_factory(constants, prec):
     return get_observables
 
 
+# =========================================================================
+# DRIVER INTERPOLATION INLINE DEVICE FUNCTIONS
+# =========================================================================
+
+def driver_function_inline_factory(interpolator):
+    """Create inline evaluation function from ArrayInterpolator.
+    
+    Takes an ArrayInterpolator instance and creates an inline CUDA device
+    function that evaluates driver polynomials at a given time. This is the
+    critical device code for CUDA profiling tool alignment.
+    
+    Parameters
+    ----------
+    interpolator : ArrayInterpolator
+        Configured ArrayInterpolator instance with computed coefficients.
+        
+    Returns
+    -------
+    callable
+        Inline CUDA device function with signature:
+        driver_function(time, coefficients, out)
+    """
+    prec = interpolator.precision
+    numba_prec = numba_from_dtype(prec)
+    order = int32(interpolator.order)
+    num_drivers = int32(interpolator.num_inputs)
+    num_segments = int32(interpolator.num_segments)
+    inv_resolution = prec(prec(1.0) / interpolator.dt)
+    start_time_val = prec(interpolator.t0)
+    zero_value = prec(0.0)
+    wrap = interpolator.wrap
+    pad_clamped = (not wrap) and (interpolator.boundary_condition == 'clamped')
+    evaluation_start = prec(start_time_val - (
+        interpolator.dt if pad_clamped else prec(0.0)))
+    
+    @cuda.jit(
+        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        device=True,
+        inline=True,
+        **compile_kwargs
+    )
+    def driver_function(time, coefficients, out):
+        """Evaluate all driver polynomials at time on the device.
+        
+        Parameters
+        ----------
+        time : float
+            Query time for evaluation.
+        coefficients : device array
+            Segment-major coefficients with shape (segments, drivers, order+1).
+        out : device array
+            Output array to populate with evaluated driver values.
+        """
+        scaled = (time - evaluation_start) * inv_resolution
+        scaled_floor = floor(scaled)
+        idx = int32(scaled_floor)
+        
+        if wrap:
+            seg = int32(idx % num_segments)
+            tau = prec(scaled - scaled_floor)
+            in_range = True
+        else:
+            in_range = (scaled >= 0.0) and (scaled <= num_segments)
+            seg = selp(idx < 0, int32(0), idx)
+            seg = selp(seg >= num_segments,
+                      int32(num_segments - 1), seg)
+            tau = scaled - float(seg)
+        
+        # Evaluate polynomials using Horner's rule
+        for driver_idx in range(num_drivers):
+            acc = zero_value
+            for k in range(order, -1, -1):
+                acc = acc * tau + coefficients[seg, driver_idx, k]
+            out[driver_idx] = acc if in_range else zero_value
+    
+    return driver_function
+
+
+def driver_derivative_inline_factory(interpolator):
+    """Create inline derivative function from ArrayInterpolator.
+    
+    Takes an ArrayInterpolator instance and creates an inline CUDA device
+    function that evaluates driver time derivatives at a given time. This is
+    critical device code for CUDA profiling tool alignment.
+    
+    Parameters
+    ----------
+    interpolator : ArrayInterpolator
+        Configured ArrayInterpolator instance with computed coefficients.
+        
+    Returns
+    -------
+    callable
+        Inline CUDA device function with signature:
+        driver_derivative(time, coefficients, out)
+    """
+    prec = interpolator.precision
+    numba_prec = numba_from_dtype(prec)
+    order = int32(interpolator.order)
+    num_drivers = int32(interpolator.num_inputs)
+    num_segments = int32(interpolator.num_segments)
+    inv_resolution = prec(prec(1.0) / interpolator.dt)
+    start_time_val = prec(interpolator.t0)
+    zero_value = prec(0.0)
+    wrap = interpolator.wrap
+    pad_clamped = (not wrap) and (interpolator.boundary_condition == 'clamped')
+    evaluation_start = prec(start_time_val - (
+        interpolator.dt if pad_clamped else prec(0.0)))
+    
+    @cuda.jit(
+        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        device=True,
+        inline=True,
+        **compile_kwargs
+    )
+    def driver_derivative(time, coefficients, out):
+        """Evaluate time derivative of each driver polynomial.
+        
+        Parameters
+        ----------
+        time : float
+            Query time for evaluation.
+        coefficients : device array
+            Segment-major coefficients with shape (segments, drivers, order+1).
+        out : device array
+            Output array to populate with evaluated driver derivatives.
+        """
+        scaled = (time - evaluation_start) * inv_resolution
+        scaled_floor = floor(scaled)
+        idx = int32(scaled_floor)
+        
+        if wrap:
+            seg = int32(idx % num_segments)
+            tau = prec(scaled - scaled_floor)
+            in_range = True
+        else:
+            in_range = (scaled >= 0.0) and (scaled <= num_segments)
+            seg = selp(idx < 0, int32(0), idx)
+            seg = selp(seg >= num_segments,
+                      int32(num_segments - 1), seg)
+            tau = scaled - float(seg)
+        
+        # Evaluate derivative using Horner's rule on derivative polynomial
+        for driver_idx in range(num_drivers):
+            acc = zero_value
+            for k in range(order, 0, -1):
+                acc = acc * tau + prec(k) * (
+                    coefficients[seg, driver_idx, k]
+                )
+            out[driver_idx] = (
+                acc * inv_resolution if in_range else zero_value
+            )
+    
+    return driver_derivative
+
+
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     """Auto-generated Neumann preconditioner."""
     n = int32(3)
@@ -501,6 +679,7 @@ def linear_solver_inline_factory(
     """
     numba_prec = numba_from_dtype(prec)
     tol_squared = precision(tolerance * tolerance)
+    n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
     sd_flag = 1 if correction_type == "steepest_descent" else 0
@@ -513,8 +692,8 @@ def linear_solver_inline_factory(
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
-        preconditioned_vec = cuda.local.array(n, numba_prec)
-        temp = cuda.local.array(n, numba_prec)
+        preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
+        temp = cuda.local.array(n_arraysize, numba_prec)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        x, temp)
@@ -712,6 +891,7 @@ def dirk_step_inline_factory(
     nonlinear_solver,
     dxdt_fn,
     observables_function,
+    driver_function,
     n,
     prec,
     tableau,
@@ -726,6 +906,8 @@ def dirk_step_inline_factory(
         The derivative function.
     observables_function
         The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
     n
         Number of state variables.
     prec
@@ -743,11 +925,12 @@ def dirk_step_inline_factory(
     typed_zero = numba_precision(0.0)
 
     # Extract tableau properties
+    n_arraysize = n
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
     # Compile-time toggles
-    has_driver_function = False  # No driver function in this test
+    has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
     multistage = stage_count > 1
     first_same_as_last = False  # SDIRK does not share first/last stage
@@ -875,7 +1058,7 @@ def dirk_step_inline_factory(
         if stage_increment_in_shared:
             stage_increment = shared[solver_end:solver_end + n]
         else:
-            stage_increment = cuda.local.array(n, numba_precision)
+            stage_increment = cuda.local.array(n_arraysize, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -901,9 +1084,9 @@ def dirk_step_inline_factory(
             if stage_base_in_shared:
                 stage_base = stage_accumulator[:n]
             else:
-                stage_base = cuda.local.array(n, numba_precision)
+                stage_base = cuda.local.array(n_arraysize, numba_precision)
         else:
-            stage_base = cuda.local.array(n, numba_precision)
+            stage_base = cuda.local.array(n_arraysize, numba_precision)
 
         for idx in range(n):
             if has_error and accumulates_error:
@@ -945,7 +1128,11 @@ def dirk_step_inline_factory(
 
             else:
                 if has_driver_function:
-                    pass  # driver_function would be called here
+                    driver_function(
+                        stage_time,
+                        driver_coeffs,
+                        proposed_drivers,
+                    )
 
             if stage_implicit[0]:
                 status_code |= nonlinear_solver(
@@ -1025,7 +1212,11 @@ def dirk_step_inline_factory(
                     stage_accumulator[base + idx] += contribution
 
             if has_driver_function:
-                pass  # driver_function would be called here
+                driver_function(
+                    stage_time,
+                    driver_coeffs,
+                    proposed_drivers,
+                )
 
             # Grab a view of the completed accumulator slice, add state
             stage_base = stage_accumulator[(stage_idx-int32(1)) * n:stage_idx
@@ -1098,7 +1289,11 @@ def dirk_step_inline_factory(
                     error[idx] = proposed_state[idx] - error[idx]
 
         if has_driver_function:
-            pass  # driver_function would be called here
+            driver_function(
+                end_time,
+                driver_coeffs,
+                proposed_drivers,
+            )
 
         observables_function(
             proposed_state,
@@ -1124,6 +1319,7 @@ def dirk_step_inline_factory(
 def erk_step_inline_factory(
     dxdt_fn,
     observables_function,
+    driver_function,
     n,
     prec,
     tableau,
@@ -1136,6 +1332,8 @@ def erk_step_inline_factory(
         The derivative function.
     observables_function
         The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
     n
         Number of state variables.
     prec
@@ -1159,7 +1357,7 @@ def erk_step_inline_factory(
     accumulator_length = (tableau.stage_count - 1) * n_arraysize
 
     # Compile-time toggles
-    has_driver_function = False  # No driver function in this test
+    has_driver_function = driver_function is not None
     first_same_as_last = tableau.first_same_as_last
     multistage = stage_count > int32(1)
     has_error = tableau.has_error_estimate
@@ -1375,7 +1573,11 @@ def erk_step_inline_factory(
             # get rhs for next stage
             stage_drivers = proposed_drivers
             if has_driver_function:
-                pass  # driver_function would be called here
+                driver_function(
+                    stage_time,
+                    driver_coeffs,
+                    stage_drivers,
+                )
 
             observables_function(
                     stage_accumulator[stage_offset:stage_offset + n],
@@ -1430,7 +1632,11 @@ def erk_step_inline_factory(
                     error[idx] = proposed_state[idx] - error[idx]
 
         if has_driver_function:
-            pass  # driver_function would be called here
+            driver_function(
+                end_time,
+                driver_coeffs,
+                proposed_drivers,
+            )
 
         observables_function(
             proposed_state,
@@ -1714,12 +1920,28 @@ def controller_PID_factory(
 dxdt_fn = dxdt_factory(constants, precision)
 observables_function = observables_factory(constants, precision)
 
+# Build driver function if drivers are present
+if n_drivers > 0 and driver_input_dict is not None:
+    # Create ArrayInterpolator instance to compute coefficients
+    interpolator = ArrayInterpolator(precision, driver_input_dict)
+    
+    # Get coefficients from the interpolator
+    driver_coefficients = interpolator.coefficients
+    
+    # Build inline driver evaluation function
+    driver_function = driver_function_inline_factory(interpolator)
+else:
+    driver_function = None
+    # Create dummy coefficients array for kernel signature compatibility
+    driver_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
+
 # Build step function based on algorithm type
 if algorithm_type == 'erk':
     # ERK step for explicit integration
     step_fn = erk_step_inline_factory(
         dxdt_fn,
         observables_function,
+        driver_function,
         n_states,
         precision,
         tableau,
@@ -1772,6 +1994,7 @@ elif algorithm_type == 'dirk':
         newton_solver_fn,
         dxdt_fn,
         observables_function,
+        driver_function,
         n_states,
         precision,
         tableau,
@@ -2423,14 +2646,12 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     params = np.zeros((n_runs, n_parameters), dtype=precision)
     params[:, 0] = rho_values
 
-    d_coefficients = np.zeros((1, max(n_drivers, 1), 6), dtype=precision)
-
     # Create device arrays for inputs (BatchInputArrays pattern)
     d_inits = cuda.device_array((n_runs, n_states), dtype=precision,
                              order='F')
     d_inits.copy_to_device(inits)
     d_params = cuda.to_device(params)
-    d_driver_coefficients = cuda.to_device(d_coefficients)
+    d_driver_coefficients = cuda.to_device(driver_coefficients)
 
     # Create mapped arrays for outputs (BatchOutputArrays pattern)
     # Using stride ordering to match production batch solver memory layout.

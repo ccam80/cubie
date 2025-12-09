@@ -139,9 +139,9 @@ def _sequence_inputs(
         {
             "dt_min": 1e-4,
             "dt_max": 0.2,
-            "kp": 1 / 12,
-            "ki": 1 / 8,
-            "kd": 1 / 10,
+            "kp": 0.7,
+            "ki": -0.4,
+            "kd": 0.0,
             "deadband_min": 0.95,
             "deadband_max": 1.05,
             "atol": 1e-3,

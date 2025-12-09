@@ -245,11 +245,11 @@ ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS = {
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
         "kp": 0.6,
-        "kd": 0.4,
+        "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
         "min_gain": 0.5,

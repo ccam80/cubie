@@ -17,6 +17,7 @@ import numpy as np
 from numpy import float32
 from numpy.typing import NDArray
 
+from cubie._utils import opt_gttype_validator
 from cubie._utils import getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
@@ -36,10 +37,10 @@ class ManagedArray:
             iterable_validator=val.instance_of(tuple),
         ),
     )
-    shape: tuple[Optional[int, ...]] = attrs.field(
+    shape: tuple[Optional[int]] = attrs.field(
         factory=tuple,
         validator=val.deep_iterable(
-            member_validator=getype_validator(int, 0),
+            member_validator=opt_gttype_validator(int, 0),
             iterable_validator=val.instance_of(tuple),
         ),
     )

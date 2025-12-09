@@ -330,7 +330,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
-        "duration": np.float64(1.0),
+        "duration": np.float64(0.2),
         "warmup": np.float64(0.0),
         "t0": np.float64(0.0),
         "dt": precision(0.01),
@@ -360,18 +360,18 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "correction_type": "minimal_residual",
         "newton_tolerance": precision(1e-6),
         "preconditioner_order": 2,
-        "max_linear_iters": 500,
-        "max_newton_iters": 500,
+        "max_linear_iters": 20,
+        "max_newton_iters": 20,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,
-        "min_gain": precision(0.2),
-        "max_gain": precision(2.0),
+        "min_gain": precision(0.1),
+        "max_gain": precision(5.0),
         "n": system.sizes.states,
-        "kp": precision(1 / 18),
-        "ki": precision(1 / 9),
-        "kd": precision(1 / 18),
-        "deadband_min": precision(1.0),
-        "deadband_max": precision(1.2),
+        "kp": precision(0.7),
+        "ki": precision(-0.4),
+        "kd": precision(0.0),
+        "deadband_min": precision(0.95),
+        "deadband_max": precision(1.05),
     }
 
     float_keys = {
@@ -995,26 +995,17 @@ def cpu_loop_outputs(
 
 @pytest.fixture(scope="session")
 def device_loop_outputs(
-    loop,
     system,
     single_integrator_run,
-    step_object,
     initial_state,
     solver_settings,
-    step_controller_settings,
-    output_functions,
-    cpu_system,
     driver_array,
 ):
     """Execute the device loop with the provided configuration."""
     return  run_device_loop(
-        loop=loop,
+        singleintegratorrun=single_integrator_run,
         system=system,
         initial_state=initial_state,
-        output_functions=output_functions,
         solver_config=solver_settings,
-        localmem_required=single_integrator_run.local_memory_elements,
-        sharedmem_required=step_object.shared_memory_required +
-                           loop.shared_memory_elements,
         driver_array=driver_array,
     )

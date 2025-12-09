@@ -555,12 +555,9 @@ def test_comprehensive_config_plumbing(
     solver = solver_mutable
     
     # Build kernel to ensure all objects are initialized
-    solver.kernel.build()
-    
-    # Ensure kernel is fully built by accessing the compiled kernel
-    built_kernel = solver.kernel.kernel
-    _ = built_kernel  # Ensures kernel is fully compiled
-    
+
+    _ = solver.kernel.kernel
+
     # Get references to all objects in the hierarchy
     kernel = solver.kernel
     single_integrator = kernel.single_integrator
@@ -649,12 +646,8 @@ def test_comprehensive_config_plumbing(
     print(f"Updated keys: {sorted(updated_keys)}")
     
     # Rebuild kernel to apply changes
-    solver.kernel.build()
-    
-    # Ensure kernel is fully built by accessing the compiled kernel
-    built_kernel = solver.kernel.kernel
-    _ = built_kernel  # Ensures kernel is fully compiled
-    
+    _ = solver.kernel.kernel
+
     # Get fresh references to all objects after rebuild (algorithm/controller may have changed)
     kernel = solver.kernel
     single_integrator = kernel.single_integrator
