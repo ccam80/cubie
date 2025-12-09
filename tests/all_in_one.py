@@ -30,8 +30,8 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 # -------------------------------------------------------------------------
 # Algorithm type: 'erk' (explicit Runge-Kutta) or 'dirk' (diagonally implicit)
 # Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys for tableau names
-algorithm_type = 'erk'  # 'erk' or 'dirk'
-algorithm_tableau_name = 'tsit5'  # Registry key for the tableau
+algorithm_type = 'dirk'  # 'erk' or 'dirk'
+algorithm_tableau_name = 'l_stable_sdirk_4'  # Registry key for the tableau
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -74,7 +74,7 @@ n_counters = 4
 #       "boundary_condition": "periodic"
 #   }
 #
-driver_input_dict = None  # Will be populated when a system with drivers is added
+driver_input_dict = None
 
 # -------------------------------------------------------------------------
 # Time Parameters
@@ -110,8 +110,8 @@ max_backtracks = 15
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
 algorithm_order = 2
-kp = precision(6/5)
-ki = precision(0.0)
+kp = precision(0.7)
+ki = precision(-0.4)
 kd = precision(0.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
@@ -149,7 +149,6 @@ saves_per_summary = int32(2)
 
 # Loop buffers (main integration loop)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
-# TODO: add togglable mem locations to prod code
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
@@ -389,7 +388,7 @@ def observables_factory(constants, prec):
 # =========================================================================
 
 def driver_function_inline_factory(interpolator):
-    """Create inline driver evaluation device function from ArrayInterpolator.
+    """Create inline evaluation function from ArrayInterpolator.
     
     Takes an ArrayInterpolator instance and creates an inline CUDA device
     function that evaluates driver polynomials at a given time. This is the
@@ -463,7 +462,7 @@ def driver_function_inline_factory(interpolator):
 
 
 def driver_derivative_inline_factory(interpolator):
-    """Create inline driver derivative device function from ArrayInterpolator.
+    """Create inline derivative function from ArrayInterpolator.
     
     Takes an ArrayInterpolator instance and creates an inline CUDA device
     function that evaluates driver time derivatives at a given time. This is
@@ -1924,7 +1923,7 @@ if n_drivers > 0 and driver_input_dict is not None:
     # Create ArrayInterpolator instance to compute coefficients
     interpolator = ArrayInterpolator(precision, driver_input_dict)
     
-    # Get coefficients and parameters from the interpolator
+    # Get coefficients from the interpolator
     driver_coefficients = interpolator.coefficients
     
     # Build inline driver evaluation function
