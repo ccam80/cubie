@@ -321,70 +321,30 @@ class Solver:
         # Process save_variables parameter
         if has_save_vars:
             save_vars = output_settings.pop("save_variables")
-            if save_vars:  # Not empty list
+            if save_vars:
                 state_idxs, obs_idxs = self._classify_variables(save_vars)
-                
-                # Union with existing saved_state_indices
-                if ("saved_state_indices" in output_settings
-                        and output_settings["saved_state_indices"]
-                        is not None):
-                    existing = output_settings["saved_state_indices"]
-                    combined = np.union1d(existing, state_idxs).astype(
-                        np.int16
-                    )
-                    output_settings["saved_state_indices"] = combined
-                elif len(state_idxs) > 0:
-                    output_settings["saved_state_indices"] = state_idxs
-                
-                # Union with existing saved_observable_indices
-                if ("saved_observable_indices" in output_settings
-                        and output_settings["saved_observable_indices"]
-                        is not None):
-                    existing = output_settings["saved_observable_indices"]
-                    combined = np.union1d(existing, obs_idxs).astype(
-                        np.int16
-                    )
-                    output_settings["saved_observable_indices"] = combined
-                elif len(obs_idxs) > 0:
-                    output_settings["saved_observable_indices"] = obs_idxs
+                self._merge_indices(
+                    output_settings, "saved_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings, "saved_observable_indices", obs_idxs
+                )
         
         # Process summarise_variables parameter
         if has_summarise_vars:
             summarise_vars = output_settings.pop("summarise_variables")
-            if summarise_vars:  # Not empty list
+            if summarise_vars:
                 state_idxs, obs_idxs = self._classify_variables(
                     summarise_vars
                 )
-                
-                # Union with existing summarised_state_indices
-                if ("summarised_state_indices" in output_settings
-                        and output_settings["summarised_state_indices"]
-                        is not None):
-                    existing = output_settings["summarised_state_indices"]
-                    combined = np.union1d(existing, state_idxs).astype(
-                        np.int16
-                    )
-                    output_settings["summarised_state_indices"] = combined
-                elif len(state_idxs) > 0:
-                    output_settings["summarised_state_indices"] = state_idxs
-                
-                # Union with existing summarised_observable_indices
-                if ("summarised_observable_indices" in output_settings
-                        and output_settings["summarised_observable_indices"]
-                        is not None):
-                    existing = output_settings[
-                        "summarised_observable_indices"
-                    ]
-                    combined = np.union1d(existing, obs_idxs).astype(
-                        np.int16
-                    )
-                    output_settings[
-                        "summarised_observable_indices"
-                    ] = combined
-                elif len(obs_idxs) > 0:
-                    output_settings[
-                        "summarised_observable_indices"
-                    ] = obs_idxs
+                self._merge_indices(
+                    output_settings, "summarised_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings,
+                    "summarised_observable_indices",
+                    obs_idxs
+                )
 
         resolvers = {
             "saved_states": self.system_interface.state_indices,
@@ -428,6 +388,30 @@ class Solver:
                     )
                 output_settings[outkey] = indices
 
+    def _merge_indices(
+        self,
+        output_settings: Dict[str, Any],
+        key: str,
+        new_indices: np.ndarray,
+    ) -> None:
+        """Merge new indices with existing indices using union semantics.
+        
+        Parameters
+        ----------
+        output_settings
+            Settings dictionary to update in-place.
+        key
+            Dictionary key for the indices array.
+        new_indices
+            New indices to merge with existing ones.
+        """
+        if key in output_settings and output_settings[key] is not None:
+            existing = output_settings[key]
+            combined = np.union1d(existing, new_indices).astype(np.int16)
+            output_settings[key] = combined
+        elif len(new_indices) > 0:
+            output_settings[key] = new_indices
+
     def _classify_variables(
         self,
         var_names: List[str],
@@ -456,31 +440,28 @@ class Solver:
         unrecognized = []
         
         for name in var_names:
-            found_as_state = False
-            found_as_observable = False
-            
-            # Try as state
+            # Try as state first
             try:
                 idx = self.system_interface.state_indices(
                     [name], silent=False
                 )
                 state_list.extend(idx.tolist())
-                found_as_state = True
+                continue
             except (KeyError, IndexError):
                 pass
             
-            # Try as observable
+            # Only try as observable if not found as state
             try:
                 idx = self.system_interface.observable_indices(
                     [name], silent=False
                 )
                 observable_list.extend(idx.tolist())
-                found_as_observable = True
+                continue
             except (KeyError, IndexError):
                 pass
             
-            if not found_as_state and not found_as_observable:
-                unrecognized.append(name)
+            # Only reaches here if neither classification succeeded
+            unrecognized.append(name)
         
         if unrecognized:
             state_names = self.system_interface.states.names
