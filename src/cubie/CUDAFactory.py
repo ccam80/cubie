@@ -574,14 +574,14 @@ class CUDAFactory(ABC):
         -----
         If any value in the updates is itself a dict, its key-value pairs
         are unpacked and used directly instead of treating the dict as a
-        single value. This allows grouped settings to be passed naturally:
+        single value. This allows grouped settings to be passed naturally.
         
-        ```python
-        step_controller_settings = {'dt_min': 0.01, 'dt_max': 1.0}
-        solver.update_compile_settings(
-            step_controller_settings=step_controller_settings
-        )
-        ```
+        Examples
+        --------
+        >>> step_controller_settings = {'dt_min': 0.01, 'dt_max': 1.0}
+        >>> solver.update_compile_settings(
+        ...     step_controller_settings=step_controller_settings
+        ... )
         """
         if updates_dict is None:
             updates_dict = {}
@@ -596,7 +596,6 @@ class CUDAFactory(ABC):
                 "Compile settings must be set up using self.setup_compile_settings before updating."
             )
         
-        # Unpack any dict values
         updates_dict = self._unpack_dict_values(updates_dict)
 
         recognized_params = []
@@ -650,8 +649,11 @@ class CUDAFactory(ABC):
         If a value in the input dict is itself a dict, its key-value pairs
         are added to the output dict directly, and the original key is
         removed. This allows users to pass grouped settings naturally.
-        If multiple dict values contain the same key, later values
-        overwrite earlier ones (standard dict.update() behavior).
+        
+        Regular key-value pairs are preserved as-is. If a key appears both
+        as a regular entry and within an unpacked dict, behavior depends
+        on dict iteration order. To avoid ambiguity, do not mix regular
+        keys with dict values that contain the same keys.
         """
         result = {}
         for key, value in updates_dict.items():
