@@ -311,41 +311,6 @@ class Solver:
         SystemInterface. Results are merged with existing indices using set union,
         allowing both old and new parameter styles to coexist.
         """
-        # Fast-path: skip name resolution if new parameters not present
-        has_save_vars = ("save_variables" in output_settings
-                         and output_settings["save_variables"] is not None)
-        has_summarise_vars = ("summarise_variables" in output_settings
-                              and output_settings["summarise_variables"]
-                              is not None)
-        
-        # Process save_variables parameter
-        if has_save_vars:
-            save_vars = output_settings.pop("save_variables")
-            if save_vars:
-                state_idxs, obs_idxs = self._classify_variables(save_vars)
-                self._merge_indices(
-                    output_settings, "saved_state_indices", state_idxs
-                )
-                self._merge_indices(
-                    output_settings, "saved_observable_indices", obs_idxs
-                )
-        
-        # Process summarise_variables parameter
-        if has_summarise_vars:
-            summarise_vars = output_settings.pop("summarise_variables")
-            if summarise_vars:
-                state_idxs, obs_idxs = self._classify_variables(
-                    summarise_vars
-                )
-                self._merge_indices(
-                    output_settings, "summarised_state_indices", state_idxs
-                )
-                self._merge_indices(
-                    output_settings,
-                    "summarised_observable_indices",
-                    obs_idxs
-                )
-
         resolvers = {
             "saved_states": self.system_interface.state_indices,
             "saved_state_indices": self.system_interface.state_indices,
@@ -387,6 +352,43 @@ class Solver:
                         f"{outkey} = {output_settings[outkey]}"
                     )
                 output_settings[outkey] = indices
+        
+        # Process save_variables and summarise_variables after converting
+        # label-based parameters to indices. This allows union with both
+        # label-based and index-based existing parameters.
+        has_save_vars = ("save_variables" in output_settings
+                         and output_settings["save_variables"] is not None)
+        has_summarise_vars = ("summarise_variables" in output_settings
+                              and output_settings["summarise_variables"]
+                              is not None)
+        
+        # Process save_variables parameter
+        if has_save_vars:
+            save_vars = output_settings.pop("save_variables")
+            if save_vars:
+                state_idxs, obs_idxs = self._classify_variables(save_vars)
+                self._merge_indices(
+                    output_settings, "saved_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings, "saved_observable_indices", obs_idxs
+                )
+        
+        # Process summarise_variables parameter
+        if has_summarise_vars:
+            summarise_vars = output_settings.pop("summarise_variables")
+            if summarise_vars:
+                state_idxs, obs_idxs = self._classify_variables(
+                    summarise_vars
+                )
+                self._merge_indices(
+                    output_settings, "summarised_state_indices", state_idxs
+                )
+                self._merge_indices(
+                    output_settings,
+                    "summarised_observable_indices",
+                    obs_idxs
+                )
 
     def _merge_indices(
         self,

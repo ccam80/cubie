@@ -1107,10 +1107,11 @@ def test_solve_ivp_with_save_variables(system):
     
     # Verify result contains saved states
     assert result is not None
-    assert hasattr(result, 'y')
-    assert result.y is not None
+    assert hasattr(result, 'time_domain_array')
+    assert result.time_domain_array is not None
     # Verify shape matches number of save_variables
-    assert result.y.shape[0] == len(state_names)
+    # time_domain_array shape is (time, variable, run) by default
+    assert result.time_domain_array.shape[1] == len(state_names)
 
 
 def test_solver_solve_with_save_variables(solver, system):
@@ -1126,7 +1127,7 @@ def test_solver_solve_with_save_variables(solver, system):
     
     assert result is not None
     # Verify saved output contains requested states
-    assert result.y.shape[0] >= 1
+    assert result.time_domain_array.shape[1] >= 1
 
 
 def test_solve_ivp_with_summarise_variables(system):
