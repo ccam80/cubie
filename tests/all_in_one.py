@@ -1746,9 +1746,15 @@ def firk_step_inline_factory(
     typed_zero = numba_precision(0.0)
 
     # Extract tableau properties
+    # int32 versions for iterators
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     all_stages_n = stage_count * n
+    
+    # int versions for cuda.local.array sizes
+    n_int = int(n)
+    stage_count_int = int(stage_count)
+    all_stages_n_int = int(all_stages_n)
 
     # Compile-time toggles
     has_driver_function = driver_function is not None
@@ -1758,7 +1764,7 @@ def firk_step_inline_factory(
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     error_weights = tableau.error_weights(numba_precision)
     if error_weights is None or not has_error:
-        error_weights = tuple(typed_zero for _ in range(stage_count))
+        error_weights = tuple(typed_zero for _ in range(stage_count_int))
     stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
     # Last-step caching optimization
@@ -1781,6 +1787,10 @@ def firk_step_inline_factory(
 
     solver_scratch_elements = 2 * all_stages_n
     stage_driver_stack_elements = stage_count * n_drivers
+    
+    # int versions for cuda.local.array sizes
+    solver_scratch_elements_int = int(solver_scratch_elements)
+    stage_driver_stack_elements_int = int(stage_driver_stack_elements)
 
     # Shared memory indices (only used when corresponding flag is True)
     shared_pointer = int32(0)
@@ -1856,18 +1866,18 @@ def firk_step_inline_factory(
         if stage_state_shared:
             stage_state = shared[stage_state_start:stage_state_end]
         else:
-            stage_state = cuda.local.array(n, numba_precision)
+            stage_state = cuda.local.array(n_int, numba_precision)
 
         if solver_scratch_shared:
             solver_scratch = shared[solver_scratch_start:solver_scratch_end]
         else:
-            solver_scratch = cuda.local.array(solver_scratch_elements,
+            solver_scratch = cuda.local.array(solver_scratch_elements_int,
                                               numba_precision)
 
         if stage_increment_shared:
             stage_increment = shared[stage_increment_start:stage_increment_end]
         else:
-            stage_increment = cuda.local.array(all_stages_n,
+            stage_increment = cuda.local.array(all_stages_n_int,
                                                numba_precision)
 
         if stage_driver_stack_shared:
@@ -1875,7 +1885,7 @@ def firk_step_inline_factory(
                 stage_driver_stack_start:stage_driver_stack_end
             ]
         else:
-            stage_driver_stack = cuda.local.array(stage_driver_stack_elements,
+            stage_driver_stack = cuda.local.array(stage_driver_stack_elements_int,
                                                   numba_precision)
 
         current_time = time_scalar
@@ -2065,9 +2075,15 @@ def rosenbrock_step_inline_factory(
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
+    # int32 versions for iterators
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     stages_except_first = stage_count - int32(1)
+    
+    # int versions for cuda.local.array sizes
+    n_int = int(n)
+    stage_count_int = int(stage_count)
+    stages_except_first_int = int(stages_except_first)
 
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
@@ -2079,7 +2095,7 @@ def rosenbrock_step_inline_factory(
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     error_weights = tableau.error_weights(numba_precision)
     if error_weights is None or not has_error:
-        error_weights = tuple(typed_zero for _ in range(stage_count))
+        error_weights = tuple(typed_zero for _ in range(stage_count_int))
     stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
     # Last-step caching optimization
@@ -2104,6 +2120,10 @@ def rosenbrock_step_inline_factory(
     # For this debug script, we use 0 as a placeholder since the actual
     # Jacobian helpers are not implemented.
     cached_auxiliary_count = int32(0)  # Simplified for debug script
+    
+    # int versions for cuda.local.array sizes
+    stage_store_elements_int = int(stage_store_elements)
+    cached_auxiliary_count_int = int(cached_auxiliary_count)
 
     # Shared memory indices
     shared_pointer = int32(0)
@@ -2171,12 +2191,12 @@ def rosenbrock_step_inline_factory(
         if stage_rhs_shared:
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
         else:
-            stage_rhs = cuda.local.array(n, numba_precision)
+            stage_rhs = cuda.local.array(n_int, numba_precision)
 
         if stage_store_shared:
             stage_store = shared[stage_store_start:stage_store_end]
         else:
-            stage_store = cuda.local.array(stage_store_elements,
+            stage_store = cuda.local.array(stage_store_elements_int,
                                            numba_precision)
 
         if cached_auxiliaries_shared and cached_auxiliary_count > 0:
@@ -2186,7 +2206,7 @@ def rosenbrock_step_inline_factory(
             # When cached_auxiliary_count is 0, we allocate size 1 to avoid
             # zero-sized array issues in Numba. The array won't be used since
             # the placeholder prepare_jacobian does nothing.
-            cached_auxiliaries = cuda.local.array(max(1, cached_auxiliary_count),
+            cached_auxiliaries = cuda.local.array(max(1, cached_auxiliary_count_int),
                                                   numba_precision)
 
         current_time = time_scalar
