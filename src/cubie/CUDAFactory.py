@@ -634,7 +634,7 @@ class CUDAFactory(ABC):
 
         return set(recognized_params)
 
-    def _unpack_dict_values(self, updates_dict: dict) -> tuple[dict, set]:
+    def _unpack_dict_values(self, updates_dict: dict) -> Tuple[dict, Set[str]]:
         """Unpack dict values into flat key-value pairs.
         
         Parameters
@@ -644,7 +644,7 @@ class CUDAFactory(ABC):
         
         Returns
         -------
-        tuple[dict, set]
+        Tuple[dict, Set[str]]
             Flattened dictionary with dict values unpacked, and set of
             original keys that were unpacked dicts
         
