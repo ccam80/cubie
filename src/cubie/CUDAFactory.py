@@ -569,19 +569,6 @@ class CUDAFactory(ABC):
             If compile settings have not been set up.
         KeyError
             If an unrecognised parameter is supplied and ``silent`` is ``False``.
-        
-        Notes
-        -----
-        If any value in the updates is itself a dict, its key-value pairs
-        are unpacked and used directly instead of treating the dict as a
-        single value. This allows grouped settings to be passed naturally.
-        
-        Examples
-        --------
-        >>> step_controller_settings = {'dt_min': 0.01, 'dt_max': 1.0}
-        >>> solver.update_compile_settings(
-        ...     step_controller_settings=step_controller_settings
-        ... )
         """
         if updates_dict is None:
             updates_dict = {}
@@ -595,8 +582,6 @@ class CUDAFactory(ABC):
             raise ValueError(
                 "Compile settings must be set up using self.setup_compile_settings before updating."
             )
-        
-        updates_dict, unpacked_keys = self._unpack_dict_values(updates_dict)
 
         recognized_params = []
         updated_params = []
@@ -618,9 +603,6 @@ class CUDAFactory(ABC):
                 recognized_params.append(key)
             if updated:
                 updated_params.append(key)
-
-        # Mark the original dict keys as recognized since we unpacked them
-        recognized_params.extend(unpacked_keys)
         
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
         if unrecognised_params and not silent:
@@ -633,46 +615,6 @@ class CUDAFactory(ABC):
             self._invalidate_cache()
 
         return set(recognized_params)
-
-    def _unpack_dict_values(self, updates_dict: dict) -> Tuple[dict, Set[str]]:
-        """Unpack dict values into flat key-value pairs.
-        
-        Parameters
-        ----------
-        updates_dict
-            Dictionary potentially containing dicts as values
-        
-        Returns
-        -------
-        Tuple[dict, Set[str]]
-            Flattened dictionary with dict values unpacked, and set of
-            original keys that were unpacked dicts
-        
-        Notes
-        -----
-        If a value in the input dict is itself a dict, its key-value pairs
-        are added to the output dict directly, and the original key is
-        removed. This allows users to pass grouped settings naturally.
-        
-        Regular key-value pairs are preserved as-is. If a key appears both
-        as a regular entry and within an unpacked dict, behavior depends
-        on dict iteration order. To avoid ambiguity, do not mix regular
-        keys with dict values that contain the same keys.
-        
-        The set of unpacked keys is returned so they can be marked as
-        recognized parameters, even though they don't directly correspond
-        to compile settings.
-        """
-        result = {}
-        unpacked_keys = set()
-        for key, value in updates_dict.items():
-            if isinstance(value, dict):
-                # Unpack the dict value and track the original key
-                result.update(value)
-                unpacked_keys.add(key)
-            else:
-                result[key] = value
-        return result, unpacked_keys
 
     def _check_and_update(self,
                           key: str,

@@ -6,7 +6,7 @@ updates and CUDA utilities that are shared across the code base.
 import inspect
 from functools import wraps
 from time import time
-from typing import Any, Mapping, Tuple, Union, Optional, Iterable
+from typing import Any, Mapping, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
 import numpy as np
@@ -557,3 +557,61 @@ def ensure_nonzero_size(
             return value
     else:
         return value
+
+
+def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
+    """Unpack dict values into flat key-value pairs.
+    
+    When an update() method receives parameters grouped in dicts, this
+    utility flattens them before distributing to sub-components. The
+    original dict keys are tracked separately so they can be marked as
+    recognized even though they don't correspond to actual parameters.
+    
+    Parameters
+    ----------
+    updates_dict
+        Dictionary potentially containing dicts as values
+    
+    Returns
+    -------
+    Tuple[dict, Set[str]]
+        Flattened dictionary with dict values unpacked, and set of
+        original keys that were unpacked dicts
+    
+    Examples
+    --------
+    >>> result, unpacked = unpack_dict_values({
+    ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
+    ...     'precision': np.float32
+    ... })
+    >>> result
+    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
+    >>> unpacked
+    {'step_settings'}
+    
+    Notes
+    -----
+    If a value in the input dict is itself a dict, its key-value pairs
+    are added to the result dict directly, and the original key is
+    tracked in the unpacked set. Regular key-value pairs are preserved
+    as-is.
+    
+    If a key appears both as a regular entry and within an unpacked dict,
+    standard dict update semantics apply (last value wins based on
+    iteration order). To avoid ambiguity, do not mix regular keys with
+    dict values that contain the same keys.
+    
+    Only unpacks one level deep - nested dicts within dict values are
+    not recursively unpacked. This allows each level of the update chain
+    to handle its own unpacking.
+    """
+    result = {}
+    unpacked_keys = set()
+    for key, value in updates_dict.items():
+        if isinstance(value, dict):
+            # Unpack the dict value and track the original key
+            result.update(value)
+            unpacked_keys.add(key)
+        else:
+            result[key] = value
+    return result, unpacked_keys
