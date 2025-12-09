@@ -18,6 +18,7 @@ from numpy import float32
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator
+from cubie._utils import getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager

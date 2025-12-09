@@ -580,6 +580,47 @@ class Solver:
             states=initial_values, params=parameters, kind=grid_type
         )
 
+    def build_grid(
+        self,
+        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        grid_type: str = "verbatim",
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build parameter and state grids for external use.
+
+        Parameters
+        ----------
+        initial_values
+            Initial state values as dictionaries mapping state names
+            to value sequences, or arrays in (n_states, n_runs) format.
+        parameters
+            Parameter values as dictionaries mapping parameter names
+            to value sequences, or arrays in (n_params, n_runs) format.
+        grid_type
+            Strategy for constructing the grid. ``"combinatorial"``
+            produces all combinations while ``"verbatim"`` preserves
+            column-wise pairings. Default is ``"verbatim"``.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Tuple of (initial_values, parameters) arrays in
+            (n_vars, n_runs) format with system precision dtype.
+            These arrays can be passed directly to :meth:`solve`
+            for fast-path execution.
+
+        Examples
+        --------
+        >>> inits, params = solver.build_grid(
+        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
+        ...     grid_type="combinatorial"
+        ... )
+        >>> result = solver.solve(inits, params)  # Uses fast path
+        """
+        return self.grid_builder(
+            states=initial_values, params=parameters, kind=grid_type
+        )
+
     def update(
         self,
         updates_dict: Optional[Dict[str, Any]] = None,
