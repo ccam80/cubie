@@ -2,13 +2,10 @@ import numpy as np
 import pytest
 
 from cubie import merge_kwargs_into_settings
-from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop, LoopBufferSettings
-from cubie.integrators.step_control import get_controller
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
@@ -22,10 +19,11 @@ from tests._utils import assert_integration_outputs, run_device_loop
 def time_driver_solver_settings(precision):
     settings = {
         "algorithm": "euler",
-        "duration": 1.0,
+        "duration": np.pi * 2,
         "warmup": 0.0,
         "t0": 0.0,
         "dt_min": precision(0.05),
+        "dt": 0.01,
         "dt_max": precision(0.05),
         "dt_save": precision(0.05),
         "dt_summarise": precision(0.1),
@@ -45,7 +43,8 @@ def time_driver_solver_settings(precision):
         "step_controller": "fixed",
         "precision": precision,
         "driverspline_order": 3,
-        "driverspline_wrap": False,
+        "driverspline_wrap": True,
+        "driverspline_boundary_condition": "periodic",
     }
     return settings
 
@@ -87,100 +86,100 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
     num_samples = int(np.round(duration / sample_dt)) + 1
     times = np.linspace(0.0, duration, num_samples, dtype=precision)
     values = np.sin(times.astype(np.float64)).astype(precision)
+    values[-1] = values[0]
     input_dict = {
         "drive": values,
         "time": times,
         "order": int(time_driver_solver_settings["driverspline_order"]),
         "wrap": bool(time_driver_solver_settings["driverspline_wrap"]),
+        "boundary_condition": time_driver_solver_settings["driverspline_boundary_condition"],
     }
     driver_array = ArrayInterpolator(
         precision=precision,
         input_dict=input_dict,
     )
     return driver_array
-
-def _build_loop(
-    system,
-    solver_settings,
-    output_functions,
-    precision,
-    driver_array=None,
-):
-    driver_function = (
-        driver_array.evaluation_function if driver_array is not None else None
-    )
-    algorithm_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                                       valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
-    algorithm_settings["algorithm"] = solver_settings["algorithm"]
-    algorithm_settings["dt"] = float(solver_settings["dt_min"])
-    algorithm_settings["n"] = system.sizes.states
-    algorithm_settings["dxdt_function"] = system.dxdt_function
-    algorithm_settings["observables_function"] = system.observables_function
-    algorithm_settings["get_solver_helper_fn"] = (
-        system.get_solver_helper
-    )
-    if driver_function is not None:
-        algorithm_settings["driver_function"] = driver_function
-
-    step_object = get_algorithm_step(
-        precision=precision,
-        settings=algorithm_settings,
-    )
-
-    controller_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                                        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
-    controller_settings["step_controller"] = solver_settings[
-        "step_controller"
-    ]
-    controller_settings.setdefault("dt", float(solver_settings["dt_min"]))
-    controller_settings["n"] = system.sizes.states
-
-    step_controller = get_controller(
-        precision=precision,
-        settings=controller_settings,
-    )
-
-    # Build buffer settings for this specific system
-    n_error = system.sizes.states if step_object.is_adaptive else 0
-    buffer_settings = LoopBufferSettings(
-        n_states=system.sizes.states,
-        n_parameters=system.sizes.parameters,
-        n_drivers=system.sizes.drivers,
-        n_observables=system.sizes.observables,
-        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
-        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
-        n_error=n_error,
-        n_counters=0,
-    )
-
-    loop = IVPLoop(
-        precision=precision,
-        buffer_settings=buffer_settings,
-        compile_flags=output_functions.compile_flags,
-        controller_local_len=step_controller.local_memory_elements,
-        algorithm_local_len=step_object.persistent_local_required,
-        save_state_func=output_functions.save_state_func,
-        update_summaries_func=output_functions.update_summaries_func,
-        save_summaries_func=output_functions.save_summary_metrics_func,
-        step_controller_fn=step_controller.device_function,
-        step_function=step_object.step_function,
-        driver_function=driver_function,
-        observables_fn=system.observables_function,
-        dt_save=float(solver_settings["dt_save"]),
-        dt_summarise=float(solver_settings["dt_summarise"]),
-        dt0=step_controller.dt0,
-        dt_min=step_controller.dt_min,
-        dt_max=step_controller.dt_max,
-        is_adaptive=step_controller.is_adaptive,
-    )
-    return loop
+#
+# def _build_loop(
+#     system,
+#     solver_settings,
+#     output_functions,
+#     precision,
+#     driver_array=None,
+# ):
+#     driver_function = (
+#         driver_array.evaluation_function if driver_array is not None else None
+#     )
+#     algorithm_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+#                                                        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
+#     algorithm_settings["algorithm"] = solver_settings["algorithm"]
+#     algorithm_settings["dt"] = float(solver_settings["dt_min"])
+#     algorithm_settings["n"] = system.sizes.states
+#     algorithm_settings["dxdt_function"] = system.dxdt_function
+#     algorithm_settings["observables_function"] = system.observables_function
+#     algorithm_settings["get_solver_helper_fn"] = (
+#         system.get_solver_helper
+#     )
+#     if driver_function is not None:
+#         algorithm_settings["driver_function"] = driver_function
+#
+#     step_object = get_algorithm_step(
+#         precision=precision,
+#         settings=algorithm_settings,
+#     )
+#
+#     controller_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+#                                                         valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
+#     controller_settings["step_controller"] = solver_settings[
+#         "step_controller"
+#     ]
+#     controller_settings.setdefault("dt", float(solver_settings["dt_min"]))
+#     controller_settings["n"] = system.sizes.states
+#
+#     step_controller = get_controller(
+#         precision=precision,
+#         settings=controller_settings,
+#     )
+#
+#     # Build buffer settings for this specific system
+#     n_error = system.sizes.states if step_object.is_adaptive else 0
+#     buffer_settings = LoopBufferSettings(
+#         n_states=system.sizes.states,
+#         n_parameters=system.sizes.parameters,
+#         n_drivers=system.sizes.drivers,
+#         n_observables=system.sizes.observables,
+#         state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+#         observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+#         n_error=n_error,
+#         n_counters=0,
+#     )
+#
+#     loop = IVPLoop(
+#         precision=precision,
+#         buffer_settings=buffer_settings,
+#         compile_flags=output_functions.compile_flags,
+#         controller_local_len=step_controller.local_memory_elements,
+#         algorithm_local_len=step_object.persistent_local_required,
+#         save_state_func=output_functions.save_state_func,
+#         update_summaries_func=output_functions.update_summaries_func,
+#         save_summaries_func=output_functions.save_summary_metrics_func,
+#         step_controller_fn=step_controller.device_function,
+#         step_function=step_object.step_function,
+#         driver_function=driver_function,
+#         observables_fn=system.observables_function,
+#         dt_save=float(solver_settings["dt_save"]),
+#         dt_summarise=float(solver_settings["dt_summarise"]),
+#         dt0=step_controller.dt0,
+#         dt_min=step_controller.dt_min,
+#         dt_max=step_controller.dt_max,
+#         is_adaptive=step_controller.is_adaptive,
+#     )
+#     return loop
 
 
 def build_single_integrator(
     system,
     solver_settings,
-    output_functions,
-    precision,
     driver_array=None,
 ):
     """Build a SingleIntegratorRun for a specific system and settings."""
@@ -273,14 +272,10 @@ def test_time_driver_array_matches_function(
     single_integrator_function = build_single_integrator(
         function_system,
         solver_settings,
-        output_functions_function,
-        precision,
     )
     single_integrator_driver = build_single_integrator(
         interpolated_system,
         solver_settings,
-        output_functions_driver,
-        precision,
         driver_array=driver_array,
     )
 
