@@ -557,10 +557,10 @@ class Solver:
         )
         self.memory_manager.sync_stream(self.kernel)
 
-        # Stop wall-clock timing and print runtime summary
+        # Stop wall-clock timing and print all timing summaries
         # (CUDA events retrieved automatically by print_summary)
         _default_timelogger.stop_event("solver_solve")
-        _default_timelogger.print_summary(category='runtime')
+        _default_timelogger.print_summary()
 
         return SolveResult.from_solver(
             self,
