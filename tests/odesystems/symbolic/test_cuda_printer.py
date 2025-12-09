@@ -429,3 +429,36 @@ class TestNumericPrecisionWrapping:
         expr3 = sp.Float(2)*i + sp.Integer(1)
         result3 = printer.doprint(expr3)
         assert "precision(" in result3
+
+    def test_integer_literals_wrapped(self):
+        """Test that integer literals in expressions are wrapped with precision()."""
+        printer = CUDAPrinter()
+        x = sp.Symbol('x')
+        
+        # Test integer addition
+        expr1 = x + sp.Integer(5)
+        result1 = printer.doprint(expr1)
+        assert result1 == "x + precision(5)"
+        
+        # Test integer multiplication
+        expr2 = sp.Integer(2) * x
+        result2 = printer.doprint(expr2)
+        assert result2 == "precision(2)*x"
+        
+        # Test integer subtraction (SymPy treats x - 3 as x + (-3))
+        expr3 = x - sp.Integer(3)
+        result3 = printer.doprint(expr3)
+        assert result3 == "x + precision(-3)"
+        
+    def test_integer_constants_not_upcasted(self):
+        """Test that integer constants prevent float64 upcasting."""
+        printer = CUDAPrinter()
+        x = sp.Symbol('x')
+        
+        # Ensure integer constants are wrapped with precision()
+        # This prevents mixed-precision arithmetic from upcasting to float64
+        expr = sp.Integer(2) * x + sp.Integer(1)
+        result = printer.doprint(expr)
+        assert result == "precision(2)*x + precision(1)"
+        # Verify no int32() usage
+        assert "int32" not in result
