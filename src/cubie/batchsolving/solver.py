@@ -37,6 +37,18 @@ from cubie.outputhandling.output_functions import (
 )
 from cubie.time_logger import _default_timelogger
 
+# Register module-level events
+_default_timelogger.register_event(
+    "solve_ivp", 
+    "runtime", 
+    "Wall-clock time for solve_ivp()"
+)
+_default_timelogger.register_event(
+    "solver_solve",
+    "runtime",
+    "Wall-clock time for Solver.solve()"
+)
+
 
 def solve_ivp(
     system: BaseODE,
@@ -102,12 +114,7 @@ def solve_ivp(
         **kwargs,
     )
     
-    # Register and start wall-clock timing
-    _default_timelogger.register_event(
-        "solve_ivp", 
-        "runtime", 
-        "Wall-clock time for solve_ivp()"
-    )
+    # Start wall-clock timing
     _default_timelogger.start_event("solve_ivp")
     
     results = solver.solve(
@@ -494,12 +501,7 @@ class Solver:
         if kwargs:
             self.update(kwargs, silent=True)
         
-        # Register and start wall-clock timing for solve
-        _default_timelogger.register_event(
-            "solver_solve",
-            "runtime",
-            "Wall-clock time for Solver.solve()"
-        )
+        # Start wall-clock timing for solve
         _default_timelogger.start_event("solver_solve")
 
         # Classify inputs to determine processing path
@@ -542,10 +544,8 @@ class Solver:
         )
         self.memory_manager.sync_stream(self.kernel)
         
-        # Retrieve CUDA event timings (after sync completes)
-        _default_timelogger.retrieve_cuda_events()
-        
         # Stop wall-clock timing and print runtime summary
+        # (CUDA events retrieved automatically by print_summary)
         _default_timelogger.stop_event("solver_solve")
         _default_timelogger.print_summary(category='runtime')
         

@@ -1,11 +1,11 @@
 """Time logging infrastructure for tracking CuBIE compilation performance."""
 
 import time
-from typing import Optional, Any, TYPE_CHECKING
+from time import perf_counter
+from typing import Optional, Any
 import attrs
-
-if TYPE_CHECKING:
-    from cubie.cuda_simsafe import CUDAEvent
+from cubie.cuda_simsafe import is_cudasim_enabled
+from numba import cuda
 
 
 @attrs.define(frozen=True)
@@ -31,6 +31,130 @@ class TimingEvent:
         validator=attrs.validators.instance_of(float)
     )
     metadata: dict = attrs.field(factory=dict)
+
+
+class CUDAEvent:
+    """CUDA event pair for timing measurements with CUDASIM fallback.
+    
+    Parameters
+    ----------
+    name : str, default="unnamed_cuda_event"
+        Event identifier (e.g., "kernel_chunk_0")
+    timelogger : TimeLogger, optional
+        TimeLogger instance for registration. If None, uses _default_timelogger.
+    
+    Attributes
+    ----------
+    name : str
+        Event identifier
+    _start_event : cuda.event or None
+        Start event object (CUDA mode)
+    _end_event : cuda.event or None
+        End event object (CUDA mode)
+    _start_time : float or None
+        Start timestamp (CUDASIM mode)
+    _end_time : float or None
+        End timestamp (CUDASIM mode)
+    _verbosity : str or None
+        TimeLogger verbosity (for no-op when None)
+    """
+    
+    def __init__(self, name: str = "unnamed_cuda_event", timelogger=None) -> None:
+        self.name = name
+        
+        # Get TimeLogger instance for registration and verbosity check
+        if timelogger is None:
+            timelogger = _default_timelogger
+        self._verbosity = timelogger.verbosity
+        
+        if not is_cudasim_enabled():
+            # CUDA mode: create event objects for GPU timeline recording
+            self._start_event = cuda.event()
+            self._end_event = cuda.event()
+            self._start_time = None
+            self._end_time = None
+        else:
+            # CUDASIM mode: use wall-clock timestamps as fallback
+            self._start_event = None
+            self._end_event = None
+            self._start_time = None
+            self._end_time = None
+        
+        # Register with TimeLogger
+        timelogger._register_cuda_event(self)
+    
+    def record_start(self, stream) -> None:
+        """Record start timestamp on given stream.
+        
+        Parameters
+        ----------
+        stream
+            CUDA stream on which to record event
+        
+        Notes
+        -----
+        No-op when verbosity is None.
+        Must be called before record_end().
+        """
+        if self._verbosity is None:
+            return
+        
+        if not is_cudasim_enabled():
+            self._start_event.record(stream)
+        else:
+            self._start_time = perf_counter()
+    
+    def record_end(self, stream) -> None:
+        """Record end timestamp on given stream.
+        
+        Parameters
+        ----------
+        stream
+            CUDA stream on which to record event
+        
+        Notes
+        -----
+        No-op when verbosity is None.
+        Must be called after record_start().
+        """
+        if self._verbosity is None:
+            return
+        
+        if not is_cudasim_enabled():
+            self._end_event.record(stream)
+        else:
+            self._end_time = perf_counter()
+    
+    def elapsed_time_ms(self) -> float:
+        """Calculate elapsed time in milliseconds.
+        
+        Returns
+        -------
+        float
+            Elapsed time in milliseconds
+        
+        Notes
+        -----
+        This method must NOT block or synchronize. It should be called
+        AFTER the stream has been synchronized externally.
+        In CUDA mode, uses cuda.event_elapsed_time() which returns
+        immediately post-sync.
+        In CUDASIM mode, calculates from stored timestamps.
+        
+        Returns 0.0 if verbosity is None or if both start and end have
+        not been recorded.
+        """
+        if self._verbosity is None:
+            return 0.0
+        
+        if not is_cudasim_enabled():
+            if self._start_event is None or self._end_event is None:
+                return 0.0
+            return cuda.event_elapsed_time(self._start_event, self._end_event)
+        else:
+            if self._start_time is None or self._end_time is None:
+                return 0.0
+            return (self._end_time - self._start_time) * 1000.0
 
 
 class TimeLogger:
@@ -334,9 +458,15 @@ class TimeLogger:
         For runtime category with CUDA events:
         - 'verbose' or 'debug': prints individual chunk timings
         - 'default': aggregates chunk timings by type
+        
+        Automatically retrieves CUDA event timings when category='runtime'.
         """
         if self.verbosity is None:
             return
+        
+        # Retrieve CUDA event timings when printing runtime summary
+        if category == 'runtime':
+            self._retrieve_cuda_events()
         
         if self.verbosity == 'default':
             # Get standard durations from start/stop pairs
@@ -455,8 +585,8 @@ class TimeLogger:
                 'description': description
             }
     
-    def register_cuda_event(self, event: "CUDAEvent") -> None:
-        """Register a CUDA event for later timing retrieval.
+    def _register_cuda_event(self, event: "CUDAEvent") -> None:
+        """Register a CUDA event for later timing retrieval (internal).
         
         Parameters
         ----------
@@ -465,21 +595,12 @@ class TimeLogger:
         
         Notes
         -----
-        Events are stored until retrieve_cuda_events() is called.
+        Called internally by CUDAEvent.__init__().
+        Events are stored until _retrieve_cuda_events() is called.
         No-op when verbosity is None.
-        The event's category and name are also registered with the
-        standard register_event() mechanism.
         """
         if self.verbosity is None:
             return
-        
-        # Import here to avoid circular dependency
-        from cubie.cuda_simsafe import CUDAEvent
-        
-        if not isinstance(event, CUDAEvent):
-            raise TypeError(
-                f"event must be a CUDAEvent instance, got {type(event)}"
-            )
         
         # Store event for later retrieval
         self._cuda_events.append(event)
@@ -487,11 +608,11 @@ class TimeLogger:
         # Register with standard event registry
         self.register_event(
             event.name, 
-            event.category, 
+            'runtime', 
             f"GPU event: {event.name}"
         )
     
-    def retrieve_cuda_events(self) -> None:
+    def _retrieve_cuda_events(self) -> None:
         """Retrieve timing from all registered CUDA events.
         
         Notes

@@ -249,129 +249,12 @@ def is_cudasim_enabled() -> bool:
     return CUDA_SIMULATION
 
 
-class CUDAEvent:
-    """CUDA event pair for timing measurements with CUDASIM fallback.
-    
-    Parameters
-    ----------
-    name : str
-        Event identifier (e.g., "kernel_chunk_0")
-    category : str, default='runtime'
-        TimeLogger category: 'runtime', 'codegen', or 'compile'
-    
-    Attributes
-    ----------
-    name : str
-        Event identifier
-    category : str
-        TimeLogger category
-    _start_event : cuda.event or None
-        Start event object (CUDA mode)
-    _end_event : cuda.event or None
-        End event object (CUDA mode)
-    _start_time : float or None
-        Start timestamp (CUDASIM mode)
-    _end_time : float or None
-        End timestamp (CUDASIM mode)
-    """
-    
-    def __init__(self, name: str, category: str = 'runtime') -> None:
-        # Validation for name parameter
-        if not name or not isinstance(name, str):
-            raise ValueError("name must be a non-empty string")
-        if category not in {'codegen', 'runtime', 'compile'}:
-            raise ValueError(
-                f"category must be 'codegen', 'runtime', or 'compile', "
-                f"got '{category}'"
-            )
-        
-        self.name = name
-        self.category = category
-        
-        if not CUDA_SIMULATION:
-            # CUDA mode: create event objects for GPU timeline recording
-            self._start_event = cuda.event()
-            self._end_event = cuda.event()
-            self._start_time = None
-            self._end_time = None
-        else:
-            # CUDASIM mode: use wall-clock timestamps as fallback
-            self._start_event = None
-            self._end_event = None
-            self._start_time = None
-            self._end_time = None
-    
-    def record_start(self, stream) -> None:
-        """Record start timestamp on given stream.
-        
-        Parameters
-        ----------
-        stream
-            CUDA stream on which to record event
-        
-        Notes
-        -----
-        Must be called before record_end().
-        """
-        if not CUDA_SIMULATION:
-            self._start_event.record(stream)
-        else:
-            import time
-            self._start_time = time.perf_counter()
-    
-    def record_end(self, stream) -> None:
-        """Record end timestamp on given stream.
-        
-        Parameters
-        ----------
-        stream
-            CUDA stream on which to record event
-        
-        Notes
-        -----
-        Must be called after record_start().
-        """
-        if not CUDA_SIMULATION:
-            self._end_event.record(stream)
-        else:
-            import time
-            self._end_time = time.perf_counter()
-    
-    def elapsed_time_ms(self) -> float:
-        """Calculate elapsed time in milliseconds.
-        
-        Returns
-        -------
-        float
-            Elapsed time in milliseconds
-        
-        Notes
-        -----
-        This method must NOT block or synchronize. It should be called
-        AFTER the stream has been synchronized externally.
-        In CUDA mode, uses cuda.event_elapsed_time() which returns
-        immediately post-sync.
-        In CUDASIM mode, calculates from stored timestamps.
-        
-        Returns 0.0 if both start and end have not been recorded.
-        """
-        if not CUDA_SIMULATION:
-            if self._start_event is None or self._end_event is None:
-                return 0.0
-            return cuda.event_elapsed_time(self._start_event, self._end_event)
-        else:
-            if self._start_time is None or self._end_time is None:
-                return 0.0
-            return (self._end_time - self._start_time) * 1000.0
-
-
 __all__ = [
     "CUDA_SIMULATION",
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
     "compile_kwargs",
-    "CUDAEvent",
     "DeviceNDArrayBase",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",

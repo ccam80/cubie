@@ -11,8 +11,8 @@ from numba import int32, int16
 import attrs
 
 from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs, CUDAEvent
-from cubie.time_logger import _default_timelogger
+    compile_kwargs
+from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -216,6 +216,52 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         return memory_manager
+    
+    def _setup_cuda_events(self, chunks: int) -> None:
+        """Create CUDA events for timing instrumentation.
+        
+        Parameters
+        ----------
+        chunks : int
+            Number of chunks to process
+        
+        Notes
+        -----
+        Creates one GPU workload event and 3 events per chunk
+        (h2d_transfer, kernel, d2h_transfer).
+        Events are created regardless of verbosity - they become no-ops
+        internally when verbosity is None.
+        """
+        # Create overall GPU workload event
+        self._gpu_workload_event = CUDAEvent("gpu_workload")
+        
+        # Create per-chunk events (3 events per chunk: h2d, kernel, d2h)
+        self._cuda_events = []
+        for i in range(chunks):
+            h2d_event = CUDAEvent(f"h2d_transfer_chunk_{i}")
+            kernel_event = CUDAEvent(f"kernel_chunk_{i}")
+            d2h_event = CUDAEvent(f"d2h_transfer_chunk_{i}")
+            self._cuda_events.extend([h2d_event, kernel_event, d2h_event])
+    
+    def _get_chunk_events(self, chunk_idx: int) -> Tuple:
+        """Get the three CUDA events for a specific chunk.
+        
+        Parameters
+        ----------
+        chunk_idx : int
+            Chunk index (0-based)
+        
+        Returns
+        -------
+        tuple
+            (h2d_event, kernel_event, d2h_event) for the chunk
+        """
+        base_idx = chunk_idx * 3
+        return (
+            self._cuda_events[base_idx],
+            self._cuda_events[base_idx + 1],
+            self._cuda_events[base_idx + 2]
+        )
 
     def run(
         self,
@@ -335,48 +381,31 @@ class BatchSolverKernel(CUDAFactory):
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
         
-        # Create CUDA events for timing if verbosity is enabled
-        if _default_timelogger.verbosity is not None:
-            # Create overall GPU workload event
-            self._gpu_workload_event = CUDAEvent("gpu_workload", category="runtime")
-            
-            # Create per-chunk events (3 events per chunk: h2d, kernel, d2h)
-            self._cuda_events = []
-            for i in range(self.chunks):
-                h2d_event = CUDAEvent(f"h2d_transfer_chunk_{i}", category="runtime")
-                kernel_event = CUDAEvent(f"kernel_chunk_{i}", category="runtime")
-                d2h_event = CUDAEvent(f"d2h_transfer_chunk_{i}", category="runtime")
-                self._cuda_events.extend([h2d_event, kernel_event, d2h_event])
-            
-            # Record start of overall GPU workload
-            self._gpu_workload_event.record_start(stream)
+        # Setup CUDA events for timing (no-op when verbosity is None)
+        self._setup_cuda_events(self.chunks)
+        
+        # Record start of overall GPU workload
+        self._gpu_workload_event.record_start(stream)
 
         for i in range(self.chunks):
             indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
             
-            # Record start of h2d transfer
-            if len(self._cuda_events) > 0:
-                h2d_event = self._cuda_events[i * 3]
-                h2d_event.record_start(stream)
+            # Get events for this chunk
+            h2d_event, kernel_event, d2h_event = self._get_chunk_events(i)
             
+            # h2d transfer timing
+            h2d_event.record_start(stream)
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
-            
-            # Record end of h2d transfer
-            if len(self._cuda_events) > 0:
-                h2d_event = self._cuda_events[i * 3]
-                h2d_event.record_end(stream)
+            h2d_event.record_end(stream)
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = np.float64(0.0)
                 chunk_t0 = t0 + np.float64(i) * chunk_params.duration
             
-            # Record start of kernel execution
-            if len(self._cuda_events) > 0:
-                kernel_event = self._cuda_events[i * 3 + 1]
-                kernel_event.record_start(stream)
-
+            # Kernel execution timing
+            kernel_event.record_start(stream)
             self.kernel[
                 BLOCKSPERGRID,
                 (threads_per_loop, runsperblock),
@@ -397,37 +426,20 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_t0,
                 numruns,
             )
-            
-            # Record end of kernel execution
-            if len(self._cuda_events) > 0:
-                kernel_event = self._cuda_events[i * 3 + 1]
-                kernel_event.record_end(stream)
+            kernel_event.record_end(stream)
             
             # We don't want to sync between chunks, we should queue runs and
             # transfers in the stream and sync before final result fetch.
             # self.memory_manager.sync_stream(self)
             
-            # Record start of d2h transfer
-            if len(self._cuda_events) > 0:
-                d2h_event = self._cuda_events[i * 3 + 2]
-                d2h_event.record_start(stream)
-
+            # d2h transfer timing
+            d2h_event.record_start(stream)
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
-            
-            # Record end of d2h transfer
-            if len(self._cuda_events) > 0:
-                d2h_event = self._cuda_events[i * 3 + 2]
-                d2h_event.record_end(stream)
+            d2h_event.record_end(stream)
         
-        # Finalize GPU workload timing and register all events
-        if self._gpu_workload_event is not None:
-            self._gpu_workload_event.record_end(stream)
-            
-            # Register all events with TimeLogger
-            _default_timelogger.register_cuda_event(self._gpu_workload_event)
-            for event in self._cuda_events:
-                _default_timelogger.register_cuda_event(event)
+        # Finalize GPU workload timing
+        self._gpu_workload_event.record_end(stream)
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
