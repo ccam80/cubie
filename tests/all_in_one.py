@@ -929,6 +929,8 @@ def dirk_step_inline_factory(
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
+    stages_except_first = stage_count - int32(1)
+
     # Compile-time toggles
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
@@ -936,8 +938,9 @@ def dirk_step_inline_factory(
     first_same_as_last = False  # SDIRK does not share first/last stage
     can_reuse_accepted_start = False
 
-    stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+    stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
+    typed_zero = numba_precision(0.0)
     error_weights = tableau.error_weights(numba_precision)
     if error_weights is None or not has_error:
         error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -1025,7 +1028,6 @@ def dirk_step_inline_factory(
         #       - stage_base: first slice (size n)
         #           - Holds the working state during the current stage.
         #           - New data lands only after the prior stage has finished.
-        #           - Memory location controlled by use_shared_stage_base.
         # solver_scratch: size solver_shared_elements, shared memory.
         #   Default behaviour:
         #       - Provides workspace for the Newton iteration helpers.
@@ -1040,8 +1042,7 @@ def dirk_step_inline_factory(
         #   Note:
         #       - Evaluation state is computed inline by operators and
         #         residuals; no dedicated buffer required.
-        # stage_increment: size n.
-        #   Memory location controlled by use_shared_stage_increment.
+        # stage_increment: size n, shared or local memory.
         #   Default behaviour:
         #       - Starts as the Newton guess and finishes as the step.
         #       - Copied into increment_cache once the stage closes.
@@ -1054,54 +1055,76 @@ def dirk_step_inline_factory(
         #       - Refresh to the stage time before rhs or residual work.
         #       - Later stages reuse only the newest values, so no clashes.
         # ----------------------------------------------------------- #
-        # Memory allocation based on configuration flags
+
+        # ----------------------------------------------------------- #
+        # Selective allocation from local or shared memory
+        # ----------------------------------------------------------- #
         if stage_increment_in_shared:
             stage_increment = shared[solver_end:solver_end + n]
         else:
             stage_increment = cuda.local.array(n_arraysize, numba_precision)
+            for _i in range(n_arraysize):
+                stage_increment[_i] = numba_precision(0.0)
 
-        current_time = time_scalar
-        end_time = current_time + dt_scalar
-
-        # Allocate accumulator and solver scratch based on flags
         if accumulator_in_shared:
             stage_accumulator = shared[acc_start:acc_end]
         else:
             stage_accumulator = cuda.local.array(accumulator_length,
                                                  numba_precision)
+            for _i in range(accumulator_length):
+                stage_accumulator[_i] = numba_precision(0.0)
 
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
             solver_scratch = cuda.local.array(solver_shared_elements,
                                               numba_precision)
-        stage_rhs = solver_scratch[:n]
-        increment_cache = solver_scratch[n:int32(2)*n]
+            for _i in range(solver_shared_elements):
+                solver_scratch[_i] = numba_precision(0.0)
 
         # Alias stage base onto first stage accumulator or allocate locally
-        # stage_base can alias accumulator whether it's in shared or local memory
         if multistage:
+            stage_base = stage_accumulator[:n]
+        else:
             if stage_base_in_shared:
-                stage_base = stage_accumulator[:n]
+                stage_base = shared[:n]
             else:
                 stage_base = cuda.local.array(n_arraysize, numba_precision)
+                for _i in range(n_arraysize):
+                    stage_base[_i] = numba_precision(0.0)
+
+        # --------------------------------------------------------------- #
+
+        current_time = time_scalar
+        end_time = current_time + dt_scalar
+        stage_rhs = solver_scratch[:n]
+
+        # increment_cache and rhs_cache persist between steps for FSAL.
+        # When solver_scratch is shared, slice from it; when local, use
+        # persistent_local to maintain state between step invocations.
+        if solver_scratch_in_shared:
+            increment_cache = solver_scratch[n:int32(2)*n]
+            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs when shared
         else:
-            stage_base = cuda.local.array(n_arraysize, numba_precision)
+            increment_cache = persistent_local[:n]
+            rhs_cache = persistent_local[n:int32(2)*n]
 
         for idx in range(n):
             if has_error and accumulates_error:
                 error[idx] = typed_zero
-            stage_increment[idx] = increment_cache[idx] # cache spent
+            stage_increment[idx] = increment_cache[idx]  # cache spent
 
         status_code = int32(0)
         # --------------------------------------------------------------- #
         #            Stage 0: may reuse cached values                     #
         # --------------------------------------------------------------- #
 
+        first_step = first_step_flag != int16(0)
+
         # Only use cache if all threads in warp can - otherwise no gain
         use_cached_rhs = False
         if first_same_as_last and multistage:
-            if not first_step_flag:
+            if not first_step:
                 mask = activemask()
                 all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
                 use_cached_rhs = all_threads_accepted
@@ -1117,12 +1140,16 @@ def dirk_step_inline_factory(
                 proposed_state[idx] = typed_zero
 
         if use_cached_rhs:
-            # RHS is aliased onto solver scratch cache at step-end
-            pass
+            # Load cached RHS from persistent storage (when solver_scratch
+            # is local, rhs_cache points to persistent_local; when shared,
+            # it aliases stage_rhs so this is a no-op)
+            if not solver_scratch_in_shared:
+                for idx in range(n):
+                    stage_rhs[idx] = rhs_cache[idx]
 
         else:
             if can_reuse_accepted_start:
-                for idx in range(drivers_buffer.shape[0]):
+                for idx in range(int32(drivers_buffer.shape[0])):
                     # Use step-start driver values
                     proposed_drivers[idx] = drivers_buffer[idx]
 
@@ -1195,21 +1222,30 @@ def dirk_step_inline_factory(
         #            Stages 1-s: must refresh all qtys                    #
         # --------------------------------------------------------------- #
 
-        for stage_idx in range(int32(1), stage_count):
-            prev_idx = stage_idx - int32(1)
-            successor_range = stage_count - stage_idx
-            stage_time = (
-                    current_time + dt_scalar * stage_time_fractions[stage_idx]
-            )
+        for prev_idx in range(stages_except_first):
+            stage_offset = prev_idx * n
+            stage_idx = prev_idx + int32(1)
+            matrix_col = stage_rhs_coeffs[prev_idx]
 
-            # Fill accumulators with previous step's contributions
-            for successor_offset in range(successor_range):
-                successor_idx = stage_idx + successor_offset
-                base = (successor_idx - int32(1)) * n
-                for idx in range(n):
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    contribution = state_coeff * stage_rhs[idx] * dt_scalar
-                    stage_accumulator[base + idx] += contribution
+            # Stream previous stage's RHS into accumulators for successors
+            # Only stream to current stage and later (not already-processed)
+            for successor_idx in range(stages_except_first):
+                # Accumulator at index i is for stage i+1
+                # At prev_idx, current stage is prev_idx+1, so stream to
+                # accumulators with index >= prev_idx
+
+                # This guard can be removed, adding a "dead write"
+                # Do if the compiler needs help unrolling
+                if successor_idx >= prev_idx:
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
+                    for idx in range(n):
+                        contribution = coeff * stage_rhs[idx] * dt_scalar
+                        stage_accumulator[row_offset + idx] += contribution
+
+            stage_time = (
+                current_time + dt_scalar * stage_time_fractions[stage_idx]
+            )
 
             if has_driver_function:
                 driver_function(
@@ -1218,9 +1254,8 @@ def dirk_step_inline_factory(
                     proposed_drivers,
                 )
 
-            # Grab a view of the completed accumulator slice, add state
-            stage_base = stage_accumulator[(stage_idx-int32(1)) * n:stage_idx
-                                                                  * n]
+            # Convert accumulator slice to state by adding y_n
+            stage_base = stage_accumulator[stage_offset:stage_offset + n]
             for idx in range(n):
                 stage_base[idx] += state[idx]
 
@@ -1259,7 +1294,6 @@ def dirk_step_inline_factory(
                 stage_time,
             )
 
-            # Accumulate f(y_jn) terms or capture direct stage state
             solution_weight = solution_weights[stage_idx]
             error_weight = error_weights[stage_idx]
             for idx in range(n):
@@ -1303,9 +1337,14 @@ def dirk_step_inline_factory(
             end_time,
         )
 
-        # RHS auto-cached through aliasing to solver scratch
+        # Cache increment and RHS for FSAL optimization
         for idx in range(n):
             increment_cache[idx] = stage_increment[idx]
+            # Save RHS to cache (when solver_scratch is local, rhs_cache
+            # points to persistent_local; when shared, aliases stage_rhs)
+            if first_same_as_last:
+                if not solver_scratch_in_shared:
+                    rhs_cache[idx] = stage_rhs[idx]
 
         return status_code
 
