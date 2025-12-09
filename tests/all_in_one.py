@@ -19,6 +19,12 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERK_TABLEAU_REGISTRY,
 )
+from cubie.integrators.algorithms.generic_firk_tableaus import (
+    FIRK_TABLEAU_REGISTRY,
+)
+from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
+    ROSENBROCK_TABLEAUS,
+)
 from cubie.integrators.array_interpolator import ArrayInterpolator
 
 # =========================================================================
@@ -181,6 +187,17 @@ erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
 # Note: stage_cache aliases onto stage_rhs if shared, else onto accumulator
 # if shared, else goes into persistent_local
 
+# FIRK step arrays
+firk_solver_scratch_memory = 'local'  # 'local' or 'shared'
+firk_stage_increment_memory = 'local'  # 'local' or 'shared'
+firk_stage_driver_stack_memory = 'local'  # 'local' or 'shared'
+firk_stage_state_memory = 'local'  # 'local' or 'shared'
+
+# Rosenbrock step arrays
+rosenbrock_stage_rhs_memory = 'local'  # 'local' or 'shared'
+rosenbrock_stage_store_memory = 'local'  # 'local' or 'shared'
+rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
+
 # -------------------------------------------------------------------------
 # Kernel Launch Configuration
 # -------------------------------------------------------------------------
@@ -209,9 +226,23 @@ elif algorithm_type == 'dirk':
             f"Available: {list(DIRK_TABLEAU_REGISTRY.keys())}"
         )
     tableau = DIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'firk':
+    if algorithm_tableau_name not in FIRK_TABLEAU_REGISTRY:
+        raise ValueError(
+            f"Unknown FIRK tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(FIRK_TABLEAU_REGISTRY.keys())}"
+        )
+    tableau = FIRK_TABLEAU_REGISTRY[algorithm_tableau_name]
+elif algorithm_type == 'rosenbrock':
+    if algorithm_tableau_name not in ROSENBROCK_TABLEAUS:
+        raise ValueError(
+            f"Unknown Rosenbrock tableau: '{algorithm_tableau_name}'. "
+            f"Available: {list(ROSENBROCK_TABLEAUS.keys())}"
+        )
+    tableau = ROSENBROCK_TABLEAUS[algorithm_tableau_name]
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
-                     "Use 'erk' or 'dirk'.")
+                     "Use 'erk', 'dirk', 'firk', or 'rosenbrock'.")
 
 # Numba/simsafe type conversions
 numba_precision = numba_from_dtype(precision)
@@ -276,6 +307,19 @@ use_shared_erk_stage_accumulator = erk_stage_accumulator_memory == 'shared'
 # else requires persistent_local storage
 use_shared_erk_stage_cache = (use_shared_erk_stage_rhs or
                               use_shared_erk_stage_accumulator)
+
+# FIRK step flags
+use_shared_firk_solver_scratch = firk_solver_scratch_memory == 'shared'
+use_shared_firk_stage_increment = firk_stage_increment_memory == 'shared'
+use_shared_firk_stage_driver_stack = firk_stage_driver_stack_memory == 'shared'
+use_shared_firk_stage_state = firk_stage_state_memory == 'shared'
+
+# Rosenbrock step flags
+use_shared_rosenbrock_stage_rhs = rosenbrock_stage_rhs_memory == 'shared'
+use_shared_rosenbrock_stage_store = rosenbrock_stage_store_memory == 'shared'
+use_shared_rosenbrock_cached_auxiliaries = (
+    rosenbrock_cached_auxiliaries_memory == 'shared'
+)
 
 
 # =========================================================================
@@ -1654,6 +1698,701 @@ def erk_step_inline_factory(
 
 
 # =========================================================================
+# INLINE FIRK STEP FACTORY (Fully Implicit Runge-Kutta)
+# =========================================================================
+
+def firk_step_inline_factory(
+    nonlinear_solver,
+    dxdt_fn,
+    observables_function,
+    driver_function,
+    n,
+    prec,
+    tableau,
+):
+    """Create inline FIRK step device function matching generic_firk.py.
+
+    Parameters
+    ----------
+    nonlinear_solver
+        The Newton-Krylov solver function for coupled stages.
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The FIRK tableau.
+
+    Notes
+    -----
+    Memory location flags are read from global scope:
+    - use_shared_firk_solver_scratch
+    - use_shared_firk_stage_increment
+    - use_shared_firk_stage_driver_stack
+    - use_shared_firk_stage_state
+    """
+    numba_precision = numba_from_dtype(prec)
+    typed_zero = numba_precision(0.0)
+
+    # Extract tableau properties
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
+    all_stages_n = stage_count * n
+
+    # Compile-time toggles
+    has_driver_function = driver_function is not None
+    has_error = tableau.has_error_estimate
+
+    stage_rhs_coeffs = tableau.a_flat(numba_precision)
+    solution_weights = tableau.typed_vector(tableau.b, numba_precision)
+    error_weights = tableau.error_weights(numba_precision)
+    if error_weights is None or not has_error:
+        error_weights = tuple(typed_zero for _ in range(stage_count))
+    stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+
+    # Last-step caching optimization
+    accumulates_output = tableau.accumulates_output
+    accumulates_error = tableau.accumulates_error
+    b_row = tableau.b_matches_a_row
+    b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
+
+    ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
+
+    # Memory location flags captured at compile time from global scope
+    solver_scratch_shared = use_shared_firk_solver_scratch
+    stage_increment_shared = use_shared_firk_stage_increment
+    stage_driver_stack_shared = use_shared_firk_stage_driver_stack
+    stage_state_shared = use_shared_firk_stage_state
+
+    solver_scratch_elements = 2 * all_stages_n
+    stage_driver_stack_elements = stage_count * n_drivers
+
+    # Shared memory indices (only used when corresponding flag is True)
+    shared_pointer = int32(0)
+
+    # Solver scratch
+    solver_scratch_start = shared_pointer
+    solver_scratch_end = (solver_scratch_start + solver_scratch_elements
+                          if solver_scratch_shared else solver_scratch_start)
+    shared_pointer = solver_scratch_end
+
+    # Stage increment
+    stage_increment_start = shared_pointer
+    stage_increment_end = (stage_increment_start + all_stages_n
+                           if stage_increment_shared else stage_increment_start)
+    shared_pointer = stage_increment_end
+
+    # Stage driver stack
+    stage_driver_stack_start = shared_pointer
+    stage_driver_stack_end = (stage_driver_stack_start +
+                              stage_driver_stack_elements
+                              if stage_driver_stack_shared
+                              else stage_driver_stack_start)
+    shared_pointer = stage_driver_stack_end
+
+    # Stage state
+    stage_state_start = shared_pointer
+    stage_state_end = (stage_state_start + n
+                       if stage_state_shared else stage_state_start)
+    shared_pointer = stage_state_end
+
+    @cuda.jit(
+        [(
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision,
+            numba_precision,
+            int16,
+            int16,
+            numba_precision[::1],
+            numba_precision[::1],
+            int32[::1],
+        )],
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def step(
+        state,
+        proposed_state,
+        parameters,
+        driver_coeffs,
+        drivers_buffer,
+        proposed_drivers,
+        observables,
+        proposed_observables,
+        error,
+        dt_scalar,
+        time_scalar,
+        first_step_flag,
+        accepted_flag,
+        shared,
+        persistent_local,
+        counters,
+    ):
+        # Allocate buffers based on configuration flags
+        if stage_state_shared:
+            stage_state = shared[stage_state_start:stage_state_end]
+        else:
+            stage_state = cuda.local.array(n, numba_precision)
+
+        if solver_scratch_shared:
+            solver_scratch = shared[solver_scratch_start:solver_scratch_end]
+        else:
+            solver_scratch = cuda.local.array(solver_scratch_elements,
+                                              numba_precision)
+
+        if stage_increment_shared:
+            stage_increment = shared[stage_increment_start:stage_increment_end]
+        else:
+            stage_increment = cuda.local.array(all_stages_n,
+                                               numba_precision)
+
+        if stage_driver_stack_shared:
+            stage_driver_stack = shared[
+                stage_driver_stack_start:stage_driver_stack_end
+            ]
+        else:
+            stage_driver_stack = cuda.local.array(stage_driver_stack_elements,
+                                                  numba_precision)
+
+        current_time = time_scalar
+        end_time = current_time + dt_scalar
+        status_code = int32(0)
+        stage_rhs_flat = solver_scratch[:all_stages_n]
+
+        for idx in range(n):
+            if accumulates_output:
+                proposed_state[idx] = state[idx]
+            if has_error and accumulates_error:
+                error[idx] = typed_zero
+
+        # Fill stage_drivers_stack if driver arrays provided
+        if has_driver_function:
+            for stage_idx in range(stage_count):
+                stage_time = (
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
+                )
+                driver_offset = stage_idx * n_drivers
+                driver_slice = stage_driver_stack[
+                    driver_offset:driver_offset + n_drivers
+                ]
+                driver_function(stage_time, driver_coeffs, driver_slice)
+
+        status_code |= nonlinear_solver(
+            stage_increment,
+            parameters,
+            stage_driver_stack,
+            current_time,
+            dt_scalar,
+            typed_zero,
+            state,
+            solver_scratch,
+            counters,
+        )
+
+        for stage_idx in range(stage_count):
+            stage_time = (
+                current_time + dt_scalar * stage_time_fractions[stage_idx]
+            )
+
+            if has_driver_function:
+                stage_base = stage_idx * n_drivers
+                stage_slice = stage_driver_stack[
+                    stage_base:stage_base + n_drivers
+                ]
+                for idx in range(n_drivers):
+                    proposed_drivers[idx] = stage_slice[idx]
+
+            for idx in range(n):
+                value = state[idx]
+                for contrib_idx in range(stage_count):
+                    flat_idx = stage_idx * stage_count + contrib_idx
+                    coeff = stage_rhs_coeffs[flat_idx]
+                    if coeff != typed_zero:
+                        value += coeff * stage_increment[contrib_idx * n + idx]
+                stage_state[idx] = value
+
+            # Capture precalculated outputs if tableau allows
+            if not accumulates_output:
+                if b_row == stage_idx:
+                    for idx in range(n):
+                        proposed_state[idx] = stage_state[idx]
+            if not accumulates_error:
+                if b_hat_row == stage_idx:
+                    for idx in range(n):
+                        error[idx] = stage_state[idx]
+
+            # Evaluate f at each stage for accumulation
+            do_more_work = (has_error and accumulates_error) or accumulates_output
+
+            if do_more_work:
+                observables_function(
+                    stage_state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_time,
+                )
+
+                stage_rhs = stage_rhs_flat[
+                    stage_idx * n:(stage_idx + int32(1)) * n
+                ]
+                dxdt_fn(
+                    stage_state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_rhs,
+                    stage_time,
+                )
+
+        # Use Kahan summation algorithm to reduce floating point errors
+        if accumulates_output:
+            for idx in range(n):
+                solution_acc = typed_zero
+                for stage_idx in range(stage_count):
+                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                    solution_acc += solution_weights[stage_idx] * rhs_value
+                proposed_state[idx] = state[idx] + solution_acc * dt_scalar
+
+        if has_error and accumulates_error:
+            for idx in range(n):
+                error_acc = typed_zero
+                for stage_idx in range(stage_count):
+                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
+                    error_acc += error_weights[stage_idx] * rhs_value
+                error[idx] = dt_scalar * error_acc
+
+        if not ends_at_one:
+            if has_driver_function:
+                driver_function(end_time, driver_coeffs, proposed_drivers)
+
+            observables_function(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                end_time,
+            )
+
+        if not accumulates_error:
+            for idx in range(n):
+                error[idx] = proposed_state[idx] - error[idx]
+
+        return status_code
+
+    return step
+
+
+# =========================================================================
+# INLINE ROSENBROCK STEP FACTORY (Rosenbrock-W methods)
+# =========================================================================
+
+def rosenbrock_step_inline_factory(
+    linear_solver,
+    prepare_jacobian,
+    time_derivative_rhs,
+    dxdt_fn,
+    observables_function,
+    driver_function,
+    driver_del_t,
+    n,
+    prec,
+    tableau,
+):
+    """Create inline Rosenbrock step device function.
+
+    Parameters
+    ----------
+    linear_solver
+        The linear solver function with cached Jacobian.
+    prepare_jacobian
+        Function to prepare Jacobian auxiliaries.
+    time_derivative_rhs
+        Function to compute time derivative terms.
+    dxdt_fn
+        The derivative function.
+    observables_function
+        The observables function.
+    driver_function
+        The driver evaluation function (or None if no drivers).
+    driver_del_t
+        The driver time derivative function (or None if no drivers).
+    n
+        Number of state variables.
+    prec
+        Precision dtype.
+    tableau
+        The Rosenbrock tableau.
+
+    Notes
+    -----
+    Memory location flags are read from global scope:
+    - use_shared_rosenbrock_stage_rhs
+    - use_shared_rosenbrock_stage_store
+    - use_shared_rosenbrock_cached_auxiliaries
+    """
+    numba_precision = numba_from_dtype(prec)
+    typed_zero = numba_precision(0.0)
+
+    n = int32(n)
+    stage_count = int32(tableau.stage_count)
+    stages_except_first = stage_count - int32(1)
+
+    has_driver_function = driver_function is not None
+    has_error = tableau.has_error_estimate
+
+    a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+    C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
+    gamma_stages = tableau.typed_gamma_stages(numba_precision)
+    gamma = numba_precision(tableau.gamma)
+    solution_weights = tableau.typed_vector(tableau.b, numba_precision)
+    error_weights = tableau.error_weights(numba_precision)
+    if error_weights is None or not has_error:
+        error_weights = tuple(typed_zero for _ in range(stage_count))
+    stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+
+    # Last-step caching optimization
+    accumulates_output = tableau.accumulates_output
+    accumulates_error = tableau.accumulates_error
+    b_row = tableau.b_matches_a_row
+    b_hat_row = tableau.b_hat_matches_a_row
+    if b_row is not None:
+        b_row = int32(b_row)
+    if b_hat_row is not None:
+        b_hat_row = int32(b_hat_row)
+
+    # Memory location flags captured at compile time from global scope
+    stage_rhs_shared = use_shared_rosenbrock_stage_rhs
+    stage_store_shared = use_shared_rosenbrock_stage_store
+    cached_auxiliaries_shared = use_shared_rosenbrock_cached_auxiliaries
+
+    stage_store_elements = stage_count * n
+    # For Rosenbrock, cached_auxiliary_count would be determined by the
+    # solver helpers; here we use a placeholder value
+    cached_auxiliary_count = int32(0)  # Simplified - would need actual value
+
+    # Shared memory indices
+    shared_pointer = int32(0)
+
+    # Stage RHS
+    stage_rhs_start = shared_pointer
+    stage_rhs_end = (stage_rhs_start + n
+                     if stage_rhs_shared else stage_rhs_start)
+    shared_pointer = stage_rhs_end
+
+    # Stage store
+    stage_store_start = shared_pointer
+    stage_store_end = (stage_store_start + stage_store_elements
+                       if stage_store_shared else stage_store_start)
+    shared_pointer = stage_store_end
+
+    # Cached auxiliaries
+    cached_aux_start = shared_pointer
+    cached_aux_end = (cached_aux_start + cached_auxiliary_count
+                      if cached_auxiliaries_shared else cached_aux_start)
+    shared_pointer = cached_aux_end
+
+    @cuda.jit(
+        [(
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:, :, ::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision,
+            numba_precision,
+            int16,
+            int16,
+            numba_precision[::1],
+            numba_precision[::1],
+            int32[::1],
+        )],
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def step(
+        state,
+        proposed_state,
+        parameters,
+        driver_coeffs,
+        drivers_buffer,
+        proposed_drivers,
+        observables,
+        proposed_observables,
+        error,
+        dt_scalar,
+        time_scalar,
+        first_step_flag,
+        accepted_flag,
+        shared,
+        persistent_local,
+        counters,
+    ):
+        # Allocate buffers based on configuration flags
+        if stage_rhs_shared:
+            stage_rhs = shared[stage_rhs_start:stage_rhs_end]
+        else:
+            stage_rhs = cuda.local.array(n, numba_precision)
+
+        if stage_store_shared:
+            stage_store = shared[stage_store_start:stage_store_end]
+        else:
+            stage_store = cuda.local.array(stage_store_elements,
+                                           numba_precision)
+
+        if cached_auxiliaries_shared and cached_auxiliary_count > 0:
+            cached_auxiliaries = shared[cached_aux_start:cached_aux_end]
+        else:
+            # Use a minimal local array as placeholder
+            cached_auxiliaries = cuda.local.array(max(1, cached_auxiliary_count),
+                                                  numba_precision)
+
+        current_time = time_scalar
+        end_time = current_time + dt_scalar
+        final_stage_base = n * (stage_count - int32(1))
+        time_derivative = stage_store[final_stage_base:final_stage_base + n]
+
+        inv_dt = numba_precision(1.0) / dt_scalar
+
+        prepare_jacobian(
+            state, parameters, drivers_buffer, current_time, cached_auxiliaries
+        )
+
+        # Evaluate del_t term at t_n, y_n
+        if has_driver_function:
+            driver_del_t(current_time, driver_coeffs, proposed_drivers)
+        else:
+            for idx in range(n_drivers):
+                proposed_drivers[idx] = numba_precision(0.0)
+
+        # Stage 0 slice copies the cached final increment as its guess
+        stage_increment = stage_store[:n]
+
+        for idx in range(n):
+            stage_increment[idx] = time_derivative[idx]
+
+        time_derivative_rhs(
+            state,
+            parameters,
+            drivers_buffer,
+            proposed_drivers,
+            observables,
+            time_derivative,
+            current_time,
+        )
+
+        for idx in range(n):
+            proposed_state[idx] = state[idx]
+            time_derivative[idx] *= dt_scalar
+            if has_error:
+                error[idx] = typed_zero
+
+        status_code = int32(0)
+        stage_time = current_time + dt_scalar * stage_time_fractions[0]
+
+        # Stage 0: uses starting values
+        dxdt_fn(
+            state,
+            parameters,
+            drivers_buffer,
+            observables,
+            stage_rhs,
+            current_time,
+        )
+
+        for idx in range(n):
+            f_value = stage_rhs[idx]
+            rhs_value = (
+                (f_value + gamma_stages[0] * time_derivative[idx]) * dt_scalar
+            )
+            stage_rhs[idx] = rhs_value * gamma
+
+        # Create placeholder for solver signature consistency
+        base_state_placeholder = shared[int32(0):int32(0)]
+
+        status_code |= linear_solver(
+            state,
+            parameters,
+            drivers_buffer,
+            base_state_placeholder,
+            cached_auxiliaries,
+            stage_time,
+            dt_scalar,
+            numba_precision(1.0),
+            stage_rhs,
+            stage_increment,
+            shared,
+        )
+
+        for idx in range(n):
+            if accumulates_output:
+                proposed_state[idx] += (
+                    stage_increment[idx] * solution_weights[int32(0)]
+                )
+            if has_error and accumulates_error:
+                error[idx] += stage_increment[idx] * error_weights[int32(0)]
+
+        # Stages 1-s: must refresh all values
+        for prev_idx in range(stages_except_first):
+            stage_idx = prev_idx + int32(1)
+            stage_offset = stage_idx * n
+            stage_gamma = gamma_stages[stage_idx]
+            stage_time = (
+                current_time + dt_scalar * stage_time_fractions[stage_idx]
+            )
+
+            # Get base state
+            stage_slice = stage_store[stage_offset:stage_offset + n]
+            for idx in range(n):
+                stage_slice[idx] = state[idx]
+
+            # Accumulate contributions from predecessor stages
+            for predecessor_idx in range(stages_except_first):
+                a_col = a_coeffs[predecessor_idx]
+                a_coeff = a_col[stage_idx]
+                if predecessor_idx < stage_idx:
+                    base_idx = predecessor_idx * n
+                    for idx in range(n):
+                        prior_val = stage_store[base_idx + idx]
+                        stage_slice[idx] += a_coeff * prior_val
+
+            if has_driver_function:
+                driver_function(stage_time, driver_coeffs, proposed_drivers)
+
+            observables_function(
+                stage_slice,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_time,
+            )
+
+            dxdt_fn(
+                stage_slice,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_rhs,
+                stage_time,
+            )
+
+            # Capture precalculated outputs if tableau allows
+            if b_row == stage_idx:
+                for idx in range(n):
+                    proposed_state[idx] = stage_slice[idx]
+            if b_hat_row == stage_idx:
+                for idx in range(n):
+                    error[idx] = stage_slice[idx]
+
+            # Recompute time-derivative for last stage
+            if stage_idx == stage_count - int32(1):
+                if has_driver_function:
+                    driver_del_t(current_time, driver_coeffs, proposed_drivers)
+                time_derivative_rhs(
+                    state,
+                    parameters,
+                    drivers_buffer,
+                    proposed_drivers,
+                    observables,
+                    time_derivative,
+                    current_time,
+                )
+                for idx in range(n):
+                    time_derivative[idx] *= dt_scalar
+
+            # Add C_ij*K_j/dt + dt * gamma_i * d/dt terms to rhs
+            for idx in range(n):
+                correction = numba_precision(0.0)
+                for predecessor_idx in range(stages_except_first):
+                    c_col = C_coeffs[predecessor_idx]
+                    c_coeff = c_col[stage_idx]
+                    if predecessor_idx < stage_idx:
+                        prior_idx = predecessor_idx * n + idx
+                        prior_val = stage_store[prior_idx]
+                        correction += c_coeff * prior_val
+
+                f_stage_val = stage_rhs[idx]
+                deriv_val = stage_gamma * time_derivative[idx]
+                rhs_value = f_stage_val + correction * inv_dt + deriv_val
+                stage_rhs[idx] = rhs_value * dt_scalar * gamma
+
+            # Alias slice of stage storage for convenience
+            stage_increment = stage_slice
+
+            # Use previous stage's solution as a guess for this stage
+            previous_base = prev_idx * n
+            for idx in range(n):
+                stage_increment[idx] = stage_store[previous_base + idx]
+
+            status_code |= linear_solver(
+                state,
+                parameters,
+                drivers_buffer,
+                base_state_placeholder,
+                cached_auxiliaries,
+                stage_time,
+                dt_scalar,
+                numba_precision(1.0),
+                stage_rhs,
+                stage_increment,
+                shared,
+            )
+
+            for idx in range(n):
+                if accumulates_output:
+                    proposed_state[idx] += (
+                        stage_increment[idx] * solution_weights[stage_idx]
+                    )
+                if has_error and accumulates_error:
+                    error[idx] += (
+                        stage_increment[idx] * error_weights[stage_idx]
+                    )
+
+        if has_driver_function:
+            driver_function(end_time, driver_coeffs, proposed_drivers)
+
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
+
+        if not accumulates_error:
+            for idx in range(n):
+                error[idx] = proposed_state[idx] - error[idx]
+
+        return status_code
+
+    return step
+
+
+# =========================================================================
 # OUTPUT FUNCTIONS
 # =========================================================================
 n_states32 = int32(n_states)
@@ -1997,9 +2736,121 @@ elif algorithm_type == 'dirk':
         precision,
         tableau,
     )
+elif algorithm_type == 'firk':
+    # Build implicit solver components for FIRK (fully implicit)
+    # FIRK requires n-stage coupled system solving
+    preconditioner_fn = neumann_preconditioner_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
+    residual_fn = stage_residual_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
+    operator_fn = linear_operator_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
+
+    linear_solver_fn = linear_solver_inline_factory(
+        operator_fn, n_states * tableau.stage_count,  # Note: all_stages_n
+        preconditioner_fn,
+        krylov_tolerance,
+        max_linear_iters,
+        precision,
+        linear_correction_type,
+    )
+
+    newton_solver_fn = newton_krylov_inline_factory(
+        residual_fn,
+        linear_solver_fn,
+        n_states * tableau.stage_count,  # Note: all_stages_n
+        newton_tolerance,
+        max_newton_iters,
+        newton_damping,
+        max_backtracks,
+        precision,
+    )
+
+    step_fn = firk_step_inline_factory(
+        newton_solver_fn,
+        dxdt_fn,
+        observables_function,
+        driver_function,
+        n_states,
+        precision,
+        tableau,
+    )
+elif algorithm_type == 'rosenbrock':
+    # Build linear solver components for Rosenbrock (linearly implicit)
+    # Rosenbrock uses cached Jacobian approximation
+    preconditioner_fn = neumann_preconditioner_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(tableau.gamma),  # Use tableau gamma for Rosenbrock
+        order=preconditioner_order,
+    )
+    operator_fn = linear_operator_factory(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(tableau.gamma),  # Use tableau gamma for Rosenbrock
+        order=preconditioner_order,
+    )
+
+    # For Rosenbrock, we need a linear solver with cached Jacobian
+    # This is a simplified version - full implementation would need
+    # cached Jacobian helpers
+    linear_solver_fn = linear_solver_inline_factory(
+        operator_fn, n_states,
+        preconditioner_fn,
+        krylov_tolerance,
+        max_linear_iters,
+        precision,
+        linear_correction_type,
+    )
+
+    # Placeholder functions for Rosenbrock-specific operations
+    # These would need actual implementations for full functionality
+    def prepare_jacobian_placeholder(*args):
+        pass
+
+    def time_derivative_rhs_placeholder(*args):
+        # Compute f_t = df/dt at current state
+        # For simplicity, approximate as zero
+        out_idx = len(args) - 2
+        args[out_idx][:] = precision(0.0)
+
+    # Driver time derivative (if drivers present)
+    driver_del_t = driver_derivative_inline_factory(interpolator) if (
+        n_drivers > 0 and driver_input_dict is not None
+    ) else None
+
+    step_fn = rosenbrock_step_inline_factory(
+        linear_solver_fn,
+        prepare_jacobian_placeholder,
+        time_derivative_rhs_placeholder,
+        dxdt_fn,
+        observables_function,
+        driver_function,
+        driver_del_t,
+        n_states,
+        precision,
+        tableau,
+    )
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
-                     "Use 'erk' or 'dirk'.")
+                     "Use 'erk', 'dirk', 'firk', or 'rosenbrock'.")
 
 # Build controller function based on controller type
 if controller_type == 'fixed':
