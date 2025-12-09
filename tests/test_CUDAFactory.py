@@ -463,8 +463,10 @@ def test_update_compile_settings_unpack_dict_values(factory):
     )
 
     # The dict should have been unpacked, so dt_min and dt_max are recognized
+    # Also the original dict parameter name should be recognized
     assert 'dt_min' in recognized
     assert 'dt_max' in recognized
+    assert 'step_controller_settings' in recognized
     assert factory.compile_settings.dt_min == 0.01
     assert factory.compile_settings.dt_max == 2.0
 
@@ -490,11 +492,13 @@ def test_update_compile_settings_unpack_multiple_dicts(factory):
         solver_settings=solver_settings
     )
 
-    # All dict contents should be recognized
+    # All dict contents should be recognized, plus the dict parameter names
     assert 'dt_min' in recognized
     assert 'dt_max' in recognized
     assert 'tolerance' in recognized
     assert 'max_iter' in recognized
+    assert 'step_settings' in recognized
+    assert 'solver_settings' in recognized
     assert factory.compile_settings.dt_min == 0.05
     assert factory.compile_settings.dt_max == 5.0
     assert factory.compile_settings.tolerance == 1e-8
@@ -521,6 +525,7 @@ def test_update_compile_settings_unpack_dict_with_regular_updates(factory):
 
     assert 'dt_min' in recognized
     assert 'tolerance' in recognized
+    assert 'step_settings' in recognized
     assert factory.compile_settings.dt_min == 0.02
     assert factory.compile_settings.tolerance == 1e-7
 
@@ -543,5 +548,6 @@ def test_update_compile_settings_unpack_dict_positional(factory):
 
     assert 'dt_min' in recognized
     assert 'dt_max' in recognized
+    assert 'step_settings' in recognized
     assert factory.compile_settings.dt_min == 0.03
     assert factory.compile_settings.dt_max == 3.0

@@ -596,7 +596,7 @@ class CUDAFactory(ABC):
                 "Compile settings must be set up using self.setup_compile_settings before updating."
             )
         
-        updates_dict = self._unpack_dict_values(updates_dict)
+        updates_dict, unpacked_keys = self._unpack_dict_values(updates_dict)
 
         recognized_params = []
         updated_params = []
@@ -619,6 +619,9 @@ class CUDAFactory(ABC):
             if updated:
                 updated_params.append(key)
 
+        # Mark the original dict keys as recognized since we unpacked them
+        recognized_params.extend(unpacked_keys)
+        
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
         if unrecognised_params and not silent:
             invalid = ", ".join(sorted(unrecognised_params))
@@ -631,7 +634,7 @@ class CUDAFactory(ABC):
 
         return set(recognized_params)
 
-    def _unpack_dict_values(self, updates_dict: dict) -> dict:
+    def _unpack_dict_values(self, updates_dict: dict) -> tuple[dict, set]:
         """Unpack dict values into flat key-value pairs.
         
         Parameters
@@ -641,8 +644,9 @@ class CUDAFactory(ABC):
         
         Returns
         -------
-        dict
-            Flattened dictionary with dict values unpacked
+        tuple[dict, set]
+            Flattened dictionary with dict values unpacked, and set of
+            original keys that were unpacked dicts
         
         Notes
         -----
@@ -654,15 +658,21 @@ class CUDAFactory(ABC):
         as a regular entry and within an unpacked dict, behavior depends
         on dict iteration order. To avoid ambiguity, do not mix regular
         keys with dict values that contain the same keys.
+        
+        The set of unpacked keys is returned so they can be marked as
+        recognized parameters, even though they don't directly correspond
+        to compile settings.
         """
         result = {}
+        unpacked_keys = set()
         for key, value in updates_dict.items():
             if isinstance(value, dict):
-                # Unpack the dict value
+                # Unpack the dict value and track the original key
                 result.update(value)
+                unpacked_keys.add(key)
             else:
                 result[key] = value
-        return result
+        return result, unpacked_keys
 
     def _check_and_update(self,
                           key: str,
