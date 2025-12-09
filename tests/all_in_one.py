@@ -79,11 +79,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(1.0)
+duration = precision(0.01)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(1.0)
+dt_save = precision(0.01)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -679,6 +679,7 @@ def linear_solver_inline_factory(
     """
     numba_prec = numba_from_dtype(prec)
     tol_squared = precision(tolerance * tolerance)
+    n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
     sd_flag = 1 if correction_type == "steepest_descent" else 0
@@ -691,8 +692,8 @@ def linear_solver_inline_factory(
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x):
-        preconditioned_vec = cuda.local.array(n, numba_prec)
-        temp = cuda.local.array(n, numba_prec)
+        preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
+        temp = cuda.local.array(n_arraysize, numba_prec)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        x, temp)
@@ -924,6 +925,7 @@ def dirk_step_inline_factory(
     typed_zero = numba_precision(0.0)
 
     # Extract tableau properties
+    n_arraysize = n
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
@@ -1056,7 +1058,7 @@ def dirk_step_inline_factory(
         if stage_increment_in_shared:
             stage_increment = shared[solver_end:solver_end + n]
         else:
-            stage_increment = cuda.local.array(n, numba_precision)
+            stage_increment = cuda.local.array(n_arraysize, numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -1082,9 +1084,9 @@ def dirk_step_inline_factory(
             if stage_base_in_shared:
                 stage_base = stage_accumulator[:n]
             else:
-                stage_base = cuda.local.array(n, numba_precision)
+                stage_base = cuda.local.array(n_arraysize, numba_precision)
         else:
-            stage_base = cuda.local.array(n, numba_precision)
+            stage_base = cuda.local.array(n_arraysize, numba_precision)
 
         for idx in range(n):
             if has_error and accumulates_error:

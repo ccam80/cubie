@@ -8,6 +8,7 @@ import numpy as np
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
+from cubie import SingleIntegratorRun
 from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
@@ -583,27 +584,23 @@ class LoopRunResult:
 
 
 def run_device_loop(
-    *,
-    loop: IVPLoop,
+    singleintegratorrun: SingleIntegratorRun,
     system: BaseODE,
     initial_state: Array,
-    output_functions: OutputFunctions,
     solver_config: Mapping[str, float],
-    localmem_required: int = 0,
-    sharedmem_required: int = 0,
     driver_array: Optional[ArrayInterpolator] = None,
 
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
-    precision = loop.precision
-    dt_save = loop.dt_save
+    precision = system.precision
+    dt_save = singleintegratorrun.dt_save
     warmup = solver_config['warmup']
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
     save_samples = int(np.floor(duration / precision(dt_save))) + 1
 
-    heights = OutputArrayHeights.from_output_fns(output_functions)
+    heights = singleintegratorrun.output_array_heights
 
     state_width = max(heights.state, 1)
     observable_width = max(heights.observables, 1)
@@ -615,7 +612,7 @@ def run_device_loop(
         (save_samples, observable_width), dtype=precision
     )
 
-    summarise_dt = loop.dt_summarise
+    summarise_dt = singleintegratorrun.dt_summarise
     summary_samples = int(np.ceil(duration / summarise_dt))
 
     state_summary_output = np.zeros(
@@ -655,13 +652,22 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
-    shared_elements = sharedmem_required
-    shared_bytes = np.dtype(precision).itemsize * shared_elements
+    shared_bytes = singleintegratorrun.shared_memory_bytes
+    localmem_required = singleintegratorrun.local_memory_elements
 
-    loop_fn = loop.device_function
+    loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
 
-    @cuda.jit
+    @cuda.jit((
+            numba_precision[::1],
+            numba_precision[::1],
+            numba_precision[:,:,::1],
+            numba_precision[:,::1],
+            numba_precision[:,::1],
+            numba_precision[:,::1],
+            numba_precision[:,::1],
+            numba_precision[::1]
+     ))
     def kernel(
         init_vec,
         params_vec,
