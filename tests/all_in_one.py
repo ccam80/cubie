@@ -2182,7 +2182,10 @@ def rosenbrock_step_inline_factory(
         if cached_auxiliaries_shared and cached_auxiliary_count > 0:
             cached_auxiliaries = shared[cached_aux_start:cached_aux_end]
         else:
-            # Use a minimal local array as placeholder
+            # Use a minimal local array as placeholder.
+            # When cached_auxiliary_count is 0, we allocate size 1 to avoid
+            # zero-sized array issues in Numba. The array won't be used since
+            # the placeholder prepare_jacobian does nothing.
             cached_auxiliaries = cuda.local.array(max(1, cached_auxiliary_count),
                                                   numba_precision)
 
@@ -2246,7 +2249,10 @@ def rosenbrock_step_inline_factory(
             )
             stage_rhs[idx] = rhs_value * gamma
 
-        # Create placeholder for solver signature consistency
+        # Create empty array slice as placeholder for signature compatibility.
+        # The linear solver expects a base_state parameter, but Rosenbrock
+        # doesn't use it. This empty slice satisfies the signature without
+        # allocating memory.
         base_state_placeholder = shared[int32(0):int32(0)]
 
         status_code |= linear_solver(
@@ -2850,9 +2856,13 @@ elif algorithm_type == 'rosenbrock':
         # Compute f_t = df/dt at current state
         # Production code evaluates time derivatives; simplified here as zero
         out_idx = len(args) - 2
-        args[out_idx][:] = precision(0.0)
+        out_array = args[out_idx]
+        for i in range(len(out_array)):
+            out_array[i] = precision(0.0)
 
     # Driver time derivative (if drivers present)
+    # Note: interpolator is guaranteed non-None when this condition is True,
+    # as it's defined at module level in the driver setup block with the same condition
     if n_drivers > 0 and driver_input_dict is not None:
         driver_del_t = driver_derivative_inline_factory(interpolator)
     else:
