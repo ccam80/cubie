@@ -34,9 +34,12 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 # -------------------------------------------------------------------------
 # Algorithm Configuration
 # -------------------------------------------------------------------------
-# Algorithm type: 'erk' (explicit Runge-Kutta) or 'dirk' (diagonally implicit)
-# Use ERK_TABLEAU_REGISTRY or DIRK_TABLEAU_REGISTRY keys for tableau names
-algorithm_type = 'dirk'  # 'erk' or 'dirk'
+# Algorithm type options:
+#   'erk'         - Explicit Runge-Kutta (ERK_TABLEAU_REGISTRY)
+#   'dirk'        - Diagonally Implicit Runge-Kutta (DIRK_TABLEAU_REGISTRY)
+#   'firk'        - Fully Implicit Runge-Kutta (FIRK_TABLEAU_REGISTRY)
+#   'rosenbrock'  - Rosenbrock-W methods (ROSENBROCK_TABLEAUS)
+algorithm_type = 'dirk'  # 'erk', 'dirk', 'firk', or 'rosenbrock'
 algorithm_tableau_name = 'l_stable_sdirk_4'  # Registry key for the tableau
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
@@ -187,13 +190,15 @@ erk_stage_accumulator_memory = 'local'  # 'local' or 'shared'
 # Note: stage_cache aliases onto stage_rhs if shared, else onto accumulator
 # if shared, else goes into persistent_local
 
-# FIRK step arrays
+# FIRK step arrays (Fully Implicit Runge-Kutta)
+# FIRK solves all stages simultaneously as a coupled system
 firk_solver_scratch_memory = 'local'  # 'local' or 'shared'
 firk_stage_increment_memory = 'local'  # 'local' or 'shared'
 firk_stage_driver_stack_memory = 'local'  # 'local' or 'shared'
 firk_stage_state_memory = 'local'  # 'local' or 'shared'
 
-# Rosenbrock step arrays
+# Rosenbrock step arrays (Rosenbrock-W methods)
+# Rosenbrock methods use linearized implicit approach with cached Jacobian
 rosenbrock_stage_rhs_memory = 'local'  # 'local' or 'shared'
 rosenbrock_stage_store_memory = 'local'  # 'local' or 'shared'
 rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
