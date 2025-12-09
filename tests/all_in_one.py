@@ -171,7 +171,7 @@ loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
 
 # This one doesn't really make sense - it'lls be shared(0) if algo doesn't
 # request shared
-loop_scratch_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_scratch_buffer_memory = 'local'  # 'local' or 'shared'
 
 # Linear solver arrays (used in Krylov iteration)
 linear_solver_preconditioned_vec_memory = 'local'  # 'local' or 'shared'
@@ -179,10 +179,10 @@ linear_solver_temp_memory = 'local'  # 'local' or 'shared'
 
 # DIRK step arrays
 dirk_stage_increment_memory = 'local'  # 'local' or 'shared'
-dirk_stage_base_memory = 'shared'  # 'local' or 'shared' (shared aliases
+dirk_stage_base_memory = 'local'  # 'local' or 'shared' (shared aliases
 #                                    accumulator when multistage)
-dirk_accumulator_memory = 'shared'  # 'local' or 'shared'
-dirk_solver_scratch_memory = 'shared'  # 'local' or 'shared'
+dirk_accumulator_memory = 'local'  # 'local' or 'shared'
+dirk_solver_scratch_memory = 'local'  # 'local' or 'shared'
 
 # ERK step arrays
 erk_stage_rhs_memory = 'local'  # 'local' or 'shared'
@@ -613,7 +613,7 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
             j_00 = -sigma
             j_01 = sigma
             j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-            j_11 = int32(-1)
+            j_11 = numba_prec(-1)
             j_12 = -a_ij * state[0] - base_state[0]
             j_20 = a_ij * state[1] + base_state[1]
             j_21 = a_ij * state[0] + base_state[0]
@@ -675,7 +675,7 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
         j_00 = -sigma
         j_01 = sigma
         j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-        j_11 = int32(-1)
+        j_11 = numba_prec(-1)
         j_12 = -a_ij * state[0] - base_state[0]
         j_20 = a_ij * state[1] + base_state[1]
         j_21 = a_ij * state[0] + base_state[0]
@@ -975,6 +975,8 @@ def dirk_step_inline_factory(
 
     # Extract tableau properties
     n_arraysize = n
+    accumulator_length_arraysize = int(max(tableau.stage_count-1, 1) * n)
+    double_n = 2 * n
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
@@ -1118,7 +1120,7 @@ def dirk_step_inline_factory(
         if accumulator_in_shared:
             stage_accumulator = shared[acc_start:acc_end]
         else:
-            stage_accumulator = cuda.local.array(accumulator_length,
+            stage_accumulator = cuda.local.array(accumulator_length_arraysize,
                                                  numba_precision)
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = numba_precision(0.0)
@@ -1126,8 +1128,7 @@ def dirk_step_inline_factory(
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
-            solver_scratch = cuda.local.array(solver_shared_elements,
-                                              numba_precision)
+            solver_scratch = cuda.local.array(double_n,numba_precision)
             for _i in range(solver_shared_elements):
                 solver_scratch[_i] = numba_precision(0.0)
 
@@ -2997,7 +2998,7 @@ obs_summ_size = int32(n_observables) if summarise_obs_bool else int32(0)
 accumulator_size = int32((stage_count - 1) * n_states)
 if algorithm_type == 'dirk':
     solver_scratch_size = 2 * n_states
-    dirk_scratch_size = accumulator_size + solver_scratch_size
+    dirk_scratch_size = int(accumulator_size) + int(solver_scratch_size)
     erk_scratch_size = 0
 else:
     solver_scratch_size = int32(0)
