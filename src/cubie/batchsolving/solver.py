@@ -101,6 +101,15 @@ def solve_ivp(
         time_logging_level=time_logging_level,
         **kwargs,
     )
+    
+    # Register and start wall-clock timing
+    _default_timelogger.register_event(
+        "solve_ivp", 
+        "runtime", 
+        "Wall-clock time for solve_ivp()"
+    )
+    _default_timelogger.start_event("solve_ivp")
+    
     results = solver.solve(
         y0,
         parameters,
@@ -111,6 +120,10 @@ def solve_ivp(
         grid_type=grid_type,
         **kwargs,
     )
+    
+    # Stop wall-clock timing (summary printed by Solver.solve)
+    _default_timelogger.stop_event("solve_ivp")
+    
     return results
 
 
@@ -480,6 +493,14 @@ class Solver:
         """
         if kwargs:
             self.update(kwargs, silent=True)
+        
+        # Register and start wall-clock timing for solve
+        _default_timelogger.register_event(
+            "solver_solve",
+            "runtime",
+            "Wall-clock time for Solver.solve()"
+        )
+        _default_timelogger.start_event("solver_solve")
 
         # Classify inputs to determine processing path
         input_type = self._classify_inputs(initial_values, parameters)
@@ -520,6 +541,14 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
+        
+        # Retrieve CUDA event timings (after sync completes)
+        _default_timelogger.retrieve_cuda_events()
+        
+        # Stop wall-clock timing and print runtime summary
+        _default_timelogger.stop_event("solver_solve")
+        _default_timelogger.print_summary(category='runtime')
+        
         return SolveResult.from_solver(self, results_type=results_type)
 
     def build_grid(

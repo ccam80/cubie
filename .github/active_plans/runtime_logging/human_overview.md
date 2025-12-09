@@ -1,181 +1,260 @@
-# Runtime Logging Feature Plan
+# Runtime Logging for CuBIE BatchSolverKernel and Solver
 
 ## User Stories
 
-### US-1: CUDAEvent Abstraction
-**As a** CuBIE user profiling GPU performance,
-**I want** CUDA event timing with CUDASIM fallback,
-**So that** I can measure GPU operations accurately in both modes.
+### Story 1: Kernel Execution Timing
+**As a** CuBIE user optimizing GPU performance  
+**I want** per-chunk kernel execution times displayed  
+**So that** I can identify bottlenecks in my batch integration workloads
 
 **Acceptance Criteria:**
-- CUDAEvent wrapper class exists in cuda_simsafe.py with CUDASIM fallback
-- Uses numba.cuda.event() in CUDA mode
-- CUDASIM mode falls back to time.perf_counter() wall-clock timing
-- Event timing data is available through TimeLogger after solve() returns
-- Events log even when duration is 0
+- Kernel execution time recorded for each chunk using CUDA events
+- Per-chunk timing displayed: "kernel_chunk_0: 10.3ms", "kernel_chunk_1: 9.8ms", etc.
+- CUDA events record on the solver's registered stream
+- No synchronization blocking during kernel execution
 
-### US-2: GPU Workload Timing
-**As a** CuBIE user diagnosing GPU execution bottlenecks,
-**I want** timing for the entire GPU workload (transfers + kernels),
-**So that** I can identify GPU-side execution time.
-
-**Acceptance Criteria:**
-- Single `gpu_workload` event covers ALL GPU operations (h2d, kernels, d2h)
-- Event records start before first operation, end after last operation
-- Interleaved chunk structure preserved (no restructuring)
-- Events log even when duration is 0
-
-### US-3: Outer Solve Timing
-**As a** CuBIE user measuring end-to-end latency,
-**I want** wall-clock timing for solve_ivp, Solver.solve, and BatchSolverKernel.run,
-**So that** I can see total elapsed time including all suboperations.
+### Story 2: Memory Transfer Timing
+**As a** CuBIE user analyzing data movement costs  
+**I want** host-to-device and device-to-host transfer times per chunk  
+**So that** I can understand the memory transfer overhead in my workflows
 
 **Acceptance Criteria:**
-- `solve_ivp_total` event captures full solve_ivp() duration
-- `solver_solve_total` event captures full Solver.solve() duration  
-- `kernel_run_total` event captures full BatchSolverKernel.run() duration
-- Outer events use wall-clock timing (not CUDA events)
-- Events integrate with existing TimeLogger infrastructure
+- H2D transfer time recorded per chunk: "h2d_transfer_chunk_0: 2.5ms"
+- D2H transfer time recorded per chunk: "d2h_transfer_chunk_0: 1.8ms"
+- Transfer events use CUDA events on the registered stream
+- Timing calculated after stream synchronization completes
 
-### US-4: Deferred Event Retrieval
-**As a** CuBIE developer maintaining GPU performance,
-**I want** CUDA event times collected only after stream synchronization,
-**So that** timing measurement doesn't impact kernel execution performance.
+### Story 3: Total GPU Workload Timing
+**As a** CuBIE user benchmarking GPU utilization  
+**I want** a single metric capturing total GPU work duration  
+**So that** I can compare GPU time against total wall-clock time
 
 **Acceptance Criteria:**
-- No stream synchronization occurs during kernel execution
-- CUDAEvent instances register with TimeLogger for later retrieval
-- `retrieve_cuda_events()` called by solve() after sync to collect all timings
-- Timing data available in TimeLogger.events after solve() completes
+- Single `gpu_workload` event spanning first h2d to last operation
+- Event starts before first chunk's h2d transfer
+- Event ends immediately before stream sync in Solver.solve()
+- Reports total GPU timeline duration
 
----
+### Story 4: Wall-Clock Method Timing
+**As a** CuBIE user profiling complete solver operations  
+**I want** wall-clock times for solve_ivp() and Solver.solve()  
+**So that** I can understand end-to-end latency including Python overhead
+
+**Acceptance Criteria:**
+- `solve_ivp` wall-clock timing captured using TimeLogger
+- `Solver.solve` wall-clock timing captured using TimeLogger
+- Times include all synchronous operations and Python overhead
+- Displayed with other runtime events in timing summary
+
+### Story 5: Verbosity-Controlled Output
+**As a** CuBIE user controlling output detail  
+**I want** runtime timing respecting existing verbosity levels  
+**So that** I can adjust detail level consistently across compile/runtime
+
+**Acceptance Criteria:**
+- Runtime events respect 'default', 'verbose', 'debug', None settings
+- Per-chunk details shown at appropriate verbosity levels
+- Timing summary called with category='runtime' after solver returns
+- No output when verbosity=None (zero overhead)
 
 ## Overview
 
-This feature adds runtime timing instrumentation to CuBIE's batch solving infrastructure. The implementation builds on the existing TimeLogger and cuda_simsafe modules, adding CUDA event-based timing with proper CUDASIM fallback.
+### Executive Summary
 
-### Architecture Diagram
+This feature adds comprehensive runtime timing instrumentation to CuBIE's batch solver pipeline using CUDA events for GPU operations and wall-clock timing for synchronous methods. The implementation preserves the existing non-blocking async execution model while enabling accurate timing measurements after stream synchronization.
 
-```mermaid
-flowchart TD
-    subgraph "Solver Layer"
-        solve_ivp["solve_ivp()"]
-        solve["Solver.solve()"]
-    end
-    
-    subgraph "Kernel Layer"
-        run["BatchSolverKernel.run()"]
-        kernel["integration_kernel"]
-    end
-    
-    subgraph "Array Managers"
-        input["InputArrays.initialise()"]
-        output["OutputArrays.finalise()"]
-    end
-    
-    subgraph "Timing Infrastructure"
-        TL["TimeLogger"]
-        CE["CUDAEvent"]
-        simsafe["cuda_simsafe.py"]
-    end
-    
-    solve_ivp -->|"start solve_ivp_total"| TL
-    solve_ivp --> solve
-    solve -->|"start solver_solve_total"| TL
-    solve --> run
-    run -->|"start kernel_run_total"| TL
-    run -->|"gpu_workload start"| CE
-    run --> input
-    run --> kernel
-    run --> output
-    run -->|"gpu_workload end"| CE
-    run -->|"stop kernel_run_total"| TL
-    
-    CE -->|"register"| TL
-    simsafe -->|"CUDA/CUDASIM"| CE
-    
-    solve -->|"sync_stream"| kernel
-    solve -->|"retrieve_cuda_events"| TL
-    solve -->|"stop solver_solve_total"| TL
-    solve_ivp -->|"stop solve_ivp_total"| TL
-```
+### Key Design Decisions
 
-### Event Flow Sequence
+**1. CUDA Events for GPU Timing**
+- Rationale: CUDA events provide accurate GPU timeline measurements without blocking
+- Implementation: `cuda.event()` objects record on the solver's stream
+- Timing retrieved via `cuda.event_elapsed_time()` after synchronization
+
+**2. CUDAEvent Wrapper Class**
+- Location: `src/cubie/cuda_simsafe.py` (alongside other CUDA compatibility helpers)
+- Purpose: Encapsulate CUDA event lifecycle with CUDASIM fallback
+- Benefits: Consistent API, automatic CUDASIM compatibility, clean integration
+
+**3. Per-Chunk Event Recording**
+- Pattern: Create events for each chunk at execution time
+- Storage: Events held in BatchSolverKernel instance until timing retrieval
+- Registration: Events registered with TimeLogger for summary inclusion
+
+**4. Deferred Timing Calculation**
+- Critical: `elapsed_time_ms()` must NOT block or sync
+- Timing calculated AFTER `sync_stream()` completes in Solver.solve()
+- Uses `cuda.event_elapsed_time()` which returns immediately post-sync
+
+**5. Wall-Clock Timing Scope**
+- `solve_ivp()`: Full function wall-clock time (synchronous)
+- `Solver.solve()`: Full method wall-clock time (includes sync)
+- BatchSolverKernel.run(): NO wall-clock timing (asynchronous)
+
+### Architecture Diagrams
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant solve_ivp
     participant Solver
     participant BatchSolverKernel
-    participant CUDAEvent
     participant TimeLogger
-    participant Stream
-    
-    User->>solve_ivp: call()
-    solve_ivp->>TimeLogger: start_event("solve_ivp_total")
-    solve_ivp->>Solver: solve()
-    Solver->>TimeLogger: start_event("solver_solve_total")
+    participant CUDA
+
+    User->>Solver: solve()
+    Solver->>TimeLogger: start_event("solver_solve")
     Solver->>BatchSolverKernel: run()
-    BatchSolverKernel->>TimeLogger: start_event("kernel_run_total")
     
-    Note over CUDAEvent: GPU Workload
-    BatchSolverKernel->>CUDAEvent: create("gpu_workload")
-    CUDAEvent->>TimeLogger: register_cuda_event()
-    CUDAEvent->>CUDAEvent: record_start()
+    Note over BatchSolverKernel: Create gpu_workload event
+    BatchSolverKernel->>CUDA: record gpu_workload.start
     
     loop For each chunk
-        BatchSolverKernel->>BatchSolverKernel: initialise (h2d)
-        BatchSolverKernel->>Stream: launch kernel
-        BatchSolverKernel->>BatchSolverKernel: finalise (d2h)
+        BatchSolverKernel->>CUDA: record h2d_chunk_i.start
+        Note over CUDA: H2D transfer
+        BatchSolverKernel->>CUDA: record h2d_chunk_i.end
+        
+        BatchSolverKernel->>CUDA: record kernel_chunk_i.start
+        Note over CUDA: Kernel execution
+        BatchSolverKernel->>CUDA: record kernel_chunk_i.end
+        
+        BatchSolverKernel->>CUDA: record d2h_chunk_i.start
+        Note over CUDA: D2H transfer
+        BatchSolverKernel->>CUDA: record d2h_chunk_i.end
     end
     
-    CUDAEvent->>CUDAEvent: record_end()
+    BatchSolverKernel->>CUDA: record gpu_workload.end
+    BatchSolverKernel->>TimeLogger: register all CUDAEvents
     
-    BatchSolverKernel->>TimeLogger: stop_event("kernel_run_total")
-    BatchSolverKernel-->>Solver: return
+    Solver->>CUDA: sync_stream()
+    Note over CUDA: Stream synchronizes
     
-    Solver->>Stream: sync_stream()
     Solver->>TimeLogger: retrieve_cuda_events()
-    Note over TimeLogger: Calculate elapsed_time_ms() for gpu_workload
+    loop For each CUDAEvent
+        TimeLogger->>CUDAEvent: elapsed_time_ms()
+        Note over CUDAEvent: Returns immediately (already synced)
+    end
     
-    Solver->>TimeLogger: stop_event("solver_solve_total")
-    Solver-->>solve_ivp: return SolveResult
-    solve_ivp->>TimeLogger: stop_event("solve_ivp_total")
-    solve_ivp-->>User: return SolveResult
+    Solver->>TimeLogger: stop_event("solver_solve")
+    Solver->>TimeLogger: print_summary(category='runtime')
+    Solver-->>User: SolveResult
 ```
 
-### Key Technical Decisions
+```mermaid
+classDiagram
+    class CUDAEvent {
+        +str name
+        +str category
+        -_start_event
+        -_end_event
+        +record_start(stream)
+        +record_end(stream)
+        +elapsed_time_ms() float
+    }
+    
+    class TimeLogger {
+        +register_cuda_event(event)
+        +retrieve_cuda_events()
+        +print_summary(category)
+    }
+    
+    class BatchSolverKernel {
+        -_cuda_events: list
+        +run()
+        -_create_chunk_events(chunks)
+        -_record_gpu_events()
+    }
+    
+    class Solver {
+        +solve()
+        -_retrieve_runtime_timings()
+    }
+    
+    CUDAEvent --> TimeLogger: registered with
+    BatchSolverKernel --> CUDAEvent: creates and records
+    Solver --> TimeLogger: retrieves events
+    Solver --> BatchSolverKernel: calls run()
+```
 
-1. **CUDAEvent in cuda_simsafe.py**: The abstraction lives in the existing CUDASIM compatibility module, following established patterns for numba.cuda wrappers. This keeps solver/kernel code clean of conditional imports.
+### Data Flow
 
-2. **Single GPU Workload Event**: Due to the interleaved loop structure (h2d/kernel/d2h per chunk), separate events for transfers vs. kernels would overlap on the GPU timeline. A single `gpu_workload` event captures total GPU execution time.
+**Event Creation Flow:**
+1. BatchSolverKernel.run() creates CUDAEvent instances for each chunk
+2. Events include: h2d_transfer_chunk_i, kernel_chunk_i, d2h_transfer_chunk_i
+3. One gpu_workload event spans entire GPU timeline
+4. All events stored in BatchSolverKernel._cuda_events list
 
-3. **Deferred Retrieval**: CUDA events are recorded asynchronously; elapsed_time_ms() blocks until both events complete. By deferring to after sync_stream(), we avoid mid-execution stalls.
+**Event Recording Flow:**
+1. gpu_workload.record_start() before first chunk's h2d transfer
+2. For each chunk in interleaved loop:
+   - h2d_chunk_i.record_start() before InputArrays.initialise()
+   - h2d_chunk_i.record_end() after InputArrays.initialise()
+   - kernel_chunk_i.record_start() before kernel launch
+   - kernel_chunk_i.record_end() after kernel launch
+   - d2h_chunk_i.record_start() before OutputArrays.finalise()
+   - d2h_chunk_i.record_end() after OutputArrays.finalise()
+3. gpu_workload.record_end() after loop completes
+4. Events registered with TimeLogger
 
-4. **Wall-clock Outer Events**: The outer timing (solve_ivp_total, solver_solve_total, kernel_run_total) uses existing TimeLogger start/stop events with time.perf_counter(), not CUDA events. This captures Python-side overhead.
+**Timing Retrieval Flow:**
+1. Solver.solve() calls sync_stream() to complete GPU work
+2. Solver.solve() calls TimeLogger.retrieve_cuda_events()
+3. For each registered CUDAEvent:
+   - Call elapsed_time_ms() (returns immediately, no blocking)
+   - Create TimingEvent with elapsed time in metadata
+4. TimeLogger.print_summary(category='runtime') displays results
 
-5. **Zero-duration Logging**: Events log even when there are no operations. This provides consistent event sequences for analysis tools.
+### Expected Impact
 
-6. **Preserved Loop Structure**: The existing interleaved chunk loop is preserved. No restructuring is needed - timing wraps the entire loop.
+**Memory:**
+- Minimal: ~100 bytes per CUDAEvent (3 events × chunks + 1 overall)
+- Stored transiently in BatchSolverKernel until timing retrieved
+
+**Performance:**
+- Zero impact when verbosity=None
+- Negligible overhead from event recording (~1-2 microseconds per event)
+- No blocking during kernel execution
+- Single synchronization point (existing sync_stream call)
+
+**Code Changes:**
+- New CUDAEvent class in cuda_simsafe.py (~80 lines)
+- TimeLogger extensions (~50 lines)
+- BatchSolverKernel instrumentation (~60 lines)
+- Solver timing retrieval integration (~30 lines)
+- Total: ~220 lines, isolated changes
 
 ### Trade-offs Considered
 
-| Option | Pros | Cons | Decision |
-|--------|------|------|----------|
-| Separate h2d/kernel/d2h events | Fine-grained insight | Requires restructuring loop | Rejected - preserves existing structure |
-| Per-array transfer events | Fine-grained insight | High overhead, verbose output | Rejected |
-| Inline sync for timing | Simpler implementation | Massive performance hit | Rejected |
-| Separate timing module | Clean separation | Code fragmentation | Rejected - use cuda_simsafe |
-| Optional timing (compile flag) | Zero overhead when disabled | Complexity, testing burden | Deferred |
+**Alternative: CPU Wall-Clock Timing for Kernel**
+- Rejected: Would measure async launch time, not actual execution
+- CuBIE's async execution model makes wall-timing inaccurate
 
-### Impact on Existing Architecture
+**Alternative: Single GPU Event Per Run**
+- Rejected: Per-chunk granularity provides valuable profiling data
+- Users need to identify which chunks are bottlenecks
 
-- **TimeLogger**: Add `register_cuda_event()` and `retrieve_cuda_events()` methods
-- **cuda_simsafe.py**: Add CUDAEvent class with CUDASIM fallback
-- **BatchSolverKernel.run()**: Add gpu_workload CUDAEvent around existing loop (minimal changes)
-- **Solver.solve()**: Call `retrieve_cuda_events()` after sync, before return
-- **solve_ivp()**: Add outer timing wrapper
+**Alternative: Store Timing in Separate Logger**
+- Rejected: TimeLogger already handles codegen/compile categories
+- Consistency: runtime events should use same infrastructure
 
-No changes to kernel compilation, memory management, or integrator logic required.
-The existing interleaved loop structure in run() is preserved.
+**Alternative: Automatic Timing Retrieval in BatchSolverKernel**
+- Rejected: Would require sync inside kernel, breaking async model
+- Solver.solve() already syncs, ideal place for retrieval
+
+### Research Findings
+
+**CUDA Event API:**
+- `cuda.event()` creates event objects
+- `event.record(stream)` records timestamp on stream
+- `cuda.event_elapsed_time(start, end)` returns ms between events
+- Post-sync calls return immediately (GPU already completed)
+
+**TimeLogger Structure:**
+- Supports categories: 'codegen', 'runtime', 'compile'
+- Events must be registered before use
+- Summary printing respects verbosity and category filters
+- Existing pattern: register during __init__, start/stop during execution
+
+**Solver Execution Flow:**
+- BatchSolverKernel.run() launches all chunks asynchronously
+- No sync between chunks (comment explicitly states this)
+- Solver.solve() syncs stream before creating SolveResult
+- Ideal timing retrieval point: after sync, before result creation

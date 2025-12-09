@@ -1,8 +1,11 @@
 """Time logging infrastructure for tracking CuBIE compilation performance."""
 
 import time
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 import attrs
+
+if TYPE_CHECKING:
+    from cubie.cuda_simsafe import CUDAEvent
 
 
 @attrs.define(frozen=True)
@@ -72,6 +75,7 @@ class TimeLogger:
         self.events: list[TimingEvent] = []
         self._active_starts: dict[str, float] = {}
         self._event_registry: dict[str, dict] = {}
+        self._cuda_events: list = []  # Stores CUDAEvent instances
     
     def start_event(self, event_name: str, **metadata: Any) -> None:
         """Record the start of a timed operation.
@@ -326,9 +330,51 @@ class TimeLogger:
         - Call with category='codegen' after parsing is complete
         - Call with category='compile' after compilation is complete
         - Call with category='runtime' after kernels return
+        
+        For runtime category with CUDA events:
+        - 'verbose' or 'debug': prints individual chunk timings
+        - 'default': aggregates chunk timings by type
         """
+        if self.verbosity is None:
+            return
+        
         if self.verbosity == 'default':
+            # Get standard durations from start/stop pairs
             durations = self.get_aggregate_durations(category=category)
+            
+            # Add CUDA event durations from metadata
+            for event in self.events:
+                if event.event_type == 'stop' and 'duration_ms' in event.metadata:
+                    # Filter by category if requested
+                    if category is not None:
+                        event_info = self._event_registry.get(event.name)
+                        if event_info is None or event_info['category'] != category:
+                            continue
+                    
+                    # Convert ms to seconds for consistency
+                    durations[event.name] = event.metadata['duration_ms'] / 1000.0
+            
+            # For runtime category, aggregate chunk events
+            if category == 'runtime':
+                aggregated = {}
+                chunk_events = {}
+                
+                for name, duration in durations.items():
+                    if '_chunk_' in name:
+                        # Extract prefix (h2d_transfer, kernel, d2h_transfer)
+                        prefix = name.rsplit('_chunk_', 1)[0]
+                        if prefix not in chunk_events:
+                            chunk_events[prefix] = []
+                        chunk_events[prefix].append(duration)
+                    else:
+                        aggregated[name] = duration
+                
+                # Sum chunk events by type
+                for prefix, durations_list in chunk_events.items():
+                    aggregated[f"{prefix}_total"] = sum(durations_list)
+                
+                durations = aggregated
+            
             if durations:
                 if category:
                     print(f"\nTIMELOGGER {category.capitalize()} Timing Summary:")
@@ -336,7 +382,24 @@ class TimeLogger:
                     print("\nTIMELOGGER Timing Summary:")
                 for name, duration in sorted(durations.items()):
                     print(f"TIMELOGGER   {name}: {duration:.3f}s")
-        # verbose and debug already printed inline
+        
+        elif self.verbosity in ('verbose', 'debug'):
+            # Print individual chunk timings for verbose/debug
+            if category == 'runtime':
+                # Print CUDA events with ms precision
+                cuda_events = [
+                    e for e in self.events 
+                    if e.event_type == 'stop' and 'duration_ms' in e.metadata
+                ]
+                
+                if cuda_events:
+                    print(f"\nTIMELOGGER {category.capitalize()} Timing (per-chunk):")
+                    for event in cuda_events:
+                        event_info = self._event_registry.get(event.name)
+                        if event_info and event_info['category'] == category:
+                            duration_ms = event.metadata['duration_ms']
+                            print(f"TIMELOGGER   {event.name}: {duration_ms:.3f}ms")
+        # verbose and debug already printed inline for start/stop events
     
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the verbosity level for this logger.
@@ -391,6 +454,79 @@ class TimeLogger:
                 'category': category,
                 'description': description
             }
+    
+    def register_cuda_event(self, event: "CUDAEvent") -> None:
+        """Register a CUDA event for later timing retrieval.
+        
+        Parameters
+        ----------
+        event : CUDAEvent
+            CUDA event instance to register
+        
+        Notes
+        -----
+        Events are stored until retrieve_cuda_events() is called.
+        No-op when verbosity is None.
+        The event's category and name are also registered with the
+        standard register_event() mechanism.
+        """
+        if self.verbosity is None:
+            return
+        
+        # Import here to avoid circular dependency
+        from cubie.cuda_simsafe import CUDAEvent
+        
+        if not isinstance(event, CUDAEvent):
+            raise TypeError(
+                f"event must be a CUDAEvent instance, got {type(event)}"
+            )
+        
+        # Store event for later retrieval
+        self._cuda_events.append(event)
+        
+        # Register with standard event registry
+        self.register_event(
+            event.name, 
+            event.category, 
+            f"GPU event: {event.name}"
+        )
+    
+    def retrieve_cuda_events(self) -> None:
+        """Retrieve timing from all registered CUDA events.
+        
+        Notes
+        -----
+        This method must be called AFTER stream synchronization.
+        It converts CUDA event timings to TimeLogger events by calling
+        elapsed_time_ms() on each registered CUDAEvent.
+        
+        The _cuda_events list is cleared after retrieval to avoid
+        memory growth.
+        
+        No-op when verbosity is None or no events registered.
+        """
+        if self.verbosity is None:
+            return
+        
+        if not self._cuda_events:
+            return
+        
+        # Process each CUDA event
+        for event in self._cuda_events:
+            # Get elapsed time (returns immediately, no blocking)
+            elapsed_ms = event.elapsed_time_ms()
+            
+            # Create a TimingEvent with the duration in metadata
+            timing_event = TimingEvent(
+                name=event.name,
+                event_type='stop',
+                timestamp=0.0,  # Not used for CUDA events
+                metadata={'duration_ms': elapsed_ms}
+            )
+            self.events.append(timing_event)
+        
+        # Clear list after retrieval
+        self._cuda_events.clear()
 
 
 # Default global logger instance
