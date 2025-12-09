@@ -88,11 +88,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.01)
+duration = precision(0.1)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.01)
+dt_save = precision(0.1)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -160,10 +160,10 @@ saves_per_summary = int32(2)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
-loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_drivers_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_observables_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_observables_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_buffer_memory = 'local'  # 'local' or 'shared'
+loop_drivers_proposal_buffer_memory = 'local'  # 'local' or 'shared'
+loop_observables_buffer_memory = 'local'  # 'local' or 'shared'
+loop_observables_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_error_buffer_memory = 'local'  # 'local' or 'shared'
 loop_counters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_summary_buffer_memory = 'local'  # 'local' or 'shared'
@@ -210,7 +210,7 @@ rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
 MAX_SHARED_MEMORY_PER_BLOCK = 32768
 
 # Block size for kernel launch
-blocksize = 96
+blocksize = 64
 
 # =========================================================================
 # DERIVED CONFIGURATION (computed from above settings)
@@ -3509,7 +3509,7 @@ numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
         [(
-                numba_prec[::1,:],
+                numba_prec[:,::1],
                 numba_prec[:, ::1],
                 numba_prec[:, :, ::1],
                 numba_prec[:, :, ::1],
@@ -3553,7 +3553,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     rx_observables = observables_output[:, :, 0]
     rx_state_summaries = state_summaries_output[:, :, run_index]
     rx_observables_summaries = observables_summaries_output[:, :, 0]
-    rx_iteration_counters = iteration_counters_output[run_index, :, :]
+    rx_iteration_counters = iteration_counters_output[:, :, run_index]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
                      local_scratch, rx_state, rx_observables,
@@ -3581,7 +3581,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     rho_values = np.linspace(rho_min, rho_max, n_runs, dtype=precision)
 
     # Input arrays (NumPy)
-    inits = np.zeros((n_runs, n_states), order='F', dtype=precision)
+    inits = np.zeros((n_runs, n_states), dtype=precision)
     inits[:, 0] = precision(1.0)
     inits[:, 1] = precision(0.0)
     inits[:, 2] = precision(0.0)
@@ -3590,8 +3590,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     params[:, 0] = rho_values
 
     # Create device arrays for inputs (BatchInputArrays pattern)
-    d_inits = cuda.device_array((n_runs, n_states), dtype=precision,
-                             order='F')
+    d_inits = cuda.device_array((n_runs, n_states), dtype=precision)
     d_inits.copy_to_device(inits)
     d_params = cuda.to_device(params)
     d_driver_coefficients = cuda.to_device(driver_coefficients)
@@ -3630,8 +3629,8 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
 
     # iteration_counters_output: shape=(runs, samples, counters)
     # native order=(run, time, var) - unchanged (special case)
-    iter_shape = (n_runs, n_output_samples, n_counters)
-    iter_strides = get_strides(iter_shape, np.int32, (1, 0, 2))
+    iter_shape = (n_output_samples, n_counters, n_runs)
+    iter_strides = get_strides(iter_shape, np.int32, (0, 1, 2))
     iteration_counters_output = cuda.device_array(iter_shape, dtype=np.int32,
                                                   strides=iter_strides)
 
