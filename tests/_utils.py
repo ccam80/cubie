@@ -11,9 +11,7 @@ from numpy.testing import assert_allclose
 from cubie import SingleIntegratorRun
 from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
-from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.odesystems.baseODE import BaseODE
-from cubie.outputhandling import OutputArrayHeights
 from numpy.typing import NDArray
 
 Array = NDArray[np.floating]
@@ -662,6 +660,7 @@ def run_device_loop(
             numba_precision[::1],
             numba_precision[::1],
             numba_precision[:,:,::1],
+            numba_precision[:,::1],
             numba_precision[:,::1],
             numba_precision[:,::1],
             numba_precision[:,::1],
