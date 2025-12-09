@@ -462,6 +462,84 @@ def driver_function_inline_factory(interpolator):
     return driver_function
 
 
+def driver_derivative_inline_factory(interpolator):
+    """Create inline driver derivative device function from ArrayInterpolator.
+    
+    Takes an ArrayInterpolator instance and creates an inline CUDA device
+    function that evaluates driver time derivatives at a given time. This is
+    critical device code for CUDA profiling tool alignment.
+    
+    Parameters
+    ----------
+    interpolator : ArrayInterpolator
+        Configured ArrayInterpolator instance with computed coefficients.
+        
+    Returns
+    -------
+    callable
+        Inline CUDA device function with signature:
+        driver_derivative(time, coefficients, out)
+    """
+    prec = interpolator.precision
+    numba_prec = numba_from_dtype(prec)
+    order = int32(interpolator.order)
+    num_drivers = int32(interpolator.num_inputs)
+    num_segments = int32(interpolator.num_segments)
+    inv_resolution = prec(prec(1.0) / interpolator.dt)
+    start_time_val = prec(interpolator.t0)
+    zero_value = prec(0.0)
+    wrap = interpolator.wrap
+    pad_clamped = (not wrap) and (interpolator.boundary_condition == 'clamped')
+    evaluation_start = prec(start_time_val - (
+        interpolator.dt if pad_clamped else prec(0.0)))
+    
+    @cuda.jit(
+        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        device=True,
+        inline=True,
+        **compile_kwargs
+    )
+    def driver_derivative(time, coefficients, out):
+        """Evaluate time derivative of each driver polynomial.
+        
+        Parameters
+        ----------
+        time : float
+            Query time for evaluation.
+        coefficients : device array
+            Segment-major coefficients with shape (segments, drivers, order+1).
+        out : device array
+            Output array to populate with evaluated driver derivatives.
+        """
+        scaled = (time - evaluation_start) * inv_resolution
+        scaled_floor = floor(scaled)
+        idx = int32(scaled_floor)
+        
+        if wrap:
+            seg = int32(idx % num_segments)
+            tau = prec(scaled - scaled_floor)
+            in_range = True
+        else:
+            in_range = (scaled >= 0.0) and (scaled <= num_segments)
+            seg = selp(idx < 0, int32(0), idx)
+            seg = selp(seg >= num_segments,
+                      int32(num_segments - 1), seg)
+            tau = scaled - float(seg)
+        
+        # Evaluate derivative using Horner's rule on derivative polynomial
+        for driver_idx in range(num_drivers):
+            acc = zero_value
+            for k in range(order, 0, -1):
+                acc = acc * tau + prec(k) * (
+                    coefficients[seg, driver_idx, k]
+                )
+            out[driver_idx] = (
+                acc * inv_resolution if in_range else zero_value
+            )
+    
+    return driver_derivative
+
+
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     """Auto-generated Neumann preconditioner."""
     n = int32(3)
