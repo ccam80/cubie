@@ -10,7 +10,7 @@ from typing import Any, Mapping, Tuple, Union, Optional, Iterable
 from warnings import warn
 
 import numpy as np
-from numba import cuda, float32, float64, from_dtype, int32
+from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
     xoroshiro128p_normal_float32,
@@ -305,7 +305,7 @@ def clamp_factory(precision):
 
 
 @cuda.jit(
-    (float64[:], float64[:], int32, xoro_type[:]),
+    # (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -337,7 +337,7 @@ def get_noise_64(
 
 
 @cuda.jit(
-    (float32[:], float32[:], int32, xoro_type[:]),
+    # (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
