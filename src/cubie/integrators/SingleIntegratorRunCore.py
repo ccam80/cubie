@@ -17,7 +17,7 @@ import warnings
 import attrs
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, unpack_dict_values
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import (
@@ -411,6 +411,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        # Flatten any nested dict values so that all parameters are
+        # top-level keys before passing to sub-components. For example,
+        # step_controller_settings={'dt_min': 0.01} becomes dt_min=0.01.
+        # This ensures sub-components (algorithm, controller, output
+        # functions) receive only flat parameter sets.
+        updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
+
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
         system_recognized = self._system.update(updates_dict, silent=True)
@@ -486,7 +493,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         self.check_compatibility()
 
-        return recognized
+        # Include unpacked dict keys in recognized set
+        return recognized | unpacked_keys
 
     def _switch_algos(self, updates_dict):
         if "algorithm" not in updates_dict:
