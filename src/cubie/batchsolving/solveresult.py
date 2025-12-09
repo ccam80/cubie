@@ -276,7 +276,6 @@ class SolveResult:
                 # Get stride order and find run dimension
                 stride_order = solver.state_stride_order
                 run_index = stride_order.index("run")
-                ndim = len(stride_order)
 
                 # Set error trajectories to NaN using vectorized indexing
                 if time_domain_array.size > 0:
