@@ -178,7 +178,7 @@ class CUDAPrinter(PythonCodePrinter):
         return f"{base}[{', '.join(index)}]"
 
     def _print_Integer(self, expr: sp.Integer) -> str:
-        """Print an integer literal wrapped with precision().
+        """Print an integer literal, wrapping with precision() unless in index or power contexts.
 
         Parameters
         ----------
@@ -189,11 +189,13 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Precision-wrapped representation: ``precision(value)``.
+            Unwrapped representation when in index or power contexts.
 
         Notes
         -----
         Integer literals in expressions are wrapped to avoid float64 promotion
-        during mixed-type arithmetic operations.
+        during mixed-type arithmetic operations. Array indices and power
+        exponents are not wrapped to preserve their integer types.
         """
         if self._in_index or self._in_pow:
             return super()._print_Integer(expr)
