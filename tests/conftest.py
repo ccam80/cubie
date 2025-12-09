@@ -593,18 +593,17 @@ def loop_settings(solver_settings):
 
 
 @pytest.fixture(scope="session")
-def step_controller_settings(solver_settings):
+def step_controller_settings(solver_settings, step_object):
     """Base configuration used to instantiate loop step controllers.
     
-    algorithm_order is obtained from solver_settings (enriched in Task 
-    Group 1), avoiding the need to build step_object.
+    algorithm_order must come from step_object.order since some algorithms
+    (like rosenbrock) require building to determine order.
     """
     settings, _ = merge_kwargs_into_settings(
         kwargs=solver_settings,
         valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
     )
-    # algorithm_order already in solver_settings from Task Group 1
-    settings.update(algorithm_order=solver_settings['algorithm_order'])
+    settings.update(algorithm_order=step_object.order)
     return settings
 
 
@@ -670,13 +669,17 @@ def solverkernel(
     """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for BatchSolverKernel
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         memory_settings=memory_settings,
         loop_settings=loop_settings,
@@ -702,13 +705,17 @@ def solverkernel_mutable(
     """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for BatchSolverKernel
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         memory_settings=memory_settings,
         loop_settings=loop_settings
@@ -791,12 +798,16 @@ def single_integrator_run(
     """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for SingleIntegratorRun
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return SingleIntegratorRun(
         system=system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         loop_settings=loop_settings
     )
@@ -820,13 +831,17 @@ def single_integrator_run_mutable(
     """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for SingleIntegratorRun
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
     )
 
@@ -929,19 +944,45 @@ def initial_state(system, precision, request):
 
 
 @pytest.fixture(scope="session")
-def buffer_settings(single_integrator_run):
-    """Buffer settings derived from single_integrator_run.
+def buffer_settings(solver_settings, output_functions, step_object):
+    """Buffer settings derived from system sizes and output configuration.
     
-    SingleIntegratorRun builds output_functions internally, so we access
-    the calculated buffer settings from it rather than rebuilding.
+    Uses solver_settings metadata to avoid requesting multiple CUDAFactory
+    fixtures. output_functions and step_object provide necessary info for
+    buffer sizing.
     """
-    return single_integrator_run._loop._buffer_settings
+    n_error = solver_settings['n_states'] if step_object.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=solver_settings['n_states'],
+        n_parameters=solver_settings['n_parameters'],
+        n_drivers=solver_settings['n_drivers'],
+        n_observables=solver_settings['n_observables'],
+        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
+    )
 
 
 @pytest.fixture(scope="function")
-def buffer_settings_mutable(single_integrator_run_mutable):
-    """Function-scoped buffer settings from mutable integrator run."""
-    return single_integrator_run_mutable._loop._buffer_settings
+def buffer_settings_mutable(solver_settings, output_functions_mutable, step_object_mutable):
+    """Function-scoped buffer settings from mutable output functions.
+    
+    Uses solver_settings metadata to avoid requesting multiple CUDAFactory
+    fixtures. output_functions_mutable and step_object_mutable provide
+    necessary info for buffer sizing.
+    """
+    n_error = solver_settings['n_states'] if step_object_mutable.is_adaptive else 0
+    return LoopBufferSettings(
+        n_states=solver_settings['n_states'],
+        n_parameters=solver_settings['n_parameters'],
+        n_drivers=solver_settings['n_drivers'],
+        n_observables=solver_settings['n_observables'],
+        state_summary_buffer_height=output_functions_mutable.state_summaries_buffer_height,
+        observable_summary_buffer_height=output_functions_mutable.observable_summaries_buffer_height,
+        n_error=n_error,
+        n_counters=0,
+    )
 
 
 # ========================================
@@ -1022,7 +1063,7 @@ def cpu_loop_outputs(
     output_functions,
     cpu_driver_evaluator,
     driver_array,
-    step_object,
+    single_integrator_run,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
     inputs = {
@@ -1038,6 +1079,8 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
+    # Extract step_object from single_integrator_run
+    step_object = single_integrator_run._algo_step
     tableau = getattr(step_object, "tableau", None)
     return run_reference_loop(
         evaluator=cpu_system,
