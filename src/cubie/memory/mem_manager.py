@@ -408,6 +408,9 @@ class MemoryManager:
         -------
         None
         """
+        # Ensure there's a valid context before change - only relevant if user
+        # switches in rapid succession with no interceding operations.
+        context = cuda.current_context()
         if name == "cupy_async":
             # use CuPy async memory pool
             self._allocator = CuPyAsyncNumbaManager
@@ -426,7 +429,12 @@ class MemoryManager:
         # WARNING - this will invalidate all prior streams, arrays, and funcs!
         # CUDA_ERROR_INVALID_CONTEXT or CUDA_ERROR_CONTEXT_IS_DESTROYED
         # suggests you're using an old reference.
+        #   Specific excerpt: The invalidation of modules means that all
+        #   functions compiled with @cuda.jit prior to context destruction
+        #   will need to be redefined, as the code underlying them will also
+        #   have been unloaded from the GPU.
         cuda.close()
+        self.context = cuda.current_context()
         self.invalidate_all()
         self.reinit_streams()
 

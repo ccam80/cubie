@@ -27,11 +27,11 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
-        "kp": 0.6,
-        "kd": 0.4,
+        "kp": 0.7,
+        "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
         "min_gain": 0.5,

@@ -106,10 +106,11 @@ class TestBufferLocationFiltering:
         buffer_settings = loop.compile_settings.buffer_settings
         assert buffer_settings.state_buffer_location == 'local'
         assert buffer_settings.parameters_location == 'local'
-
+ 
     def test_buffer_location_cache_invalidation(self, system, precision):
         """Changing buffer location should invalidate the cache."""
         solver = Solver(system, state_buffer_location='shared')
+        _ = solver.kernel.kernel
         loop = solver.kernel.single_integrator._loop
         # Force compilation by accessing the device function
         _ = loop.device_function

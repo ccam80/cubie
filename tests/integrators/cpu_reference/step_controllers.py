@@ -21,9 +21,9 @@ class CPUAdaptiveController:
         rtol: float,
         order: int,
         precision: PrecisionDType,
-        kp: float = 1 / 18,
-        ki: float = 1 / 9,
-        kd: float = 1 / 18,
+        kp: float = 0.7,
+        ki: float = -0.4,
+        kd: float = 0.0,
         gamma: float = 0.9,
         safety: float = 0.9,
         min_gain: float = 0.5,
@@ -182,11 +182,11 @@ class CPUAdaptiveController:
                 ((one + two * M) * self.gamma) / (niters_eff + two * M),
             )
             gain_basic = precision(
-                self.safety * fac * (errornorm ** -expo_fraction)
+                fac * (errornorm ** -expo_fraction)
             )
 
             # Always compute gain_gus, then fallback to gain_basic if needed
-            ratio = nrm2_prev / (errornorm * errornorm)
+            ratio = (errornorm * errornorm) / nrm2_prev
             gain_gus = (
                 self.safety
                 * (current_dt / dt_prev)

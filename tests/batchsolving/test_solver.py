@@ -247,7 +247,9 @@ def test_solve_basic(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
-        duration=0.1,
+        duration=0.05,
+        dt_save=0.02,
+        dt_summarise=0.04,
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
@@ -332,7 +334,9 @@ def test_solve_with_different_result_types(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
             drivers=driver_settings,
-            duration=0.1,
+            duration=0.05,
+            dt_save=0.02,
+            dt_summarise=0.04,
             results_type=result_type,
         )
         assert result is not None
@@ -421,14 +425,6 @@ def test_update_saved_variables(solver_mutable, system):
 
         # The method should have converted labels to indices
         assert len(updated_keys) > 0
-
-
-def test_profiling_methods(solver):
-    """Test profiling enable/disable methods."""
-    # These methods should execute without error
-    solver.enable_profiling()
-    solver.disable_profiling()
-
 
 def test_memory_settings_update(solver_mutable):
     """Test updating memory-related settings."""

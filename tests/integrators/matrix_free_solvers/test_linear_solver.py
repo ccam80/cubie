@@ -92,7 +92,7 @@ def test_linear_solver_placeholder(
     )
     expected = np.linalg.solve(matrix, rhs)
     h = precision(0.01)
-    kernel = solver_kernel(solver_device, 3, h)
+    kernel = solver_kernel(solver_device, 3, h, precision)
     base_state = np.array([1.0, -1.0, 0.5], dtype=precision)
     state = cuda.to_device(base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision))
     rhs_dev = cuda.to_device(rhs)
@@ -140,7 +140,7 @@ def test_linear_solver_symbolic(
         tolerance=1e-8,
         max_iters=1000,
     )
-    kernel = solver_kernel(solver, n, h)
+    kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
@@ -176,7 +176,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     )
 
     h = precision(0.01)
-    kernel = solver_kernel(solver, n, h)
+    kernel = solver_kernel(solver, n, h, precision)
     state = cuda.to_device(np.zeros(n, dtype=precision))
     rhs_dev = cuda.to_device(np.ones(n, dtype=precision))
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
