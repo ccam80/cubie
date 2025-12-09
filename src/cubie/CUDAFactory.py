@@ -578,7 +578,9 @@ class CUDAFactory(ABC):
         
         ```python
         step_controller_settings = {'dt_min': 0.01, 'dt_max': 1.0}
-        solver.update_compile_settings(step_controller_settings)
+        solver.update_compile_settings(
+            step_controller_settings=step_controller_settings
+        )
         ```
         """
         if updates_dict is None:
@@ -594,7 +596,7 @@ class CUDAFactory(ABC):
                 "Compile settings must be set up using self.setup_compile_settings before updating."
             )
         
-        # Recursively unpack any dict values
+        # Unpack any dict values
         updates_dict = self._unpack_dict_values(updates_dict)
 
         recognized_params = []
@@ -631,12 +633,12 @@ class CUDAFactory(ABC):
         return set(recognized_params)
 
     def _unpack_dict_values(self, updates_dict: dict) -> dict:
-        """Recursively unpack dict values into flat key-value pairs.
+        """Unpack dict values into flat key-value pairs.
         
         Parameters
         ----------
         updates_dict
-            Dictionary potentially containing nested dicts as values
+            Dictionary potentially containing dicts as values
         
         Returns
         -------
@@ -648,6 +650,8 @@ class CUDAFactory(ABC):
         If a value in the input dict is itself a dict, its key-value pairs
         are added to the output dict directly, and the original key is
         removed. This allows users to pass grouped settings naturally.
+        If multiple dict values contain the same key, later values
+        overwrite earlier ones (standard dict.update() behavior).
         """
         result = {}
         for key, value in updates_dict.items():
