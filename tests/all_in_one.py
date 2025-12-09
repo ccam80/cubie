@@ -331,9 +331,9 @@ use_shared_rosenbrock_cached_auxiliaries = (
 # STRIDE ORDERING UTILITIES
 # =========================================================================
 
-# Default stride order matches memory manager: (time, run, variable)
-# Represented as indices: 0=time, 1=run, 2=variable
-DEFAULT_STRIDE_ORDER = (0, 2, 1)
+# Default stride order: (time, variable, run)
+# Represented as indices: 0=time, 1=variable, 2=run
+DEFAULT_STRIDE_ORDER = (0, 1, 2)
 
 
 def get_strides(
@@ -357,11 +357,11 @@ def get_strides(
     array_native_order
         Tuple of indices describing the logical dimension ordering for
         the array's shape. For 3D arrays, indices represent:
-        0=time, 1=run, 2=variable. Defaults to (0, 1, 2).
+        0=time, 1=variable, 2=run. Defaults to (0, 1, 2).
     desired_order
         Tuple of indices describing the desired memory stride ordering.
         The last index changes fastest (contiguous). Defaults to (0, 1, 2)
-        which matches cubie's default: time, run, variable.
+        which matches cubie's current default: time, variable, run.
 
     Returns
     -------
@@ -3136,10 +3136,10 @@ ncnt_nonzero = max(n_counters, 1)
             numba_precision[:, :, ::1],
             numba_precision[::1],
             numba_precision[::1],
-            numba_precision[:, :],
-            numba_precision[:, :],
-            numba_precision[:, :],
-            numba_precision[:, :],
+            numba_precision[:, ::1],
+            numba_precision[:, ::1],
+            numba_precision[:, ::1],
+            numba_precision[:, ::1],
             numba_precision[:, ::1],
             float64,
             float64,
@@ -3511,11 +3511,11 @@ numba_prec = numba_from_dtype(precision)
                 numba_prec[::1,:],
                 numba_prec[:, ::1],
                 numba_prec[:, :, ::1],
-                numba_prec[:, :, :],
-                numba_prec[:, :, :],
-                numba_prec[:, :, :],
-                numba_prec[:, :, :],
-                int32[:, :, :],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, ::1],
+                numba_prec[:, :, ::1],
+                int32[:, :, ::1],
                 int32[::1],
                 float64,
                 float64,
@@ -3548,10 +3548,10 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 
     rx_inits = inits[run_index, :]
     rx_params = params[run_index, :]
-    rx_state = state_output[:, run_index, :]
-    rx_observables = observables_output[:, 0, :]
-    rx_state_summaries = state_summaries_output[:, run_index, :]
-    rx_observables_summaries = observables_summaries_output[:, 0, :]
+    rx_state = state_output[:, :, run_index]
+    rx_observables = observables_output[:, :, 0]
+    rx_state_summaries = state_summaries_output[:, :, run_index]
+    rx_observables_summaries = observables_summaries_output[:, :, 0]
     rx_iteration_counters = iteration_counters_output[run_index, :, :]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
@@ -3600,27 +3600,27 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     # Dimension indices: 0=time, 1=run, 2=variable
     n_summary_samples = int(ceil(n_output_samples / saves_per_summary))
 
-    # state_output: shape=(samples, runs, states+1), native order=(time, run, var)
-    state_shape = (n_output_samples, n_runs, n_states + 1)
+    # state_output: shape=(samples, states+1, runs), native order=(time, var, run)
+    state_shape = (n_output_samples, n_states + 1, n_runs)
     state_strides = get_strides(state_shape, precision, (0, 1, 2))
     state_output = cuda.device_array(state_shape, dtype=precision,
                                      strides=state_strides)
 
-    # observables_output: shape=(samples, 1, 1), native order=(time, run, var)
+    # observables_output: shape=(samples, 1, 1), native order=(time, var, run)
     obs_shape = (n_output_samples, 1, 1)
     obs_strides = get_strides(obs_shape, precision, (0, 1, 2))
     observables_output = cuda.device_array(obs_shape, dtype=precision,
                                            strides=obs_strides)
 
-    # state_summaries_output: shape=(summaries, runs, states)
-    # native order=(time, run, var)
-    state_summ_shape = (n_summary_samples, n_runs, n_states)
+    # state_summaries_output: shape=(summaries, states, runs)
+    # native order=(time, var, run)
+    state_summ_shape = (n_summary_samples, n_states, n_runs)
     state_summ_strides = get_strides(state_summ_shape, precision, (0, 1, 2))
     state_summaries_output = cuda.device_array(state_summ_shape, dtype=precision,
                                                strides=state_summ_strides)
 
     # observable_summaries_output: shape=(summaries, 1, 1)
-    # native order=(time, run, var)
+    # native order=(time, var, run)
     obs_summ_shape = (n_summary_samples, 1, 1)
     obs_summ_strides = get_strides(obs_summ_shape, precision, (0, 1, 2))
     observable_summaries_output = cuda.device_array(obs_summ_shape,
@@ -3628,7 +3628,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
                                                     strides=obs_summ_strides)
 
     # iteration_counters_output: shape=(runs, samples, counters)
-    # native order=(run, time, var) - different from default!
+    # native order=(run, time, var) - unchanged (special case)
     iter_shape = (n_runs, n_output_samples, n_counters)
     iter_strides = get_strides(iter_shape, np.int32, (1, 0, 2))
     iteration_counters_output = cuda.device_array(iter_shape, dtype=np.int32,
@@ -3701,8 +3701,8 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
 
 
-    print(f"Final state sample (run 0): {state_output[-1, 0, :n_states]}")
-    print(f"Final state sample (run -1): {state_output[-1, -1, :n_states]}")
+    print(f"Final state sample (run 0): {state_output[-1, :n_states, 0]}")
+    print(f"Final state sample (run -1): {state_output[-1, :n_states, -1]}")
 
     return state_output, status_codes_output
 
