@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cubie import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
 
@@ -545,39 +546,132 @@ class TestSolveResultErrorHandling:
         assert per_summary == {}
 
 
-class TestSolveResultStatusCodes:
-    """Test status_codes attribute in SolveResult."""
-    
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["state", "observables", "time"],
-          "dt_save": 0.02,
-          "duration": 0.05}],
-        indirect=True,
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["state", "observables", "time"],
+            "dt_save": 0.02,
+            "duration": 0.05,
+        }
+    ],
+    indirect=True,
+)
+def test_status_codes_attribute(solver_with_arrays):
+    """Verify status_codes attribute is present in SolveResult."""
+    result = SolveResult.from_solver(solver_with_arrays)
+
+    assert hasattr(result, "status_codes")
+    assert result.status_codes is not None
+    assert isinstance(result.status_codes, np.ndarray)
+    assert result.status_codes.dtype == np.int32
+
+    # Verify shape matches number of runs
+    n_runs = solver_with_arrays.num_runs
+    assert result.status_codes.shape == (n_runs,)
+    assert np.all(result.status_codes == 0)
+
+
+@pytest.fixture(scope="session")
+def solved_batch_solver(system, precision):
+    """Run a single batch solve and return the solver with computed arrays.
+
+    This session-scoped fixture runs once and is reused by all tests,
+    significantly reducing test runtime by avoiding repeated compilation
+    and batch solves.
+    """
+    solver = Solver(system, dt_save=0.01)
+
+    # Run a single batch solve with multiple runs
+    solver.solve(
+        initial_values={
+            "x0": [1.0, 2.0, 3.0],
+            "x1": [0.0, 0.0, 0.0],
+            "x2": [0.0, 0.0, 0.0],
+        },
+        parameters={
+            "p0": [0.1, 0.2, 0.3],
+            "p1": [0.1, 0.2, 0.3],
+            "p2": [0.1, 0.2, 0.3],
+        },
+        duration=0.1,
     )
-    def test_status_codes_attribute_exists(self, solver_with_arrays):
-        """Verify status_codes attribute is present in SolveResult."""
-        result = SolveResult.from_solver(solver_with_arrays)
-        
-        assert hasattr(result, 'status_codes')
-        assert result.status_codes is not None
-        assert isinstance(result.status_codes, np.ndarray)
-        assert result.status_codes.dtype == np.int32
-        
-        # Verify shape matches number of runs
-        n_runs = solver_with_arrays.num_runs
-        assert result.status_codes.shape == (n_runs,)
-    
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["state", "observables"],
-          "dt_save": 0.02,
-          "duration": 0.05}],
-        indirect=True,
-    )
-    def test_status_codes_values_all_zero_for_success(self, solver_with_arrays):
-        """Verify successful runs have zero status codes."""
-        result = SolveResult.from_solver(solver_with_arrays)
-        
-        # All successful runs should have status code 0
+    solver.kernel.output_arrays.host.status_codes.array[1] = 1
+    return solver
+
+
+@pytest.mark.parametrize(
+    "system_override", ["linear"], ids=[""], indirect=True
+)
+class TestNaNProcessing:
+    """Test NaN processing by manually modifying status codes.
+
+    These tests use the session-scoped solver fixture and manually set
+    status codes to test error handling without running expensive failing
+    solves.
+    """
+
+    def test_nan_processing_with_simulated_errors(self, solved_batch_solver):
+        """Verify NaN processing works by manually setting error codes."""
+        # Manually inject error into status codes
+
+        result = SolveResult.from_solver(
+            solved_batch_solver, nan_error_trajectories=True
+        )
+
+        # Verify run 1 is all NaN
+        run_slice = (slice(None), slice(None), 1)
+        assert np.all(np.isnan(result.time_domain_array[run_slice]))
+        if result.summaries_array.size > 0:
+            assert np.all(np.isnan(result.summaries_array[run_slice]))
+
+        # Verify runs 0 and 2 are NOT NaN
+        assert not np.all(np.isnan(result.time_domain_array[..., 0]))
+        assert not np.all(np.isnan(result.time_domain_array[..., 2]))
+
+    def test_nan_disabled_preserves_error_data(self, solved_batch_solver):
+        """Verify nan_error_trajectories=False preserves data even with errors."""
+        result = SolveResult.from_solver(
+            solved_batch_solver, nan_error_trajectories=False
+        )
+        assert not np.all(np.isnan(result.time_domain_array[..., 1]))
+
+    def test_successful_runs_unchanged_with_nan_enabled(
+        self, solved_batch_solver
+    ):
+        """Verify successful runs are not modified when NaN processing enabled."""
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 0
+        result = SolveResult.from_solver(
+            solved_batch_solver, nan_error_trajectories=True
+        )
+
+        # All runs should have status code 0 (success)
         assert np.all(result.status_codes == 0)
+
+        # No data should be NaN
+        assert not np.any(np.isnan(result.time_domain_array))
+        if result.summaries_array.size > 0:
+            assert not np.any(np.isnan(result.summaries_array))
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 1
+
+    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver):
+        """Verify multiple failed runs all get NaN'd."""
+        # Inject multiple errors
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 2
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 3
+
+        result = SolveResult.from_solver(
+            solved_batch_solver, nan_error_trajectories=True
+        )
+
+        # Runs 0 and 2 should be all NaN
+        assert np.all(np.isnan(result.time_domain_array[..., 0]))
+        assert np.all(np.isnan(result.time_domain_array[..., 2]))
+        assert np.all(np.isnan(result.time_domain_array[..., 1]))
+
+        # Run 1 should NOT be NaN
+        assert not np.all(np.isnan(result.time_domain_array[..., 1]))
+
+        # Restore original status codes
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 0
+        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 0
