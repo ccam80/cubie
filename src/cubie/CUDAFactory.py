@@ -603,7 +603,7 @@ class CUDAFactory(ABC):
                 recognized_params.append(key)
             if updated:
                 updated_params.append(key)
-        
+
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
         if unrecognised_params and not silent:
             invalid = ", ".join(sorted(unrecognised_params))

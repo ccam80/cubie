@@ -1517,7 +1517,11 @@ class IVPLoop(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        # Unpack dict values before distributing to compile settings
+        # Flatten nested dict values (e.g., loop_settings={'dt_save': 0.01})
+        # into top-level parameters before distributing to compile settings.
+        # This ensures all configuration options are recognized and updated.
+        # Example: {'loop_settings': {'dt_save': 0.01}, 'other': 5}
+        #       -> {'dt_save': 0.01, 'other': 5}
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         recognised = self.update_compile_settings(updates_dict, silent=True)

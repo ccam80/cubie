@@ -575,8 +575,8 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
     Returns
     -------
     Tuple[dict, Set[str]]
-        Flattened dictionary with dict values unpacked, and set of
-        original keys that were unpacked dicts
+        - dict: Flattened dictionary with dict values unpacked
+        - set: Set of original keys that were unpacked dicts
     
     Examples
     --------
@@ -596,22 +596,37 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
     tracked in the unpacked set. Regular key-value pairs are preserved
     as-is.
     
-    If a key appears both as a regular entry and within an unpacked dict,
-    standard dict update semantics apply (last value wins based on
-    iteration order). To avoid ambiguity, do not mix regular keys with
-    dict values that contain the same keys.
-    
     Only unpacks one level deep - nested dicts within dict values are
     not recursively unpacked. This allows each level of the update chain
     to handle its own unpacking.
+    
+    Raises
+    ------
+    ValueError
+        If a key appears both as a regular entry and within an unpacked
+        dict, indicating a collision that would lead to ambiguous behavior.
     """
     result = {}
     unpacked_keys = set()
     for key, value in updates_dict.items():
         if isinstance(value, dict):
+            # Check for key collisions before unpacking
+            collision_keys = set(value.keys()) & set(result.keys())
+            if collision_keys:
+                raise ValueError(
+                    f"Key collision detected: the following keys appear "
+                    f"both as regular entries and within an unpacked dict: "
+                    f"{sorted(collision_keys)}"
+                )
             # Unpack the dict value and track the original key
             result.update(value)
             unpacked_keys.add(key)
         else:
+            # Check if key already exists in result
+            if key in result:
+                raise ValueError(
+                    f"Key collision detected: the key '{key}' appears "
+                    f"multiple times in updates_dict."
+                )
             result[key] = value
     return result, unpacked_keys

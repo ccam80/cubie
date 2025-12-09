@@ -411,7 +411,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        # Unpack dict values before distributing to sub-components
+        # Flatten any nested dict values so that all parameters are
+        # top-level keys before passing to sub-components. For example,
+        # step_controller_settings={'dt_min': 0.01} becomes dt_min=0.01.
+        # This ensures sub-components (algorithm, controller, output
+        # functions) receive only flat parameter sets.
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         all_unrecognized = set(updates_dict.keys())

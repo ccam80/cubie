@@ -705,7 +705,10 @@ class BatchSolverKernel(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        # Unpack dict values before distributing to sub-components
+        # Flatten nested dict values so that grouped settings can be passed
+        # naturally. For example, step_controller_settings={'dt_min': 0.01}
+        # becomes dt_min=0.01, allowing sub-components to recognize and
+        # apply parameters correctly.
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         all_unrecognized = set(updates_dict.keys())
