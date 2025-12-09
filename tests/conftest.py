@@ -144,37 +144,36 @@ def _build_solver_instance(
     return solver
 
 
-def _build_loop_instance(
-    precision: np.dtype,
+def build_single_integrator_run(
     system: SymbolicODE,
-    step_object: Any,
-    buffer_settings: LoopBufferSettings,
-    output_functions: OutputFunctions,
-    step_controller: Any,
     solver_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator],
-) -> IVPLoop:
-    """Construct an :class:`IVPLoop` instance for device loop tests."""
+    algorithm_settings: Dict[str, Any],
+    step_controller_settings: Dict[str, Any],
+    output_settings: Dict[str, Any],
+    loop_settings: Dict[str, Any],
+    driver_array: Optional[ArrayInterpolator] = None,
+) -> SingleIntegratorRun:
+    """Build a SingleIntegratorRun for tests.
+    
+    This helper creates a fully configured SingleIntegratorRun instance,
+    injecting system functions into algorithm_settings before construction.
+    """
     driver_function = _get_driver_function(driver_array)
-    return IVPLoop(
-        precision=precision,
-        buffer_settings=buffer_settings,
-        compile_flags=output_functions.compile_flags,
-        controller_local_len=step_controller.local_memory_elements,
-        algorithm_local_len=step_object.persistent_local_required,
-        save_state_func=output_functions.save_state_func,
-        update_summaries_func=output_functions.update_summaries_func,
-        save_summaries_func=output_functions.save_summary_metrics_func,
-        step_controller_fn=step_controller.device_function,
-        step_function=step_object.step_function,
+    driver_del_t = _get_driver_del_t(driver_array)
+    
+    # Enhance algorithm_settings with system functions
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
+    
+    return SingleIntegratorRun(
+        system=system,
         driver_function=driver_function,
-        observables_fn=system.observables_function,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        dt0=step_controller.dt0,
-        dt_min=step_controller.dt_min,
-        dt_max=step_controller.dt_max,
-        is_adaptive=step_controller.is_adaptive,
+        driver_del_t=driver_del_t,
+        algorithm_settings=enhanced_algorithm_settings,
+        step_control_settings=step_controller_settings,
+        output_settings=output_settings,
+        loop_settings=loop_settings,
     )
 
 
@@ -226,6 +225,10 @@ def _get_algorithm_order(algorithm_name_or_tableau):
     from cubie.integrators.algorithms import (
         resolve_alias, resolve_supplied_tableau
     )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
     
     if isinstance(algorithm_name_or_tableau, str):
         algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
@@ -233,6 +236,10 @@ def _get_algorithm_order(algorithm_name_or_tableau):
         algorithm_type, tableau = resolve_supplied_tableau(
             algorithm_name_or_tableau
         )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
     
     # Extract order from tableau if available
     if tableau is not None and hasattr(tableau, 'order'):
@@ -251,6 +258,81 @@ def _get_algorithm_order(algorithm_name_or_tableau):
         return defaults.get(algorithm_name, 1)
     
     return 1
+
+
+def _get_algorithm_is_adaptive(algorithm_name_or_tableau):
+    """Determine if algorithm is adaptive without building step object.
+    
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+    
+    Returns
+    -------
+    bool
+        True if algorithm has embedded error estimate (adaptive).
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias, resolve_supplied_tableau
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+    
+    # Check if tableau has error estimate
+    if tableau is not None and hasattr(tableau, 'has_error_estimate'):
+        return tableau.has_error_estimate
+    
+    # Non-adaptive algorithms by default
+    return False
+
+
+def _get_algorithm_tableau(algorithm_name_or_tableau):
+    """Get tableau for an algorithm without building step object.
+    
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+    
+    Returns
+    -------
+    tableau or None
+        The tableau if available, None otherwise.
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias, resolve_supplied_tableau
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+    
+    return tableau
 
 
 # ========================================
@@ -593,17 +675,17 @@ def loop_settings(solver_settings):
 
 
 @pytest.fixture(scope="session")
-def step_controller_settings(solver_settings, step_object):
+def step_controller_settings(solver_settings):
     """Base configuration used to instantiate loop step controllers.
     
-    algorithm_order must come from step_object.order since some algorithms
-    (like rosenbrock) require building to determine order.
+    algorithm_order comes from solver_settings which was enriched with
+    this metadata during fixture setup.
     """
     settings, _ = merge_kwargs_into_settings(
         kwargs=solver_settings,
         valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
     )
-    settings.update(algorithm_order=step_object.order)
+    settings.update(algorithm_order=solver_settings['algorithm_order'])
     return settings
 
 
@@ -874,35 +956,22 @@ def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array)
 
 
 @pytest.fixture(scope="session")
-def step_object(
-    system,
-    algorithm_settings,
-    precision,
-    driver_array,
-):
-    """Return a step object for the given solver settings.
+def step_object(single_integrator_run):
+    """Return the step object from single_integrator_run.
     
-    Functions are passed directly to get_algorithm_step, not via 
-    algorithm_settings dict.
+    This avoids double-building by extracting the already-built step object
+    from the composite single_integrator_run fixture.
     """
-    enhanced = _build_enhanced_algorithm_settings(
-        algorithm_settings, system, driver_array
-    )
-    return get_algorithm_step(precision, enhanced)
+    return single_integrator_run._algo_step
 
 
 @pytest.fixture(scope="function")
-def step_object_mutable(
-    system,
-    algorithm_settings,
-    precision,
-    driver_array,
-):
-    """Return a mutable step object for mutation-focused tests."""
-    enhanced = _build_enhanced_algorithm_settings(
-        algorithm_settings, system, driver_array
-    )
-    return get_algorithm_step(precision, enhanced)
+def step_object_mutable(single_integrator_run_mutable):
+    """Return the mutable step object from single_integrator_run_mutable.
+    
+    Function-scoped variant for mutation-focused tests.
+    """
+    return single_integrator_run_mutable._algo_step
 
 
 @pytest.fixture(scope="function")
@@ -944,14 +1013,14 @@ def initial_state(system, precision, request):
 
 
 @pytest.fixture(scope="session")
-def buffer_settings(solver_settings, output_functions, step_object):
+def buffer_settings(solver_settings, output_functions):
     """Buffer settings derived from system sizes and output configuration.
     
-    Uses solver_settings metadata to avoid requesting multiple CUDAFactory
-    fixtures. output_functions and step_object provide necessary info for
-    buffer sizing.
+    Uses solver_settings metadata and algorithm tableau to determine
+    buffer requirements without building step objects.
     """
-    n_error = solver_settings['n_states'] if step_object.is_adaptive else 0
+    is_adaptive = _get_algorithm_is_adaptive(solver_settings['algorithm'])
+    n_error = solver_settings['n_states'] if is_adaptive else 0
     return LoopBufferSettings(
         n_states=solver_settings['n_states'],
         n_parameters=solver_settings['n_parameters'],
@@ -965,14 +1034,14 @@ def buffer_settings(solver_settings, output_functions, step_object):
 
 
 @pytest.fixture(scope="function")
-def buffer_settings_mutable(solver_settings, output_functions_mutable, step_object_mutable):
+def buffer_settings_mutable(solver_settings, output_functions_mutable):
     """Function-scoped buffer settings from mutable output functions.
     
-    Uses solver_settings metadata to avoid requesting multiple CUDAFactory
-    fixtures. output_functions_mutable and step_object_mutable provide
-    necessary info for buffer sizing.
+    Uses solver_settings metadata and algorithm tableau to determine
+    buffer requirements without building step objects.
     """
-    n_error = solver_settings['n_states'] if step_object_mutable.is_adaptive else 0
+    is_adaptive = _get_algorithm_is_adaptive(solver_settings['algorithm'])
+    n_error = solver_settings['n_states'] if is_adaptive else 0
     return LoopBufferSettings(
         n_states=solver_settings['n_states'],
         n_parameters=solver_settings['n_parameters'],
@@ -997,7 +1066,6 @@ def cpu_loop_runner(
     step_controller_settings,
     output_functions,
     cpu_driver_evaluator,
-    step_object,
 ):
     """Return a callable for generating CPU reference loop outputs."""
 
@@ -1039,7 +1107,7 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
-        tableau = getattr(step_object, "tableau", None)
+        tableau = _get_algorithm_tableau(solver_settings['algorithm'])
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
