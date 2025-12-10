@@ -71,7 +71,7 @@ function, create a :class:`cubie.Solver` object and call its :meth:`solve`
 method multiple times. Keeping a reference to the :class:`cubie.Solver`
 object means that subsequent calls to :meth:`solve` will be much faster.
 
-DIRK and Newton-Krylov Solver Micro-optimisations
+DIRK and Newton-Krylov Solver Micro-optimizations
 -------------------------------------------------
 The DIRK linear solver and Newton-Krylov helper in
 ``tests/all_in_one.py`` already mirror production behavior. When
