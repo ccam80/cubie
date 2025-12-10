@@ -783,12 +783,13 @@ def linear_solver_inline_factory(
             )
             numerator = typed_zero
             denominator = typed_zero
+
             if sd_flag:
                 for i in range(n):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
-            elif mr_flag:
+            else:
                 for i in range(n):
                     ti = temp[i]
                     numerator += ti * rhs[i]
