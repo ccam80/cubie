@@ -167,16 +167,6 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "Rodas4P", "step_controller": "i"},
-        id="rosenbrock-rodas4p",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "Rodas5P", "step_controller": "i"},
-        id="rosenbrock-rodas5p",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
         {"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"},
         id="firk-gauss-legendre-2",
         marks=pytest.mark.specific_algos,

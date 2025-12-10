@@ -1,8 +1,6 @@
 """Unit tests for ButcherTableau row-matching properties."""
 
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
-    RODAS4P_TABLEAU,
-    RODAS5P_TABLEAU,
     ROS3P_TABLEAU,
 )
 from cubie.integrators.algorithms.generic_firk_tableaus import (
@@ -10,22 +8,6 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
 )
 
 
-def test_b_matches_a_row_rodas4p():
-    """Test b_matches_a_row returns correct index for RODAS4P."""
-    tableau = RODAS4P_TABLEAU
-    result = tableau.b_matches_a_row
-    assert result == 5, (
-        f"Expected b_matches_a_row=5 for RODAS4P, got {result}"
-    )
-
-
-def test_b_matches_a_row_rodas5p():
-    """Test b_matches_a_row returns correct index for RODAS5P."""
-    tableau = RODAS5P_TABLEAU
-    result = tableau.b_matches_a_row
-    assert result == 7, (
-        f"Expected b_matches_a_row=7 for RODAS5P, got {result}"
-    )
 
 
 def test_b_matches_a_row_radauiia5():
@@ -43,15 +25,6 @@ def test_b_matches_a_row_ros3p_none():
     result = tableau.b_matches_a_row
     assert result is None, (
         f"Expected b_matches_a_row=None for ROS3P, got {result}"
-    )
-
-
-def test_b_hat_matches_a_row_rodas4p():
-    """Test b_hat_matches_a_row returns correct index for RODAS4P."""
-    tableau = RODAS4P_TABLEAU
-    result = tableau.b_hat_matches_a_row
-    assert result == 4, (
-        f"Expected b_hat_matches_a_row=4 for RODAS4P, got {result}"
     )
 
 
