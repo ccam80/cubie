@@ -70,3 +70,54 @@ multiple batches with the same system, instead of using the :func:`cubie.solve_i
 function, create a :class:`cubie.Solver` object and call its :meth:`solve`
 method multiple times. Keeping a reference to the :class:`cubie.Solver`
 object means that subsequent calls to :meth:`solve` will be much faster.
+
+DIRK and Newton-Krylov Solver Micro-optimisations
+-------------------------------------------------
+The DIRK linear solver and Newton-Krylov helper in
+``tests/all_in_one.py`` already mirror production behaviour. When
+profiling or experimenting with them, the following refactors keep the
+public contract but reduce GPU stalls and memory pressure.
+
+Loop shaping and indexing
+~~~~~~~~~~~~~~~~~~~~~~~~~
+- Prefer fixed-trip loops over range-based indexing when stage counts,
+  driver counts, or state size are compile-time constants captured by the
+  factories. Guard tail work with masks rather than dynamic bounds checks.
+- Replace inner ``for i in range(n)`` reductions with small fixed chunks
+  (e.g. two or four iterations) fed by statically known indices to help the
+  compiler unroll without ``numba.unroll``.
+- Keep stride order and buffer slices stable: build local views once
+  per stage and reuse them across iterations to avoid repeated slice math.
+- Precompute invariants such as ``tol_squared``, ``1/denominator`` guards,
+  and scaled tableau coefficients outside hot loops.
+
+all_sync and status flow
+~~~~~~~~~~~~~~~~~~~~~~~~
+- Hoist ``mask = activemask()`` once per solver and carry it through
+  nested loops rather than recomputing per iteration.
+- Collapse status flags into a single integer and propagate with
+  predicated writes instead of branching: update ``status`` only when
+  ``status < 0`` to keep lanes aligned.
+- Defer ``all_sync`` to points where all threads have computed a fresh
+  predicate (e.g. post reduction) and avoid back-to-back synchronisations.
+- For backtracking, track ``found_step`` with a lane-local flag and reduce
+  via ``all_sync`` after residual evaluation, skipping extra synchronisation
+  when a warp has already converged.
+
+CUDA-friendly tweaks
+~~~~~~~~~~~~~~~~~~~~
+- Use predicated updates for ``rhs`` and ``delta`` writes so divergent
+  branches do not serialize the warp.
+- Reuse accumulators: recycle ``temp`` for both operator output and dot
+  products, and reuse ``delta`` buffers across backtracks instead of
+  reallocating scratch slices.
+- Stage masks once and reuse them to gate writes into shared or local
+  buffers, keeping inactive lanes from touching memory.
+- Pre-stage tableau rows, diagonal coefficients, and damping factors in
+  registers before entering the main iteration to cut global reads.
+- When using shared memory for ``solver_scratch`` or stage accumulators,
+  keep access patterns contiguous and avoid mixing read/write phases
+  without a clear barrier to limit bank conflicts.
+- Favour predicated commits over ``if/else`` when copying increments back
+  to ``stage_increment`` or ``residual`` so threads that already converged
+  stay aligned.
