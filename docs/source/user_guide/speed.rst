@@ -73,7 +73,7 @@ object means that subsequent calls to :meth:`solve` will be much faster.
 
 DIRK and Newton-Krylov Solver Micro-optimizations
 -------------------------------------------------
-The debugging bundle ``tests/all_in_one.py`` collates device helpers for
+The test harness file ``tests/all_in_one.py`` collates device helpers for
 lineinfo debugging while mirroring production kernels. The DIRK linear
 solver and Newton-Krylov helper there match production behavior. When
 profiling or experimenting with them, the following refactors keep the
@@ -86,8 +86,8 @@ Loop shaping and indexing
   factories. Guard tail work with masks rather than dynamic bounds checks.
 - Replace inner ``for i in range(n)`` reductions with small fixed chunks
   (e.g. two or four iterations) fed by statically known indices to
-  encourage the compiler to unroll without explicit helpers such as
-  ``@numba.unroll``.
+  encourage the compiler to unroll; reserve explicit helpers such as
+  ``@numba.unroll`` for cases where profiling shows further benefit.
 - Keep stride order and buffer slices stable: build local views once
   per stage and reuse them across iterations to avoid repeated slice math.
 - Precompute invariants such as ``tol_squared``, ``1/denominator`` guards,
@@ -96,9 +96,9 @@ Loop shaping and indexing
 
 all_sync and status flow
 ~~~~~~~~~~~~~~~~~~~~~~~~
-- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver. Compute
-  it before the loop and carry it through nested loops rather than
-  recomputing per iteration.
+- Hoist ``mask = activemask()`` (CUDA warp mask returned as active-lane
+  bitmask) once per solver. Compute it before the loop and carry it
+  through nested loops rather than recomputing per iteration.
 - Collapse status flags into a single integer and propagate with
   predicated writes instead of branching: update ``status`` only when
   ``status < 0`` to keep lanes aligned.
