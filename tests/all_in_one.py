@@ -727,7 +727,7 @@ def linear_solver_inline_factory(
     shared memory buffers.
     """
     numba_prec = numba_from_dtype(prec)
-    tol_squared = precision(tolerance * tolerance)
+    tol_squared = numba_prec(tolerance) * numba_prec(tolerance)
     n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
@@ -784,16 +784,14 @@ def linear_solver_inline_factory(
             numerator = typed_zero
             denominator = typed_zero
 
-            if sd_flag:
-                for i in range(n):
-                    zi = preconditioned_vec[i]
-                    numerator += rhs[i] * zi
-                    denominator += temp[i] * zi
-            elif mr_flag:
-                for i in range(n):
-                    ti = temp[i]
-                    numerator += ti * rhs[i]
-                    denominator += ti * ti
+            for i in range(n):
+                rhs_i = rhs[i]
+                temp_i = temp[i]
+                zi = preconditioned_vec[i]
+                numerator += selp(sd_flag, rhs_i * zi, typed_zero)
+                denominator += selp(sd_flag, temp_i * zi, typed_zero)
+                numerator += selp(mr_flag, temp_i * rhs_i, typed_zero)
+                denominator += selp(mr_flag, temp_i * temp_i, typed_zero)
 
             alpha = selp(denominator != typed_zero,
                          numerator / denominator, typed_zero)
