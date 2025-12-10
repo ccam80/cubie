@@ -73,9 +73,9 @@ object means that subsequent calls to :meth:`solve` will be much faster.
 
 DIRK and Newton-Krylov Solver Micro-optimizations
 -------------------------------------------------
-The DIRK linear solver and Newton-Krylov helper in the debugging bundle
-``tests/all_in_one.py`` (device helpers collated for lineinfo debugging but
-mirroring production kernels) already mirror production behavior. When
+The DIRK linear solver and Newton-Krylov helper live in the debugging bundle
+``tests/all_in_one.py``. That file collates device helpers for lineinfo
+debugging while mirroring production kernels. When
 profiling or experimenting with them, the following refactors keep the
 public contract but reduce GPU stalls and memory pressure.
 
@@ -95,8 +95,8 @@ Loop shaping and indexing
 
 all_sync and status flow
 ~~~~~~~~~~~~~~~~~~~~~~~~
-- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver—compute
-  it once before the loop and carry it through nested loops rather than
+- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver. Compute
+  it before the loop and carry it through nested loops rather than
   recomputing per iteration.
 - Collapse status flags into a single integer and propagate with
   predicated writes instead of branching: update ``status`` only when
