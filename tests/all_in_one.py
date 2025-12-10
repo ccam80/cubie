@@ -3044,7 +3044,10 @@ elif algorithm_type == 'rosenbrock':
         stage_count * n_states if use_shared_rosenbrock_stage_store else 0
     )
     rosenbrock_cached_auxiliaries_size = (
-        0  # Simplified for debug script
+        # Cached auxiliaries store precomputed Jacobian terms.
+        # In production, size depends on system-specific structure.
+        # Set to 0 here since placeholder Jacobian helpers are used.
+        0
     )
     rosenbrock_scratch_size = (rosenbrock_stage_rhs_size +
                                rosenbrock_stage_store_size +
@@ -3148,7 +3151,7 @@ elif algorithm_type == 'rosenbrock':
     local_scratch_size = (
         n_states +           # stage_rhs
         stage_count * n_states +  # stage_store
-        1                    # cached_auxiliaries (placeholder size 1)
+        max(1, 0)            # cached_auxiliaries (size 1 avoids zero-size array)
     )
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
