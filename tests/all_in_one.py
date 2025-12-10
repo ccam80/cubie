@@ -3137,10 +3137,10 @@ elif algorithm_type == 'erk':
 elif algorithm_type == 'firk':
     scratch_size = firk_scratch_size if use_shared_loop_scratch else int32(0)
     # FIRK local scratch: sum of all buffer sizes when not in shared memory
-    all_stages_n = stage_count * n_states
+    # all_stages_n = stage_count * n_states (calculated in memory size section)
     local_scratch_size = (
-        2 * all_stages_n +  # solver_scratch
-        all_stages_n +      # stage_increment
+        2 * stage_count * n_states +  # solver_scratch
+        stage_count * n_states +      # stage_increment
         stage_count * n_drivers +  # stage_driver_stack
         n_states            # stage_state
     )
@@ -3151,7 +3151,7 @@ elif algorithm_type == 'rosenbrock':
     local_scratch_size = (
         n_states +           # stage_rhs
         stage_count * n_states +  # stage_store
-        max(1, 0)            # cached_auxiliaries (size 1 avoids zero-size array)
+        1  # cached_auxiliaries (minimum size 1 to avoid zero-size array in Numba)
     )
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
