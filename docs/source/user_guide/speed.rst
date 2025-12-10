@@ -99,9 +99,9 @@ all_sync and status flow
   predicated writes instead of branching: update ``status`` only when
   ``status < 0`` to keep lanes aligned.
 - Defer ``all_sync`` to points where all threads have computed a fresh
-  predicate (e.g. post reduction) and avoid back-to-back synchronisations.
+  predicate (e.g. post reduction) and avoid back-to-back synchronizations.
 - For backtracking, track ``found_step`` with a lane-local flag and reduce
-  via ``all_sync`` after residual evaluation, skipping extra synchronisation
+  via ``all_sync`` after residual evaluation, skipping extra synchronization
   when a warp has already converged.
 
 CUDA-friendly tweaks
