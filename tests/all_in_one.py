@@ -1305,10 +1305,8 @@ def dirk_step_inline_factory(
                     proposed_drivers,
                 )
 
-            # Convert accumulator slice to state by adding y_n
-            stage_base = stage_accumulator[stage_offset:stage_offset + n]
             for idx in range(n):
-                stage_base[idx] += state[idx]
+                stage_base[idx] = stage_accumulator[stage_offset + idx] + state[idx]
 
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
