@@ -784,14 +784,19 @@ def linear_solver_inline_factory(
             numerator = typed_zero
             denominator = typed_zero
 
-            for i in range(n):
-                rhs_i = rhs[i]
-                temp_i = temp[i]
-                zi = preconditioned_vec[i]
-                numerator += selp(sd_flag, rhs_i * zi, typed_zero)
-                denominator += selp(sd_flag, temp_i * zi, typed_zero)
-                numerator += selp(mr_flag, temp_i * rhs_i, typed_zero)
-                denominator += selp(mr_flag, temp_i * temp_i, typed_zero)
+            if sd_flag:
+                for i in range(n):
+                    rhs_i = rhs[i]
+                    zi = preconditioned_vec[i]
+                    temp_i = temp[i]
+                    numerator += rhs_i * zi
+                    denominator += temp_i * zi
+            elif mr_flag:
+                for i in range(n):
+                    rhs_i = rhs[i]
+                    temp_i = temp[i]
+                    numerator += temp_i * rhs_i
+                    denominator += temp_i * temp_i
 
             alpha = selp(denominator != typed_zero,
                          numerator / denominator, typed_zero)
