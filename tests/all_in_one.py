@@ -847,8 +847,17 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
               inline=True,
               **compile_kwargs
     )
-    def newton_krylov_solver(stage_increment, parameters, drivers, t, h,
-                             a_ij, base_state, shared_scratch, counters):
+    def newton_krylov_solver(
+        stage_increment,
+        parameters,
+        drivers,
+        t,
+        h,
+        a_ij,
+        base_state,
+        shared_scratch,
+        counters,
+    ):
         delta = shared_scratch[:n]
         residual = shared_scratch[n:int32(2 * n)]
 
@@ -871,9 +880,8 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         for _ in range(max_iters):
             if all_sync(mask, status >= int32(0)):
                 break
-
-            iters_count += int32(1)
             if status < int32(0):
+                iters_count += int32(1)
                 lin_return = linear_solver(stage_increment, parameters,
                                            drivers, base_state, t, h, a_ij,
                                            residual, delta)

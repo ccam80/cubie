@@ -169,7 +169,7 @@ class ButcherTableau:
         stage_count = self.stage_count
         return tuple(
             tuple(
-                (row[col_idx] if row_idx < col_idx else precision(0.0))
+                (row[col_idx] if row_idx > col_idx else precision(0.0))
                 for row_idx, row in enumerate(typed_rows)
             )
             for col_idx in range(stage_count)

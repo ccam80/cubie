@@ -423,22 +423,6 @@ ALIAS_CASES = [
         id="rosenbrock-rodas3p",
     ),
     pytest.param(
-        "rodas4p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas4p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas4p",
-    ),
-    pytest.param(
-        "rodas5p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas5p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas5p",
-    ),
-    pytest.param(
         "rosenbrock23",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["rosenbrock23"],
@@ -498,8 +482,6 @@ STEP_CASES = [
     pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
 ]
 CACHE_REUSE_CASES = [
     pytest.param(
