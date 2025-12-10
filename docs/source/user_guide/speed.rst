@@ -97,8 +97,8 @@ Loop shaping and indexing
 
 all_sync and status flow
 ~~~~~~~~~~~~~~~~~~~~~~~~
-- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver. Compute
-  it before the loop. Carry it through nested loops rather than
+- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver (compute
+  it once outside the loop). Carry it through nested loops rather than
   recomputing per iteration.
 - Collapse status flags into a single integer and propagate with
   predicated writes instead of branching; update ``status`` only when
@@ -122,7 +122,8 @@ CUDA-friendly tweaks
   registers before entering the main iteration to cut global reads.
 - When using shared memory for ``solver_scratch`` or stage accumulators,
   keep access patterns contiguous and avoid mixing read/write phases
-  without a clear barrier to limit bank conflicts.
+  without a clear barrier to limit bank conflicts (threads contending for
+  the same shared-memory bank).
 - Favor predicated commits over ``if/else`` when copying increments back
   to ``stage_increment`` or ``residual`` so threads that already converged
   stay aligned.
