@@ -73,9 +73,9 @@ object means that subsequent calls to :meth:`solve` will be much faster.
 
 DIRK and Newton-Krylov Solver Micro-optimizations
 -------------------------------------------------
-The DIRK linear solver and Newton-Krylov helper live in the debugging bundle
-``tests/all_in_one.py``. That file collates device helpers for lineinfo
-debugging while mirroring production kernels. When
+The debugging bundle ``tests/all_in_one.py`` collates device helpers for
+lineinfo debugging while mirroring production kernels. The DIRK linear
+solver and Newton-Krylov helper there match production behavior. When
 profiling or experimenting with them, the following refactors keep the
 public contract but reduce GPU stalls and memory pressure.
 
@@ -85,8 +85,9 @@ Loop shaping and indexing
   driver counts, or state size are compile-time constants captured by the
   factories. Guard tail work with masks rather than dynamic bounds checks.
 - Replace inner ``for i in range(n)`` reductions with small fixed chunks
-  (e.g. two or four iterations) fed by statically known indices to help the
-  compiler unroll without explicit unroll helpers such as ``@numba.unroll``.
+  (e.g. two or four iterations) fed by statically known indices to
+  encourage the compiler to unroll without explicit helpers such as
+  ``@numba.unroll``.
 - Keep stride order and buffer slices stable: build local views once
   per stage and reuse them across iterations to avoid repeated slice math.
 - Precompute invariants such as ``tol_squared``, ``1/denominator`` guards,
