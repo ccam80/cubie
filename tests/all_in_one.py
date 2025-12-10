@@ -727,7 +727,8 @@ def linear_solver_inline_factory(
     shared memory buffers.
     """
     numba_prec = numba_from_dtype(prec)
-    tol_squared = numba_prec(tolerance) * numba_prec(tolerance)
+    typed_tol = numba_prec(tolerance)
+    tol_squared = typed_tol * typed_tol
     n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
