@@ -74,7 +74,7 @@ object means that subsequent calls to :meth:`solve` will be much faster.
 DIRK and Newton-Krylov Solver Micro-optimisations
 -------------------------------------------------
 The DIRK linear solver and Newton-Krylov helper in
-``tests/all_in_one.py`` already mirror production behaviour. When
+``tests/all_in_one.py`` already mirror production behavior. When
 profiling or experimenting with them, the following refactors keep the
 public contract but reduce GPU stalls and memory pressure.
 
