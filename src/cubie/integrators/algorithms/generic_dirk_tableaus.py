@@ -37,7 +37,6 @@ class DIRKTableau(ButcherTableau):
         )
         return self.typed_vector(diagonal_entries, precision)
 
-
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(
     a=((0.5,),),
     b=(1.0,),
@@ -103,36 +102,38 @@ Integration* (2nd ed.). Springer.
 """
 
 SQRT2 = 2 ** 0.5
-SQRT6 = 6 ** 0.5
-
-ARCTAN_TERM = math.atan(SQRT2 / 4.0) / 3.0
-L_STABLE_DIRK3_GAMMA = (
-    -SQRT2 * math.cos(ARCTAN_TERM) / 2.0
-    + SQRT6 * math.sin(ARCTAN_TERM) / 2.0
-    + 1.0
-)
+SDIRK2_GAMMA = (2 - SQRT2) / 2.0
 SDIRK_2_2_TABLEAU = DIRKTableau(
     a=(
-        ((2.0 - SQRT2) / 2.0, 0.0),
-        (1.0 - (2.0 - SQRT2) / 2.0, (2.0 - SQRT2) / 2.0),
+        (SDIRK2_GAMMA, 0.0),
+        (1.0 - SDIRK2_GAMMA, SDIRK2_GAMMA),
     ),
-    b=(0.5, 0.5),
-    b_hat=(-0.5, 0.5),
-    c=((2.0 - SQRT2) / 2.0, 1.0),
+    b=(1 - SDIRK2_GAMMA, SDIRK2_GAMMA),
+    b_hat=(1.0, 0.0),
+    c=(SDIRK2_GAMMA, 1.0),
     order=2,
 )
 """Two-stage, second-order SDIRK tableau by Alexander.
 
 The tableau is L-stable and singly diagonally implicit with diagonal
 coefficient :math:`1 - \\tfrac{1}{\\sqrt{2}}`. The embedded weights provide
-an error estimate suitable for adaptive step controllers.
+an error estimate suitable for adaptive step controllers. No natural 
+embedded pair exists - other implementations use a divided difference approach.
 
 References
 ----------
 Alexander, R. (1977). Diagonally implicit Runge--Kutta methods for
 stiff ODEs. *SIAM Journal on Numerical Analysis*, 14(6), 1006-1021.
+Further cited with embedded weights in NASA's review: 
+https://ntrs.nasa.gov/api/citations/20160005923/downloads/20160005923.pdf
 """
-
+SQRT6 = 6 ** 0.5
+ARCTAN_TERM = math.atan(SQRT2 / 4.0) / 3.0
+L_STABLE_DIRK3_GAMMA = (
+    -SQRT2 * math.cos(ARCTAN_TERM) / 2.0
+    + SQRT6 * math.sin(ARCTAN_TERM) / 2.0
+    + 1.0
+)
 L_STABLE_DIRK3_TABLEAU = DIRKTableau(
     a=(
         (L_STABLE_DIRK3_GAMMA, 0.0, 0.0),
