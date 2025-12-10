@@ -1,6 +1,6 @@
 # CuBIE Test Parameterization Analysis Report
 
-**Date**: 2025-12-09
+**Date**: 2025-12-10
 
 **Objective**: Analyze and consolidate `solver_settings_override` and `solver_settings_override2` parameterization to reduce test compilation time.
 
@@ -23,6 +23,11 @@ Test duration has exploded due to:
 - **1 parameter set** is in the "long run" category (full accuracy validation)
 - **Consolidation opportunity**: Reduce to 3-4 standard sets + edge cases
 - **Estimated savings**: 60-75% reduction in compilation time
+
+**Note**: Parameters marked as "default" use the values from `tests/conftest.py`:
+- `dt_min=1e-7`, `dt_max=1.0`, `atol=1e-6`, `rtol=1e-6`
+- `newton_tolerance=1e-6`, `krylov_tolerance=1e-6`
+- `step_controller='fixed'`, `output_types=['state']`
 
 ---
 
@@ -78,43 +83,52 @@ Quick structural and API tests that don't require numerical accuracy validation.
 - API contracts
 - Result formatting
 
-### Current Parameter Sets (14 total)
+### Current Parameter Sets (8 catalogued)
 
-| Parameter Set | Duration | Steps | Saves | Tests Using It |
-|---------------|----------|-------|-------|----------------|
-| solveresult_short | 0.05s | 5 | 2 | 13× SolveResult API tests |
-| solveresult_full | 0.06s | 6 | 3 | 1× full instantiation test |
-| solveresult_status | 0.05s | 5 | 2 | 1× status codes test |
-| solver_basic | 0.05s | 5 | 2 | 1× basic solve test |
-| solver_grid_types | 0.05s | 5 | 2 | 1× grid types test |
-| solver_prebuilt | 0.05s | 5 | 2 | 2× prebuilt arrays tests |
-| output_sizes_default | 0.00s | 0 | 0 | 4× output size calc tests |
-| loop_crank_nicolson | 0.05s | 5 | 1 | 1× initial observable seed test |
-| loop_float32_small | 0.0001s | 1000 | 5 | 1× float32 accumulation test |
-| loop_large_t0 | 0.001s | 1000 | 5 | 1× large t0 test |
-| loop_adaptive | 0.0001s | ? | 5 | 1× adaptive controller test |
-| controller_matches | 0.2s | 20 | 2 | 1× CPU/GPU match test |
-| controller_sequence | 0.2s | 20 | 2 | 1× sequence agreement test |
-| output_sizes_realistic | 0.2s | 20 | 20 | 1× realistic scenario test |
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| solveresult_short | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, observables, time... |
+| solveresult_full | default | 0.06 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, observables, time... |
+| solveresult_status | default | 0.05 | default | default | default | 0.02 | default | default | default | default | default | default | state, observables, time |
+| solver_basic | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time, observables... |
+| solver_grid_types | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time, observables... |
+| solver_prebuilt | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time |
+| output_sizes_default | default | 0.0e+00 | default | default | default | default | default | default | default | default | default | default | time, state, observables... |
+| loop_crank_nicolson | crank_nicolson | 0.05 | default | default | default | 0.05 | default | default | default | default | default | default | state, observables |
+
+**Note**: "default" indicates the parameter uses the conftest.py default value.
+
+### Usage Details
+
+- **solveresult_short**: 13× SolveResult API tests
+- **solveresult_full**: 1× full instantiation test
+- **solveresult_status**: 1× status codes test
+- **solver_basic**: 1× basic solve test
+- **solver_grid_types**: 1× grid types test
+- **solver_prebuilt**: 2× prebuilt arrays tests
+- **output_sizes_default**: 4× output size calc tests
+- **loop_crank_nicolson**: 1× initial observable seed test
 
 ### Consolidation Strategy
 
-**Replace all 14 sets with single SHORT_RUN parameter set:**
+**Replace all SHORT RUN sets with single parameter set:**
 
 ```python
 SHORT_RUN_PARAMS = {
     'duration': 0.05,
-    'dt': 0.01,
-    'dt_save': 0.05,      # Save only at end
-    'dt_summarise': 0.05,  # Summarize only at end
+    'dt': 0.01,              # default
+    'dt_min': 1e-7,          # default
+    'dt_max': 1.0,           # default
+    'dt_save': 0.05,         # Save only at end
+    'dt_summarise': 0.05,    # Summarize only at end
+    'atol': 1e-6,            # default
+    'rtol': 1e-6,            # default
+    'newton_tolerance': 1e-6,  # default
+    'krylov_tolerance': 1e-6,  # default
+    'step_controller': 'fixed',  # default
     'output_types': ['state', 'time'],
 }
 ```
-
-**Exceptions to keep separate:**
-- `loop_float32_small`: Tests float32 precision accumulation (edge case)
-- `loop_large_t0`: Tests large initial time handling (edge case)
-- `output_sizes_default`: Zero-duration structural test (edge case)
 
 ---
 
@@ -129,47 +143,19 @@ Medium-length runs with frequent saves to allow numerical errors to accumulate a
 
 ### Current Parameter Sets (3 total)
 
-| Parameter Set | Duration | Steps | Saves | Tests Using It |
-|---------------|----------|-------|-------|----------------|
-| step_overrides | 0.2s | 102 | 2 | 3× step algo tests × ~30 algorithms |
-| loop_default | 0.2s | 200 | 10 | 1× loop test × ~30 algo/controller combos |
-| loop_metrics | 0.2s | 80 | 20 | 1× metrics test × ~15 output types |
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| step_overrides | default | default | 0.001953 | 1.0e-06 | default | default | default | 1.0e-06 | 1.0e-06 | 1.0e-06 | 1.0e-06 | default | state |
+| loop_default | default | default | 0.001 | 1.0e-08 | 0.5 | 0.02 | default | 1.0e-05 | 1.0e-06 | 1.0e-07 | 1.0e-07 | default | state, time |
+| loop_metrics | euler | default | 0.0025 | default | default | 0.01 | 0.1 | default | default | default | default | default | default |
+
+**Note**: "default" indicates the parameter uses the conftest.py default value.
 
 ### Usage Details
 
-**step_overrides (STEP_OVERRIDES dict)**:
-```python
-{
-    'dt': 0.001953125,  # Exactly-representable float
-    'dt_min': 1e-6,
-    'newton_tolerance': 1e-6,
-    'krylov_tolerance': 1e-6,
-    'atol': 1e-6,
-    'rtol': 1e-6,
-    'output_types': ['state'],
-}
-```
-Used with STEP_CASES (~30 algorithms) in:
-- `test_stage_cache_reuse()` - 5 cache reuse cases
-- `test_against_euler()` - 30+ algorithm cases
-- `test_algorithm()` - 30+ algorithm cases
-
-**loop_default (DEFAULT_OVERRIDES dict)**:
-```python
-{
-    'dt': 0.001,
-    'dt_save': 0.02,
-    'dt_min': 1e-8,
-    'dt_max': 0.5,
-    'newton_tolerance': 1e-7,
-    'krylov_tolerance': 1e-7,
-    'atol': 1e-5,
-    'rtol': 1e-6,
-    'output_types': ['state', 'time'],
-}
-```
-Used with LOOP_CASES (~30 algorithm/controller combos) in:
-- `test_loop()` - Main integration loop test
+- **step_overrides**: 3× step algo tests × ~30 algorithms
+- **loop_default**: 1× loop test × ~30 algo/controller combos
+- **loop_metrics**: 1× metrics test × ~15 output types
 
 ### Consolidation Strategy
 
@@ -177,24 +163,20 @@ Used with LOOP_CASES (~30 algorithm/controller combos) in:
 
 ```python
 MID_RUN_PARAMS = {
-    'duration': 0.2,
+    'duration': 0.2,         # default
     'dt': 0.001,
-    'dt_save': 0.02,       # 10 save points
-    'dt_summarise': 0.1,   # 2 summary points
-    'dt_min': 1e-7,
+    'dt_min': 1e-7,          # default
     'dt_max': 0.5,
-    'newton_tolerance': 1e-6,
-    'krylov_tolerance': 1e-6,
-    'atol': 1e-6,
-    'rtol': 1e-6,
+    'dt_save': 0.02,         # 10 save points
+    'dt_summarise': 0.1,     # 2 summary points
+    'atol': 1e-6,            # default
+    'rtol': 1e-6,            # default
+    'newton_tolerance': 1e-6,  # default
+    'krylov_tolerance': 1e-6,  # default
+    'step_controller': 'fixed',  # default (varies by test)
     'output_types': ['state', 'time', 'mean'],
 }
 ```
-
-**Tests to use MID_RUN:**
-- All step algorithm tests (replace STEP_OVERRIDES)
-- All loop tests (replace DEFAULT_OVERRIDES)
-- Controller tests
 
 ---
 
@@ -208,9 +190,11 @@ Full numerical accuracy and drift validation over extended integration periods. 
 
 ### Current Parameter Sets (1 total)
 
-| Parameter Set | Duration | Steps | Saves | Tests Using It |
-|---------------|----------|-------|-------|----------------|
-| solverkernel_run | 0.3s | 300 | 2 | 1× full SolverKernel integration test |
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| solverkernel_run | default | 0.3 | 0.001 | default | default | 0.1 | 0.3 | default | default | default | default | default | state, observables, time... |
+
+**Note**: "default" indicates the parameter uses the conftest.py default value.
 
 ### Consolidation Strategy
 
@@ -220,16 +204,18 @@ Full numerical accuracy and drift validation over extended integration periods. 
 LONG_RUN_PARAMS = {
     'duration': 0.3,
     'dt': 0.0005,
+    'dt_min': 1e-7,          # default
+    'dt_max': 1.0,           # default
     'dt_save': 0.05,
     'dt_summarise': 0.15,
+    'atol': 1e-6,            # default
+    'rtol': 1e-6,            # default
+    'newton_tolerance': 1e-6,  # default
+    'krylov_tolerance': 1e-6,  # default
+    'step_controller': 'fixed',  # default
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
 ```
-
-**Use sparingly:**
-- SolverKernel full integration (current use)
-- One test per major algorithm family (ERK, DIRK, FIRK, Rosenbrock)
-- Mark with `@pytest.mark.slow`
 
 ---
 
@@ -237,15 +223,23 @@ LONG_RUN_PARAMS = {
 
 ### Tests with Unique Requirements
 
-| Test | Reason to Keep Separate | Parameter Set |
-|------|-------------------------|---------------|
-| `test_float32_small_timestep_accumulation` | Tests float32 precision edge case | duration=0.0001s, dt=1e-7 |
-| `test_large_t0_with_small_steps` | Tests large t0 handling | t0=100.0, duration=0.001s |
-| `test_adaptive_controller_with_float32` | Tests adaptive with float32 | duration=0.0001s, adaptive |
-| `test_from_output_fns_with_nonzero` | Zero-duration structural test | duration=0.0 |
-| `test_save_at_settling_time_boundary` | Tests settling_time feature | settling_time=0.1 |
-| Controller dt_clamps tests | Tests dt clamping with extreme errors | Special error arrays |
-| Controller gain_clamps tests | Tests gain clamping | Special local_mem arrays |
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| loop_float32_small | euler | 1.0e-04 | 1.0e-07 | default | default | 2.0e-05 | default | default | default | default | default | default | state, time |
+| loop_large_t0 | euler | 0.001 | 1.0e-06 | default | default | 2.0e-04 | default | default | default | default | default | default | state, time |
+| loop_adaptive | crank_nicolson | 1.0e-04 | default | 1.0e-07 | 1.0e-06 | 2.0e-05 | default | default | default | default | default | PI | state, time |
+| controller_dt_clamps | default | default | default | 0.1 | 0.2 | default | default | default | default | default | default | default | default |
+| controller_gain_clamps | default | default | default | 1.0e-04 | 1 | default | default | default | default | default | default | default | default |
+
+**Note**: "default" indicates the parameter uses the conftest.py default value.
+
+### Rationale for Keeping Separate
+
+- **loop_float32_small**: 1× float32 accumulation test
+- **loop_large_t0**: 1× large t0 test
+- **loop_adaptive**: 1× adaptive controller test
+- **controller_dt_clamps**: 2× dt clamping tests
+- **controller_gain_clamps**: 2× gain clamping tests
 
 ---
 
@@ -259,23 +253,16 @@ Add to `tests/conftest.py`:
 # Standard parameter sets for common test categories
 SHORT_RUN_PARAMS = {
     'duration': 0.05,
-    'dt': 0.01,
     'dt_save': 0.05,
     'dt_summarise': 0.05,
     'output_types': ['state', 'time'],
 }
 
 MID_RUN_PARAMS = {
-    'duration': 0.2,
     'dt': 0.001,
     'dt_save': 0.02,
     'dt_summarise': 0.1,
-    'dt_min': 1e-7,
     'dt_max': 0.5,
-    'newton_tolerance': 1e-6,
-    'krylov_tolerance': 1e-6,
-    'atol': 1e-6,
-    'rtol': 1e-6,
     'output_types': ['state', 'time', 'mean'],
 }
 
@@ -292,9 +279,9 @@ LONG_RUN_PARAMS = {
 
 #### 2.1 SolveResult Tests (`test_solveresult.py`)
 
-Current: 13 tests use variations of short parameters
+**Current**: 13 tests use variations of short parameters
 
-Change:
+**Change**:
 ```python
 # Before (multiple parameter sets)
 @pytest.mark.parametrize('solver_settings_override', [
@@ -310,9 +297,9 @@ Change:
 
 #### 2.2 Step Algorithm Tests (`test_step_algorithms.py`)
 
-Current: STEP_OVERRIDES dict used with ~30 algorithm cases
+**Current**: STEP_OVERRIDES dict used with ~30 algorithm cases
 
-Change:
+**Change**:
 ```python
 # Before
 STEP_OVERRIDES = {'dt': 0.001953125, 'dt_min': 1e-6, ...}
@@ -323,9 +310,9 @@ STEP_OVERRIDES = MID_RUN_PARAMS
 
 #### 2.3 Loop Tests (`test_ode_loop.py`)
 
-Current: DEFAULT_OVERRIDES dict used with ~30 cases
+**Current**: DEFAULT_OVERRIDES dict used with ~30 cases
 
-Change:
+**Change**:
 ```python
 # Before
 DEFAULT_OVERRIDES = {'dt': 0.001, 'dt_save': 0.02, ...}
@@ -345,26 +332,44 @@ DEFAULT_OVERRIDES = MID_RUN_PARAMS
 
 ## Appendix A: Complete Parameter Set Inventory
 
-### All Parameter Sets with Usage Count
+### All Parameter Sets with Full Details
 
-| ID | Name | Category | Duration | dt | Saves | Summaries | Used By | Usage Count |
-|----|------|----------|----------|-----|-------|-----------|---------|-------------|
-| 1 | solveresult_short | SHORT | 0.05s | 0.01 | 2 | 1 | test_solveresult.py | 13 |
-| 2 | step_overrides | MID | 0.2s | 0.00195 | 2 | 1 | test_step_algorithms.py | 90+ |
-| 3 | loop_default | MID | 0.2s | 0.001 | 10 | 1 | test_ode_loop.py | 30+ |
-| 4 | solverkernel_run | LONG | 0.3s | 0.001 | 2 | 1 | test_SolverKernel.py | 1 |
-| 5 | solver_basic | SHORT | 0.05s | 0.01 | 2 | 1 | test_solver.py | 1 |
-| 6 | solver_grid_types | SHORT | 0.05s | 0.01 | 2 | 1 | test_solver.py | 1 |
-| 7 | solver_prebuilt | SHORT | 0.05s | 0.01 | 2 | 1 | test_solver.py | 2 |
-| 8 | output_sizes_default | SHORT | 0.0s | - | 0 | 0 | test_output_sizes.py | 4 |
-| 9 | output_sizes_realistic | SHORT | 0.2s | 0.01 | 20 | 2 | test_output_sizes.py | 1 |
-| 10 | loop_metrics | MID | 0.2s | 0.0025 | 20 | 2 | test_ode_loop.py | 15 |
-| 11 | loop_float32_small | EDGE | 0.0001s | 1e-7 | 5 | 0 | test_ode_loop.py | 1 |
-| 12 | loop_large_t0 | EDGE | 0.001s | 1e-6 | 5 | 0 | test_ode_loop.py | 1 |
-| 13 | controller_dt_clamps | EDGE | varies | varies | - | - | test_controllers.py | 2 |
-| 14 | controller_gain_clamps | EDGE | varies | varies | - | - | test_controllers.py | 2 |
-| 15 | controller_matches | SHORT | 0.2s | 0.01 | 2 | 1 | test_controllers.py | 1 |
-| 16 | controller_sequence | SHORT | 0.2s | 0.01 | 2 | 1 | test_controllers.py | 1 |
+#### SHORT RUN
+
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| solveresult_short | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, observables, time... |
+| solveresult_full | default | 0.06 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, observables, time... |
+| solveresult_status | default | 0.05 | default | default | default | 0.02 | default | default | default | default | default | default | state, observables, time |
+| solver_basic | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time, observables... |
+| solver_grid_types | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time, observables... |
+| solver_prebuilt | default | 0.05 | default | default | default | 0.02 | 0.04 | default | default | default | default | default | state, time |
+| output_sizes_default | default | 0.0e+00 | default | default | default | default | default | default | default | default | default | default | time, state, observables... |
+| loop_crank_nicolson | crank_nicolson | 0.05 | default | default | default | 0.05 | default | default | default | default | default | default | state, observables |
+
+#### MID RUN
+
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| step_overrides | default | default | 0.001953 | 1.0e-06 | default | default | default | 1.0e-06 | 1.0e-06 | 1.0e-06 | 1.0e-06 | default | state |
+| loop_default | default | default | 0.001 | 1.0e-08 | 0.5 | 0.02 | default | 1.0e-05 | 1.0e-06 | 1.0e-07 | 1.0e-07 | default | state, time |
+| loop_metrics | euler | default | 0.0025 | default | default | 0.01 | 0.1 | default | default | default | default | default | default |
+
+#### LONG RUN
+
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| solverkernel_run | default | 0.3 | 0.001 | default | default | 0.1 | 0.3 | default | default | default | default | default | state, observables, time... |
+
+#### EDGE CASES
+
+| Name | algorithm | duration | dt | dt_min | dt_max | dt_save | dt_summarise | atol | rtol | newton_tol | krylov_tol | step_ctrl | output_types |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| loop_float32_small | euler | 1.0e-04 | 1.0e-07 | default | default | 2.0e-05 | default | default | default | default | default | default | state, time |
+| loop_large_t0 | euler | 0.001 | 1.0e-06 | default | default | 2.0e-04 | default | default | default | default | default | default | state, time |
+| loop_adaptive | crank_nicolson | 1.0e-04 | default | 1.0e-07 | 1.0e-06 | 2.0e-05 | default | default | default | default | default | PI | state, time |
+| controller_dt_clamps | default | default | default | 0.1 | 0.2 | default | default | default | default | default | default | default | default |
+| controller_gain_clamps | default | default | default | 1.0e-04 | 1 | default | default | default | default | default | default | default | default |
 
 ---
 
@@ -380,3 +385,29 @@ DEFAULT_OVERRIDES = MID_RUN_PARAMS
 | test_controllers.py | 6 | 1 (MID_RUN) + 4 edge | 17% |
 | test_SolverKernel.py | 1 | 1 (LONG_RUN) | 0% |
 | **TOTAL** | **~80** | **3 standard + ~10 edge = ~13** | **~85%** |
+
+---
+
+## Appendix C: Default Parameter Values Reference
+
+From `tests/conftest.py` (session-scoped `solver_settings` fixture):
+
+```python
+DEFAULTS = {
+    'algorithm': 'euler',
+    'duration': 0.2,
+    'dt': 0.01,
+    'dt_min': 1e-7,
+    'dt_max': 1.0,
+    'dt_save': 0.1,
+    'dt_summarise': 0.2,
+    'atol': 1e-6,
+    'rtol': 1e-6,
+    'newton_tolerance': 1e-6,
+    'krylov_tolerance': 1e-6,
+    'step_controller': 'fixed',
+    'output_types': ['state'],
+}
+```
+
+When a parameter is marked as "default" in the tables above, it uses the value shown here.
