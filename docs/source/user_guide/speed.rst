@@ -85,7 +85,7 @@ Loop shaping and indexing
   factories. Guard tail work with masks rather than dynamic bounds checks.
 - Replace inner ``for i in range(n)`` reductions with small fixed chunks
   (e.g. two or four iterations) fed by statically known indices to help the
-  compiler unroll without ``numba.unroll``.
+  compiler unroll without explicit unroll helpers such as ``@numba.unroll``.
 - Keep stride order and buffer slices stable: build local views once
   per stage and reuse them across iterations to avoid repeated slice math.
 - Precompute invariants such as ``tol_squared``, ``1/denominator`` guards,
@@ -118,6 +118,6 @@ CUDA-friendly tweaks
 - When using shared memory for ``solver_scratch`` or stage accumulators,
   keep access patterns contiguous and avoid mixing read/write phases
   without a clear barrier to limit bank conflicts.
-- Favour predicated commits over ``if/else`` when copying increments back
+- Favor predicated commits over ``if/else`` when copying increments back
   to ``stage_increment`` or ``residual`` so threads that already converged
   stay aligned.
