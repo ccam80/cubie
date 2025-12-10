@@ -731,8 +731,8 @@ def linear_solver_inline_factory(
     n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
+    mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
 
     @cuda.jit(
         (numba_prec[::1], numba_prec[::1], numba_prec[::1],
@@ -850,7 +850,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     def newton_krylov_solver(stage_increment, parameters, drivers, t, h,
                              a_ij, base_state, shared_scratch, counters):
         delta = shared_scratch[:n]
-        residual = shared_scratch[n:2 * n]
+        residual = shared_scratch[n:int32(2 * n)]
 
         residual_fn(stage_increment, parameters, drivers, t, h, a_ij,
                     base_state, residual)
@@ -869,15 +869,15 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
-            if all_sync(mask, status >= 0):
+            if all_sync(mask, status >= int32(0)):
                 break
 
             iters_count += int32(1)
-            if status < 0:
+            if status < int32(0):
                 lin_return = linear_solver(stage_increment, parameters,
                                            drivers, base_state, t, h, a_ij,
                                            residual, delta)
-                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
+                krylov_iters = (lin_return >> int32(16)) & int32(0xFFFF)
                 total_krylov_iters += krylov_iters
                 lin_status = lin_return & int32(0xFFFF)
                 if lin_status != int32(0):
@@ -887,7 +887,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             scale_applied = typed_zero
             found_step = False
 
-            for _ in range(max_backtracks + 1):
+            for _ in range(max_backtracks + int32(1)):
                 if status < 0:
                     delta_scale = scale - scale_applied
                     for i in range(n):
@@ -905,29 +905,29 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                     if norm2_new <= tol_squared:
                         status = int32(0)
 
-                    accept = (status < 0) and (norm2_new < norm2_prev)
+                    accept = (status < int32(0)) and (norm2_new < norm2_prev)
                     found_step = found_step or accept
 
                     for i in range(n):
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                if all_sync(mask, found_step or status >= 0):
+                if all_sync(mask, found_step or status >= int32(0)):
                     break
                 scale *= typed_damping
 
-            if (status < 0) and (not found_step):
+            if (status < int32(0)) and (not found_step):
                 for i in range(n):
                     stage_increment[i] -= scale_applied * delta[i]
                 status = int32(1)
 
-        if status < 0:
+        if status < int32(0):
             status = int32(2)
 
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= iters_count << 16
+        status |= iters_count << int16(16)
         return status
     return newton_krylov_solver
 
@@ -990,6 +990,7 @@ def dirk_step_inline_factory(
     can_reuse_accepted_start = False
 
     stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+    explicit_a_coeffs = tableau.explicit_terms(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     typed_zero = numba_precision(0.0)
     error_weights = tableau.error_weights(numba_precision)
@@ -1273,25 +1274,17 @@ def dirk_step_inline_factory(
         # --------------------------------------------------------------- #
 
         for prev_idx in range(stages_except_first):
-            stage_offset = prev_idx * n
+            stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
-            matrix_col = stage_rhs_coeffs[prev_idx]
+            matrix_col = explicit_a_coeffs[prev_idx]
 
             # Stream previous stage's RHS into accumulators for successors
-            # Only stream to current stage and later (not already-processed)
             for successor_idx in range(stages_except_first):
-                # Accumulator at index i is for stage i+1
-                # At prev_idx, current stage is prev_idx+1, so stream to
-                # accumulators with index >= prev_idx
-
-                # This guard can be removed, adding a "dead write"
-                # Do if the compiler needs help unrolling
-                if successor_idx >= prev_idx:
-                    coeff = matrix_col[successor_idx + int32(1)]
-                    row_offset = successor_idx * n
-                    for idx in range(n):
-                        contribution = coeff * stage_rhs[idx] * dt_scalar
-                        stage_accumulator[row_offset + idx] += contribution
+                coeff = matrix_col[successor_idx + int32(1)]
+                row_offset = successor_idx * n
+                for idx in range(n):
+                    contribution = coeff * stage_rhs[idx] * dt_scalar
+                    stage_accumulator[row_offset + idx] += contribution
 
             stage_time = (
                 current_time + dt_scalar * stage_time_fractions[stage_idx]
@@ -3354,7 +3347,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                          dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
-        finished |= (status & 0x8)
+        finished |= (status & int32(0x8))
 
         if all_sync(mask, finished):
             return status
