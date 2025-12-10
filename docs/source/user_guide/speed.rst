@@ -89,11 +89,13 @@ Loop shaping and indexing
 - Keep stride order and buffer slices stable: build local views once
   per stage and reuse them across iterations to avoid repeated slice math.
 - Precompute invariants such as ``tol_squared``, ``1/denominator`` guards,
-  and scaled tableau coefficients outside hot loops.
+  and scaled tableau coefficients (DIRK stage weights/diagonals) outside
+  hot loops.
 
 all_sync and status flow
 ~~~~~~~~~~~~~~~~~~~~~~~~
-- Hoist ``mask = activemask()`` once per solver and carry it through
+- Hoist ``mask = activemask()`` (CUDA warp mask) once per solver and carry
+  it through
   nested loops rather than recomputing per iteration.
 - Collapse status flags into a single integer and propagate with
   predicated writes instead of branching: update ``status`` only when
