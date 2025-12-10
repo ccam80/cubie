@@ -3022,9 +3022,13 @@ if algorithm_type == 'dirk':
     solver_scratch_size = 2 * n_states
     dirk_scratch_size = int(accumulator_size) + int(solver_scratch_size)
     erk_scratch_size = 0
-else:
+    firk_scratch_size = 0
+    rosenbrock_scratch_size = 0
+elif algorithm_type == 'erk':
     solver_scratch_size = int32(0)
     dirk_scratch_size = 0
+    firk_scratch_size = 0
+    rosenbrock_scratch_size = 0
     # ERK: stage_rhs if shared, accumulator if shared
     erk_stage_rhs_size = n_states + 1 if use_shared_erk_stage_rhs else (
         0)
@@ -3032,6 +3036,58 @@ else:
                                    if use_shared_erk_stage_accumulator
                                    else 0)
     erk_scratch_size = erk_stage_rhs_size + erk_accumulator_shared_size
+elif algorithm_type == 'firk':
+    # FIRK memory requirements:
+    # - solver_scratch: 2 * stage_count * n_states (for Newton solver)
+    # - stage_increment: stage_count * n_states (for stage increments)
+    # - stage_driver_stack: stage_count * n_drivers (for driver values)
+    # - stage_state: n_states (for state evaluation)
+    all_stages_n = stage_count * n_states
+    firk_solver_scratch_size = (
+        2 * all_stages_n if use_shared_firk_solver_scratch else 0
+    )
+    firk_stage_increment_size = (
+        all_stages_n if use_shared_firk_stage_increment else 0
+    )
+    firk_stage_driver_stack_size = (
+        stage_count * n_drivers if use_shared_firk_stage_driver_stack else 0
+    )
+    firk_stage_state_size = (
+        n_states if use_shared_firk_stage_state else 0
+    )
+    firk_scratch_size = (firk_solver_scratch_size + firk_stage_increment_size +
+                         firk_stage_driver_stack_size + firk_stage_state_size)
+    solver_scratch_size = int32(0)
+    dirk_scratch_size = 0
+    erk_scratch_size = 0
+    rosenbrock_scratch_size = 0
+elif algorithm_type == 'rosenbrock':
+    # Rosenbrock memory requirements:
+    # - stage_rhs: n_states (for RHS evaluation)
+    # - stage_store: stage_count * n_states (for stage storage)
+    # - cached_auxiliaries: 0 (simplified for debug script)
+    rosenbrock_stage_rhs_size = (
+        n_states if use_shared_rosenbrock_stage_rhs else 0
+    )
+    rosenbrock_stage_store_size = (
+        stage_count * n_states if use_shared_rosenbrock_stage_store else 0
+    )
+    rosenbrock_cached_auxiliaries_size = (
+        # Cached auxiliaries store precomputed Jacobian terms.
+        # In production, size depends on system-specific structure.
+        # Set to 0 here since placeholder Jacobian helpers are used.
+        0
+    )
+    rosenbrock_scratch_size = (rosenbrock_stage_rhs_size +
+                               rosenbrock_stage_store_size +
+                               rosenbrock_cached_auxiliaries_size)
+    solver_scratch_size = int32(0)
+    dirk_scratch_size = 0
+    erk_scratch_size = 0
+    firk_scratch_size = 0
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
+
 
 # Shared memory pointer (advances for each shared buffer)
 shared_pointer = int32(0)
@@ -3103,10 +3159,31 @@ scratch_start = shared_pointer
 if algorithm_type == 'dirk':
     scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
     local_scratch_size = dirk_scratch_size
-else:
+elif algorithm_type == 'erk':
     scratch_size = erk_scratch_size if use_shared_loop_scratch else 0
     # ERK local scratch: accumulator_size + n_states
     local_scratch_size = accumulator_size + int32(n_states)
+elif algorithm_type == 'firk':
+    scratch_size = firk_scratch_size if use_shared_loop_scratch else int32(0)
+    # FIRK local scratch: sum of all buffer sizes when not in shared memory
+    # all_stages_n = stage_count * n_states (calculated in memory size section)
+    local_scratch_size = (
+        2 * stage_count * n_states +  # solver_scratch
+        stage_count * n_states +      # stage_increment
+        stage_count * n_drivers +  # stage_driver_stack
+        n_states            # stage_state
+    )
+elif algorithm_type == 'rosenbrock':
+    scratch_size = (rosenbrock_scratch_size if use_shared_loop_scratch
+                    else int32(0))
+    # Rosenbrock local scratch: sum of all buffer sizes when not in shared
+    local_scratch_size = (
+        n_states +           # stage_rhs
+        stage_count * n_states +  # stage_store
+        1  # cached_auxiliaries (minimum size 1 to avoid zero-size array in Numba)
+    )
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
 scratch_end = scratch_start + scratch_size
 shared_pointer = scratch_end
 
