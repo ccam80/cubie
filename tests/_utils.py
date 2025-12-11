@@ -24,7 +24,7 @@ SHORT_RUN_PARAMS = {
     'duration': 0.05,
     'dt_save': 0.05,
     'dt_summarise': 0.05,
-    'output_types': ['state', 'time', 'observables'],
+    'output_types': ['state', 'time', 'observables', 'mean'],
 }
 
 MID_RUN_PARAMS = {
