@@ -439,7 +439,9 @@ def inst_newton_krylov_solver_factory(
 
             # Predicated iteration count update
             active = not done
-            iters_count = selp(active, iters_count + int32(1), iters_count)
+            iters_count = selp(
+                active, int32(iters_count + int32(1)), iters_count
+            )
 
             if active:
                 iter_slot = int(iters_count) - 1
@@ -468,8 +470,9 @@ def inst_newton_krylov_solver_factory(
                 lin_failed = lin_status != int32(0)
                 has_error = has_error or lin_failed
                 # Accumulate error code via OR
-                final_status = selp(lin_failed, final_status | lin_status,
-                                    final_status)
+                final_status = selp(
+                    lin_failed, int32(final_status | lin_status), final_status
+                )
 
             scale = typed_one
             scale_applied = typed_zero
@@ -527,8 +530,9 @@ def inst_newton_krylov_solver_factory(
             # Backtrack failure handling
             backtrack_failed = active and (not found_step) and (not converged)
             has_error = has_error or backtrack_failed
-            final_status = selp(backtrack_failed, final_status | int32(1),
-                                final_status)
+            final_status = selp(
+                backtrack_failed, int32(final_status | int32(1)), final_status
+            )
 
             # Revert state if backtrack failed using predicated pattern
             revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
@@ -551,8 +555,9 @@ def inst_newton_krylov_solver_factory(
 
         # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
-        final_status = selp(max_iters_exceeded, final_status | int32(2),
-                            final_status)
+        final_status = selp(
+            max_iters_exceeded, int32(final_status | int32(2)), final_status
+        )
 
         # Write iteration counts to counters array
         counters[0] = iters_count
