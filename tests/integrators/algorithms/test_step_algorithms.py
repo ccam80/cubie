@@ -471,7 +471,8 @@ STEP_CASES = [
     # Specific DIRK tableaus
     pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pid"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
+                 id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
     pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pid"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),

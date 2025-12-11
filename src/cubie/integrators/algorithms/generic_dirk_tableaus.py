@@ -109,7 +109,7 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
         (1.0 - SDIRK2_GAMMA, SDIRK2_GAMMA),
     ),
     b=(1 - SDIRK2_GAMMA, SDIRK2_GAMMA),
-    b_hat=(1.0, 0.0),
+    # b_hat=(1.0, 0.0),
     c=(SDIRK2_GAMMA, 1.0),
     order=2,
 )

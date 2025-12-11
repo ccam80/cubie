@@ -3766,9 +3766,8 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
-    print(f"  Max registers: "
-      f"{tuple(reg 
-           for reg in integration_kernel.get_regs_per_thread().values())[0]}"
+    print("  Max registers: " +
+    f"{tuple(reg for reg in integration_kernel.get_regs_per_thread().values())[0]}"
     )
 
     stream = cuda.stream()
