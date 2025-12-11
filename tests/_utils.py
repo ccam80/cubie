@@ -16,6 +16,33 @@ from numpy.typing import NDArray
 
 Array = NDArray[np.floating]
 
+# --------------------------------------------------------------------------- #
+#                      Standard Parameter Sets                                #
+# --------------------------------------------------------------------------- #
+
+SHORT_RUN_PARAMS = {
+    'duration': 0.05,
+    'dt_save': 0.05,
+    'dt_summarise': 0.05,
+    'output_types': ['state', 'time', 'observables', 'mean'],
+}
+
+MID_RUN_PARAMS = {
+    'dt': 0.001,
+    'dt_save': 0.02,
+    'dt_summarise': 0.1,
+    'dt_max': 0.5,
+    'output_types': ['state', 'time', 'observables', 'mean'],
+}
+
+LONG_RUN_PARAMS = {
+    'duration': 0.3,
+    'dt': 0.0005,
+    'dt_save': 0.05,
+    'dt_summarise': 0.15,
+    'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
+}
+
 
 def calculate_expected_summaries(
     state,
@@ -886,3 +913,25 @@ def evaluate_driver_series(
             acc = acc * tau + precision(segment_coeffs[power])
         values[driver_idx] = precision(acc)
     return values
+
+
+def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array):
+    """Add system and driver functions to algorithm settings.
+
+    Functions are passed directly to get_algorithm_step, not stored
+    in algorithm_settings dict.
+    """
+    enhanced = algorithm_settings.copy()
+    enhanced['dxdt_function'] = system.dxdt_function
+    enhanced['observables_function'] = system.observables_function
+    enhanced['get_solver_helper_fn'] = system.get_solver_helper
+    enhanced['n_drivers'] = system.num_drivers
+
+    if driver_array is not None:
+        enhanced['driver_function'] = driver_array.evaluation_function
+        enhanced['driver_del_t'] = driver_array.driver_del_t
+    else:
+        enhanced['driver_function'] = None
+        enhanced['driver_del_t'] = None
+
+    return enhanced

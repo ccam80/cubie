@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int16
+from numba import cuda, from_dtype, int32
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step
@@ -48,6 +48,7 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
+from tests._utils import MID_RUN_PARAMS
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -439,14 +440,7 @@ ALIAS_CASES = [
         id="rosenbrock-23-sciml",
     ),
 ]
-STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
-                  'dt_min': 1e-6,
-                  'newton_tolerance': 1e-6,
-                  'krylov_tolerance': 1e-6,
-                  "atol": 1e-6,
-                  "rtol": 1e-6,
-                  "output_types": ["state"],
-                  'saved_state_indices': [0, 1, 2]}
+STEP_OVERRIDES = MID_RUN_PARAMS
 
 STEP_CASES = [
     pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
@@ -727,8 +721,8 @@ def device_step_results(
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
-        first_step_flag = int16(1)
-        accepted_flag = int16(1)
+        first_step_flag = int32(1)
+        accepted_flag = int32(1)
         result = step_function(
             state_vec,
             proposed_vec,
@@ -904,8 +898,8 @@ def _execute_step_twice(
             error_vec_first,
             dt_scalar,
             zero,
-            int16(1),
-            int16(1),
+            int32(1),
+            int32(1),
             shared,
             persistent,
             counters_vec_first,
@@ -933,8 +927,8 @@ def _execute_step_twice(
             error_vec_second,
             dt_scalar,
             dt_scalar,
-            int16(0),
-            int16(1),
+            int32(0),
+            int32(1),
             shared,
             persistent,
             counters_vec_second,

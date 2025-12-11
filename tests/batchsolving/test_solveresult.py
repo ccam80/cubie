@@ -6,6 +6,7 @@ import pytest
 from cubie import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
+from tests._utils import SHORT_RUN_PARAMS
 
 Array = np.ndarray
 
@@ -107,10 +108,7 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_instantiation_type_equivalence(self, solver_with_arrays):
@@ -167,10 +165,7 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.06}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_solver_full_instantiation(self, solver_with_arrays):
@@ -191,10 +186,7 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_solver_numpy_instantiation(self, solver_with_arrays):
@@ -212,10 +204,7 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_solver_numpy_per_summary_instantiation(
@@ -237,10 +226,7 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          'duration': 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_solver_pandas_instantiation(self, solver_with_arrays):
@@ -261,12 +247,7 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-            [{
-            "output_types": ["state", "observables", "time", "mean", "rms"],
-            "dt_save": 0.02,
-            "dt_summarise": 0.04,
-            "duration": 0.05,
-        }],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
@@ -286,10 +267,7 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_summary_legend_from_solver(self, solver_with_arrays):
@@ -310,10 +288,7 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_stride_order_from_solver(self, solver_with_arrays):
@@ -337,10 +312,7 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_as_numpy_property(self, solver_with_arrays):
@@ -362,10 +334,7 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_per_summary_arrays_property(self, solver_with_arrays):
@@ -383,10 +352,7 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-         'duration': 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_as_pandas_property(self, solver_with_arrays):
@@ -418,10 +384,7 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_active_outputs_property(self, solver_with_arrays):
@@ -475,10 +438,7 @@ class TestSolveResultPandasIntegration:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_pandas_shape_consistency(self, solver_with_arrays):
@@ -507,10 +467,7 @@ class TestSolveResultPandasIntegration:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "duration": 0.05}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_pandas_time_indexing(self, solver_with_arrays):
@@ -548,13 +505,7 @@ class TestSolveResultErrorHandling:
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [
-        {
-            "output_types": ["state", "observables", "time"],
-            "dt_save": 0.02,
-            "duration": 0.05,
-        }
-    ],
+    [SHORT_RUN_PARAMS],
     indirect=True,
 )
 def test_status_codes_attribute(solver_with_arrays):

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from numba import cuda
+from tests._utils import MID_RUN_PARAMS
 
 
 @pytest.fixture(scope='function')

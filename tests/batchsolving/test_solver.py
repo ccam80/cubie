@@ -7,6 +7,7 @@ from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
+from tests._utils import SHORT_RUN_PARAMS
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
@@ -261,13 +262,7 @@ def test_solve_basic(
     assert hasattr(result, "summaries_array")
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                            "duration": 0.05,
-                            "dt_save": 0.02,
-                            "dt_summarise": 0.04,
-                            "output_types": ["state", "time", "observables",
-                                             "mean"]
-                         }],
+                         [SHORT_RUN_PARAMS],
                          indirect=True
 )
 def test_solve_with_different_grid_types(
@@ -311,13 +306,7 @@ def test_solve_with_different_grid_types(
     assert isinstance(result_verb, SolveResult)
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                            "duration": 0.05,
-                            "dt_save": 0.02,
-                            "dt_summarise": 0.04,
-                            "output_types": ["state", "time", "observables",
-                                             "mean"]
-                         }],
+                         [SHORT_RUN_PARAMS],
                          indirect=True
 )
 def test_solve_with_different_result_types(
@@ -779,12 +768,7 @@ def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
 
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                            "duration": 0.05,
-                            "dt_save": 0.02,
-                            "dt_summarise": 0.04,
-                            "output_types": ["state", "time"]
-                         }],
+                         [SHORT_RUN_PARAMS],
                          indirect=True
 )
 def test_solve_with_prebuilt_arrays(
@@ -808,12 +792,7 @@ def test_solve_with_prebuilt_arrays(
 
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                            "duration": 0.05,
-                            "dt_save": 0.02,
-                            "dt_summarise": 0.04,
-                            "output_types": ["state", "time"]
-                         }],
+                         [SHORT_RUN_PARAMS],
                          indirect=True
 )
 def test_solve_array_path_matches_dict_path(
@@ -852,12 +831,7 @@ def test_solve_array_path_matches_dict_path(
 
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                            "duration": 0.05,
-                            "dt_save": 0.02,
-                            "dt_summarise": 0.04,
-                            "output_types": ["state"]
-                         }],
+                         [SHORT_RUN_PARAMS],
                          indirect=True
 )
 def test_solve_dict_path_backward_compatible(
