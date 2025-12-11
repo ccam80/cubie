@@ -5,7 +5,7 @@ from typing import Callable, Optional
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int32, int32
 
 from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import activemask, all_sync
@@ -298,8 +298,8 @@ class DIRKStep(ODEImplicitStep):
                 numba_precision[:, :, ::1],
                 numba_precision,
                 numba_precision,
-                int16,
-                int16,
+                int32,
+                int32,
                 numba_precision[::1],
                 numba_precision[::1],
                 int32[::1],
@@ -447,14 +447,14 @@ class DIRKStep(ODEImplicitStep):
             #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #
 
-            first_step = first_step_flag != int16(0)
+            first_step = first_step_flag != int32(0)
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step:
                     mask = activemask()
-                    all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                    all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False

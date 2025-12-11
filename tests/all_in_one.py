@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int16, int32, int64, float32, float64
+from numba import cuda, int32, int32, int64, float32, float64
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -171,7 +171,7 @@ loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
 
 # This one doesn't really make sense - it'lls be shared(0) if algo doesn't
 # request shared
-loop_scratch_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_scratch_buffer_memory = 'local'  # 'local' or 'shared'
 
 # Linear solver arrays (used in Krylov iteration)
 linear_solver_preconditioned_vec_memory = 'local'  # 'local' or 'shared'
@@ -179,10 +179,10 @@ linear_solver_temp_memory = 'local'  # 'local' or 'shared'
 
 # DIRK step arrays
 dirk_stage_increment_memory = 'local'  # 'local' or 'shared'
-dirk_stage_base_memory = 'shared'  # 'local' or 'shared' (shared aliases
+dirk_stage_base_memory = 'local'  # 'local' or 'shared' (shared aliases
 #                                    accumulator when multistage)
-dirk_accumulator_memory = 'shared'  # 'local' or 'shared'
-dirk_solver_scratch_memory = 'shared'  # 'local' or 'shared'
+dirk_accumulator_memory = 'local'  # 'local' or 'shared'
+dirk_solver_scratch_memory = 'local'  # 'local' or 'shared'
 
 # ERK step arrays
 erk_stage_rhs_memory = 'local'  # 'local' or 'shared'
@@ -613,7 +613,7 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
             j_00 = -sigma
             j_01 = sigma
             j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-            j_11 = int32(-1)
+            j_11 = numba_prec(-1)
             j_12 = -a_ij * state[0] - base_state[0]
             j_20 = a_ij * state[1] + base_state[1]
             j_21 = a_ij * state[0] + base_state[0]
@@ -675,7 +675,7 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
         j_00 = -sigma
         j_01 = sigma
         j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-        j_11 = int32(-1)
+        j_11 = numba_prec(-1)
         j_12 = -a_ij * state[0] - base_state[0]
         j_20 = a_ij * state[1] + base_state[1]
         j_21 = a_ij * state[0] + base_state[0]
@@ -975,6 +975,8 @@ def dirk_step_inline_factory(
 
     # Extract tableau properties
     n_arraysize = n
+    accumulator_length_arraysize = int(max(tableau.stage_count-1, 1) * n)
+    double_n = 2 * n
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
@@ -1039,8 +1041,8 @@ def dirk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1118,7 +1120,7 @@ def dirk_step_inline_factory(
         if accumulator_in_shared:
             stage_accumulator = shared[acc_start:acc_end]
         else:
-            stage_accumulator = cuda.local.array(accumulator_length,
+            stage_accumulator = cuda.local.array(accumulator_length_arraysize,
                                                  numba_precision)
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = numba_precision(0.0)
@@ -1126,8 +1128,7 @@ def dirk_step_inline_factory(
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
-            solver_scratch = cuda.local.array(solver_shared_elements,
-                                              numba_precision)
+            solver_scratch = cuda.local.array(double_n,numba_precision)
             for _i in range(solver_shared_elements):
                 solver_scratch[_i] = numba_precision(0.0)
 
@@ -1168,14 +1169,14 @@ def dirk_step_inline_factory(
         #            Stage 0: may reuse cached values                     #
         # --------------------------------------------------------------- #
 
-        first_step = first_step_flag != int16(0)
+        first_step = first_step_flag != int32(0)
 
         # Only use cache if all threads in warp can - otherwise no gain
         use_cached_rhs = False
         if first_same_as_last and multistage:
             if not first_step:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1492,8 +1493,8 @@ def erk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1592,7 +1593,7 @@ def erk_step_inline_factory(
         if first_same_as_last and multistage:
             if not first_step_flag:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1875,8 +1876,8 @@ def firk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -2200,8 +2201,8 @@ def rosenbrock_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -2997,7 +2998,7 @@ obs_summ_size = int32(n_observables) if summarise_obs_bool else int32(0)
 accumulator_size = int32((stage_count - 1) * n_states)
 if algorithm_type == 'dirk':
     solver_scratch_size = 2 * n_states
-    dirk_scratch_size = accumulator_size + solver_scratch_size
+    dirk_scratch_size = int(accumulator_size) + int(solver_scratch_size)
     erk_scratch_size = 0
 else:
     solver_scratch_size = int32(0)
@@ -3262,8 +3263,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
 
-    first_step_flag = int16(1)
-    prev_step_accepted_flag = int16(1)
+    first_step_flag = int32(1)
+    prev_step_accepted_flag = int32(1)
 
     # ----------------------------------------------------------------------- #
     #                       Seed t=0 values                                   #
@@ -3382,7 +3383,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 step_persistent_local,
                 proposed_counters,
             )
-            first_step_flag = int16(0)
+            first_step_flag = int32(0)
 
             niters = (step_status >> 16) & status_mask
             status |= step_status & status_mask
@@ -3438,8 +3439,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             prev_step_accepted_flag = selp(
                 accept,
-                int16(1),
-                int16(0),
+                int32(1),
+                int32(0),
             )
 
             # Predicated update of next_save; update if save is accepted.

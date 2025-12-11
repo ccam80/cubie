@@ -88,27 +88,27 @@ def test_get_indices():
 
     # Test with a single string
     indices = params.get_indices("a")
-    assert np.array_equal(indices, np.asarray([0], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([0], dtype=np.int32))
 
     # Test with a list of strings
     indices = params.get_indices(["a", "c", "e"])
-    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int32))
 
     # Test with a single integer
     indices = params.get_indices(1)
-    assert np.array_equal(indices, np.asarray([1], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([1], dtype=np.int32))
 
     # Test with a list of integers
     indices = params.get_indices([0, 2, 4])
-    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int32))
 
     # Test with a slice
     indices = params.get_indices(slice(1, 4))
-    assert np.array_equal(indices, np.asarray([1, 2, 3], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([1, 2, 3], dtype=np.int32))
 
     # Test with a numpy array
     indices = params.get_indices(np.asarray([0, 2, 4]))
-    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int32))
 
     # Test error cases
     with pytest.raises(
