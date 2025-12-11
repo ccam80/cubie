@@ -74,17 +74,11 @@ class ButcherTableau:
         stage_count = self.stage_count
         if self.b_hat is not None:
             if len(self.b_hat) != stage_count:
-                warnings.warn("b_hat must match the number of stages in b",
-                              stacklevel=2)
-                # raise ValueError("b_hat must match the number of stages in b")
+                raise ValueError("b_hat must match the number of stages in b")
             if (1.0 - np.sum(self.b_hat)) > 1e-8:
-                warnings.warn("b_hat must sum to one",
-                              stacklevel=2)
-                # raise ValueError("b_hat must sum to one")
+                raise ValueError("b_hat must sum to one")
         if (1.0 - np.sum(self.b)) > 1e-8:
-            warnings.warn("b must sum to one",
-                              stacklevel=2)
-            # raise ValueError("b must sum to one")
+            raise ValueError("b must sum to one")
 
     @property
     def d(self) -> Optional[Tuple[float, ...]]:

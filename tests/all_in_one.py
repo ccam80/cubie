@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int16, int32, int64, float32, float64
+from numba import cuda, int32, int64, float32, float64
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -737,10 +737,10 @@ def linear_solver_inline_factory(
     @cuda.jit(
         (numba_prec[::1], numba_prec[::1], numba_prec[::1],
          numba_prec[::1], numba_prec, numba_prec, numba_prec,
-         numba_prec[::1], numba_prec[::1]),
+         numba_prec[::1], numba_prec[::1], int32[::1]),
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
-                      rhs, x):
+                      rhs, x, krylov_iters_out):
         preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
         temp = cuda.local.array(n_arraysize, numba_prec)
 
@@ -756,6 +756,9 @@ def linear_solver_inline_factory(
 
         iter_count = int32(0)
         for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
             iter_count += int32(1)
             preconditioner(
                 state,
@@ -806,13 +809,10 @@ def linear_solver_inline_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+        # Single exit point - status based on converged flag
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return final_status
     return linear_solver
 
 
@@ -831,7 +831,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
     typed_damping = numba_prec(damping)
-    status_active = int32(-1)
 
     @cuda.jit(
             [(numba_prec[::1],
@@ -870,33 +869,48 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             delta[i] = typed_zero
             norm2_prev += residual_value * residual_value
 
-        status = status_active
-        if norm2_prev <= tol_squared:
-            status = int32(0)
+        # Boolean control flags replace status-code-based loop control
+        converged = norm2_prev <= tol_squared
+        has_error = False
+        final_status = int32(0)
+
+        # Local array for linear solver iteration count output
+        krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
-            if all_sync(mask, status >= int32(0)):
+            done = converged or has_error
+            if all_sync(mask, done):
                 break
-            if status < int32(0):
-                iters_count += int32(1)
-                lin_return = linear_solver(stage_increment, parameters,
+
+            # Predicated iteration count update
+            active = not done
+            iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
+            )
+
+            if active:
+                krylov_iters_local[0] = int32(0)
+                lin_status = linear_solver(stage_increment, parameters,
                                            drivers, base_state, t, h, a_ij,
-                                           residual, delta)
-                krylov_iters = (lin_return >> int32(16)) & int32(0xFFFF)
-                total_krylov_iters += krylov_iters
-                lin_status = lin_return & int32(0xFFFF)
-                if lin_status != int32(0):
-                    status = int32(lin_status)
+                                           residual, delta, krylov_iters_local)
+                total_krylov_iters += krylov_iters_local[0]
+
+                lin_failed = lin_status != int32(0)
+                has_error = has_error or lin_failed
+                final_status = selp(lin_failed,
+                                    int32(final_status | lin_status),
+                                    final_status)
 
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
 
             for _ in range(max_backtracks + int32(1)):
-                if status < 0:
+                active_backtrack = active and not found_step
+                if active_backtrack:
                     delta_scale = scale - scale_applied
                     for i in range(n):
                         stage_increment[i] += delta_scale * delta[i]
@@ -910,33 +924,49 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual_value = residual[i]
                         norm2_new += residual_value * residual_value
 
-                    if norm2_new <= tol_squared:
-                        status = int32(0)
+                    # Check convergence
+                    just_converged = norm2_new <= tol_squared
+                    converged = converged or just_converged
 
-                    accept = (status < int32(0)) and (norm2_new < norm2_prev)
+                    accept = (not converged) and (norm2_new < norm2_prev)
                     found_step = found_step or accept
 
                     for i in range(n):
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                if all_sync(mask, found_step or status >= int32(0)):
+                done_backtrack = found_step or converged or has_error
+                if all_sync(mask, done_backtrack):
                     break
                 scale *= typed_damping
 
-            if (status < int32(0)) and (not found_step):
-                for i in range(n):
-                    stage_increment[i] -= scale_applied * delta[i]
-                status = int32(1)
+            # Backtrack failure handling
+            backtrack_failed = active and (not found_step) and (not converged)
+            has_error = has_error or backtrack_failed
+            final_status = selp(
+                    backtrack_failed,
+                    int32(final_status | int32(1)),
+                    final_status
+            )
 
-        if status < int32(0):
-            status = int32(2)
+            # Revert state if backtrack failed using predicated pattern
+            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
+            for i in range(n):
+                stage_increment[i] += revert_scale * delta[i]
+
+        # Max iterations exceeded without convergence
+        max_iters_exceeded = (not converged) and (not has_error)
+        final_status = selp(
+                max_iters_exceeded,
+                int32(final_status | int32(2)),
+                final_status
+        )
 
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= iters_count << int16(16)
-        return status
+        # Return status without encoding iterations
+        return final_status
     return newton_krylov_solver
 
 
@@ -1050,8 +1080,8 @@ def dirk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1178,14 +1208,14 @@ def dirk_step_inline_factory(
         #            Stage 0: may reuse cached values                     #
         # --------------------------------------------------------------- #
 
-        first_step = first_step_flag != int16(0)
+        first_step = first_step_flag != int32(0)
 
         # Only use cache if all threads in warp can - otherwise no gain
         use_cached_rhs = False
         if first_same_as_last and multistage:
             if not first_step:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1492,8 +1522,8 @@ def erk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1592,7 +1622,7 @@ def erk_step_inline_factory(
         if first_same_as_last and multistage:
             if not first_step_flag:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1875,8 +1905,8 @@ def firk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -2200,8 +2230,8 @@ def rosenbrock_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -2894,6 +2924,7 @@ elif algorithm_type == 'rosenbrock':
     # For Rosenbrock, we need a linear solver with cached Jacobian
     # This is a simplified version - full implementation would need
     # cached Jacobian helpers
+    krylov_iters = cuda.local.array((1), int32)
     linear_solver_fn = linear_solver_inline_factory(
         operator_fn, n_states,
         preconditioner_fn,
@@ -2901,6 +2932,7 @@ elif algorithm_type == 'rosenbrock':
         max_linear_iters,
         precision,
         linear_correction_type,
+        krylov_iters
     )
 
     # Placeholder functions for Rosenbrock-specific operations
@@ -3339,8 +3371,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
 
-    first_step_flag = int16(1)
-    prev_step_accepted_flag = int16(1)
+    first_step_flag = int32(1)
+    prev_step_accepted_flag = int32(1)
 
     # ----------------------------------------------------------------------- #
     #                       Seed t=0 values                                   #
@@ -3459,9 +3491,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 step_persistent_local,
                 proposed_counters,
             )
-            first_step_flag = int16(0)
+            first_step_flag = int32(0)
 
-            niters = (step_status >> 16) & status_mask
+            # Iterations now come from counters, not encoded in status
+            niters = proposed_counters[0]
             status |= step_status & status_mask
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
@@ -3515,8 +3548,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             prev_step_accepted_flag = selp(
                 accept,
-                int16(1),
-                int16(0),
+                int32(1),
+                int32(0),
             )
 
             # Predicated update of next_save; update if save is accepted.
@@ -3699,9 +3732,9 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     # native order=(time, var, run)
     obs_summ_shape = (n_summary_samples, 1, 1)
     obs_summ_strides = get_strides(obs_summ_shape, precision, (0, 1, 2))
-    observable_summaries_output = cuda.device_array(obs_summ_shape,
-                                                    dtype=precision,
-                                                    strides=obs_summ_strides)
+    observable_summaries_output = cuda.device_array(
+        obs_summ_shape, dtype=precision, strides=obs_summ_strides
+    )
 
     # iteration_counters_output: shape=(runs, samples, counters)
     # native order=(run, time, var) - unchanged (special case)
@@ -3733,6 +3766,10 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
+    print("  Max registers: " +
+    f"{tuple(reg for reg in integration_kernel.get_regs_per_thread().values())[0]}"
+    )
+
     stream = cuda.stream()
     print("\nLaunching kernel...")
     kernel_launch_time = perf_counter()
@@ -3746,7 +3783,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     kernel_end_time = perf_counter()
     # Mapped arrays provide direct host access after synchronization
     # No explicit copy_to_host required
-    print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
+    # print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
     status_codes_output = status_codes_output.copy_to_host(stream=stream)
     state_output = state_output.copy_to_host(stream=stream)
     observables_output = observables_output.copy_to_host(stream=stream)
@@ -3775,10 +3812,20 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")
 
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
-
-
     print(f"Final state sample (run 0): {state_output[-1, :n_states, 0]}")
     print(f"Final state sample (run -1): {state_output[-1, :n_states, -1]}")
+    print("\n\n\n")
+    print("\n" + "=" * 70 + "\n")
+    print("Type dump")
+    print("\n" + "=" * 70 + "\n")
+    print(f"{integration_kernel.inspect_types()}")
+    print(f"{loop_fn.inspect_types()}")
+    print(f"{step_fn.inspect_types()}")
+    print(f"{save_state_inline.inspect_types()}")
+    print(f"{update_summaries_inline.inspect_types()}")
+    print(f"{save_summaries_inline.inspect_types()}")
+    print(f"{linear_solver_fn.inspect_types()}")
+    print(f"{newton_solver_fn.inspect_types()}")
 
     return state_output, status_codes_output
 
