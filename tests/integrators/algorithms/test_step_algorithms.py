@@ -1495,7 +1495,8 @@ def test_algorithm(
         (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pid"}),
         (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pid"}),
         # DIRK with error estimate defaults to PI
-        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pid"}),
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller":
+                                                            "fixed"}),
         # FIRK with error estimate defaults to PI
         (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI
