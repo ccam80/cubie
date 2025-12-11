@@ -343,12 +343,17 @@ def _get_algorithm_tableau(algorithm_name_or_tableau):
 def precision(solver_settings_override, solver_settings_override2):
     """Return precision from overrides, defaulting to float32.
 
+    Precedence: override2 (class-level) is checked first, then override
+    (method-level). This allows class-level precision to be overridden
+    by individual test methods.
+
     Usage:
     @pytest.mark.parametrize("solver_settings_override",
         [{"precision": np.float64}], indirect=True)
     def test_something(precision):
         # precision will be np.float64 here
     """
+    # Check override2 first (class-level), then override (method-level)
     for override in [solver_settings_override2, solver_settings_override]:
         if override and 'precision' in override:
             return override['precision']

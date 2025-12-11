@@ -385,10 +385,10 @@ def test_all_summary_metrics_numerical_check(
                              'precision': np.float32,
                              'output_types': ['state', 'time'],
                              'duration': 1e-4,
-                             'dt_save': 2e-5,
+                             'dt_save': 2e-5,  # representable in f32: 2e6*1.0
                              't0': 1.0,
                              'algorithm': "euler",
-                             'dt': 1e-7,
+                             'dt': 1e-7,  # smaller than 1f32 eps
                          }],
                          indirect=True,
                          ids=[""])
@@ -440,7 +440,7 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                              'step_controller': 'PI',
                              'output_types': ['state', 'time'],
                              'dt_min': 1e-7,
-                             'dt_max': 1e-6,
+                             'dt_max': 1e-6,  # smaller than eps * t0
                          }],
                          indirect=True,
                          ids=[""])
