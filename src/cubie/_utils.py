@@ -291,7 +291,7 @@ def clamp_factory(precision):
     precision = from_dtype(precision)
 
     @cuda.jit(
-        precision(precision, precision, precision),
+        # precision(precision, precision, precision),
         device=True,
         inline=True,
         **compile_kwargs,

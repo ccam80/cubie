@@ -220,17 +220,17 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            [
-                (
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    int32,
-                    int32[::1],
-                    precision[::1],
-                )
-            ],
+            # [
+            #     (
+            #         precision[::1],
+            #         precision[::1],
+            #         precision[::1],
+            #         precision[::1],
+            #         int32,
+            #         int32[::1],
+            #         precision[::1],
+            #     )
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,

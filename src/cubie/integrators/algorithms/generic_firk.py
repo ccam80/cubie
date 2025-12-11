@@ -641,24 +641,24 @@ class FIRKStep(ODEImplicitStep):
         stage_state_local_size = local_sizes.nonzero('stage_state')
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision,
-                numba_precision,
-                int16,
-                int16,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int16,
+            #     int16,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -948,4 +948,3 @@ class FIRKStep(ODEImplicitStep):
         """Return the number of CUDA threads that advance one state."""
 
         return 1
-

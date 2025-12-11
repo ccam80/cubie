@@ -237,19 +237,19 @@ def linear_solver_factory(
 
     # no cover: start
     @cuda.jit(
-        [
-            (precision[::1],
-             precision[::1],
-             precision[::1],
-             precision[::1],
-             precision,
-             precision,
-             precision,
-             precision[::1],
-             precision[::1],
-             precision[::1],
-            )
-        ],
+        # [
+        #     (precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #      precision,
+        #      precision,
+        #      precision,
+        #      precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #     )
+        # ],
         device=True,
         inline=True,
         **compile_kwargs,

@@ -60,10 +60,10 @@ class MeanStdRms(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -103,10 +103,10 @@ class MeanStdRms(SummaryMetric):
             buffer[2] += shifted_value * shifted_value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,

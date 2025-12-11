@@ -53,10 +53,10 @@ class Min(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -89,10 +89,10 @@ class Min(SummaryMetric):
                 buffer[0] = value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,
