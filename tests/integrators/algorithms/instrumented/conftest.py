@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int16
+from numba import cuda, from_dtype, int32
 from numba.core.types import int32
 
 from tests._utils import _build_enhanced_algorithm_settings
@@ -352,12 +352,12 @@ def instrumented_step_results(
             current_time,
             )
 
-        accepted_flag = int16(1)
+        accepted_flag = int32(1)
         state_length = state_vec.shape[0]
         driver_length = drivers_vec.shape[0]
         observable_length = observables_vec.shape[0]
         for step_idx in range(num_steps):
-            first_step_flag = int16(1) if step_idx == 0 else int16(0)
+            first_step_flag = int32(1) if step_idx == 0 else int32(0)
             # Read dt for this step from device array
             dt_scalar = numba_precision(dts_array[step_idx])
             result = step_function(
@@ -398,7 +398,7 @@ def instrumented_step_results(
             status_vec[step_idx] = result
 
             if step_idx == 5 or step_idx == 8:
-                accepted_flag = int16(0)
+                accepted_flag = int32(0)
             else:
                 if step_idx + 1 >= num_steps:
                     continue
@@ -410,11 +410,10 @@ def instrumented_step_results(
                     observables_vec[obs_idx] = proposed_observables_matrix[
                         step_idx, obs_idx
                     ]
-                accepted_flag = int16(1)
+                accepted_flag = int32(1)
                 current_time = current_time + dt_scalar
 
 
-    # inline the previously nested _run_steps function: allocate buffers, launch kernel, copy results
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
 
     # Check if this is a FIRK step which requires flattened solver buffers
