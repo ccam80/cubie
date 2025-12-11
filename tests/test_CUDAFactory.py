@@ -257,9 +257,10 @@ def test_get_cached_output_not_implemented_error_multiple(
 def test_create_placeholder_args():
     """Test placeholder argument creation."""
 
-    @cuda.jit([numba.float32(numba.float32[:],
-                numba.float32[:],
-                numba.float32[:])],
+    @cuda.jit(
+                # [numba.float32(numba.float32[:],
+                #   numba.float32[:],
+                #   numba.float32[:])],
                 device=True)
     def device_func(a, b, c):
         return a[0] + b[0] + c[0]
@@ -283,10 +284,11 @@ def test_create_placeholder_args_zero_params():
 @pytest.mark.nocudasim
 def test_create_placeholder_args_precision():
     """Test different precision types."""
-    @cuda.jit([numba.float32(numba.float32[:],
-                numba.float32[:]),
-               numba.float64(numba.float64[:],
-                             numba.float64[:])],
+    @cuda.jit(
+              # [numba.float32(numba.float32[:],
+              #   numba.float32[:]),
+              #  numba.float64(numba.float64[:],
+              #                numba.float64[:])],
               device=True)
     def device_func(a, b):
         return a[0] + b[0]
@@ -440,4 +442,3 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
-

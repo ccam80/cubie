@@ -29,14 +29,15 @@ DXDT_TEMPLATE = (
     '    """Auto-generated dxdt factory."""\n'
     "{const_lines}"
     "    \n"
-    "    @cuda.jit((precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision),\n"
-    "              device=True,\n"
-    "              inline=True)\n"
+    "    @cuda.jit(\n"
+    "        # (precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision),\n"
+    "        device=True,\n"
+    "        inline=True)\n"
     "    def dxdt(state, parameters, drivers, observables, out, t):\n"
     "    {body}\n"
     "    \n"
@@ -49,13 +50,14 @@ OBSERVABLES_TEMPLATE = (
     "def {func_name}(constants, precision):\n"
     '    """Auto-generated observables factory."""\n'
     "{const_lines}"
-    "    @cuda.jit((precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision[::1],\n"
-    "               precision),\n"
-    "              device=True,\n"
-    "              inline=True)\n"
+    "    @cuda.jit(\n"
+    "        # (precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision[::1],\n"
+    "        #  precision),\n"
+    "        device=True,\n"
+    "        inline=True)\n"
     "    def get_observables(state, parameters, drivers, observables, t):\n"
     "    {body}\n"
     "    \n"
@@ -261,5 +263,4 @@ def generate_observables_fac_code(
     )
     _default_timelogger.stop_event("codegen_generate_observables_fac_code")
     return code
-
 

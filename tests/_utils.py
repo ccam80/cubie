@@ -683,17 +683,19 @@ def run_device_loop(
     loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
 
-    @cuda.jit((
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:,:,::1],
-            numba_precision[:,::1],
-            numba_precision[:,::1],
-            numba_precision[:,::1],
-            numba_precision[:,::1],
-            numba_precision[:,::1],
-            numba_precision[::1]
-     ))
+    @cuda.jit(
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:,:,::1],
+            #     numba_precision[:,::1],
+            #     numba_precision[:,::1],
+            #     numba_precision[:,::1],
+            #     numba_precision[:,::1],
+            #     numba_precision[:,::1],
+            #     numba_precision[::1]
+            # )
+     )
     def kernel(
         init_vec,
         params_vec,

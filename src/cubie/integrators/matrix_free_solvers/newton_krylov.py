@@ -82,17 +82,18 @@ def newton_krylov_solver_factory(
     max_backtracks = int32(max_backtracks)
     # no cover: start
 
-    @cuda.jit([(precision[::1],
-                precision[::1],
-                precision[::1],
-                precision,
-                precision,
-                precision,
-                precision[::1],
-                precision[::1],
-                int32[::1])],
-                device=True,
-                inline=True)
+    @cuda.jit(
+            # [(precision[::1],
+            #   precision[::1],
+            #   precision[::1],
+            #   precision,
+            #   precision,
+            #   precision,
+            #   precision[::1],
+            #   precision[::1],
+            #   int32[::1])],
+            device=True,
+            inline=True)
     def newton_krylov_solver(
         stage_increment,
         parameters,
