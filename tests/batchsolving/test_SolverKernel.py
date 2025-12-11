@@ -14,12 +14,10 @@ def test_kernel_builds(solverkernel):
 
 
 @pytest.mark.parametrize(
-    "system_override, solver_settings_override, batch_settings_override",
+    "solver_settings_override",
     (
-        pytest.param(
-            "three_chamber",
-            LONG_RUN_PARAMS,
-            {}),
+        {"system_type": "three_chamber",
+         **LONG_RUN_PARAMS},
     ),
     ids=["smoke_test"],
     indirect=True,

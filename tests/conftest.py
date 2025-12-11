@@ -51,7 +51,118 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
+import json
+from collections import defaultdict
 
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--param-set-report",
+        action="store",
+        default=None,
+        help="Optional path to write a JSON report of test -> parameter-set grouping."
+    )
+
+def _session_param_fixture_names(session):
+    """
+    Return the set of fixture names that are:
+      - defined (arg2fixturedefs),
+      - have scope 'session', and
+      - are parameterized (fixturedef.params exists and is non-empty).
+    """
+    fm = session._fixturemanager
+    names = set()
+    # fm._arg2fixturedefs is a dict mapping fixture name -> list of FixtureDef
+    for name, defs in getattr(fm, "_arg2fixturedefs", {}).items():
+        for fdef in defs:
+            # some fixtures may have no .params attribute (not parameterized)
+            if getattr(fdef, "scope", None) == "session" and getattr(fdef, "params", None):
+                names.add(name)
+                break
+    return names
+
+def _callspec_signature_for_item(item, session_fixture_names):
+    """
+    Return a deterministic signature (tuple) for grouping:
+      - If the item has a callspec and at least one of its param names
+        matches a session-scoped parameterized fixture, use only those keys.
+      - Otherwise, use the item's full callspec (if any).
+      - If no callspec at all, return a sentinel ('__NO_PARAMS__',).
+    Signature is a tuple of (name, repr(value)) sorted by name so dict order doesn't matter.
+    """
+    callspec = getattr(item, "callspec", None)
+    if not callspec or not getattr(callspec, "params", None):
+        return ("__NO_PARAMS__",)
+
+    all_params = dict(callspec.params)
+    # choose keys that match session-scoped parameterized fixtures
+    session_keys = [k for k in all_params.keys() if k in session_fixture_names]
+
+    if session_keys:
+        keys = sorted(session_keys)
+    else:
+        # fallback: group by the full callspec keys
+        keys = sorted(all_params.keys())
+
+    # represent values deterministically; use repr to keep it JSON-serializable-friendly
+    sig = tuple((k, repr(all_params[k])) for k in keys)
+    return sig
+
+def pytest_collection_finish(session):
+    """
+    After collection, group items by the signature that determines session fixture instances,
+    then print a summary and optionally write JSON.
+    """
+    items = list(session.items)
+    session_fixture_names = _session_param_fixture_names(session)
+
+    groups = defaultdict(list)
+    for item in items:
+        sig = _callspec_signature_for_item(item, session_fixture_names)
+        groups[sig].append(item.nodeid)
+
+    # Print summary to terminal
+    total_sets = len(groups)
+    total_tests = len(items)
+    session.config._metadata = getattr(session.config, "_metadata", {})
+    print("\n=== pytest parameter-set grouping report ===")
+    print(f"Total collected tests: {total_tests}")
+    print(f"Unique parameter-sets (groups): {total_sets}")
+    print("Groups (showing signature -> tests):\n")
+
+    # sort groups for stable ordering: place NO_PARAMS last
+    def sig_sort_key(sig):
+        return (sig == ("__NO_PARAMS__",), str(sig))
+
+    for i, sig in enumerate(sorted(groups.keys(), key=sig_sort_key), start=1):
+        tests = groups[sig]
+        print(f"GROUP {i}: {len(tests)} test(s)")
+        if sig == ("__NO_PARAMS__",):
+            print("  signature: (no callspec / no params)")
+        else:
+            # pretty print signature
+            pretty = ", ".join(f"{k}={v}" for k, v in sig)
+            print(f"  signature: {pretty}")
+        for t in tests:
+            print(f"    - {t}")
+        print()
+
+    # optionally dump JSON
+    outpath = session.config.getoption("--param-set-report")
+    if outpath:
+        # produce JSON-serializable structure
+        json_groups = []
+        for sig, tests in groups.items():
+            if sig == ("__NO_PARAMS__",):
+                sig_dict = {}
+            else:
+                sig_dict = {k: v for k, v in sig}
+            json_groups.append({"signature": sig_dict, "tests": tests})
+        with open(outpath, "w", encoding="utf-8") as fh:
+            json.dump({"total_tests": total_tests, "groups": json_groups}, fh, indent=2)
+        print(f"Param-set JSON report written to: {outpath}")
+
+    print("=== end of report ===\n")
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -712,7 +823,7 @@ def output_functions(output_settings, system):
     return outputfunctions
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_functions_mutable(output_settings, system):
     """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
 
@@ -759,7 +870,7 @@ def solverkernel(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solverkernel_mutable(
     solver_settings,
     system,
@@ -808,7 +919,7 @@ def solver(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_mutable(
     system,
     solver_settings,
@@ -828,7 +939,7 @@ def step_controller(precision, step_controller_settings):
     return controller
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def step_controller_mutable(precision, step_controller_settings):
     """Return a fresh step controller for mutation-focused tests."""
 
@@ -845,7 +956,7 @@ def loop(single_integrator_run):
     return single_integrator_run._loop
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def loop_mutable(single_integrator_run_mutable):
     """Return the IVPLoop from mutable single_integrator_run.
     
@@ -886,7 +997,7 @@ def single_integrator_run(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def single_integrator_run_mutable(
     system,
     solver_settings,
@@ -934,7 +1045,7 @@ def step_object(single_integrator_run):
     return single_integrator_run._algo_step
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def step_object_mutable(single_integrator_run_mutable):
     """Return the mutable step object from single_integrator_run_mutable.
     
@@ -943,7 +1054,7 @@ def step_object_mutable(single_integrator_run_mutable):
     return single_integrator_run_mutable._algo_step
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
@@ -1002,7 +1113,7 @@ def buffer_settings(solver_settings, output_functions):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def buffer_settings_mutable(solver_settings, output_functions_mutable):
     """Function-scoped buffer settings from mutable output functions.
     

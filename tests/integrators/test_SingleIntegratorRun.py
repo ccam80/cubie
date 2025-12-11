@@ -317,7 +317,6 @@ class TestSingleIntegratorRun:
         )
 
 
-@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_update_routes_to_children(
     single_integrator_run_mutable,
     solver_settings,

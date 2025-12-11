@@ -23,12 +23,12 @@ class DummyClass:
         self.invalidate_all_hook = invalidate_all_hook
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def instance_settings_override(request):
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def instance_settings(instance_settings_override):
     defaults = {
         "proportion": 0.5,
@@ -41,7 +41,7 @@ def instance_settings(instance_settings_override):
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def instance_settings_obj(instance_settings):
     return InstanceMemorySettings(**instance_settings)
 
@@ -97,7 +97,7 @@ def fixed_mem_override(request):
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def fixed_mem_settings(fixed_mem_override):
     defaults = {"free": 1 * 1024**3, "total": 8 * 1024**3}
     if fixed_mem_override:
@@ -107,12 +107,12 @@ def fixed_mem_settings(fixed_mem_override):
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mem_manager_override(request):
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mem_manager_settings(mem_manager_override):
     defaults = {"mode": "passive", "stride_order": ("time", "variable", "run")}
     if mem_manager_override:
@@ -123,7 +123,7 @@ def mem_manager_settings(mem_manager_override):
 
 
 # Override memory info for consistent tests
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mgr(fixed_mem_settings, mem_manager_settings):
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
@@ -135,12 +135,12 @@ def mgr(fixed_mem_settings, mem_manager_settings):
     return TestMemoryManager(**mem_manager_settings)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def registered_instance_override(request):
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def registered_instance_settings(registered_instance_override):
     defaults = {
         "proportion": 0.5,
@@ -153,12 +153,12 @@ def registered_instance_settings(registered_instance_override):
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def registered_instance(registered_instance_settings):
     return DummyClass(**registered_instance_settings)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def registered_mgr(mgr, registered_instance):
     mgr.register(
         registered_instance,

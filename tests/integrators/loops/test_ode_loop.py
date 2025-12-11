@@ -247,10 +247,7 @@ def test_initial_observable_seed_matches_reference(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["three_chamber",
-#                           ],
-#                          ids=["3cm"], indirect=True)
+
 @pytest.mark.parametrize(
     "solver_settings_override",
     LOOP_CASES_MERGED,

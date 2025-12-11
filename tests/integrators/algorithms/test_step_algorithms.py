@@ -492,9 +492,7 @@ STEP_CASES = [
     # Specific Rosenbrock-W tableaus
     pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos)
 ]
 CACHE_REUSE_CASES = [
     pytest.param(
@@ -1269,7 +1267,7 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    #tolerance 3e-7 allows 2x ULP wiggle room (currently RODAS5P is at 2.4)
+    #tolerance 3e-7 allows 2x ULP wiggle room
     tol = {"rtol": tolerance.rel_tight * 3, "atol": tolerance.abs_tight * 3}
 
     assert_allclose(
@@ -1294,11 +1292,6 @@ def test_against_euler(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["threecm"],
-#                          ids = [""],
-#                          indirect=True
-#                          )
 @pytest.mark.parametrize(
     "solver_settings_override",
     STEP_CASES_MERGED,

@@ -10,7 +10,7 @@ class DummyClass:
         self.invalidate_all_hook = invalidate_all_hook
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def stream_groups(array_request_settings):
     return StreamGroups()
 

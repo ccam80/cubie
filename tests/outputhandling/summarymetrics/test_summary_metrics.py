@@ -13,19 +13,19 @@ from cubie.outputhandling.summarymetrics.metrics import (
 from cubie.outputhandling import summary_metrics
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def empty_metrics():
     """Create an empty summarymetrics instance for testing."""
     return SummaryMetrics()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def real_metrics():
     """Return the module-level summary_metrics instance with metrics implemented."""
     return summary_metrics
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mock_functions():
     """Create mock functions for update and save."""
 
@@ -42,7 +42,7 @@ def mock_functions():
     return mock_update, mock_save
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mock_metric_settings(request):
     """Create mock settings for testing."""
     defaults = {"buffer_size": 5, "output_size": 3, "name": "mock_metric"}
@@ -69,7 +69,7 @@ class ConcreteMetric(SummaryMetric):
         return MetricFuncCache(update=self.update_func, save=self.save_func)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mock_metric(mock_functions, mock_metric_settings):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
@@ -86,7 +86,7 @@ def mock_metric(mock_functions, mock_metric_settings):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mock_parametrized_metric(mock_functions, mock_metric_settings):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
@@ -107,7 +107,7 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def mock_metrics(empty_metrics, mock_metric, mock_parametrized_metric):
     """Create a summarymetrics instance with mock metrics registered."""
     empty_metrics.register_metric(mock_metric)

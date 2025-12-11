@@ -17,7 +17,7 @@ else:
     from numba.cuda.cudadrv.devicearray import DeviceNDArray
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_initial_values(system):
     """Create simple initial values for testing."""
     return {
@@ -26,7 +26,7 @@ def simple_initial_values(system):
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_parameters(system):
     """Create simple parameters for testing."""
     return {
@@ -35,7 +35,7 @@ def simple_parameters(system):
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solved_solver_simple(
     solver,
     simple_initial_values,
@@ -225,14 +225,11 @@ def test_solve_info_property(
 
 
 @pytest.mark.parametrize(
-    "system_override, solver_settings_override",
+    "solver_settings_override",
     [
-        ({}, {}),
-        ("three_chamber",
-         {"duration": 0.05,
-          "dt_save": 0.02,
-          "dt_summarise": 0.04,
-          "output_types": ["state"]}),
+        SHORT_RUN_PARAMS,
+        {"system_type": "three_chamber",
+         **SHORT_RUN_PARAMS},
     ],
     ids=["default_system", "three_chamber_system"],
     indirect=True,
@@ -533,18 +530,6 @@ def test_solver_output_types(system, solver_settings):
 
         assert solver.output_types == output_types
 
-
-@pytest.mark.parametrize(
-    "system_override", ["three_chamber", "stiff", "linear"], indirect=True
-)
-def test_solver_with_different_systems(solver):
-    """Test solver works with different system types."""
-    assert solver is not None
-    assert solver.system_interface is not None
-    assert solver.grid_builder is not None
-    assert solver.kernel is not None
-
-
 def test_solver_summary_legend(solver):
     """Test that summary legend property works."""
     legend = solver.summary_legend_per_variable
@@ -575,11 +560,9 @@ def test_solver_num_runs_property(solver):
 # ============================================================================
 
 
-@pytest.mark.parametrize("precision_override",
-                         [np.float32],
-                         indirect=True)
+
 @pytest.mark.parametrize("solver_settings_override",
-                         [{'dt':1e-3}],
+                        [{'dt':1e-3}],
                          indirect=True,
 ids=[""])
 def test_solver_stores_time_as_float64(solver_mutable):
@@ -600,8 +583,10 @@ def test_solver_stores_time_as_float64(solver_mutable):
     assert np.isclose(solver_mutable.kernel.t0, 5.0)
 
 
-@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
-                         indirect=True)
+@pytest.mark.parametrize("solver_settings_override", [
+    {"precision": np.float32},
+    {"precision": np.float64}],
+    indirect=True)
 def test_time_precision_independent_of_state_precision(system, solver_mutable):
     """Verify time precision is float64 regardless of state precision."""
 

@@ -7,7 +7,7 @@ from cubie.outputhandling import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_settings(output_test_settings_overrides, precision):
     """Parameters for instantiating and testing the outputfunctions class, both compile settings and run settings
     per test. Outputfunctions should not care about the higher-level modules, so we duplicate information that is
@@ -28,14 +28,14 @@ def output_test_settings(output_test_settings_overrides, precision):
     return output_test_settings_dict
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_settings_overrides(request):
     """Parametrize this fixture indirectly to change test settings, no need to request this fixture directly
     unless you're testing that it worked."""
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_functions(output_test_settings):
     """outputhandling object under test"""
     return OutputFunctions(
@@ -124,7 +124,7 @@ def test_output_functions_build(output_test_settings, fails):
         assert callable(save_summaries)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def input_arrays(output_test_settings):
     """Random input state and observable arrays for tests."""
     num_states = output_test_settings["num_states"]
@@ -143,7 +143,7 @@ def input_arrays(output_test_settings):
     return states, observables
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def empty_output_arrays(output_test_settings, output_functions):
     """Empty output arrays for testing."""
 
@@ -182,7 +182,7 @@ def empty_output_arrays(output_test_settings, output_functions):
     return state_out, observable_out, state_summary, observable_summary, counters_out
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def expected_outputs(output_test_settings, input_arrays, precision):
     """Selected portions of input arrays - should match what the test kernel does."""
     num_samples = output_test_settings["num_samples"]
@@ -201,7 +201,7 @@ def expected_outputs(output_test_settings, input_arrays, precision):
     return state_out, observable_out
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def expected_summaries(
     output_test_settings,
     empty_output_arrays,
@@ -236,7 +236,7 @@ def expected_summaries(
     return state_summaries, observable_summaries
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_functions_test_kernel(
     precision, output_test_settings, output_functions
 ):
@@ -386,7 +386,7 @@ def output_functions_test_kernel(
     return _output_functions_test_kernel
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def compare_input_output(
     output_functions_test_kernel,
     output_functions,
@@ -498,8 +498,9 @@ def compare_input_output(
 
 
 @pytest.mark.parametrize(
-    "precision_override",
-    [np.float32, np.float64],
+    "solver_settings_override",
+    [{"precision": np.float32},
+     {"precision": np.float64}],
     ids=["float32", "float64"],
     indirect=True,
 )
@@ -533,10 +534,10 @@ def test_all_summaries_long_run(compare_input_output):
 
 
 @pytest.mark.parametrize(
-    "precision_override",
-    [np.float32, np.float64],
-    ids=["float32", "float64"],
-    indirect=True,
+        "solver_settings_override",
+        [{"precision": np.float32},
+         {"precision": np.float64}],
+        indirect=True
 )
 @pytest.mark.parametrize(
     "output_test_settings_overrides",
@@ -588,9 +589,6 @@ def test_all_summaries_long_window(compare_input_output):
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
-@pytest.mark.parametrize(
     "output_test_settings_overrides",
     [
         {
@@ -623,9 +621,6 @@ def test_memory_types(compare_input_output):
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
-@pytest.mark.parametrize(
     "output_test_settings_overrides",
     [
         {"random_scale": 1e-6},
@@ -640,9 +635,6 @@ def test_input_value_ranges(compare_input_output):
     pass
 
 
-@pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
 @pytest.mark.parametrize(
     "output_test_settings_overrides",
     [
@@ -660,9 +652,6 @@ def test_no_summarys(compare_input_output):
     pass
 
 
-@pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
 @pytest.mark.parametrize(
     "output_test_settings_overrides",
     [
@@ -701,9 +690,6 @@ def test_various_summaries(compare_input_output):
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
-@pytest.mark.parametrize(
     "output_test_settings_overrides",
     [
         {"saved_state_indices": [0], "saved_observable_indices": [0]},
@@ -733,10 +719,6 @@ def test_big_and_small_systems(compare_input_output):
     """Test various small to medium system sizes."""
     pass
 
-
-@pytest.mark.parametrize(
-    "precision_override", [np.float32], ids=["float32"], indirect=True
-)
 @pytest.mark.parametrize(
     "output_test_settings_overrides", [{"num_summaries": 5}], indirect=True
 )

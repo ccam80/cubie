@@ -10,7 +10,7 @@ from tests._utils import SHORT_RUN_PARAMS
 
 Array = np.ndarray
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_with_arrays(
     solver,
     batch_input_arrays,
@@ -241,16 +241,15 @@ class TestSolveResultInstantiation:
         assert isinstance(result["time_domain"], pd.DataFrame)
         assert isinstance(result["summaries"], pd.DataFrame)
 
-
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [SHORT_RUN_PARAMS],
+    indirect=True,
+)
 class TestSolveResultFromSolver:
     """Test SolveResult creation and methods using real solver instances."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
-    @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
+
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
         """Test time domain legend creation from real solver."""
         legend = SolveResult.time_domain_legend_from_solver(solver_with_arrays)
@@ -265,11 +264,6 @@ class TestSolveResultFromSolver:
             v.startswith("o") for v in legend.values() if isinstance(v, str)
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_summary_legend_from_solver(self, solver_with_arrays):
         """Test summary legend creation from real solver."""
         legend = SolveResult.summary_legend_from_solver(solver_with_arrays)
@@ -286,11 +280,7 @@ class TestSolveResultFromSolver:
         for metric in summary_metrics:
             assert any(metric in val for val in legend_values)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_stride_order_from_solver(self, solver_with_arrays):
         """Test that stride order is correctly captured from solver."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -307,14 +297,15 @@ class TestSolveResultFromSolver:
 
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [SHORT_RUN_PARAMS],
+    indirect=True,
+)
 class TestSolveResultProperties:
     """Test SolveResult property methods using real solver data."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_as_numpy_property(self, solver_with_arrays):
         """Test as_numpy property returns correct structure."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -332,11 +323,6 @@ class TestSolveResultProperties:
         )
         assert numpy_dict["time_domain_array"] is not result.time_domain_array
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_per_summary_arrays_property(self, solver_with_arrays):
         """Test per_summary_arrays property splits summaries correctly."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -350,11 +336,6 @@ class TestSolveResultProperties:
             assert summary_name in per_summary
             assert isinstance(per_summary[summary_name], np.ndarray)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_as_pandas_property(self, solver_with_arrays):
         """Test as_pandas property creates proper DataFrames."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -382,11 +363,6 @@ class TestSolveResultProperties:
             for i, run_name in enumerate(run_levels):
                 assert run_name == f"run_{i}"
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_active_outputs_property(self, solver_with_arrays):
         """Test active_outputs property returns correct ActiveOutputs."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -432,15 +408,14 @@ class TestSolveResultDefaultBehavior:
         per_summary = result.per_summary_arrays
         assert isinstance(per_summary, dict)
 
-
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [SHORT_RUN_PARAMS],
+    indirect=True,
+)
 class TestSolveResultPandasIntegration:
     """Test pandas-specific functionality."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_pandas_shape_consistency(self, solver_with_arrays):
         """Test pandas DataFrame shapes are consistent with array dimensions."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -465,11 +440,6 @@ class TestSolveResultPandasIntegration:
             )
             assert sum_df.shape[1] == expected_sum_cols
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_pandas_time_indexing(self, solver_with_arrays):
         """Test that time array is used as DataFrame index when available."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -488,11 +458,15 @@ class TestSolveResultPandasIntegration:
                 )
                 assert len(td_df.index) == len(expected_time)
 
-
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [SHORT_RUN_PARAMS],
+    indirect=True,
+)
 class TestSolveResultErrorHandling:
     """Test error handling and edge cases."""
 
-    def test_empty_summaries_per_summary_arrays(self):
+    def test_empty_summaries_per_summary_arrays(self, solver_settings):
         """Test per_summary_arrays with no summaries."""
         result = SolveResult()
         result._active_outputs = ActiveOutputs(
@@ -503,11 +477,6 @@ class TestSolveResultErrorHandling:
         assert per_summary == {}
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 def test_status_codes_attribute(solver_with_arrays):
     """Verify status_codes attribute is present in SolveResult."""
     result = SolveResult.from_solver(solver_with_arrays)
@@ -524,12 +493,9 @@ def test_status_codes_attribute(solver_with_arrays):
 
 
 @pytest.fixture(scope="session")
-def solved_batch_solver(system, precision):
-    """Run a single batch solve and return the solver with computed arrays.
-
-    This session-scoped fixture runs once and is reused by all tests,
-    significantly reducing test runtime by avoiding repeated compilation
-    and batch solves.
+def solved_batch_solver_errorcode(system, precision):
+    """Fixture providing a solver with multiple runs where some
+    runs have error codes.
     """
     solver = Solver(system, dt_save=0.01)
 
@@ -550,10 +516,6 @@ def solved_batch_solver(system, precision):
     solver.kernel.output_arrays.host.status_codes.array[1] = 1
     return solver
 
-
-@pytest.mark.parametrize(
-    "system_override", ["linear"], ids=[""], indirect=True
-)
 class TestNaNProcessing:
     """Test NaN processing by manually modifying status codes.
 

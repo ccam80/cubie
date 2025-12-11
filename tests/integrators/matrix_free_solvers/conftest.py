@@ -5,7 +5,7 @@ from numba import cuda
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def system_setup(request, precision):
     """Generate symbolic systems for solver tests.
 
@@ -153,7 +153,7 @@ def system_setup(request, precision):
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def neumann_kernel(precision):
     """Compile a kernel for the Neumann preconditioner.
 
@@ -199,7 +199,7 @@ def neumann_kernel(precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_kernel():
     """Compile a kernel for linear solver device functions.
 

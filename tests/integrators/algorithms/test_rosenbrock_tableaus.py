@@ -44,16 +44,13 @@ def test_rosenbrock_step_function_accepts_registry_key(
     assert stepper.tableau is ROSENBROCK_TABLEAUS["ros3p"]
 
 @pytest.mark.parametrize(
-    "solver_settings_override, system_override",
+    "solver_settings_override",
     [
-        (
-            {
-                "algorithm": "ros3p",
-                "step_controller": "pid",
-                "krylov_tolerance": 1e-7,
-            },
-            {},
-        )
+        {
+            "algorithm": "ros3p",
+            "step_controller": "pid",
+            "krylov_tolerance": 1e-7,
+        },
     ],
     indirect=True,
 )

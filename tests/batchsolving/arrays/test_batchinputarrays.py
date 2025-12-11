@@ -2,7 +2,6 @@ from os import environ
 
 import numpy as np
 import pytest
-from numba import cuda
 from numpy.testing import assert_array_equal
 
 from cubie.batchsolving.arrays.BatchInputArrays import (
@@ -18,14 +17,14 @@ else:
     pass
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def input_test_overrides(request):
     if hasattr(request, "param"):
         return request.param
     return {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def input_test_settings(input_test_overrides):
     settings = {
         "num_runs": 5,
@@ -38,7 +37,7 @@ def input_test_settings(input_test_overrides):
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def input_arrays_manager(precision, solver, input_test_settings):
     """Create a InputArrays instance using real solver"""
     batch_input_sizes = BatchInputSizes.from_solver(solver)
@@ -51,7 +50,7 @@ def input_arrays_manager(precision, solver, input_test_settings):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def sample_input_arrays(solver, input_test_settings, precision):
     """Create sample input arrays for testing based on real solver.
     
@@ -343,7 +342,10 @@ class TestInputArrays:
     #     )
 
     @pytest.mark.parametrize(
-        "precision_override", [np.float32, np.float64], indirect=True
+        "solver_settings_override",
+        [{"precision": np.float32},
+         {"precision": np.float64}],
+    indirect=True
     )
     def test_dtype(
         self, input_arrays_manager, solver, sample_input_arrays, precision
@@ -413,8 +415,10 @@ def test_input_arrays_with_different_configs(
 
 
 @pytest.mark.parametrize(
-    "system_override",
-    ["three_chamber", "stiff", "linear"],
+    "solver_settings_override",
+    [{"system_type": "three_chamber"},
+     {"system_type":"stiff"},
+     {"system_type":"linear"}],
     indirect=True,
 )
 def test_input_arrays_with_different_systems(

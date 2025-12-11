@@ -53,7 +53,7 @@ def test_setup_compile_settings(factory):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def factory_with_settings(factory, precision):
     """Fixture to provide a factory with specific compile settings."""
     settings_dict = {
