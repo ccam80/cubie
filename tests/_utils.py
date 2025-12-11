@@ -16,6 +16,33 @@ from numpy.typing import NDArray
 
 Array = NDArray[np.floating]
 
+# --------------------------------------------------------------------------- #
+#                      Standard Parameter Sets                                #
+# --------------------------------------------------------------------------- #
+
+SHORT_RUN_PARAMS = {
+    'duration': 0.05,
+    'dt_save': 0.05,
+    'dt_summarise': 0.05,
+    'output_types': ['state', 'time', 'observables', 'mean'],
+}
+
+MID_RUN_PARAMS = {
+    'dt': 0.001,
+    'dt_save': 0.02,
+    'dt_summarise': 0.1,
+    'dt_max': 0.5,
+    'output_types': ['state', 'time', 'observables', 'mean'],
+}
+
+LONG_RUN_PARAMS = {
+    'duration': 0.3,
+    'dt': 0.0005,
+    'dt_save': 0.05,
+    'dt_summarise': 0.15,
+    'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
+}
+
 
 def calculate_expected_summaries(
     state,

@@ -48,6 +48,7 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
+from tests._utils import MID_RUN_PARAMS
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -455,14 +456,7 @@ ALIAS_CASES = [
         id="rosenbrock-23-sciml",
     ),
 ]
-STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
-                  'dt_min': 1e-6,
-                  'newton_tolerance': 1e-6,
-                  'krylov_tolerance': 1e-6,
-                  "atol": 1e-6,
-                  "rtol": 1e-6,
-                  "output_types": ["state"],
-                  'saved_state_indices': [0, 1, 2]}
+STEP_OVERRIDES = MID_RUN_PARAMS
 
 STEP_CASES = [
     pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),

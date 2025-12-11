@@ -13,11 +13,9 @@ from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
-from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
 from cubie.integrators.loops.ode_loop import (
-    IVPLoop,
     ALL_LOOP_SETTINGS,
     LoopBufferSettings,
 )
@@ -52,6 +50,7 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
+
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #

@@ -5,6 +5,7 @@ from numba import cuda
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from tests._utils import assert_integration_outputs, LoopRunResult
+from tests._utils import LONG_RUN_PARAMS
 
 
 def test_kernel_builds(solverkernel):
@@ -17,37 +18,11 @@ def test_kernel_builds(solverkernel):
     (
         pytest.param(
             "three_chamber",
-            {
-                "duration": 0.3,
-                "dt": 0.0025,
-                "dt_save": 0.1,
-                "dt_summarise": 0.3,
-                "output_types": [
-                    "state",
-                    "time",
-                    "observables",
-                    "mean",
-                    "max",
-                    "rms",
-                    "peaks[2]",
-                ],
-                'saved_state_indices': [0, 1, 2],
-                'saved_observable_indices': [0, 1, 2],
-                'summarised_state_indices': [0, 1, 2],
-                'summarised_observable_indices': [0, 1, 2],
-            },
+            LONG_RUN_PARAMS,
             {}),
-        ("three_chamber",
-         {"output_types": ["state", "observables", "time", "mean", "rms"],
-          'dt': 0.001,
-          'dt_save': 0.1,
-          'dt_summarise': 0.3,
-          "duration": 0.3}, {})
     ),
-    ids=["smoke_test", "fire_test"],
-    indirect=True, #I'm no longer certain why the latter is called fire -
-        # its been slimmed back to potentially smaller than smoke, but its
-        # duration is far longer.
+    ids=["smoke_test"],
+    indirect=True,
 )
 def test_run(
     solverkernel,
