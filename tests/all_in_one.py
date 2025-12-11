@@ -2924,6 +2924,7 @@ elif algorithm_type == 'rosenbrock':
     # For Rosenbrock, we need a linear solver with cached Jacobian
     # This is a simplified version - full implementation would need
     # cached Jacobian helpers
+    krylov_iters = cuda.local.array((1), int32)
     linear_solver_fn = linear_solver_inline_factory(
         operator_fn, n_states,
         preconditioner_fn,
@@ -2931,6 +2932,7 @@ elif algorithm_type == 'rosenbrock':
         max_linear_iters,
         precision,
         linear_correction_type,
+        krylov_iters
     )
 
     # Placeholder functions for Rosenbrock-specific operations
@@ -3730,9 +3732,9 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     # native order=(time, var, run)
     obs_summ_shape = (n_summary_samples, 1, 1)
     obs_summ_strides = get_strides(obs_summ_shape, precision, (0, 1, 2))
-    observable_summaries_output = cuda.device_array(obs_summ_shape,
-                                                    dtype=precision,
-                                                    strides=obs_summ_strides)
+    observable_summaries_output = cuda.device_array(
+        obs_summ_shape, dtype=precision, strides=obs_summ_strides
+    )
 
     # iteration_counters_output: shape=(runs, samples, counters)
     # native order=(run, time, var) - unchanged (special case)
@@ -3764,6 +3766,11 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
+    print(f"  Max registers: "
+      f"{tuple(reg 
+           for reg in integration_kernel.get_regs_per_thread().values())[0]}"
+    )
+
     stream = cuda.stream()
     print("\nLaunching kernel...")
     kernel_launch_time = perf_counter()
@@ -3777,7 +3784,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     kernel_end_time = perf_counter()
     # Mapped arrays provide direct host access after synchronization
     # No explicit copy_to_host required
-    print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
+    # print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
     status_codes_output = status_codes_output.copy_to_host(stream=stream)
     state_output = state_output.copy_to_host(stream=stream)
     observables_output = observables_output.copy_to_host(stream=stream)
@@ -3806,10 +3813,20 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")
 
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
-
-
     print(f"Final state sample (run 0): {state_output[-1, :n_states, 0]}")
     print(f"Final state sample (run -1): {state_output[-1, :n_states, -1]}")
+    print("\n\n\n")
+    print("\n" + "=" * 70 + "\n")
+    print("Type dump")
+    print("\n" + "=" * 70 + "\n")
+    print(f"{integration_kernel.inspect_types()}")
+    print(f"{loop_fn.inspect_types()}")
+    print(f"{step_fn.inspect_types()}")
+    print(f"{save_state_inline.inspect_types()}")
+    print(f"{update_summaries_inline.inspect_types()}")
+    print(f"{save_summaries_inline.inspect_types()}")
+    print(f"{linear_solver_fn.inspect_types()}")
+    print(f"{newton_solver_fn.inspect_types()}")
 
     return state_output, status_codes_output
 

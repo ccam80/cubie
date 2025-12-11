@@ -225,6 +225,7 @@ def solver_kernel():
             drivers = cuda.local.array(1, precision)
             # Allocate shared memory for solver buffers
             shared = cuda.shared.array(scratch_size, dtype=precision)
+            counters = cuda.local.array(1, np.int32)
             flag[0] = solver(
                 state,
                 parameters,
@@ -236,6 +237,7 @@ def solver_kernel():
                 rhs,
                 x,
                 shared,
+                counters
             )
 
         return kernel
