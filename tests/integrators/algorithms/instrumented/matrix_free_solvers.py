@@ -123,7 +123,7 @@ def inst_linear_solver_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, 0.0, alpha)
+            alpha_effective = selp(converged, precision_scalar(0.0), alpha)
 
             acc = typed_zero
             for i in range(n_val):
@@ -280,7 +280,7 @@ def inst_linear_solver_cached_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, 0.0, alpha)
+            alpha_effective = selp(converged, precision_scalar(0.0), alpha)
 
             acc = typed_zero
             for i in range(n_val):
@@ -530,10 +530,10 @@ def inst_newton_krylov_solver_factory(
             final_status = selp(backtrack_failed, final_status | int32(1),
                                 final_status)
 
-            # Revert state if backtrack failed
-            if backtrack_failed:
-                for i in range(n):
-                    stage_increment[i] -= scale_applied * delta[i]
+            # Revert state if backtrack failed using predicated pattern
+            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
+            for i in range(n):
+                stage_increment[i] += revert_scale * delta[i]
 
             iter_slot = int(iters_count) - 1
             if iter_slot >= 0:

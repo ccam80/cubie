@@ -270,10 +270,10 @@ def newton_krylov_solver_factory(
             final_status = selp(backtrack_failed, final_status | int32(1),
                                 final_status)
 
-            # Revert state if backtrack failed
-            if backtrack_failed:
-                for i in range(n):
-                    stage_increment[i] -= scale_applied * delta[i]
+            # Revert state if backtrack failed using predicated pattern
+            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
+            for i in range(n):
+                stage_increment[i] += revert_scale * delta[i]
 
         # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
@@ -286,8 +286,6 @@ def newton_krylov_solver_factory(
 
         # Return status without encoding iterations (breaking change per plan)
         return final_status
-
-
 
     # no cover: end
     return newton_krylov_solver
