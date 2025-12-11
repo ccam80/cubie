@@ -737,10 +737,10 @@ def linear_solver_inline_factory(
     @cuda.jit(
         (numba_prec[::1], numba_prec[::1], numba_prec[::1],
          numba_prec[::1], numba_prec, numba_prec, numba_prec,
-         numba_prec[::1], numba_prec[::1]),
+         numba_prec[::1], numba_prec[::1], int32[::1]),
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
-                      rhs, x):
+                      rhs, x, krylov_iters_out):
         preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
         temp = cuda.local.array(n_arraysize, numba_prec)
 
@@ -756,6 +756,9 @@ def linear_solver_inline_factory(
 
         iter_count = int32(0)
         for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
             iter_count += int32(1)
             preconditioner(
                 state,
@@ -806,13 +809,10 @@ def linear_solver_inline_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+        # Single exit point - status based on converged flag
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return final_status
     return linear_solver
 
 
@@ -831,7 +831,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
     typed_damping = numba_prec(damping)
-    status_active = int32(-1)
 
     @cuda.jit(
             [(numba_prec[::1],
@@ -861,34 +860,45 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             delta[i] = typed_zero
             norm2_prev += residual_value * residual_value
 
-        status = status_active
-        if norm2_prev <= tol_squared:
-            status = int32(0)
+        # Boolean control flags replace status-code-based loop control
+        converged = norm2_prev <= tol_squared
+        has_error = False
+        final_status = int32(0)
+
+        # Local array for linear solver iteration count output
+        krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
-            if all_sync(mask, status >= 0):
+            done = converged or has_error
+            if all_sync(mask, done):
                 break
 
-            iters_count += int32(1)
-            if status < 0:
-                lin_return = linear_solver(stage_increment, parameters,
+            # Predicated iteration count update
+            active = not done
+            iters_count = selp(active, iters_count + int32(1), iters_count)
+
+            if active:
+                krylov_iters_local[0] = int32(0)
+                lin_status = linear_solver(stage_increment, parameters,
                                            drivers, base_state, t, h, a_ij,
-                                           residual, delta)
-                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
-                total_krylov_iters += krylov_iters
-                lin_status = lin_return & int32(0xFFFF)
-                if lin_status != int32(0):
-                    status = int32(lin_status)
+                                           residual, delta, krylov_iters_local)
+                total_krylov_iters += krylov_iters_local[0]
+
+                lin_failed = lin_status != int32(0)
+                has_error = has_error or lin_failed
+                final_status = selp(lin_failed, final_status | lin_status,
+                                    final_status)
 
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
 
             for _ in range(max_backtracks + 1):
-                if status < 0:
+                active_backtrack = active and not found_step
+                if active_backtrack:
                     delta_scale = scale - scale_applied
                     for i in range(n):
                         stage_increment[i] += delta_scale * delta[i]
@@ -902,33 +912,43 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual_value = residual[i]
                         norm2_new += residual_value * residual_value
 
-                    if norm2_new <= tol_squared:
-                        status = int32(0)
+                    # Check convergence
+                    just_converged = norm2_new <= tol_squared
+                    converged = converged or just_converged
 
-                    accept = (status < 0) and (norm2_new < norm2_prev)
+                    accept = (not converged) and (norm2_new < norm2_prev)
                     found_step = found_step or accept
 
                     for i in range(n):
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                if all_sync(mask, found_step or status >= 0):
+                done_backtrack = found_step or converged or has_error
+                if all_sync(mask, done_backtrack):
                     break
                 scale *= typed_damping
 
-            if (status < 0) and (not found_step):
+            # Backtrack failure handling
+            backtrack_failed = active and (not found_step) and (not converged)
+            has_error = has_error or backtrack_failed
+            final_status = selp(backtrack_failed, final_status | int32(1),
+                                final_status)
+
+            # Revert state if backtrack failed
+            if backtrack_failed:
                 for i in range(n):
                     stage_increment[i] -= scale_applied * delta[i]
-                status = int32(1)
 
-        if status < 0:
-            status = int32(2)
+        # Max iterations exceeded without convergence
+        max_iters_exceeded = (not converged) and (not has_error)
+        final_status = selp(max_iters_exceeded, final_status | int32(2),
+                            final_status)
 
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= iters_count << 16
-        return status
+        # Return status without encoding iterations
+        return final_status
     return newton_krylov_solver
 
 
@@ -3385,7 +3405,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             )
             first_step_flag = int16(0)
 
-            niters = (step_status >> 16) & status_mask
+            # Iterations now come from counters, not encoded in status
+            niters = proposed_counters[0]
             status |= step_status & status_mask
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
