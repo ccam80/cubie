@@ -48,7 +48,7 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
-from tests.conftest import MID_RUN_PARAMS
+from tests._utils import MID_RUN_PARAMS
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF

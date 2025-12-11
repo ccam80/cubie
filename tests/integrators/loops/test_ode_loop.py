@@ -10,7 +10,7 @@ import pytest
 
 from cubie import summary_metrics
 from tests._utils import assert_integration_outputs
-from tests.conftest import MID_RUN_PARAMS
+from tests._utils import MID_RUN_PARAMS
 
 Array = NDArray[np.floating]
 

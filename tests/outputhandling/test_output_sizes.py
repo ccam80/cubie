@@ -12,7 +12,7 @@ from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     BatchInputSizes,
 )
-from tests.conftest import SHORT_RUN_PARAMS
+from tests._utils import SHORT_RUN_PARAMS
 
 
 class TestNonzeroProperty:

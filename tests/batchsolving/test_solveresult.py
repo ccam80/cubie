@@ -6,7 +6,7 @@ import pytest
 from cubie import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests.conftest import SHORT_RUN_PARAMS
+from tests._utils import SHORT_RUN_PARAMS
 
 Array = np.ndarray
 

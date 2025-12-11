@@ -13,11 +13,9 @@ from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
-from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
 from cubie.integrators.loops.ode_loop import (
-    IVPLoop,
     ALL_LOOP_SETTINGS,
     LoopBufferSettings,
 )
@@ -52,35 +50,6 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
-
-# --------------------------------------------------------------------------- #
-#                      Standard Parameter Sets                                #
-# --------------------------------------------------------------------------- #
-# Reduces compilation overhead by consolidating ~80 unique parameter
-# combinations to ~13 standard sets plus edge cases
-
-SHORT_RUN_PARAMS = {
-    'duration': 0.05,
-    'dt_save': 0.05,
-    'dt_summarise': 0.05,
-    'output_types': ['state', 'time'],
-}
-
-MID_RUN_PARAMS = {
-    'dt': 0.001,
-    'dt_save': 0.02,
-    'dt_summarise': 0.1,
-    'dt_max': 0.5,
-    'output_types': ['state', 'time', 'mean'],
-}
-
-LONG_RUN_PARAMS = {
-    'duration': 0.3,
-    'dt': 0.0005,
-    'dt_save': 0.05,
-    'dt_summarise': 0.15,
-    'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
-}
 
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #

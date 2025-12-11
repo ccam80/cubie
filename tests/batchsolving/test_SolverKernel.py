@@ -5,7 +5,7 @@ from numba import cuda
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from tests._utils import assert_integration_outputs, LoopRunResult
-from tests.conftest import LONG_RUN_PARAMS
+from tests._utils import LONG_RUN_PARAMS
 
 
 def test_kernel_builds(solverkernel):

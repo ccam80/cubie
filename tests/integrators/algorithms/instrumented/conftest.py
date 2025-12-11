@@ -6,6 +6,7 @@ import pytest
 from numba import cuda, from_dtype, int16
 from numba.core.types import int32
 
+from conftest import _build_enhanced_algorithm_settings
 from cubie.integrators.algorithms import (
     BackwardsEulerPCStep,
     BackwardsEulerStep,
@@ -233,6 +234,7 @@ class DeviceInstrumentedResult:
 def instrumented_step_object(
     system,
     algorithm_settings,
+    driver_array,
     precision,
 ):
     """Instantiate the configured instrumented step implementation."""
@@ -240,7 +242,10 @@ def instrumented_step_object(
     # Use the mirrored factory to instantiate the instrumented implementation.
     # We pass the whole solver_settings mapping so the factory can filter
     # arguments identically to the production path.
-    return get_instrumented_step(precision, algorithm_settings)
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+            algorithm_settings, system, driver_array
+    )
+    return get_instrumented_step(precision, enhanced_algorithm_settings)
 
 
 @pytest.fixture(scope="session")
@@ -409,7 +414,7 @@ def instrumented_step_results(
                 current_time = current_time + dt_scalar
 
 
-    # Inline the previously nested _run_steps function: allocate buffers, launch kernel, copy results
+    # inline the previously nested _run_steps function: allocate buffers, launch kernel, copy results
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
 
     # Check if this is a FIRK step which requires flattened solver buffers

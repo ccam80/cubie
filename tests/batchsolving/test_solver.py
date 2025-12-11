@@ -7,7 +7,7 @@ from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
-from tests.conftest import SHORT_RUN_PARAMS
+from tests._utils import SHORT_RUN_PARAMS
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
