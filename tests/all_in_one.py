@@ -425,8 +425,8 @@ def observables_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-               numba_prec[::1], numba_prec),
+            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+            #    numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
         pass
@@ -2530,8 +2530,8 @@ def save_state_inline(current_state, current_observables, current_counters,
 # =========================================================================
 
 @cuda.jit(
-    ["float32, float32[::1], int32, int32",
-     "float64, float64[::1], int32, int32"],
+    # ["float32, float32[::1], int32, int32",
+    #  "float64, float64[::1], int32, int32"],
     device=True,
     inline=True,
     **compile_kwargs
@@ -2547,8 +2547,8 @@ def update_mean(
 
 
 @cuda.jit(
-    ["float32[::1], float32[::1], int32, int32",
-     "float64[::1], float64[::1], int32, int32"],
+    # ["float32[::1], float32[::1], int32, int32",
+    #  "float64[::1], float64[::1], int32, int32"],
     device=True,
     inline=True,
     **compile_kwargs
