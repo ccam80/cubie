@@ -561,7 +561,7 @@ class ArrayInterpolator(CUDAFactory):
         device_eval = self.evaluation_function
 
         # no cover: start
-        @cuda.jit
+        @cuda.jit()
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
             if idx < times_device.shape[0]:
