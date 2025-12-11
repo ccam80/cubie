@@ -4,9 +4,10 @@
 
 This refactoring restructures test parameterization to reduce CUDA compilation sessions by:
 1. Separating runtime values from compile-time settings
-2. Consolidating override fixtures
-3. Rationalizing system and precision parameterization
-4. Eliminating redundant test variations
+2. Consolidating override fixtures (precision_override, system_override into solver_settings)
+3. Rationalizing solver_settings_override2 usage (keep for class-level, merge for function-level)
+4. Rationalizing system and precision parameterization
+5. Eliminating redundant test variations
 
 ## Component Changes
 
@@ -53,11 +54,37 @@ RUN_DEFAULTS = {
 - Target: System type is specified via `solver_settings['system_type']` key
 - Default to 'nonlinear' when not specified
 
-#### 2c. Simplify `solver_settings_override` Pattern
+#### 2c. Rationalize `solver_settings_override2` Pattern
 - Current: Two override fixtures (`solver_settings_override`, `solver_settings_override2`)
-- Target: Single `solver_settings_override` fixture
-- Remove `solver_settings_override2` entirely
-- Tests needing multiple overrides combine them in a single dict
+- Target: **KEEP `solver_settings_override2` for class-level parameterization**
+- Pattern: Classes use `override2` (parameterized at class level), methods use `override` (parameterized at method level)
+- **Merge function-level dual overrides** into single `solver_settings_override`
+
+**Valid Pattern (KEEP):**
+```python
+@pytest.mark.parametrize("solver_settings_override2", 
+    [{"step_controller": "i"}, {"step_controller": "pi"}],
+    indirect=True)
+class TestControllers:
+    # Class parameterized by controller type
+    
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"dt_min": 0.1, "dt_max": 0.2}], indirect=True)
+    def test_dt_clamps(self, ...):
+        # Method has its own parameterization
+```
+
+**Invalid Pattern (MERGE):**
+```python
+# Before - function-level dual override (BAD)
+@pytest.mark.parametrize("solver_settings_override2", [MID_RUN_PARAMS], indirect=True)
+@pytest.mark.parametrize("solver_settings_override", STEP_CASES, indirect=True)
+def test_algorithm(...):
+
+# After - merged into single override (GOOD)
+@pytest.mark.parametrize("solver_settings_override", STEP_CASES_MERGED, indirect=True)
+def test_algorithm(...):
+```
 
 #### 2d. Remove Runtime Values from solver_settings
 - Current: `duration`, `t0`, `warmup` in `solver_settings` defaults
@@ -68,11 +95,22 @@ RUN_DEFAULTS = {
 ```python
 @pytest.fixture(scope="session")
 def solver_settings_override(request):
-    """Single override point for all solver settings."""
+    """Override for solver settings at method/function level."""
     return request.param if hasattr(request, "param") else {}
 
 @pytest.fixture(scope="session")
-def solver_settings(solver_settings_override, precision, request):
+def solver_settings_override2(request):
+    """Override for solver settings at class level.
+    
+    Used when a class is parameterized by one setting (e.g., controller type)
+    and individual methods need their own overrides. Class uses override2,
+    methods use override.
+    """
+    return request.param if hasattr(request, "param") else {}
+
+@pytest.fixture(scope="session")
+def solver_settings(solver_settings_override, solver_settings_override2, 
+                    precision, request):
     """Consolidated solver settings with defaults."""
     # No duration/t0/warmup here - those are runtime
     defaults = {
@@ -82,20 +120,29 @@ def solver_settings(solver_settings_override, precision, request):
         "dt": precision(0.01),
         # ... other compile-time settings
     }
-    # Apply overrides
-    for key, value in solver_settings_override.items():
-        defaults[key] = value
+    # Apply class-level overrides first, then method-level
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override:
+            for key, value in override.items():
+                defaults[key] = value
     return defaults
 
 @pytest.fixture(scope="session")
-def precision(solver_settings):
-    """Extract precision from solver_settings."""
-    return solver_settings['precision']
+def precision(solver_settings_override, solver_settings_override2):
+    """Extract precision from overrides, defaulting to float32."""
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'precision' in override:
+            return override['precision']
+    return np.float32
 
 @pytest.fixture(scope="session")
-def system(solver_settings, precision):
-    """Build system based on solver_settings['system_type']."""
-    system_type = solver_settings.get('system_type', 'nonlinear')
+def system(solver_settings_override, solver_settings_override2, precision):
+    """Build system based on system_type from overrides."""
+    system_type = 'nonlinear'  # default
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'system_type' in override:
+            system_type = override['system_type']
+            break
     # ... build appropriate system
 ```
 
@@ -103,66 +150,105 @@ def system(solver_settings, precision):
 
 #### 3a. test_ode_loop.py Changes
 
-**Purpose**: Consolidate loop tests, remove redundant parameterization.
+**Purpose**: Consolidate loop tests, merge function-level dual overrides.
 
 **Changes**:
-- Remove `system_override` parameterization where not needed
-- Remove `precision_override` parameterization where not needed
-- Use single `solver_settings_override` combining all settings
+- Remove `system_override` parameterization - use `solver_settings_override` with `system_type` key
+- Remove `precision_override` parameterization - use `solver_settings_override` with `precision` key
+- **Merge function-level `solver_settings_override2` into `solver_settings_override`**
 - Unpack `RUN_DEFAULTS` in test bodies for duration/t0/warmup
 
-**Before Pattern**:
+**Before Pattern (function-level dual override - ELIMINATE):**
 ```python
-@pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
 @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
-@pytest.mark.parametrize("solver_settings_override2", [{...}], indirect=True)
-@pytest.mark.parametrize("solver_settings_override", [{...}], indirect=True)
-def test_something(...):
+@pytest.mark.parametrize("solver_settings_override2", [DEFAULT_OVERRIDES], indirect=True)
+@pytest.mark.parametrize("solver_settings_override", LOOP_CASES, indirect=True)
+def test_loop(...):
 ```
 
-**After Pattern**:
+**After Pattern (merged single override):**
 ```python
 @pytest.mark.parametrize("solver_settings_override", 
-    [{"precision": np.float32, "system_type": "linear", ...}], 
+    [merge_dicts(DEFAULT_OVERRIDES, case, {"system_type": "linear"}) 
+     for case in LOOP_CASES], 
     indirect=True)
-def test_something(solver_settings, ...):
+def test_loop(solver_settings, ...):
     duration = RUN_DEFAULTS['duration']
     t0 = RUN_DEFAULTS['t0']
 ```
 
 #### 3b. test_step_algorithms.py Changes
 
-**Purpose**: Eliminate single-step tests in favor of dual-step tests.
+**Purpose**: Merge function-level dual overrides, eliminate single-step tests.
 
 **Changes**:
-- Remove separate single-step fixture (`device_step_results`) from test parameterization
+- **Merge `solver_settings_override2` (STEP_OVERRIDES/MID_RUN_PARAMS) into STEP_CASES**
+- Remove separate single-step fixture from parameterization
 - Modify tests to always use dual-step execution via `_execute_step_twice`
 - First step of dual execution validates single-step behavior
 - Second step validates cache reuse
 
-**Test Structure**:
+**Before Pattern (function-level dual override - ELIMINATE):**
 ```python
+@pytest.mark.parametrize("solver_settings_override2", [STEP_OVERRIDES], indirect=True)
+@pytest.mark.parametrize("solver_settings_override", STEP_CASES, indirect=True)
 def test_algorithm(...):
-    # Execute two steps
-    result = _execute_step_twice(...)
-    
-    # First step validates single-step behavior
-    assert result.first_state matches expected
-    
-    # Second step validates cache reuse
-    assert result.second_state matches expected
+```
+
+**After Pattern (merged):**
+```python
+STEP_CASES_MERGED = [merge_dicts(STEP_OVERRIDES, case) for case in STEP_CASES]
+
+@pytest.mark.parametrize("solver_settings_override", STEP_CASES_MERGED, indirect=True)
+def test_algorithm(...):
 ```
 
 #### 3c. test_controllers.py Changes
 
-**Purpose**: Simplify controller test parameterization.
+**Purpose**: KEEP class-level parameterization, merge function-level where dual used incorrectly.
 
 **Changes**:
-- Combine `solver_settings_override` and `solver_settings_override2` into single override
-- Use consolidated `solver_settings` for controller settings
+- **KEEP** `solver_settings_override2` at class level for `TestControllers`
+- **KEEP** `solver_settings_override` at method level for specific test settings
+- **MERGE** in `test_pi_controller_uses_tableau_order` (currently uses both at function level)
 - Remove redundant system parameterization
 
-#### 3d. test_solver.py Changes
+**Keep This Pattern (class-level - VALID):**
+```python
+@pytest.mark.parametrize("solver_settings_override2",
+    [{"step_controller": "i"}, {"step_controller": "pi"}, ...],
+    indirect=True)
+class TestControllers:
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"dt_min": 0.1, "dt_max": 0.2}], indirect=True)
+    def test_dt_clamps(self, ...):
+```
+
+**Fix This Pattern (function-level dual - MERGE):**
+```python
+# Before
+@pytest.mark.parametrize(("solver_settings_override", "solver_settings_override2"),
+    [({"algorithm": "rosenbrock"}, {"step_controller": "pi", "atol": 1e-3})],
+    indirect=True)
+def test_pi_controller_uses_tableau_order(...):
+
+# After
+@pytest.mark.parametrize("solver_settings_override",
+    [{"algorithm": "rosenbrock", "step_controller": "pi", "atol": 1e-3}],
+    indirect=True)
+def test_pi_controller_uses_tableau_order(...):
+```
+
+#### 3d. test_controller_equivalence_sequences.py Changes
+
+**Purpose**: KEEP class-level parameterization pattern.
+
+**Changes**:
+- **KEEP** current class-level `solver_settings_override2` for controller types
+- **KEEP** current method-level `solver_settings_override` for timing/tolerance settings
+- Remove `system_override` - use `solver_settings_override` with `system_type` key
+
+#### 3e. test_solver.py Changes
 
 **Purpose**: Reduce unnecessary system variations.
 
@@ -220,11 +306,13 @@ def test_algorithm(...):
 ### Fixture Dependencies (After Refactoring)
 
 ```
-solver_settings_override
-    └── solver_settings
-        ├── precision (accessor)
+solver_settings_override (method/function level)
+solver_settings_override2 (class level)
+    │
+    └── solver_settings (merges both overrides)
+        ├── precision (accessor, checks overrides)
         ├── tolerance (depends on precision)
-        ├── system (depends on solver_settings.system_type)
+        ├── system (depends on system_type from overrides)
         ├── driver_settings
         │   └── driver_array
         ├── algorithm_settings
@@ -234,6 +322,13 @@ solver_settings_override
         └── memory_settings
             └── [object fixtures: single_integrator_run, solver, etc.]
 ```
+
+### Override Merge Order
+
+When both overrides are present:
+1. `solver_settings_override2` applied first (class-level baseline)
+2. `solver_settings_override` applied second (method-level specifics)
+3. Method-level values take precedence over class-level
 
 ### Session Boundaries
 
@@ -253,6 +348,13 @@ Within a session, runtime parameters (duration, t0, warmup) can vary freely with
 3. **Precision-sensitive assertions**: Tests checking precision-specific behavior (ULP accuracy) need explicit precision but shouldn't create extra sessions for other tests.
 
 4. **Algorithm tableau variations**: Different tableaus for same algorithm type can share sessions if precision/system match.
+
+5. **Class-level vs function-level parameterization**: 
+   - Classes that group tests by a shared attribute (e.g., controller type) should use `solver_settings_override2` at class level
+   - Methods within those classes use `solver_settings_override` for test-specific settings
+   - Standalone functions should NEVER use both overrides - merge into single `solver_settings_override`
+
+6. **Converting class to standalone functions**: If a class's methods don't benefit from shared parameterization, consider converting to standalone functions with merged overrides instead of using dual overrides.
 
 ## Dependencies
 

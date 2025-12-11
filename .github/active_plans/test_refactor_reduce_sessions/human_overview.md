@@ -54,15 +54,16 @@
 - Single-step tests are removed
 - Cache reuse behavior is tested in all relevant tests
 
-### US-6: Consolidate Settings into solver_settings
+### US-6: Rationalize solver_settings_override2 Usage
 **As a** test maintainer,  
-**I want** tests to draw all settings from the consolidated `solver_settings` dict,  
-**So that** we reduce the number of fixture parameter combinations.
+**I want** `solver_settings_override2` to be used purposefully for class-level parameterization,  
+**So that** we maintain its value for separate class/method parameterization while eliminating redundant function-level dual parameterization.
 
 **Acceptance Criteria:**
-- Tests retrieve settings from `solver_settings` fixture
-- `solver_settings_override` and `solver_settings_override2` patterns are simplified
-- Reduced need for multiple override layers
+- `solver_settings_override2` is RETAINED for class-level parameterization (e.g., `TestControllers`, `TestControllerEquivalence`)
+- Function-level uses of `solver_settings_override2` are merged into single `solver_settings_override`
+- Clear documentation of the intended pattern: class uses override2, methods use override
+- Tests that used dual overrides at function level are refactored to use single merged override
 
 ---
 
@@ -114,11 +115,16 @@ graph TD
 
 1. **Runtime vs Compile-Time Separation**: `duration`, `t0`, `warmup` are runtime values passed to the loop function, not compile-time settings. Moving these out of fixtures eliminates false session boundaries.
 
-2. **Fixture Consolidation**: Replace `precision_override` + `system_override` + `solver_settings_override` + `solver_settings_override2` with a single unified `solver_settings` approach.
+2. **Fixture Consolidation**: Replace `precision_override` + `system_override` with `solver_settings` keys. Keep `solver_settings_override2` for class-level parameterization but merge function-level dual parameterization.
 
-3. **Default System Strategy**: The nonlinear 3-state system provides sufficient complexity for most tests. Only tests specifically verifying system-specific behavior (stiffness, large systems, drivers) should use alternative systems.
+3. **solver_settings_override2 Strategy**: 
+   - **KEEP for class-level parameterization** where it allows the class to be parameterized once (e.g., by controller type) and methods to have individual overrides (e.g., specific dt_min/dt_max values)
+   - **MERGE at function level** where dual parameterization doesn't serve a structural purpose
+   - Pattern: Classes use `override2`, methods use `override`
 
-4. **Dual-Step Testing**: The loop already tests integration behavior. Step-level tests can use dual-step execution to verify both initial and cached behavior in one test.
+4. **Default System Strategy**: The nonlinear 3-state system provides sufficient complexity for most tests. Only tests specifically verifying system-specific behavior (stiffness, large systems, drivers) should use alternative systems.
+
+5. **Dual-Step Testing**: The loop already tests integration behavior. Step-level tests can use dual-step execution to verify both initial and cached behavior in one test.
 
 ### Data Flow: Test Setup
 
@@ -126,6 +132,7 @@ graph TD
 flowchart LR
     subgraph "Input Layer"
         SO[solver_settings_override]
+        SO2[solver_settings_override2<br/>class-level only]
         RD[RUN_DEFAULTS]
     end
     
@@ -145,6 +152,7 @@ flowchart LR
     end
     
     SO --> SS
+    SO2 --> SS
     SS --> SYS
     SS --> DRV
     SYS --> SIR
@@ -154,22 +162,55 @@ flowchart LR
     RD -.->|unpacked in test| T1
 ```
 
+### solver_settings_override2 Usage Pattern
+
+```mermaid
+flowchart TD
+    subgraph "Valid Pattern: Class-Level"
+        CO2[solver_settings_override2<br/>class parameterization]
+        CO2 -->|step_controller type| TC[TestControllers class]
+        TC --> M1[test_controller_builds]
+        TC --> M2[test_dt_clamps]
+        M1 --> SO1[solver_settings_override<br/>empty or specific]
+        M2 --> SO2X[solver_settings_override<br/>dt_min/dt_max]
+    end
+    
+    subgraph "Invalid Pattern: Function-Level Dual"
+        SX1[solver_settings_override2<br/>MID_RUN_PARAMS] --> TF[test_function]
+        SX2[solver_settings_override<br/>algorithm settings] --> TF
+        TF --> MERGE[Should merge into<br/>single override]
+    end
+```
+
 ### Impact Analysis
 
 | Area | Before | After | Reduction |
 |------|--------|-------|-----------|
-| Override fixtures | 4 | 1 | 75% |
-| Session sources | 6+ | 2 | ~67% |
+| Override fixtures | 4 | 2 | 50% |
+| Session sources | 6+ | 2-3 | ~60% |
 | Step tests per algo | 2 (single + dual) | 1 (dual only) | 50% |
 | System variations | Many unnecessary | Targeted | ~60% |
+| Function-level dual overrides | Many | 0 | 100% |
 
 ### Trade-offs Considered
 
 1. **Fixture Simplicity vs Flexibility**: Consolidating fixtures reduces session count but may require more verbose test parameterization. Accepted trade-off for faster tests.
 
-2. **Test Coverage Strategy**: Removing single-step tests means relying on dual-step tests for both scenarios. The first step of a dual-step execution tests the same code path, so no coverage is lost.
+2. **solver_settings_override2 Retention**: Keeping override2 for class-level parameterization preserves a useful pattern while eliminating the confusing function-level dual-override pattern.
 
-3. **Precision Testing Depth**: Strategic precision testing over exhaustive testing may miss edge cases at specific precisions. Mitigated by careful selection of which tests use which precision.
+3. **Test Coverage Strategy**: Removing single-step tests means relying on dual-step tests for both scenarios. The first step of a dual-step execution tests the same code path, so no coverage is lost.
+
+4. **Precision Testing Depth**: Strategic precision testing over exhaustive testing may miss edge cases at specific precisions. Mitigated by careful selection of which tests use which precision.
+
+### Files Affected by solver_settings_override2 Changes
+
+| File | Current Usage | Action |
+|------|--------------|--------|
+| `test_controllers.py` | Class-level for controller types | **KEEP** - valid pattern |
+| `test_controller_equivalence_sequences.py` | Class-level for controller types | **KEEP** - valid pattern |
+| `test_step_algorithms.py` | Function-level for MID_RUN_PARAMS | **MERGE** into single override |
+| `test_instrumented.py` | Function-level for MID_RUN_PARAMS | **MERGE** into single override |
+| `test_ode_loop.py` | Function-level for DEFAULT_OVERRIDES | **MERGE** into single override |
 
 ### References
 

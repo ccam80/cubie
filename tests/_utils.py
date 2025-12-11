@@ -21,7 +21,6 @@ Array = NDArray[np.floating]
 # --------------------------------------------------------------------------- #
 
 SHORT_RUN_PARAMS = {
-    'duration': 0.05,
     'dt_save': 0.05,
     'dt_summarise': 0.05,
     'output_types': ['state', 'time', 'observables', 'mean'],
@@ -42,6 +41,69 @@ LONG_RUN_PARAMS = {
     'dt_summarise': 0.15,
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
+
+RUN_DEFAULTS = {
+    'duration': 0.1,
+    't0': 0.0,
+    'warmup': 0.0,
+}
+
+
+def merge_dicts(*dicts):
+    """Merge multiple dictionaries, later dicts override earlier ones.
+
+    Used to combine base settings (e.g., MID_RUN_PARAMS) with
+    test-specific overrides into a single solver_settings_override.
+
+    Parameters
+    ----------
+    *dicts : dict
+        Dictionaries to merge. Later dicts override earlier ones.
+
+    Returns
+    -------
+    dict
+        Merged dictionary.
+    """
+    result = {}
+    for d in dicts:
+        if d:
+            result.update(d)
+    return result
+
+
+def merge_param(base_settings, param):
+    """Merge base settings into a pytest.param case.
+
+    Combines base settings (e.g., MID_RUN_PARAMS) with test case settings,
+    preserving pytest.param id and marks.
+
+    Parameters
+    ----------
+    base_settings : dict
+        Base settings to merge (applied first).
+    param : pytest.param or dict
+        Test case param. Can be pytest.param with id/marks or plain dict.
+
+    Returns
+    -------
+    pytest.param
+        Merged param with combined settings, original id and marks.
+    """
+    import pytest
+
+    if hasattr(param, 'values'):
+        # It's a pytest.param
+        case_settings = param.values[0] if param.values else {}
+        merged = merge_dicts(base_settings, case_settings)
+        return pytest.param(
+            merged,
+            id=param.id,
+            marks=param.marks if param.marks else (),
+        )
+    else:
+        # It's a plain dict
+        return pytest.param(merge_dicts(base_settings, param))
 
 
 def calculate_expected_summaries(

@@ -137,6 +137,7 @@ def _sequence_inputs(
     "solver_settings_override",
     [
         {
+            "system_type": "three_chamber",
             "dt_min": 1e-4,
             "dt_max": 0.2,
             "kp": 0.7,
@@ -150,7 +151,6 @@ def _sequence_inputs(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
 class TestControllerEquivalence:
     """Step controller regression tests for CPU and device implementations."""
 

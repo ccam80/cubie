@@ -340,24 +340,18 @@ def _get_algorithm_tableau(algorithm_name_or_tableau):
 # ========================================
 
 @pytest.fixture(scope="session")
-def precision_override(request):
-    if hasattr(request, "param"):
-        if request.param is np.float64:
-            return np.float64
-
-
-@pytest.fixture(scope="session")
-def precision(precision_override, system_override):
-    """
-    Run tests with float32 by default, upgrade to float64 for stiff problems.
+def precision(solver_settings_override, solver_settings_override2):
+    """Return precision from overrides, defaulting to float32.
 
     Usage:
-    @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"precision": np.float64}], indirect=True)
     def test_something(precision):
         # precision will be np.float64 here
     """
-    if precision_override is not None:
-        return precision_override
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'precision' in override:
+            return override['precision']
     return np.float32
 
 
@@ -393,30 +387,21 @@ def tolerance(tolerance_override, precision):
 
 
 @pytest.fixture(scope="session")
-def system_override(request):
-    """Override for system model type, if provided."""
-    if hasattr(request, "param"):
-        if request.param:
-            return request.param
-    return "nonlinear"
+def system(request, solver_settings_override, solver_settings_override2,
+           precision):
+    """Return the appropriate symbolic system, defaulting to nonlinear.
 
-
-@pytest.fixture(scope="session")
-def system(request, system_override, precision):
-    """
-    Return the appropriate symbolic system, defaulting to ``linear``.
-
-    Usage
-    -----
-    @pytest.mark.parametrize(
-        "system_override",
-        ["three_chamber"],
-        indirect=True,
-    )
+    Usage:
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"system_type": "three_chamber"}], indirect=True)
     def test_something(system):
         # system will be the cardiovascular symbolic model here
     """
-    model_type = system_override
+    model_type = 'nonlinear'
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'system_type' in override:
+            model_type = override['system_type']
+            break
 
     if model_type == "linear":
         return build_three_state_linear_system(precision)
@@ -453,6 +438,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
+        "system_type": "nonlinear",
         "duration": np.float64(0.2),
         "warmup": np.float64(0.0),
         "t0": np.float64(0.0),
