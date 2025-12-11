@@ -14,7 +14,7 @@ from cubie.integrators.matrix_free_solvers import SolverRetCodes
 STATUS_MASK = 0xFFFF
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def placeholder_system(precision):
     """Provide residual and operator for a scalar ODE step."""
 

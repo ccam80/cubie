@@ -16,7 +16,7 @@ from cubie.odesystems.symbolic.parsing import JVPEquations
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def operator_system():
     """Build a linear system with a constant Jacobian."""
 
@@ -52,14 +52,14 @@ def _build_operator_factory(system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def operator_factory(operator_system, precision):
     """Return a factory producing operator_apply device functions."""
 
     return _build_operator_factory(operator_system, precision)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def operator_kernel(precision):
     """Kernel applying operator_apply to a vector."""
 
@@ -79,7 +79,7 @@ def operator_kernel(precision):
     return make_kernel
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cached_system():
     """Build a nonlinear system with state-dependent Jacobian."""
 
@@ -92,7 +92,7 @@ def cached_system():
     return system
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def prepare_jac_factory(cached_system, precision):
     """Return a factory producing prepare_jac device functions."""
 
@@ -113,7 +113,7 @@ def prepare_jac_factory(cached_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cached_jvp_factory(cached_system, precision):
     """Return a factory producing calculate_cached_jvp device functions."""
 
@@ -133,7 +133,7 @@ def cached_jvp_factory(cached_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cached_jvp_kernel(cached_system, precision):
     """Apply cached JVP outputs for comparison with analytic Jacobian."""
 
@@ -183,7 +183,7 @@ def cached_jvp_kernel(cached_system, precision):
     return make_kernel
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cached_operator_factory(cached_system, precision):
     """Return a factory producing cached operator device functions."""
 
@@ -209,7 +209,7 @@ def cached_operator_factory(cached_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cached_operator_kernel(cached_system, precision):
     """Kernel applying cached operator to a vector."""
 
@@ -614,7 +614,9 @@ def test_equations_track_dependency_levels_and_costs():
     assert equations.total_ops_cost[sp.Symbol("jvp[0]")] == 4
 
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+@pytest.mark.parametrize("solver_settings_override",
+                         [{"precision": np.float64}],
+                         indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,M",
     [
@@ -658,8 +660,6 @@ def test_operator_apply_constant_unpacking(operator_system):
     )
     assert "a = precision(constants['a'])" in code
 
-
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 def test_cached_jvp_matches_jacobian(
     cached_system,
     prepare_jac_factory,
@@ -717,7 +717,6 @@ def test_cached_jvp_matches_jacobian(
     )
 
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,M",
     [
@@ -803,7 +802,7 @@ def test_cached_operator_apply_dense(
 # Neumann preconditioner expression tests
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def neumann_factory(operator_system, precision):
     """Return a factory producing Neumann preconditioner device functions."""
 
@@ -827,7 +826,7 @@ def neumann_factory(operator_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def neumann_kernel(precision):
     """Apply the Neumann preconditioner to a vector, passing scratch."""
 
@@ -847,7 +846,7 @@ def neumann_kernel(precision):
     return make_kernel
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def neumann_cached_factory(cached_system, precision):
     """Return a factory producing cached Neumann preconditioners."""
 
@@ -873,7 +872,7 @@ def neumann_cached_factory(cached_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def neumann_cached_kernel(cached_system, precision):
     """Apply cached Neumann preconditioner to a vector."""
 
@@ -931,7 +930,6 @@ def neumann_cached_kernel(cached_system, precision):
     return make_kernel
 
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,order",
     [
@@ -986,7 +984,6 @@ def test_neumann_preconditioner_expression(
     )
 
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,order",
     [
@@ -1075,7 +1072,7 @@ def test_neumann_preconditioner_cached_expression(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def residual_system():
     """Linear system with constant Jacobian for residual tests."""
 
@@ -1089,7 +1086,7 @@ def residual_system():
     return system
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
         base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
@@ -1111,7 +1108,7 @@ def stage_residual_factory(residual_system, precision):
     return factory
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def residual_kernel(precision):
     n = 2
 
@@ -1127,7 +1124,6 @@ def residual_kernel(precision):
     return make_kernel
 
 
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,a_ii,M",
     [

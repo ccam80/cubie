@@ -160,15 +160,14 @@ class TestControllers:
 
 
 @pytest.mark.parametrize(
-    (
-        "solver_settings_override",
-        "solver_settings_override2",
-    ),
+    "solver_settings_override",
     [
-        (
-            {"algorithm": "rosenbrock"},
-            {"step_controller": "pi", "atol": 1e-3, "rtol": 0.0},
-        ),
+        {
+            "algorithm": "rosenbrock",
+            "step_controller": "pi",
+            "atol": 1e-3,
+            "rtol": 0.0,
+        },
     ],
     indirect=True,
 )

@@ -9,7 +9,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def placeholder_operator(precision):
     """Device operator applying a simple SPD matrix."""
 
@@ -62,7 +62,7 @@ def test_neumann_preconditioner(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_device(request, placeholder_operator):
     """Return solver device for the requested correction type."""
 

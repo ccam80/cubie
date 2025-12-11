@@ -48,7 +48,7 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
-from tests._utils import MID_RUN_PARAMS
+from tests._utils import MID_RUN_PARAMS, merge_dicts, merge_param
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -442,6 +442,7 @@ ALIAS_CASES = [
 ]
 STEP_OVERRIDES = MID_RUN_PARAMS
 
+
 STEP_CASES = [
     pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
     pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
@@ -476,7 +477,7 @@ STEP_CASES = [
     # Specific Rosenbrock-W tableaus
     pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos)
 ]
 CACHE_REUSE_CASES = [
     pytest.param(
@@ -515,6 +516,21 @@ CACHE_REUSE_CASES = [
         id="rosenbrock-ros3p-cache",
     ),
 ]
+
+# Merged cases with STEP_OVERRIDES baked in
+STEP_CASES_MERGED = [merge_param(STEP_OVERRIDES, case)
+                     for case in STEP_CASES]
+
+# Merged cases for constant_deriv system tests
+STEP_CASES_CONSTANT_DERIV = [
+    merge_param(merge_dicts(STEP_OVERRIDES, {"system_type": "constant_deriv"}),
+                case)
+    for case in STEP_CASES
+]
+
+CACHE_REUSE_CASES_MERGED = [merge_param(STEP_OVERRIDES, case)
+                            for case in CACHE_REUSE_CASES]
+
 
 @pytest.mark.parametrize(
     "alias_key, expected_step_type, expected_tableau, expected_cpu_step",
@@ -1104,14 +1120,8 @@ def cpu_step_results(
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
     "solver_settings_override",
-    CACHE_REUSE_CASES,
+    CACHE_REUSE_CASES_MERGED,
     indirect=True,
 )
 def test_stage_cache_reuse(
@@ -1186,20 +1196,8 @@ def test_stage_cache_reuse(
 
 
 @pytest.mark.parametrize(
-    "system_override",
-    ["constant_deriv"],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    STEP_CASES_CONSTANT_DERIV,
     indirect=True,
 )
 def test_against_euler(
@@ -1254,7 +1252,7 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    #tolerance 3e-7 allows 2x ULP wiggle room (currently RODAS5P is at 2.4)
+    #tolerance 3e-7 allows 2x ULP wiggle room
     tol = {"rtol": tolerance.rel_tight * 3, "atol": tolerance.abs_tight * 3}
 
     assert_allclose(
@@ -1279,20 +1277,9 @@ def test_against_euler(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["threecm"],
-#                          ids = [""],
-#                          indirect=True
-#                          )
-@pytest.mark.parametrize(
-        "solver_settings_override2",
-        [STEP_OVERRIDES],
-        ids=[""],
-        indirect=True
-)
 @pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    STEP_CASES_MERGED,
     indirect=True,
 )
 def test_algorithm(

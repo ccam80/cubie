@@ -78,13 +78,13 @@ class IntegratorRunSettings:
 
 
 # Fixtures for run settings
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def run_settings_override(request):
     """Override for run settings, if provided."""
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def run_settings(run_settings_override):
     """Create a dictionary of run settings for testing"""
     default_settings = IntegratorRunSettings()

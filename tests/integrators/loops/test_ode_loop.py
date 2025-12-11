@@ -9,13 +9,18 @@ from numpy.typing import NDArray
 import pytest
 
 from cubie import summary_metrics
-from tests._utils import assert_integration_outputs
-from tests._utils import MID_RUN_PARAMS
+from tests._utils import (
+    assert_integration_outputs,
+    MID_RUN_PARAMS,
+    merge_dicts,
+    merge_param,
+)
 
 Array = NDArray[np.floating]
 
 
 DEFAULT_OVERRIDES = MID_RUN_PARAMS
+
 
 LOOP_CASES = [
     pytest.param(
@@ -168,6 +173,10 @@ LOOP_CASES = [
     ),
 ]
 
+# Create merged LOOP_CASES with DEFAULT_OVERRIDES baked in
+LOOP_CASES_MERGED = [merge_param(DEFAULT_OVERRIDES, case)
+                     for case in LOOP_CASES]
+
 # Build, update, getter tests combined
 def test_getters(
     loop_mutable,
@@ -228,22 +237,13 @@ def test_initial_observable_seed_matches_reference(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["three_chamber",
-#                           ],
-#                          ids=["3cm"], indirect=True)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [DEFAULT_OVERRIDES],
-    indirect=True,
-    ids=[""],
-)
+
 @pytest.mark.parametrize(
     "solver_settings_override",
-    LOOP_CASES,
+    LOOP_CASES_MERGED,
     indirect=True,
 )
-def  test_loop(
+def test_loop(
     device_loop_outputs,
     cpu_loop_outputs,
     output_functions,
@@ -322,23 +322,24 @@ metric_test_ids = (
         "1st generation metrics"
 )
 
-@pytest.mark.parametrize("system_override", ["linear"], ids=[""],
-                         indirect=True)
-@pytest.mark.parametrize("solver_settings_override2",
-     [{
-        "algorithm": "euler",
-        "duration": 0.2,
-        "dt": 0.0025,
-        "dt_save": 0.01,
-        "dt_summarise": 0.1,
-    }],
-    indirect=True,
-    ids = [""]
-)
+# Base settings for metric tests
+METRIC_TEST_BASE = {
+    "system_type": "linear",
+    "algorithm": "euler",
+    "duration": 0.2,
+    "dt": 0.0025,
+    "dt_save": 0.01,
+    "dt_summarise": 0.1,
+}
+
+METRIC_TEST_CASES_MERGED = [merge_dicts(METRIC_TEST_BASE, case)
+                            for case in metric_test_output_cases]
+
+
 @pytest.mark.parametrize(
     "solver_settings_override",
-    metric_test_output_cases,
-    ids = metric_test_ids,
+    METRIC_TEST_CASES_MERGED,
+    ids=metric_test_ids,
     indirect=True,
 )
 def test_all_summary_metrics_numerical_check(
@@ -366,18 +367,15 @@ def test_all_summary_metrics_numerical_check(
     assert device_loop_outputs.status == 0, "Integration should complete successfully"
 
 
-@pytest.mark.parametrize("precision_override",
-                         [np.float32],
-                         indirect=True,
-                         ids=[""])
 @pytest.mark.parametrize("solver_settings_override",
                          [{
+                             'precision': np.float32,
                              'output_types': ['state', 'time'],
                              'duration': 1e-4,
-                             'dt_save': 2e-5, #representable in f32 - 2e6*1.0
+                             'dt_save': 2e-5,  # representable in f32: 2e6*1.0
                              't0': 1.0,
                              'algorithm': "euler",
-                             'dt': 1e-7, # smaller than 1f32 eps
+                             'dt': 1e-7,  # smaller than 1f32 eps
                          }],
                          indirect=True,
                          ids=[""])
@@ -386,19 +384,29 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
     assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(1.00008))
 
 
-@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
-                         indirect=True)
 @pytest.mark.parametrize("solver_settings_override",
-                         [{
-                             'output_types': ['state', 'time'],
-                             'duration': 1e-3,
-                             'dt_save': 2e-4,
-                             't0': 1e2,
-                             'algorithm': 'euler',
-                             'dt': 1e-6,
-                         }],
+                         [
+                             {
+                                 'precision': np.float32,
+                                 'output_types': ['state', 'time'],
+                                 'duration': 1e-3,
+                                 'dt_save': 2e-4,
+                                 't0': 1e2,
+                                 'algorithm': 'euler',
+                                 'dt': 1e-6,
+                             },
+                             {
+                                 'precision': np.float64,
+                                 'output_types': ['state', 'time'],
+                                 'duration': 1e-3,
+                                 'dt_save': 2e-4,
+                                 't0': 1e2,
+                                 'algorithm': 'euler',
+                                 'dt': 1e-6,
+                             },
+                         ],
                          indirect=True,
-                         ids=[""])
+                         ids=["float32", "float64"])
 def test_large_t0_with_small_steps(device_loop_outputs, precision):
     """Verify long integrations with small steps complete correctly."""
     # There may be an ulp of error here, that's fine, we're testing the
@@ -409,12 +417,9 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
 
 
 
-@pytest.mark.parametrize("precision_override",
-                         [np.float32],
-                         indirect=True,
-                         ids=[""])
 @pytest.mark.parametrize("solver_settings_override",
                          [{
+                             'precision': np.float32,
                              'duration': 1e-4,
                              'dt_save': 2e-5,
                              't0': 1.0,
@@ -422,9 +427,10 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                              'step_controller': 'PI',
                              'output_types': ['state', 'time'],
                              'dt_min': 1e-7,
-                             'dt_max': 1e-6, # smaller than eps * t0
+                             'dt_max': 1e-6,  # smaller than eps * t0
                          }],
-                         indirect=True)
+                         indirect=True,
+                         ids=[""])
 def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     """Verify adaptive controllers work with float32 and small dt_min."""
     assert device_loop_outputs.state[-2,-1] == pytest.approx(precision(
@@ -432,11 +438,11 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
     #Testing second-last sample as the final sample overshoots t_end in this
                                                              # case
 
-@pytest.mark.parametrize("precision_override", [np.float32], indirect=True)
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
         {
+            "precision": np.float32,
             "duration": 0.2000,
             "settling_time": 0.1,
             "t0": 1.0,

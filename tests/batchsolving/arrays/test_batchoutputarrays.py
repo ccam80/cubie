@@ -13,14 +13,14 @@ from cubie.outputhandling.output_sizes import BatchOutputSizes
 
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_overrides(request):
     if hasattr(request, "param"):
         return request.param
     return {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_settings(output_test_overrides):
     settings = {
         "num_runs": 5,
@@ -33,13 +33,13 @@ def output_test_settings(output_test_overrides):
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def test_memory_manager():
     """Create a MemoryManager instance for testing"""
     return MemoryManager(mode="passive")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_arrays_manager(precision, solver, output_test_settings,
                           test_memory_manager):
     """Create a OutputArrays instance using real solver"""
@@ -55,7 +55,7 @@ def output_arrays_manager(precision, solver, output_test_settings,
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def sample_output_arrays(solver, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
     num_runs = output_test_settings["num_runs"]
@@ -409,7 +409,9 @@ class TestOutputArrays:
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32, np.float64], indirect=True
+    "solver_settings_override", [{"precision": np.float32},
+                                 {"precision": np.float64}],
+                                 indirect=True,
 )
 def test_dtype(output_arrays_manager, solver, precision):
     """Test OutputArrays with different configurations"""
@@ -481,6 +483,33 @@ def test_output_arrays_with_different_configs(
     "solver_settings_override",
     [
         {
+            "system_type": "three_chamber",
+            "saved_state_indices": None,
+            "saved_observable_indices": None,
+            "output_types": [
+                "state",
+                "observables",
+                "mean",
+                "max",
+                "rms",
+                "peaks[2]",
+            ],
+        },
+{
+            "system_type": "stiff",
+            "saved_state_indices": None,
+            "saved_observable_indices": None,
+            "output_types": [
+                "state",
+                "observables",
+                "mean",
+                "max",
+                "rms",
+                "peaks[2]",
+            ],
+        },
+{
+            "system_type": "linear",
             "saved_state_indices": None,
             "saved_observable_indices": None,
             "output_types": [
@@ -493,11 +522,6 @@ def test_output_arrays_with_different_configs(
             ],
         }
     ],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "system_override",
-    ["three_chamber", "stiff", "linear"],
     indirect=True,
 )
 def test_output_arrays_with_different_systems(output_arrays_manager, solver):
