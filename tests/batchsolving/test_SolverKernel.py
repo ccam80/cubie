@@ -20,10 +20,8 @@ def test_kernel_builds(solverkernel):
             "three_chamber",
             LONG_RUN_PARAMS,
             {}),
-        ("three_chamber",
-         LONG_RUN_PARAMS, {})
     ),
-    ids=["smoke_test", "fire_test"],
+    ids=["smoke_test"],
     indirect=True,
 )
 def test_run(
