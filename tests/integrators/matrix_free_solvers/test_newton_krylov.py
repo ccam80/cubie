@@ -266,7 +266,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+    assert (status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED)
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
@@ -327,5 +327,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert (
-        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED |
+        SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
     )

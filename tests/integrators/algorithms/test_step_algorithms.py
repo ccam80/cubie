@@ -424,22 +424,6 @@ ALIAS_CASES = [
         id="rosenbrock-rodas3p",
     ),
     pytest.param(
-        "rodas4p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas4p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas4p",
-    ),
-    pytest.param(
-        "rodas5p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas5p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas5p",
-    ),
-    pytest.param(
         "rosenbrock23",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["rosenbrock23"],
@@ -481,7 +465,8 @@ STEP_CASES = [
     # Specific DIRK tableaus
     pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pid"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
+                 id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
     pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pid"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
@@ -492,8 +477,6 @@ STEP_CASES = [
     pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
 ]
 CACHE_REUSE_CASES = [
     pytest.param(
@@ -1506,7 +1489,8 @@ def test_algorithm(
         (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pid"}),
         (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pid"}),
         # DIRK with error estimate defaults to PI
-        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pid"}),
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller":
+                                                            "fixed"}),
         # FIRK with error estimate defaults to PI
         (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI

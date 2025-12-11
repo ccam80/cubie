@@ -72,8 +72,13 @@ class ButcherTableau:
         """Validate tableau coefficients after initialisation."""
 
         stage_count = self.stage_count
-        if self.b_hat is not None and len(self.b_hat) != stage_count:
-            raise ValueError("b_hat must match the number of stages in b")
+        if self.b_hat is not None:
+            if len(self.b_hat) != stage_count:
+                raise ValueError("b_hat must match the number of stages in b")
+            if (1.0 - np.sum(self.b_hat)) > 1e-8:
+                raise ValueError("b_hat must sum to one")
+        if (1.0 - np.sum(self.b)) > 1e-8:
+            raise ValueError("b must sum to one")
 
     @property
     def d(self) -> Optional[Tuple[float, ...]]:
@@ -141,6 +146,28 @@ class ButcherTableau:
             flat_list.extend(row)
         return tuple(precision(value) for value in flat_list)
 
+    def explicit_terms(self, precision):
+        """
+        Return the a matrix in typed column tuples with diagonal and higher
+        elements set to zero.
+
+        Parameters
+        ----------
+        precision
+
+        Returns
+        -------
+        tuple of tuples of float
+        """
+        typed_rows = self.typed_rows(self.a, precision)
+        stage_count = self.stage_count
+        return tuple(
+            tuple(
+                (row[col_idx] if row_idx > col_idx else precision(0.0))
+                for row_idx, row in enumerate(typed_rows)
+            )
+            for col_idx in range(stage_count)
+        )
     def typed_vector(
         self,
         vector: Sequence[float],

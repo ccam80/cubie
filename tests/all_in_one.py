@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int32, int32, int64, float32, float64
+from numba import cuda, int32, int64, float32, float64
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -88,11 +88,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.01)
+duration = precision(0.1)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.01)
+dt_save = precision(0.1)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -160,10 +160,10 @@ saves_per_summary = int32(2)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
-loop_drivers_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_drivers_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_observables_buffer_memory = 'shared'  # 'local' or 'shared'
-loop_observables_proposal_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_drivers_buffer_memory = 'local'  # 'local' or 'shared'
+loop_drivers_proposal_buffer_memory = 'local'  # 'local' or 'shared'
+loop_observables_buffer_memory = 'local'  # 'local' or 'shared'
+loop_observables_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_error_buffer_memory = 'local'  # 'local' or 'shared'
 loop_counters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_summary_buffer_memory = 'local'  # 'local' or 'shared'
@@ -210,7 +210,7 @@ rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
 MAX_SHARED_MEMORY_PER_BLOCK = 32768
 
 # Block size for kernel launch
-blocksize = 96
+blocksize = 64
 
 # =========================================================================
 # DERIVED CONFIGURATION (computed from above settings)
@@ -731,16 +731,16 @@ def linear_solver_inline_factory(
     n_arraysize = n
     n = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
+    mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
 
     @cuda.jit(
         (numba_prec[::1], numba_prec[::1], numba_prec[::1],
          numba_prec[::1], numba_prec, numba_prec, numba_prec,
-         numba_prec[::1], numba_prec[::1]),
+         numba_prec[::1], numba_prec[::1], int32[::1]),
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
-                      rhs, x):
+                      rhs, x, krylov_iters_out):
         preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
         temp = cuda.local.array(n_arraysize, numba_prec)
 
@@ -756,6 +756,9 @@ def linear_solver_inline_factory(
 
         iter_count = int32(0)
         for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
             iter_count += int32(1)
             preconditioner(
                 state,
@@ -806,13 +809,10 @@ def linear_solver_inline_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+        # Single exit point - status based on converged flag
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return final_status
     return linear_solver
 
 
@@ -831,7 +831,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
     typed_damping = numba_prec(damping)
-    status_active = int32(-1)
 
     @cuda.jit(
             [(numba_prec[::1],
@@ -847,10 +846,19 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
               inline=True,
               **compile_kwargs
     )
-    def newton_krylov_solver(stage_increment, parameters, drivers, t, h,
-                             a_ij, base_state, shared_scratch, counters):
+    def newton_krylov_solver(
+        stage_increment,
+        parameters,
+        drivers,
+        t,
+        h,
+        a_ij,
+        base_state,
+        shared_scratch,
+        counters,
+    ):
         delta = shared_scratch[:n]
-        residual = shared_scratch[n:2 * n]
+        residual = shared_scratch[n:int32(2 * n)]
 
         residual_fn(stage_increment, parameters, drivers, t, h, a_ij,
                     base_state, residual)
@@ -861,34 +869,48 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             delta[i] = typed_zero
             norm2_prev += residual_value * residual_value
 
-        status = status_active
-        if norm2_prev <= tol_squared:
-            status = int32(0)
+        # Boolean control flags replace status-code-based loop control
+        converged = norm2_prev <= tol_squared
+        has_error = False
+        final_status = int32(0)
+
+        # Local array for linear solver iteration count output
+        krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
-            if all_sync(mask, status >= 0):
+            done = converged or has_error
+            if all_sync(mask, done):
                 break
 
-            iters_count += int32(1)
-            if status < 0:
-                lin_return = linear_solver(stage_increment, parameters,
+            # Predicated iteration count update
+            active = not done
+            iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
+            )
+
+            if active:
+                krylov_iters_local[0] = int32(0)
+                lin_status = linear_solver(stage_increment, parameters,
                                            drivers, base_state, t, h, a_ij,
-                                           residual, delta)
-                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
-                total_krylov_iters += krylov_iters
-                lin_status = lin_return & int32(0xFFFF)
-                if lin_status != int32(0):
-                    status = int32(lin_status)
+                                           residual, delta, krylov_iters_local)
+                total_krylov_iters += krylov_iters_local[0]
+
+                lin_failed = lin_status != int32(0)
+                has_error = has_error or lin_failed
+                final_status = selp(lin_failed,
+                                    int32(final_status | lin_status),
+                                    final_status)
 
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
 
-            for _ in range(max_backtracks + 1):
-                if status < 0:
+            for _ in range(max_backtracks + int32(1)):
+                active_backtrack = active and not found_step
+                if active_backtrack:
                     delta_scale = scale - scale_applied
                     for i in range(n):
                         stage_increment[i] += delta_scale * delta[i]
@@ -902,33 +924,49 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual_value = residual[i]
                         norm2_new += residual_value * residual_value
 
-                    if norm2_new <= tol_squared:
-                        status = int32(0)
+                    # Check convergence
+                    just_converged = norm2_new <= tol_squared
+                    converged = converged or just_converged
 
-                    accept = (status < 0) and (norm2_new < norm2_prev)
+                    accept = (not converged) and (norm2_new < norm2_prev)
                     found_step = found_step or accept
 
                     for i in range(n):
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                if all_sync(mask, found_step or status >= 0):
+                done_backtrack = found_step or converged or has_error
+                if all_sync(mask, done_backtrack):
                     break
                 scale *= typed_damping
 
-            if (status < 0) and (not found_step):
-                for i in range(n):
-                    stage_increment[i] -= scale_applied * delta[i]
-                status = int32(1)
+            # Backtrack failure handling
+            backtrack_failed = active and (not found_step) and (not converged)
+            has_error = has_error or backtrack_failed
+            final_status = selp(
+                    backtrack_failed,
+                    int32(final_status | int32(1)),
+                    final_status
+            )
 
-        if status < 0:
-            status = int32(2)
+            # Revert state if backtrack failed using predicated pattern
+            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
+            for i in range(n):
+                stage_increment[i] += revert_scale * delta[i]
+
+        # Max iterations exceeded without convergence
+        max_iters_exceeded = (not converged) and (not has_error)
+        final_status = selp(
+                max_iters_exceeded,
+                int32(final_status | int32(2)),
+                final_status
+        )
 
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= iters_count << 16
-        return status
+        # Return status without encoding iterations
+        return final_status
     return newton_krylov_solver
 
 
@@ -990,6 +1028,7 @@ def dirk_step_inline_factory(
     can_reuse_accepted_start = False
 
     stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+    explicit_a_coeffs = tableau.explicit_terms(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     typed_zero = numba_precision(0.0)
     error_weights = tableau.error_weights(numba_precision)
@@ -1273,25 +1312,17 @@ def dirk_step_inline_factory(
         # --------------------------------------------------------------- #
 
         for prev_idx in range(stages_except_first):
-            stage_offset = prev_idx * n
+            stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
-            matrix_col = stage_rhs_coeffs[prev_idx]
+            matrix_col = explicit_a_coeffs[prev_idx]
 
             # Stream previous stage's RHS into accumulators for successors
-            # Only stream to current stage and later (not already-processed)
             for successor_idx in range(stages_except_first):
-                # Accumulator at index i is for stage i+1
-                # At prev_idx, current stage is prev_idx+1, so stream to
-                # accumulators with index >= prev_idx
-
-                # This guard can be removed, adding a "dead write"
-                # Do if the compiler needs help unrolling
-                if successor_idx >= prev_idx:
-                    coeff = matrix_col[successor_idx + int32(1)]
-                    row_offset = successor_idx * n
-                    for idx in range(n):
-                        contribution = coeff * stage_rhs[idx] * dt_scalar
-                        stage_accumulator[row_offset + idx] += contribution
+                coeff = matrix_col[successor_idx + int32(1)]
+                row_offset = successor_idx * n
+                for idx in range(n):
+                    contribution = coeff * stage_rhs[idx] * dt_scalar
+                    stage_accumulator[row_offset + idx] += contribution
 
             stage_time = (
                 current_time + dt_scalar * stage_time_fractions[stage_idx]
@@ -1304,10 +1335,8 @@ def dirk_step_inline_factory(
                     proposed_drivers,
                 )
 
-            # Convert accumulator slice to state by adding y_n
-            stage_base = stage_accumulator[stage_offset:stage_offset + n]
             for idx in range(n):
-                stage_base[idx] += state[idx]
+                stage_base[idx] = stage_accumulator[stage_offset + idx] + state[idx]
 
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
@@ -2895,6 +2924,7 @@ elif algorithm_type == 'rosenbrock':
     # For Rosenbrock, we need a linear solver with cached Jacobian
     # This is a simplified version - full implementation would need
     # cached Jacobian helpers
+    krylov_iters = cuda.local.array((1), int32)
     linear_solver_fn = linear_solver_inline_factory(
         operator_fn, n_states,
         preconditioner_fn,
@@ -2902,6 +2932,7 @@ elif algorithm_type == 'rosenbrock':
         max_linear_iters,
         precision,
         linear_correction_type,
+        krylov_iters
     )
 
     # Placeholder functions for Rosenbrock-specific operations
@@ -3000,9 +3031,13 @@ if algorithm_type == 'dirk':
     solver_scratch_size = 2 * n_states
     dirk_scratch_size = int(accumulator_size) + int(solver_scratch_size)
     erk_scratch_size = 0
-else:
+    firk_scratch_size = 0
+    rosenbrock_scratch_size = 0
+elif algorithm_type == 'erk':
     solver_scratch_size = int32(0)
     dirk_scratch_size = 0
+    firk_scratch_size = 0
+    rosenbrock_scratch_size = 0
     # ERK: stage_rhs if shared, accumulator if shared
     erk_stage_rhs_size = n_states + 1 if use_shared_erk_stage_rhs else (
         0)
@@ -3010,6 +3045,58 @@ else:
                                    if use_shared_erk_stage_accumulator
                                    else 0)
     erk_scratch_size = erk_stage_rhs_size + erk_accumulator_shared_size
+elif algorithm_type == 'firk':
+    # FIRK memory requirements:
+    # - solver_scratch: 2 * stage_count * n_states (for Newton solver)
+    # - stage_increment: stage_count * n_states (for stage increments)
+    # - stage_driver_stack: stage_count * n_drivers (for driver values)
+    # - stage_state: n_states (for state evaluation)
+    all_stages_n = stage_count * n_states
+    firk_solver_scratch_size = (
+        2 * all_stages_n if use_shared_firk_solver_scratch else 0
+    )
+    firk_stage_increment_size = (
+        all_stages_n if use_shared_firk_stage_increment else 0
+    )
+    firk_stage_driver_stack_size = (
+        stage_count * n_drivers if use_shared_firk_stage_driver_stack else 0
+    )
+    firk_stage_state_size = (
+        n_states if use_shared_firk_stage_state else 0
+    )
+    firk_scratch_size = (firk_solver_scratch_size + firk_stage_increment_size +
+                         firk_stage_driver_stack_size + firk_stage_state_size)
+    solver_scratch_size = int32(0)
+    dirk_scratch_size = 0
+    erk_scratch_size = 0
+    rosenbrock_scratch_size = 0
+elif algorithm_type == 'rosenbrock':
+    # Rosenbrock memory requirements:
+    # - stage_rhs: n_states (for RHS evaluation)
+    # - stage_store: stage_count * n_states (for stage storage)
+    # - cached_auxiliaries: 0 (simplified for debug script)
+    rosenbrock_stage_rhs_size = (
+        n_states if use_shared_rosenbrock_stage_rhs else 0
+    )
+    rosenbrock_stage_store_size = (
+        stage_count * n_states if use_shared_rosenbrock_stage_store else 0
+    )
+    rosenbrock_cached_auxiliaries_size = (
+        # Cached auxiliaries store precomputed Jacobian terms.
+        # In production, size depends on system-specific structure.
+        # Set to 0 here since placeholder Jacobian helpers are used.
+        0
+    )
+    rosenbrock_scratch_size = (rosenbrock_stage_rhs_size +
+                               rosenbrock_stage_store_size +
+                               rosenbrock_cached_auxiliaries_size)
+    solver_scratch_size = int32(0)
+    dirk_scratch_size = 0
+    erk_scratch_size = 0
+    firk_scratch_size = 0
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
+
 
 # Shared memory pointer (advances for each shared buffer)
 shared_pointer = int32(0)
@@ -3081,10 +3168,31 @@ scratch_start = shared_pointer
 if algorithm_type == 'dirk':
     scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
     local_scratch_size = dirk_scratch_size
-else:
+elif algorithm_type == 'erk':
     scratch_size = erk_scratch_size if use_shared_loop_scratch else 0
     # ERK local scratch: accumulator_size + n_states
     local_scratch_size = accumulator_size + int32(n_states)
+elif algorithm_type == 'firk':
+    scratch_size = firk_scratch_size if use_shared_loop_scratch else int32(0)
+    # FIRK local scratch: sum of all buffer sizes when not in shared memory
+    # all_stages_n = stage_count * n_states (calculated in memory size section)
+    local_scratch_size = (
+        2 * stage_count * n_states +  # solver_scratch
+        stage_count * n_states +      # stage_increment
+        stage_count * n_drivers +  # stage_driver_stack
+        n_states            # stage_state
+    )
+elif algorithm_type == 'rosenbrock':
+    scratch_size = (rosenbrock_scratch_size if use_shared_loop_scratch
+                    else int32(0))
+    # Rosenbrock local scratch: sum of all buffer sizes when not in shared
+    local_scratch_size = (
+        n_states +           # stage_rhs
+        stage_count * n_states +  # stage_store
+        1  # cached_auxiliaries (minimum size 1 to avoid zero-size array in Numba)
+    )
+else:
+    raise ValueError(f"Unknown algorithm type: '{algorithm_type}'")
 scratch_end = scratch_start + scratch_size
 shared_pointer = scratch_end
 
@@ -3354,7 +3462,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                          dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
-        finished |= (status & 0x8)
+        finished |= (status & int32(0x8))
 
         if all_sync(mask, finished):
             return status
@@ -3385,7 +3493,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             )
             first_step_flag = int32(0)
 
-            niters = (step_status >> 16) & status_mask
+            # Iterations now come from counters, not encoded in status
+            niters = proposed_counters[0]
             status |= step_status & status_mask
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
@@ -3509,7 +3618,7 @@ numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
         [(
-                numba_prec[::1,:],
+                numba_prec[:,::1],
                 numba_prec[:, ::1],
                 numba_prec[:, :, ::1],
                 numba_prec[:, :, ::1],
@@ -3553,7 +3662,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     rx_observables = observables_output[:, :, 0]
     rx_state_summaries = state_summaries_output[:, :, run_index]
     rx_observables_summaries = observables_summaries_output[:, :, 0]
-    rx_iteration_counters = iteration_counters_output[run_index, :, :]
+    rx_iteration_counters = iteration_counters_output[:, :, run_index]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
                      local_scratch, rx_state, rx_observables,
@@ -3581,7 +3690,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     rho_values = np.linspace(rho_min, rho_max, n_runs, dtype=precision)
 
     # Input arrays (NumPy)
-    inits = np.zeros((n_runs, n_states), order='F', dtype=precision)
+    inits = np.zeros((n_runs, n_states), dtype=precision)
     inits[:, 0] = precision(1.0)
     inits[:, 1] = precision(0.0)
     inits[:, 2] = precision(0.0)
@@ -3590,8 +3699,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     params[:, 0] = rho_values
 
     # Create device arrays for inputs (BatchInputArrays pattern)
-    d_inits = cuda.device_array((n_runs, n_states), dtype=precision,
-                             order='F')
+    d_inits = cuda.device_array((n_runs, n_states), dtype=precision)
     d_inits.copy_to_device(inits)
     d_params = cuda.to_device(params)
     d_driver_coefficients = cuda.to_device(driver_coefficients)
@@ -3624,14 +3732,14 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     # native order=(time, var, run)
     obs_summ_shape = (n_summary_samples, 1, 1)
     obs_summ_strides = get_strides(obs_summ_shape, precision, (0, 1, 2))
-    observable_summaries_output = cuda.device_array(obs_summ_shape,
-                                                    dtype=precision,
-                                                    strides=obs_summ_strides)
+    observable_summaries_output = cuda.device_array(
+        obs_summ_shape, dtype=precision, strides=obs_summ_strides
+    )
 
     # iteration_counters_output: shape=(runs, samples, counters)
     # native order=(run, time, var) - unchanged (special case)
-    iter_shape = (n_runs, n_output_samples, n_counters)
-    iter_strides = get_strides(iter_shape, np.int32, (1, 0, 2))
+    iter_shape = (n_output_samples, n_counters, n_runs)
+    iter_strides = get_strides(iter_shape, np.int32, (0, 1, 2))
     iteration_counters_output = cuda.device_array(iter_shape, dtype=np.int32,
                                                   strides=iter_strides)
 
@@ -3658,6 +3766,10 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"  Block size: {current_blocksize}")
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
+    print("  Max registers: " +
+    f"{tuple(reg for reg in integration_kernel.get_regs_per_thread().values())[0]}"
+    )
+
     stream = cuda.stream()
     print("\nLaunching kernel...")
     kernel_launch_time = perf_counter()
@@ -3671,7 +3783,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     kernel_end_time = perf_counter()
     # Mapped arrays provide direct host access after synchronization
     # No explicit copy_to_host required
-    print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
+    # print(f"\nKernel Execution time: {kernel_end_time - kernel_launch_time}")
     status_codes_output = status_codes_output.copy_to_host(stream=stream)
     state_output = state_output.copy_to_host(stream=stream)
     observables_output = observables_output.copy_to_host(stream=stream)
@@ -3700,10 +3812,20 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")
 
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
-
-
     print(f"Final state sample (run 0): {state_output[-1, :n_states, 0]}")
     print(f"Final state sample (run -1): {state_output[-1, :n_states, -1]}")
+    print("\n\n\n")
+    print("\n" + "=" * 70 + "\n")
+    print("Type dump")
+    print("\n" + "=" * 70 + "\n")
+    print(f"{integration_kernel.inspect_types()}")
+    print(f"{loop_fn.inspect_types()}")
+    print(f"{step_fn.inspect_types()}")
+    print(f"{save_state_inline.inspect_types()}")
+    print(f"{update_summaries_inline.inspect_types()}")
+    print(f"{save_summaries_inline.inspect_types()}")
+    print(f"{linear_solver_fn.inspect_types()}")
+    print(f"{newton_solver_fn.inspect_types()}")
 
     return state_output, status_codes_output
 

@@ -76,7 +76,6 @@ def newton_krylov_solver_factory(
     typed_zero = precision(0.0)
     typed_one = precision(1.0)
     typed_damping = precision(damping)
-    status_active = int32(-1)
     n = int32(n)
     max_iters = int32(max_iters)
     max_backtracks = int32(max_backtracks)
@@ -172,22 +171,33 @@ def newton_krylov_solver_factory(
             delta[i] = typed_zero
             norm2_prev += residual_value * residual_value
 
-        status = status_active
-        if norm2_prev <= tol_squared:
-            status = int32(0)
+        # Boolean control flags replace status-code-based loop control
+        converged = norm2_prev <= tol_squared
+        has_error = False
+        final_status = int32(0)
+
+        # Local array for linear solver iteration count output
+        krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
         mask = activemask()
         for _ in range(max_iters):
-            if all_sync(mask, status >= 0):
+            done = converged or has_error
+            if all_sync(mask, done):
                 break
 
-            iters_count += int32(1)
-            if status < 0:
+            # Predicated iteration count update
+            active = not done
+            iters_count = selp(
+                active, int32(iters_count + int32(1)), iters_count
+            )
+
+            if active:
                 # Linear solver shared memory starts after newton's scratch
                 lin_shared = shared_scratch[2 * n:]
-                lin_return = linear_solver(
+                krylov_iters_local[0] = int32(0)
+                lin_status = linear_solver(
                     stage_increment,
                     parameters,
                     drivers,
@@ -198,19 +208,25 @@ def newton_krylov_solver_factory(
                     residual,
                     delta,
                     lin_shared,
+                    krylov_iters_local,
                 )
-                krylov_iters = (lin_return >> 16) & int32(0xFFFF)
-                total_krylov_iters += krylov_iters
-                lin_status = lin_return & int32(0xFFFF)
-                if lin_status != int32(0):
-                    status = int32(lin_status)
+                total_krylov_iters += krylov_iters_local[0]
+
+                # Update error flag on linear solver failure
+                lin_failed = lin_status != int32(0)
+                has_error = has_error or lin_failed
+                # Accumulate error code via OR
+                final_status = selp(
+                    lin_failed, int32(final_status | lin_status), final_status
+                )
 
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
 
             for _ in range(max_backtracks + 1):
-                if status < 0:
+                active_backtrack = active and not found_step
+                if active_backtrack:
                     delta_scale = scale - scale_applied
                     for i in range(n):
                         stage_increment[i] += delta_scale * delta[i]
@@ -232,10 +248,11 @@ def newton_krylov_solver_factory(
                         residual_value = residual[i]
                         norm2_new += residual_value * residual_value
 
-                    if norm2_new <= tol_squared:
-                        status = int32(0)
+                    # Check convergence
+                    just_converged = norm2_new <= tol_squared
+                    converged = converged or just_converged
 
-                    accept = (status < 0) and (norm2_new < norm2_prev)
+                    accept = (not converged) and (norm2_new < norm2_prev)
                     found_step = found_step or accept
 
                     for i in range(n):
@@ -246,25 +263,35 @@ def newton_krylov_solver_factory(
                         )
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                if all_sync(mask, found_step or status >= 0):
+                done_backtrack = found_step or converged or has_error
+                if all_sync(mask, done_backtrack):
                     break
                 scale *= typed_damping
 
-            if (status < 0) and (not found_step):
-                for i in range(n):
-                    stage_increment[i] -= scale_applied * delta[i]
-                status = int32(1)
+            # Backtrack failure handling
+            backtrack_failed = active and (not found_step) and (not converged)
+            has_error = has_error or backtrack_failed
+            final_status = selp(
+                backtrack_failed, int32(final_status | int32(1)), final_status
+            )
 
-        if status < 0:
-            status = int32(2)
+            # Revert state if backtrack failed using predicated pattern
+            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
+            for i in range(n):
+                stage_increment[i] += revert_scale * delta[i]
 
+        # Max iterations exceeded without convergence
+        max_iters_exceeded = (not converged) and (not has_error)
+        final_status = selp(
+            max_iters_exceeded, int32(final_status | int32(2)), final_status
+        )
+
+        # Write iteration counts to counters array
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        status |= iters_count << 16
-        return status
-
-
+        # Return status without encoding iterations (breaking change per plan)
+        return final_status
 
     # no cover: end
     return newton_krylov_solver

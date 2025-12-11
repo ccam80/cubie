@@ -22,7 +22,8 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 # lineinfo is not supported in CUDASIM mode
 compile_kwargs: dict[str, bool] = (
         {} if CUDA_SIMULATION
-        else {"lineinfo": True,
+        else {
+              "lineinfo": True,
               'fastmath': {
                    'nsz': True,
                    'contract': True,
