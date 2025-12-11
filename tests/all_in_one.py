@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int16, int32, int64, float32, float64
+from numba import cuda, int32, int64, float32, float64
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -887,7 +887,9 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
 
             # Predicated iteration count update
             active = not done
-            iters_count = selp(active, iters_count + int32(1), iters_count)
+            iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
+            )
 
             if active:
                 krylov_iters_local[0] = int32(0)
@@ -898,7 +900,8 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
 
                 lin_failed = lin_status != int32(0)
                 has_error = has_error or lin_failed
-                final_status = selp(lin_failed, final_status | lin_status,
+                final_status = selp(lin_failed,
+                                    int32(final_status | lin_status),
                                     final_status)
 
             scale = typed_one
@@ -940,8 +943,11 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             # Backtrack failure handling
             backtrack_failed = active and (not found_step) and (not converged)
             has_error = has_error or backtrack_failed
-            final_status = selp(backtrack_failed, final_status | int32(1),
-                                final_status)
+            final_status = selp(
+                    backtrack_failed,
+                    int32(final_status | int32(1)),
+                    final_status
+            )
 
             # Revert state if backtrack failed using predicated pattern
             revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
@@ -950,8 +956,11 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
 
         # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
-        final_status = selp(max_iters_exceeded, final_status | int32(2),
-                            final_status)
+        final_status = selp(
+                max_iters_exceeded,
+                int32(final_status | int32(2)),
+                final_status
+        )
 
         counters[0] = iters_count
         counters[1] = total_krylov_iters
@@ -1071,8 +1080,8 @@ def dirk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1199,14 +1208,14 @@ def dirk_step_inline_factory(
         #            Stage 0: may reuse cached values                     #
         # --------------------------------------------------------------- #
 
-        first_step = first_step_flag != int16(0)
+        first_step = first_step_flag != int32(0)
 
         # Only use cache if all threads in warp can - otherwise no gain
         use_cached_rhs = False
         if first_same_as_last and multistage:
             if not first_step:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1513,8 +1522,8 @@ def erk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -1613,7 +1622,7 @@ def erk_step_inline_factory(
         if first_same_as_last and multistage:
             if not first_step_flag:
                 mask = activemask()
-                all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                 use_cached_rhs = all_threads_accepted
         else:
             use_cached_rhs = False
@@ -1896,8 +1905,8 @@ def firk_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -2221,8 +2230,8 @@ def rosenbrock_step_inline_factory(
             numba_precision[::1],
             numba_precision,
             numba_precision,
-            int16,
-            int16,
+            int32,
+            int32,
             numba_precision[::1],
             numba_precision[::1],
             int32[::1],
@@ -3360,8 +3369,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
 
-    first_step_flag = int16(1)
-    prev_step_accepted_flag = int16(1)
+    first_step_flag = int32(1)
+    prev_step_accepted_flag = int32(1)
 
     # ----------------------------------------------------------------------- #
     #                       Seed t=0 values                                   #
@@ -3480,7 +3489,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 step_persistent_local,
                 proposed_counters,
             )
-            first_step_flag = int16(0)
+            first_step_flag = int32(0)
 
             # Iterations now come from counters, not encoded in status
             niters = proposed_counters[0]
@@ -3537,8 +3546,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             prev_step_accepted_flag = selp(
                 accept,
-                int16(1),
-                int16(0),
+                int32(1),
+                int32(0),
             )
 
             # Predicated update of next_save; update if save is accepted.
