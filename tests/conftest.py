@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from tests._utils import _build_enhanced_algorithm_settings
 from cubie import SymbolicODE
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import merge_kwargs_into_settings
@@ -930,28 +931,6 @@ def single_integrator_run_mutable(
 def cpu_system(system):
     """Return a CPU-based system."""
     return CPUODESystem(system)
-
-
-def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array):
-    """Add system and driver functions to algorithm settings.
-    
-    Functions are passed directly to get_algorithm_step, not stored
-    in algorithm_settings dict.
-    """
-    enhanced = algorithm_settings.copy()
-    enhanced['dxdt_function'] = system.dxdt_function
-    enhanced['observables_function'] = system.observables_function
-    enhanced['get_solver_helper_fn'] = system.get_solver_helper
-    enhanced['n_drivers'] = system.num_drivers
-    
-    if driver_array is not None:
-        enhanced['driver_function'] = driver_array.evaluation_function
-        enhanced['driver_del_t'] = driver_array.driver_del_t
-    else:
-        enhanced['driver_function'] = None
-        enhanced['driver_del_t'] = None
-    
-    return enhanced
 
 
 @pytest.fixture(scope="session")

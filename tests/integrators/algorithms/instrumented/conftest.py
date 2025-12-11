@@ -6,7 +6,7 @@ import pytest
 from numba import cuda, from_dtype, int16
 from numba.core.types import int32
 
-from conftest import _build_enhanced_algorithm_settings
+from tests._utils import _build_enhanced_algorithm_settings
 from cubie.integrators.algorithms import (
     BackwardsEulerPCStep,
     BackwardsEulerStep,
