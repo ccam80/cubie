@@ -39,6 +39,7 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 #   'dirk'        - Diagonally Implicit Runge-Kutta (DIRK_TABLEAU_REGISTRY)
 #   'firk'        - Fully Implicit Runge-Kutta (FIRK_TABLEAU_REGISTRY)
 #   'rosenbrock'  - Rosenbrock-W methods (ROSENBROCK_TABLEAUS)
+script_start = perf_counter()
 algorithm_type = 'dirk'  # 'erk', 'dirk', 'firk', or 'rosenbrock'
 algorithm_tableau_name = 'l_stable_sdirk_4'  # Registry key for the tableau
 
@@ -71,7 +72,7 @@ n_counters = 4
 #   - Driver signal names as keys with 1D numpy arrays as values
 #   - "dt" or "time": time information for samples
 #   - Optional: "order", "wrap", "boundary_condition"
-# 
+#
 # Example usage with drivers:
 #   driver_input_dict = {
 #       "driver_0": np.sin(np.linspace(0, 2*np.pi, 10)),
@@ -167,7 +168,7 @@ loop_observables_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_error_buffer_memory = 'local'  # 'local' or 'shared'
 loop_counters_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_summary_buffer_memory = 'local'  # 'local' or 'shared'
-loop_observable_summary_buffer_memory = 'shared'  # 'local' or 'shared'
+loop_observable_summary_buffer_memory = 'local'  # 'local' or 'shared'
 
 # This one doesn't really make sense - it'lls be shared(0) if algo doesn't
 # request shared
@@ -408,8 +409,8 @@ def dxdt_factory(constants, prec):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-               numba_prec[::1], numba_prec[::1], numba_prec),
+            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+            #    numba_prec[::1], numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def dxdt(state, parameters, drivers, observables, out, t):
         out[2] = -beta * state[2] + state[0] * state[1]
@@ -438,16 +439,16 @@ def observables_factory(constants, prec):
 
 def driver_function_inline_factory(interpolator):
     """Create inline evaluation function from ArrayInterpolator.
-    
+
     Takes an ArrayInterpolator instance and creates an inline CUDA device
     function that evaluates driver polynomials at a given time. This is the
     critical device code for CUDA profiling tool alignment.
-    
+
     Parameters
     ----------
     interpolator : ArrayInterpolator
         Configured ArrayInterpolator instance with computed coefficients.
-        
+
     Returns
     -------
     callable
@@ -466,16 +467,16 @@ def driver_function_inline_factory(interpolator):
     pad_clamped = (not wrap) and (interpolator.boundary_condition == 'clamped')
     evaluation_start = prec(start_time_val - (
         interpolator.dt if pad_clamped else prec(0.0)))
-    
+
     @cuda.jit(
-        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        # (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
         device=True,
         inline=True,
         **compile_kwargs
     )
     def driver_function(time, coefficients, out):
         """Evaluate all driver polynomials at time on the device.
-        
+
         Parameters
         ----------
         time : float
@@ -488,7 +489,7 @@ def driver_function_inline_factory(interpolator):
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
-        
+
         if wrap:
             seg = int32(idx % num_segments)
             tau = prec(scaled - scaled_floor)
@@ -499,29 +500,29 @@ def driver_function_inline_factory(interpolator):
             seg = selp(seg >= num_segments,
                       int32(num_segments - 1), seg)
             tau = scaled - float(seg)
-        
+
         # Evaluate polynomials using Horner's rule
         for driver_idx in range(num_drivers):
             acc = zero_value
             for k in range(order, -1, -1):
                 acc = acc * tau + coefficients[seg, driver_idx, k]
             out[driver_idx] = acc if in_range else zero_value
-    
+
     return driver_function
 
 
 def driver_derivative_inline_factory(interpolator):
     """Create inline derivative function from ArrayInterpolator.
-    
+
     Takes an ArrayInterpolator instance and creates an inline CUDA device
     function that evaluates driver time derivatives at a given time. This is
     critical device code for CUDA profiling tool alignment.
-    
+
     Parameters
     ----------
     interpolator : ArrayInterpolator
         Configured ArrayInterpolator instance with computed coefficients.
-        
+
     Returns
     -------
     callable
@@ -540,16 +541,16 @@ def driver_derivative_inline_factory(interpolator):
     pad_clamped = (not wrap) and (interpolator.boundary_condition == 'clamped')
     evaluation_start = prec(start_time_val - (
         interpolator.dt if pad_clamped else prec(0.0)))
-    
+
     @cuda.jit(
-        (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
+        # (numba_prec, numba_prec[:, :, ::1], numba_prec[::1]),
         device=True,
         inline=True,
         **compile_kwargs
     )
     def driver_derivative(time, coefficients, out):
         """Evaluate time derivative of each driver polynomial.
-        
+
         Parameters
         ----------
         time : float
@@ -562,7 +563,7 @@ def driver_derivative_inline_factory(interpolator):
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
-        
+
         if wrap:
             seg = int32(idx % num_segments)
             tau = prec(scaled - scaled_floor)
@@ -573,7 +574,7 @@ def driver_derivative_inline_factory(interpolator):
             seg = selp(seg >= num_segments,
                       int32(num_segments - 1), seg)
             tau = scaled - float(seg)
-        
+
         # Evaluate derivative using Horner's rule on derivative polynomial
         for driver_idx in range(num_drivers):
             acc = zero_value
@@ -584,7 +585,7 @@ def driver_derivative_inline_factory(interpolator):
             out[driver_idx] = (
                 acc * inv_resolution if in_range else zero_value
             )
-    
+
     return driver_derivative
 
 
@@ -600,9 +601,9 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-               numba_prec[::1], numba_prec, numba_prec, numba_prec,
-               numba_prec[::1], numba_prec[::1], numba_prec[::1]),
+            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
+            #    numba_prec[::1], numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def preconditioner(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out, jvp):
@@ -636,9 +637,9 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
     @cuda.jit(
-            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-               numba_prec, numba_prec, numba_prec, numba_prec[::1],
-               numba_prec[::1]),
+            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+            #    numba_prec, numba_prec, numba_prec, numba_prec[::1],
+            #    numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
         _cse0 = a_ij * u[1]
@@ -663,9 +664,9 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
-            (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-               numba_prec[::1], numba_prec, numba_prec, numba_prec,
-               numba_prec[::1], numba_prec[::1]),
+            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
+            #    numba_prec[::1], numba_prec[::1]),
               device=True, inline=True, **compile_kwargs)
     def operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        v, out):
@@ -735,9 +736,9 @@ def linear_solver_inline_factory(
     mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
 
     @cuda.jit(
-        (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-         numba_prec[::1], numba_prec, numba_prec, numba_prec,
-         numba_prec[::1], numba_prec[::1], int32[::1]),
+        # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
+        #  numba_prec[::1], numba_prec, numba_prec, numba_prec,
+        #  numba_prec[::1], numba_prec[::1], int32[::1]),
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x, krylov_iters_out):
@@ -833,15 +834,16 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_damping = numba_prec(damping)
 
     @cuda.jit(
-            [(numba_prec[::1],
-                numba_prec[::1],
-                numba_prec[::1],
-                numba_prec,
-                numba_prec,
-                numba_prec,
-                numba_prec[::1],
-                numba_prec[::1],
-                int32[::1])],
+            # [
+            #     (numba_prec[::1],
+            #     numba_prec[::1],
+            #     numba_prec[::1],
+            #     numba_prec,
+            #     numba_prec,
+            #     numba_prec,
+            #     numba_prec[::1],
+            #     numba_prec[::1],
+            #     int32[::1])],
               device=True,
               inline=True,
               **compile_kwargs
@@ -1027,7 +1029,6 @@ def dirk_step_inline_factory(
     first_same_as_last = False  # SDIRK does not share first/last stage
     can_reuse_accepted_start = False
 
-    stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
     explicit_a_coeffs = tableau.explicit_terms(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
     typed_zero = numba_precision(0.0)
@@ -1068,24 +1069,25 @@ def dirk_step_inline_factory(
                   if solver_scratch_in_shared else acc_end)
 
     @cuda.jit(
-        [(
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, :, ::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision,
-            numba_precision,
-            int32,
-            int32,
-            numba_precision[::1],
-            numba_precision[::1],
-            int32[::1],
-        )],
+        # [
+        #     (
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[:, :, ::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision,
+        #     numba_precision,
+        #     int32,
+        #     int32,
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     int32[::1],
+        # )],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -1492,7 +1494,7 @@ def erk_step_inline_factory(
     # Last-step caching optimization
     accumulates_output = tableau.accumulates_output
     accumulates_error = tableau.accumulates_error
-    
+
     b_row = tableau.b_matches_a_row
     b_hat_row = tableau.b_hat_matches_a_row
     if b_row is not None:
@@ -1510,24 +1512,25 @@ def erk_step_inline_factory(
                                        stage_accumulator_in_shared)
 
     @cuda.jit(
-        [(
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, :, ::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision,
-            numba_precision,
-            int32,
-            int32,
-            numba_precision[::1],
-            numba_precision[::1],
-            int32[::1],
-        )],
+        # [
+        #     int32(
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[:, :, ::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision,
+        #     numba_precision,
+        #     int32,
+        #     int32,
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     int32[::1],
+        # )],
         device=True,
         inline=True,
         **compile_kwargs
@@ -1821,7 +1824,7 @@ def firk_step_inline_factory(
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     all_stages_n = stage_count * n
-    
+
     # int versions for cuda.local.array sizes
     n_int = int(n)
     stage_count_int = int(stage_count)
@@ -1858,7 +1861,7 @@ def firk_step_inline_factory(
 
     solver_scratch_elements = 2 * all_stages_n
     stage_driver_stack_elements = stage_count * n_drivers
-    
+
     # int versions for cuda.local.array sizes
     solver_scratch_elements_int = int(solver_scratch_elements)
     stage_driver_stack_elements_int = int(stage_driver_stack_elements)
@@ -1893,24 +1896,25 @@ def firk_step_inline_factory(
     shared_pointer = stage_state_end
 
     @cuda.jit(
-        [(
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, :, ::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision,
-            numba_precision,
-            int32,
-            int32,
-            numba_precision[::1],
-            numba_precision[::1],
-            int32[::1],
-        )],
+        # [
+        #     int32(
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[:, :, ::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision,
+        #     numba_precision,
+        #     int32,
+        #     int32,
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     int32[::1],
+        # )],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -2150,7 +2154,7 @@ def rosenbrock_step_inline_factory(
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     stages_except_first = stage_count - int32(1)
-    
+
     # int versions for cuda.local.array sizes
     n_int = int(n)
     stage_count_int = int(stage_count)
@@ -2191,7 +2195,7 @@ def rosenbrock_step_inline_factory(
     # For this debug script, we use 0 as a placeholder since the actual
     # Jacobian helpers are not implemented.
     cached_auxiliary_count = int32(0)  # Simplified for debug script
-    
+
     # int versions for cuda.local.array sizes
     stage_store_elements_int = int(stage_store_elements)
     cached_auxiliary_count_int = int(cached_auxiliary_count)
@@ -2218,24 +2222,25 @@ def rosenbrock_step_inline_factory(
     shared_pointer = cached_aux_end
 
     @cuda.jit(
-        [(
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, :, ::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision,
-            numba_precision,
-            int32,
-            int32,
-            numba_precision[::1],
-            numba_precision[::1],
-            int32[::1],
-        )],
+        # [
+        #     int32(
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[:, :, ::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision,
+        #     numba_precision,
+        #     int32,
+        #     int32,
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     int32[::1],
+        # )],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -2633,15 +2638,16 @@ def clamp(value, min_val, max_val):
 
 
 @cuda.jit(
-    [(
-        numba_precision[::1],
-        numba_precision[::1],
-        numba_precision[::1],
-        numba_precision[::1],
-        int32,
-        int32[::1],
-        numba_precision[::1],
-    )],
+    # [
+    #     (
+    #     numba_precision[::1],
+    #     numba_precision[::1],
+    #     numba_precision[::1],
+    #     numba_precision[::1],
+    #     int32,
+    #     int32[::1],
+    #     numba_precision[::1],
+    # )],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -2690,17 +2696,17 @@ def controller_PID_factory(
     n = int32(n)
     inv_n = precision(1.0 / n)
     @cuda.jit(
-        [
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                int32,
-                int32[::1],
-                numba_precision[::1],
-            )
-        ],
+        # [
+        #     (
+        #         numba_precision[::1],
+        #         numba_precision[::1],
+        #         numba_precision[::1],
+        #         numba_precision[::1],
+        #         int32,
+        #         int32[::1],
+        #         numba_precision[::1],
+        #     )
+        # ],
         device=True,
         inline=True,
         # fastmath=True,
@@ -2773,10 +2779,10 @@ observables_function = observables_factory(constants, precision)
 if n_drivers > 0 and driver_input_dict is not None:
     # Create ArrayInterpolator instance to compute coefficients
     interpolator = ArrayInterpolator(precision, driver_input_dict)
-    
+
     # Get coefficients from the interpolator
     driver_coefficients = interpolator.coefficients
-    
+
     # Build inline driver evaluation function
     driver_function = driver_function_inline_factory(interpolator)
 else:
@@ -3238,23 +3244,23 @@ obs_nonzero = max(n_observables, 1)
 drv_nonzero = max(n_drivers, 1)
 ncnt_nonzero = max(n_counters, 1)
 @cuda.jit(
-    [
-        (
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, :, ::1],
-            numba_precision[::1],
-            numba_precision[::1],
-            numba_precision[:, ::1],
-            numba_precision[:, ::1],
-            numba_precision[:, ::1],
-            numba_precision[:, ::1],
-            numba_precision[:, ::1],
-            float64,
-            float64,
-            float64,
-        )
-    ],
+    # [
+    #     (
+    #         numba_precision[::1],
+    #         numba_precision[::1],
+    #         numba_precision[:, :, ::1],
+    #         numba_precision[::1],
+    #         numba_precision[::1],
+    #         numba_precision[:, ::1],
+    #         numba_precision[:, ::1],
+    #         numba_precision[:, ::1],
+    #         numba_precision[:, ::1],
+    #         numba_precision[:, ::1],
+    #         float64,
+    #         float64,
+    #         float64,
+    #     )
+    # ],
     device=True,
     inline=True,
     **compile_kwargs,
@@ -3617,21 +3623,21 @@ run_stride_f32 = int32(
 numba_prec = numba_from_dtype(precision)
 
 @cuda.jit(
-        [(
-                numba_prec[:,::1],
-                numba_prec[:, ::1],
-                numba_prec[:, :, ::1],
-                numba_prec[:, :, ::1],
-                numba_prec[:, :, ::1],
-                numba_prec[:, :, ::1],
-                numba_prec[:, :, ::1],
-                int32[:, :, ::1],
-                int32[::1],
-                float64,
-                float64,
-                float64,
-                int32,
-            )],
+        # [(
+        #         numba_prec[:,::1],
+        #         numba_prec[:, ::1],
+        #         numba_prec[:, :, ::1],
+        #         numba_prec[:, :, ::1],
+        #         numba_prec[:, :, ::1],
+        #         numba_prec[:, :, ::1],
+        #         numba_prec[:, :, ::1],
+        #         int32[:, :, ::1],
+        #         int32[::1],
+        #         float64,
+        #         float64,
+        #         float64,
+        #         int32,
+        #     )],
         **compile_kwargs)
 def integration_kernel(inits, params, d_coefficients, state_output,
                        observables_output, state_summaries_output,
@@ -3639,7 +3645,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
                        status_codes_output, duration_k, warmup_k, t0_k,
                        n_runs_k):
 
-    tx = cuda.threadIdx.x
+    tx = int32(cuda.threadIdx.x)
     block_index = int32(cuda.blockIdx.x)
     runs_per_block = cuda.blockDim.x
     run_index = int32(runs_per_block * block_index + tx)
@@ -3650,8 +3656,8 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
     c_coefficients = cuda.const.array_like(d_coefficients)
 
-    run_idx_low = tx * run_stride_f32
-    run_idx_high = (run_idx_low + f32_per_element * shared_elems_per_run
+    run_idx_low = int32(tx * run_stride_f32)
+    run_idx_high = int32(run_idx_low + f32_per_element * shared_elems_per_run
     )
     rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
         simsafe_precision)
@@ -3659,9 +3665,9 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     rx_inits = inits[run_index, :]
     rx_params = params[run_index, :]
     rx_state = state_output[:, :, run_index]
-    rx_observables = observables_output[:, :, 0]
+    rx_observables = observables_output[:, :, int32(0)]
     rx_state_summaries = state_summaries_output[:, :, run_index]
-    rx_observables_summaries = observables_summaries_output[:, :, 0]
+    rx_observables_summaries = observables_summaries_output[:, :, int32(0)]
     rx_iteration_counters = iteration_counters_output[:, :, run_index]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
@@ -3669,14 +3675,15 @@ def integration_kernel(inits, params, d_coefficients, state_output,
                      rx_state_summaries, rx_observables_summaries,
                      rx_iteration_counters, duration_k, warmup_k, t0_k)
 
-    status_codes_output[run_index] = status
+    status_codes_output[run_index] = int32(status)
 
 
 # =========================================================================
 # MAIN EXECUTION
 # =========================================================================
 
-def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
+def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
+                          start_time=0.0):
     """Execute debug integration with 2^23 runs."""
     print("=" * 70)
     algo_name = algorithm_type.upper()
@@ -3772,7 +3779,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
 
     stream = cuda.stream()
     print("\nLaunching kernel...")
-    kernel_launch_time = perf_counter()
+    kernel_launch_time = perf_counter() if start_time == 0.0 else start_time
     integration_kernel[blocks_per_grid, current_blocksize, stream,
                        dynamic_sharedmem](
         d_inits, d_params, d_driver_coefficients, state_output,
@@ -3789,9 +3796,10 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     observables_output = observables_output.copy_to_host(stream=stream)
     state_summaries_output = state_summaries_output.copy_to_host(stream=stream)
     observables_summaries_output = observable_summaries_output.copy_to_host(stream=stream)
-    cuda.synchronize()
+    stream.synchronize()
 
     memcpy_time = perf_counter() - kernel_end_time
+    wall_clock_time = perf_counter() - kernel_launch_time
     print(f"\nMemcpy time: {memcpy_time:.3f} s")
     print("\nExecution complete.")
     print("\n" + "=" * 70)
@@ -3818,17 +3826,22 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0):
     print("\n" + "=" * 70 + "\n")
     print("Type dump")
     print("\n" + "=" * 70 + "\n")
-    print(f"{integration_kernel.inspect_types()}")
-    print(f"{loop_fn.inspect_types()}")
-    print(f"{step_fn.inspect_types()}")
-    print(f"{save_state_inline.inspect_types()}")
-    print(f"{update_summaries_inline.inspect_types()}")
-    print(f"{save_summaries_inline.inspect_types()}")
-    print(f"{linear_solver_fn.inspect_types()}")
-    print(f"{newton_solver_fn.inspect_types()}")
+    # print(f"{integration_kernel.inspect_types()}")
+    # print(f"{loop_fn.inspect_types()}")
+    # print(f"{step_fn.inspect_types()}")
+    # print(f"{save_state_inline.inspect_types()}")
+    # print(f"{update_summaries_inline.inspect_types()}")
+    # print(f"{save_summaries_inline.inspect_types()}")
+    # print(f"{linear_solver_fn.inspect_types()}")
+    # print(f"{newton_solver_fn.inspect_types()}")
 
-    return state_output, status_codes_output
+    return state_output, status_codes_output, wall_clock_time
 
 
 if __name__ == "__main__":
-    run_debug_integration(n_runs=int32(2**23))
+    _, _ , wall1 = run_debug_integration(n_runs=int32(2**23),
+                                         start_time=script_start)
+    _, _, wall2 = run_debug_integration(n_runs=int32(2**23))
+    print(f"Wall clock time 1: {wall1*1000:.3f} ms")
+    print(f"Wall clock time 2: {wall2*1000:.3f} ms")
+    print(f"Implied Compile time: {(wall1 - wall2) * 1000:.3f}")
