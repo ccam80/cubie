@@ -102,17 +102,35 @@ def _create_placeholder_args(
 
                         # Create array with appropriate dtype and shape
                         if item.dtype == numba.float64:
-                            args += (np.ones(shape, dtype=np.float64),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float64)
+                                ),
+                            )
                         elif item.dtype == numba.float32:
-                            args += (np.ones(shape, dtype=np.float32),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float32)
+                                ),
+                            )
                         elif item.dtype == numba.types.float16:
-                            args += (np.ones(shape, dtype=np.float16),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float16)
+                                ),
+                            )
                         elif item.dtype == numba.int64:
-                            args += (np.ones(shape, dtype=np.int64),)
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int64)),
+                            )
                         elif item.dtype == numba.int32:
-                            args += (np.ones(shape, dtype=np.int32),)
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                            )
                         elif item.dtype == numba.types.int16:
-                            args += (np.ones(shape, dtype=np.int16),)
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                            )
                     elif isinstance(item, numba.types.Integer):
                         # Use critical_values if available for this parameter
                         use_critical = (
