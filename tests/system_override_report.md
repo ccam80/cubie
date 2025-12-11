@@ -1,7 +1,7 @@
 # System override parametrization report
 
 Default `system_override` (when not provided or falsy) resolves to the
-`nonlinear` three‑state model via `tests/conftest.py`.
+`nonlinear` three-state model via `tests/conftest.py`.
 
 ## Summary by system
 - **linear**: 41 parametrized cases (heavily concentrated in
@@ -30,8 +30,8 @@ Default `system_override` (when not provided or falsy) resolves to the
 - `tests/batchsolving/test_solver.py::test_solver_with_different_systems`
   — `three_chamber`, `stiff`, `linear` (1 each). Explicit cross-system
   compatibility check; justified.
-- `tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver`
-  `::test_time_domain_legend_from_solver` — `linear` (1). Legend building
+- `tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_time_domain_legend_from_solver`
+  — `linear` (1). Legend building
   is system-agnostic; could standardize.
 - `tests/batchsolving/test_solveresult.py::TestNaNProcessing` (class) —
   `linear` applied to four tests. NaN handling is generic; likely safe to
