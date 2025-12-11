@@ -10,22 +10,12 @@ import pytest
 
 from cubie import summary_metrics
 from tests._utils import assert_integration_outputs
+from tests.conftest import MID_RUN_PARAMS
 
 Array = NDArray[np.floating]
 
 
-DEFAULT_OVERRIDES = {
-    'dt': 0.001,
-    'dt_min': 1e-8,
-    'dt_max': 0.5,
-    'dt_save': 0.02,
-    'newton_tolerance': 1e-7,
-    'krylov_tolerance': 1e-7,
-    'atol': 1e-5,
-    'rtol': 1e-6,
-    'output_types': ["state", "time"],
-    'saved_state_indices': [0, 1, 2],
-}
+DEFAULT_OVERRIDES = MID_RUN_PARAMS
 
 LOOP_CASES = [
     pytest.param(

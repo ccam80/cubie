@@ -12,6 +12,7 @@ from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     BatchInputSizes,
 )
+from tests.conftest import SHORT_RUN_PARAMS
 
 
 class TestNonzeroProperty:
@@ -150,7 +151,7 @@ class TestOutputArrayHeights:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_output_fns_default(self, output_functions):
@@ -173,7 +174,7 @@ class TestOutputArrayHeights:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_explicit_vs_from_output_fns(self, output_functions):
@@ -249,7 +250,7 @@ class TestSingleRunOutputSizes:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_from_output_fns_and_run_settings_default(
@@ -302,7 +303,7 @@ class TestSingleRunOutputSizes:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
+        [SHORT_RUN_PARAMS],
         indirect=True,
     )
     def test_explicit_vs_from_solver(

@@ -52,6 +52,36 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
+
+# --------------------------------------------------------------------------- #
+#                      Standard Parameter Sets                                #
+# --------------------------------------------------------------------------- #
+# Reduces compilation overhead by consolidating ~80 unique parameter
+# combinations to ~13 standard sets plus edge cases
+
+SHORT_RUN_PARAMS = {
+    'duration': 0.05,
+    'dt_save': 0.05,
+    'dt_summarise': 0.05,
+    'output_types': ['state', 'time'],
+}
+
+MID_RUN_PARAMS = {
+    'dt': 0.001,
+    'dt_save': 0.02,
+    'dt_summarise': 0.1,
+    'dt_max': 0.5,
+    'output_types': ['state', 'time', 'mean'],
+}
+
+LONG_RUN_PARAMS = {
+    'duration': 0.3,
+    'dt': 0.0005,
+    'dt_save': 0.05,
+    'dt_summarise': 0.15,
+    'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
+}
+
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
