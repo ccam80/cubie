@@ -5,6 +5,7 @@ import math
 from typing import Mapping, Optional, Union
 
 import numpy as np
+import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
@@ -47,6 +48,51 @@ RUN_DEFAULTS = {
     't0': 0.0,
     'warmup': 0.0,
 }
+STEP_OVERRIDES = MID_RUN_PARAMS
+
+
+STEP_CASES = [
+    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
+    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
+    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
+    pytest.param({"algorithm": "crank_nicolson", "step_controller": "pid"}, id="crank_nicolson"),
+    pytest.param({"algorithm": "rosenbrock", "step_controller": "i"},
+                 id="rosenbrock"),
+    pytest.param({"algorithm": "erk", "step_controller": "pid"}, id="erk"),
+    pytest.param({"algorithm": "dirk", "step_controller": "fixed"}, id="dirk"),
+    pytest.param({"algorithm": "firk", "step_controller": "fixed"}, id="firk"),
+    # Specific ERK tableaus
+    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pid"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pid"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "fehlberg-45", "step_controller": "i"},
+                 id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pid"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "dop853", "step_controller": "pid"},
+                 id="erk-dop853", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "tsit5", "step_controller": "pid"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "vern7", "step_controller": "pid"}, id="erk-vern7", marks=pytest.mark.specific_algos),
+    # Specific DIRK tableaus
+    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
+                 id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
+    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "fixed"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
+    # Specific FIRK tableaus
+    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
+    # Specific Rosenbrock-W tableaus
+    pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ode23s", "step_controller": "pid"},
+                 id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas3p", "step_controller": "pid"},
+                 id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos)
+]
+
 
 
 def merge_dicts(*dicts):
@@ -105,6 +151,9 @@ def merge_param(base_settings, param):
         # It's a plain dict
         return pytest.param(merge_dicts(base_settings, param))
 
+# Merged cases with STEP_OVERRIDES baked in
+ALGORITHM_PARAM_SETS = [merge_param(MID_RUN_PARAMS, case)
+                     for case in STEP_CASES]
 
 def calculate_expected_summaries(
     state,

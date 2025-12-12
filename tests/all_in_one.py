@@ -860,10 +860,18 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         counters,
     ):
         delta = shared_scratch[:n]
-        residual = shared_scratch[n:int32(2 * n)]
+        residual = shared_scratch[n : int32(2 * n)]
 
-        residual_fn(stage_increment, parameters, drivers, t, h, a_ij,
-                    base_state, residual)
+        residual_fn(
+            stage_increment,
+            parameters,
+            drivers,
+            t,
+            h,
+            a_ij,
+            base_state,
+            residual,
+        )
         norm2_prev = typed_zero
         for i in range(n):
             residual_value = residual[i]
@@ -895,9 +903,18 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
 
             if active:
                 krylov_iters_local[0] = int32(0)
-                lin_status = linear_solver(stage_increment, parameters,
-                                           drivers, base_state, t, h, a_ij,
-                                           residual, delta, krylov_iters_local)
+                lin_status = linear_solver(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    base_state,
+                    t,
+                    h,
+                    a_ij,
+                    residual,
+                    delta,
+                    krylov_iters_local,
+                )
                 total_krylov_iters += krylov_iters_local[0]
 
                 lin_failed = lin_status != int32(0)
@@ -937,9 +954,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                done_backtrack = found_step or converged or has_error
-                if all_sync(mask, done_backtrack):
-                    break
                 scale *= typed_damping
 
             # Backtrack failure handling
@@ -1312,7 +1326,7 @@ def dirk_step_inline_factory(
         # --------------------------------------------------------------- #
         #            Stages 1-s: must refresh all qtys                    #
         # --------------------------------------------------------------- #
-
+        mask = activemask()
         for prev_idx in range(stages_except_first):
 
             #DIRK is missing the instruction cache. The unrolled stage loop
@@ -1320,7 +1334,7 @@ def dirk_step_inline_factory(
             # Try syncing block-wide per-stage to see whether this will help
             # the whole block stay in one cache chunk. Play with block size
             # to enforce the number of blocks per SM.
-            # cuda.syncthreads()
+            cuda.syncwarp(mask)
             stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
             matrix_col = explicit_a_coeffs[prev_idx]
