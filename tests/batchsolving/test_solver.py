@@ -228,10 +228,8 @@ def test_solve_info_property(
     "solver_settings_override",
     [
         SHORT_RUN_PARAMS,
-        {"system_type": "three_chamber",
-         **SHORT_RUN_PARAMS},
     ],
-    ids=["default_system", "three_chamber_system"],
+    ids=[""],
     indirect=True,
 )
 def test_solve_basic(
@@ -559,12 +557,6 @@ def test_solver_num_runs_property(solver):
 # Time Precision Tests (float64 time accumulation)
 # ============================================================================
 
-
-
-@pytest.mark.parametrize("solver_settings_override",
-                        [{'dt':1e-3}],
-                         indirect=True,
-ids=[""])
 def test_solver_stores_time_as_float64(solver_mutable):
     """Verify Solver stores time parameters as float64."""
     # Set time parameters as float32

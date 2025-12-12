@@ -50,6 +50,7 @@ def output_functions(output_test_settings):
 @pytest.mark.parametrize(
     "output_test_settings_overrides",
     [{"output_types": ["state", "observables"]}, {"output_types": ["time"]}],
+    indirect=True
 )
 def test_save_time(output_functions, output_test_settings):
     """Test that the save_time setting is correctly set in the outputhandling object."""

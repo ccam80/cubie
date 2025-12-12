@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from numba import cuda
-from tests._utils import MID_RUN_PARAMS
 
 
 @pytest.fixture(scope='function')
@@ -253,8 +252,6 @@ def test_pi_controller_uses_tableau_order(
         ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
         indirect=True,
     )
-    @pytest.mark.parametrize('solver_settings_override',
-                             [{'dt_min': 1e-6}], indirect=True)
     def test_matches_cpu(
         self,
         step_controller,
@@ -277,9 +274,6 @@ def test_pi_controller_uses_tableau_order(
             atol=tolerance.abs_tight,
         )
 
-    @pytest.mark.parametrize('solver_settings_override',
-                             ({'dt_min': 1e-4, 'dt_max': 0.2},),
-                             indirect=True)
     def test_cpu_gpu_sequence_agree(
         self,
         step_controller,

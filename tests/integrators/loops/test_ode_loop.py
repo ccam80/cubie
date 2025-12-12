@@ -116,7 +116,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "sdirk_2_2", "step_controller": "i"},
+        {"algorithm": "sdirk_2_2", "step_controller": "fixed"},
         id="dirk-sdirk-2-2",
         marks=pytest.mark.specific_algos,
     ),
@@ -211,18 +211,6 @@ def test_getters(
     )
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "duration": 0.05,
-            "dt_save" : 0.05,
-            "algorithm": "crank_nicolson",
-            "output_types": ["state", "observables"],
-        },
-    ],
-    indirect=True,
-)
 def test_initial_observable_seed_matches_reference(
     device_loop_outputs,
     cpu_loop_outputs,

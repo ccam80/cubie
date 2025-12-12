@@ -9,7 +9,7 @@ import pytest
 
 from cubie import SingleIntegratorRun
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
-from tests._utils import assert_integration_outputs
+from tests._utils import assert_integration_outputs, SHORT_RUN_PARAMS
 
 
 def _compare_scalar(actual, expected, tolerance):
@@ -56,16 +56,7 @@ def _settings_to_dict(settings_source):
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "algorithm": "euler",
-            "step_controller": "fixed",
-            "dt": 0.01,
-            "dt_max": 0.01,
-            "dt_save": 0.1,
-            "dt_summarise": 0.3,
-            "duration": 0.3,
-            "output_types": ["state","time", "observables","mean"]
-        },
+        SHORT_RUN_PARAMS,
         {
             "algorithm": "bogacki-shampine-32",
             "step_controller": "pid",

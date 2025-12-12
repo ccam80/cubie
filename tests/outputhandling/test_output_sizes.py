@@ -284,7 +284,6 @@ class TestSingleRunOutputSizes:
         "solver_settings_override",
         [
             {
-                "output_types": ["time", "state", "observables", "mean"],
                 "duration": 0.0,
             }
         ],
@@ -443,19 +442,6 @@ class TestBatchOutputSizes:
 class TestIntegrationScenarios:
     """Test realistic integration scenarios"""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [
-            {
-                "dt_save": 0.01,
-                "dt_summarise": 0.1,
-                "saved_state_indices": [0, 1, 2],
-                "saved_observable_indices": [0, 1],
-                "output_types": ["time", "state", "observables", "mean"],
-            }
-        ],
-        indirect=True,
-    )
     def test_realistic_scenario_no_zeros(
         self, output_functions, run_settings, solverkernel
     ):

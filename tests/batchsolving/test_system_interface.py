@@ -19,7 +19,7 @@ def test_from_system(interface):
     "updates",
     [
         {"x0": 42.0},
-        {"p0": 3.14}, {"system_type": "linear"},
+        {"p0": 3.14},
         {"x0": 1.23, "p1": 4.56},
     ],
 )

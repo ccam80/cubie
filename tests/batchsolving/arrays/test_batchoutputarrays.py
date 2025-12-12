@@ -39,7 +39,7 @@ def test_memory_manager():
     return MemoryManager(mode="passive")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def output_arrays_manager(precision, solver, output_test_settings,
                           test_memory_manager):
     """Create a OutputArrays instance using real solver"""

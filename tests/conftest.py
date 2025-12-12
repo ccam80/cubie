@@ -919,7 +919,7 @@ def solver(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def solver_mutable(
     system,
     solver_settings,
@@ -939,7 +939,7 @@ def step_controller(precision, step_controller_settings):
     return controller
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def step_controller_mutable(precision, step_controller_settings):
     """Return a fresh step controller for mutation-focused tests."""
 
@@ -956,7 +956,7 @@ def loop(single_integrator_run):
     return single_integrator_run._loop
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def loop_mutable(single_integrator_run_mutable):
     """Return the IVPLoop from mutable single_integrator_run.
     
@@ -997,7 +997,7 @@ def single_integrator_run(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def single_integrator_run_mutable(
     system,
     solver_settings,
@@ -1045,7 +1045,7 @@ def step_object(single_integrator_run):
     return single_integrator_run._algo_step
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def step_object_mutable(single_integrator_run_mutable):
     """Return the mutable step object from single_integrator_run_mutable.
     

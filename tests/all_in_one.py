@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int32, int64, float32, float64
+from numba import cuda, int32, int64, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -28,7 +28,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from cubie.integrators.array_interpolator import ArrayInterpolator
 
 # =========================================================================
-# CONFIGURATION - ALL CONFIGURABLE PARAMETERS AT TOP OF FILE
+# CONFIGURATION
 # =========================================================================
 
 # -------------------------------------------------------------------------
@@ -89,11 +89,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.1)
+duration = precision(0.05)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.1)
+dt_save = precision(0.05)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -211,7 +211,7 @@ rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
 MAX_SHARED_MEMORY_PER_BLOCK = 32768
 
 # Block size for kernel launch
-blocksize = 64
+blocksize = 448
 
 # =========================================================================
 # DERIVED CONFIGURATION (computed from above settings)
@@ -813,7 +813,7 @@ def linear_solver_inline_factory(
         # Single exit point - status based on converged flag
         final_status = selp(converged, int32(0), int32(4))
         krylov_iters_out[0] = iter_count
-        return final_status
+        return int32(final_status)
     return linear_solver
 
 
@@ -827,7 +827,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     numba_prec = numba_from_dtype(prec)
     n = int32(n)
     max_iters = int32(max_iters)
-    max_backtracks = int32(max_backtracks)
+    max_backtracks = int32(max_backtracks + 1)
     tol_squared = numba_prec(tolerance * tolerance)
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
@@ -910,7 +910,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             scale_applied = typed_zero
             found_step = False
 
-            for _ in range(max_backtracks + int32(1)):
+            for _ in range(max_backtracks):
                 active_backtrack = active and not found_step
                 if active_backtrack:
                     delta_scale = scale - scale_applied
@@ -968,7 +968,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         counters[1] = total_krylov_iters
 
         # Return status without encoding iterations
-        return final_status
+        return int32(final_status)
     return newton_krylov_solver
 
 
@@ -1253,7 +1253,7 @@ def dirk_step_inline_factory(
                     )
 
             if stage_implicit[0]:
-                status_code |= nonlinear_solver(
+                status_code |= int32(nonlinear_solver(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -1263,7 +1263,7 @@ def dirk_step_inline_factory(
                     stage_base,
                     solver_scratch,
                     counters,
-                )
+                ))
                 for idx in range(n):
                     stage_base[idx] += (
                         diagonal_coeff * stage_increment[idx]
@@ -1314,6 +1314,13 @@ def dirk_step_inline_factory(
         # --------------------------------------------------------------- #
 
         for prev_idx in range(stages_except_first):
+
+            #DIRK is missing the instruction cache. The unrolled stage loop
+            # is instruction dense, taking up most of the instruction space.
+            # Try syncing block-wide per-stage to see whether this will help
+            # the whole block stay in one cache chunk. Play with block size
+            # to enforce the number of blocks per SM.
+            # cuda.syncthreads()
             stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
             matrix_col = explicit_a_coeffs[prev_idx]
@@ -1343,7 +1350,7 @@ def dirk_step_inline_factory(
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
             if stage_implicit[stage_idx]:
-                status_code |= nonlinear_solver(
+                status_code |= int32(nonlinear_solver(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -1353,7 +1360,7 @@ def dirk_step_inline_factory(
                     stage_base,
                     solver_scratch,
                     counters,
-                )
+                ))
 
                 for idx in range(n):
                     stage_base[idx] += diagonal_coeff * stage_increment[idx]
@@ -1427,7 +1434,7 @@ def dirk_step_inline_factory(
                 if not solver_scratch_in_shared:
                     rhs_cache[idx] = stage_rhs[idx]
 
-        return status_code
+        return int32(status_code)
 
     return step
 
@@ -1986,7 +1993,7 @@ def firk_step_inline_factory(
                 ]
                 driver_function(stage_time, driver_coeffs, driver_slice)
 
-        status_code |= nonlinear_solver(
+        status_code |= int32(nonlinear_solver(
             stage_increment,
             parameters,
             stage_driver_stack,
@@ -1996,7 +2003,7 @@ def firk_step_inline_factory(
             state,
             solver_scratch,
             counters,
-        )
+        ))
 
         for stage_idx in range(stage_count):
             stage_time = (
@@ -2465,7 +2472,7 @@ def rosenbrock_step_inline_factory(
             for idx in range(n):
                 stage_increment[idx] = stage_store[previous_base + idx]
 
-            status_code |= linear_solver(
+            status_code |= int32(linear_solver(
                 state,
                 parameters,
                 drivers_buffer,
@@ -2477,7 +2484,7 @@ def rosenbrock_step_inline_factory(
                 stage_rhs,
                 stage_increment,
                 shared,
-            )
+            ))
 
             for idx in range(n):
                 if accumulates_output:
@@ -3456,9 +3463,9 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     # ----------------------------------------------------------------------- #
     #                        Main Loop                                        #
     # ----------------------------------------------------------------------- #
-    for _ in range(max_steps):
+    while True:
         # Exit as soon as we've saved the final step
-        finished = next_save > t_end
+        finished = bool_(next_save > t_end)
         if save_last:
             # If last save requested, predicated commit dt, finished,
             # do_save
@@ -3468,18 +3475,18 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                          dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
-        finished |= (status & int32(0x8))
+        finished = finished or bool_(status & int32(0x8))
 
         if all_sync(mask, finished):
             return status
 
         if not finished:
-            do_save = (t_prec + dt_raw) >= next_save
+            do_save = bool_((t_prec + dt_raw) >= next_save)
             dt_eff = selp(do_save, next_save - t_prec, dt_raw)
 
             # Fixed mode auto-accepts all steps; adaptive uses controller
 
-            step_status = step_fn(
+            step_status = int32(step_fn(
                 state_buffer,
                 state_proposal_buffer,
                 parameters_buffer,
@@ -3496,16 +3503,16 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                 remaining_shared_scratch,
                 step_persistent_local,
                 proposed_counters,
-            )
-            first_step_flag = int32(0)
+            ))
+            first_step_flag = False
 
             # Iterations now come from counters, not encoded in status
             niters = proposed_counters[0]
-            status |= step_status & status_mask
+            status = int32(status | step_status)
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
             if not fixed_mode:
-                status |= step_controller_fn(
+                controller_status = step_controller_fn(
                     dt,
                     state_proposal_buffer,
                     state_buffer,
@@ -3515,7 +3522,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                     controller_temp,
                 )
 
-                accept = accept_step[0] != int32(0)
+                status = int32(status | controller_status)
+                accept = bool_(accept_step[0] != int32(0))
 
             else:
                 accept = True
@@ -3559,7 +3567,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             )
 
             # Predicated update of next_save; update if save is accepted.
-            do_save = accept and do_save
+            do_save = bool_(accept and do_save)
             if do_save:
                 next_save = selp(do_save, next_save + dt_save, next_save)
                 save_state_inline(
@@ -3615,7 +3623,8 @@ local_elements_per_run = local_elements
 shared_elems_per_run = shared_elements
 f32_per_element = 2 if (precision == np.float64) else 1
 f32_pad_perrun = (
-    1 if (shared_elems_per_run % 2 == 0 and f32_per_element == 1) else 0
+    1 if (shared_elems_per_run % 2 == 0 and f32_per_element == 1 and
+          shared_elems_per_run > 0) else 0
 )
 run_stride_f32 = int32(
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
@@ -3647,7 +3656,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 
     tx = int32(cuda.threadIdx.x)
     block_index = int32(cuda.blockIdx.x)
-    runs_per_block = cuda.blockDim.x
+    runs_per_block = int32(cuda.blockDim.x)
     run_index = int32(runs_per_block * block_index + tx)
     if run_index >= n_runs_k:
         return None
@@ -3774,7 +3783,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
     print(f"  Blocks per grid: {blocks_per_grid}")
     print(f"  Shared memory per block: {dynamic_sharedmem} bytes")
     print("  Max registers: " +
-    f"{tuple(reg for reg in integration_kernel.get_regs_per_thread().values())[0]}"
+    f"{tuple(reg for reg in integration_kernel.get_regs_per_thread().values())}"
     )
 
     stream = cuda.stream()

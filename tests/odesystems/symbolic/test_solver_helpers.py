@@ -614,9 +614,6 @@ def test_equations_track_dependency_levels_and_costs():
     assert equations.total_ops_cost[sp.Symbol("jvp[0]")] == 4
 
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [{"precision": np.float64}],
-                         indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,M",
     [

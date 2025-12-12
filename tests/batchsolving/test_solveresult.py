@@ -524,12 +524,12 @@ class TestNaNProcessing:
     solves.
     """
 
-    def test_nan_processing_with_simulated_errors(self, solved_batch_solver):
+    def test_nan_processing_with_simulated_errors(self, solved_batch_solver_errorcode):
         """Verify NaN processing works by manually setting error codes."""
         # Manually inject error into status codes
 
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # Verify run 1 is all NaN
@@ -542,20 +542,20 @@ class TestNaNProcessing:
         assert not np.all(np.isnan(result.time_domain_array[..., 0]))
         assert not np.all(np.isnan(result.time_domain_array[..., 2]))
 
-    def test_nan_disabled_preserves_error_data(self, solved_batch_solver):
+    def test_nan_disabled_preserves_error_data(self, solved_batch_solver_errorcode):
         """Verify nan_error_trajectories=False preserves data even with errors."""
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=False
+            solved_batch_solver_errorcode, nan_error_trajectories=False
         )
         assert not np.all(np.isnan(result.time_domain_array[..., 1]))
 
     def test_successful_runs_unchanged_with_nan_enabled(
-        self, solved_batch_solver
+        self, solved_batch_solver_errorcode
     ):
         """Verify successful runs are not modified when NaN processing enabled."""
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[1] = 0
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # All runs should have status code 0 (success)
@@ -565,16 +565,16 @@ class TestNaNProcessing:
         assert not np.any(np.isnan(result.time_domain_array))
         if result.summaries_array.size > 0:
             assert not np.any(np.isnan(result.summaries_array))
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 1
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[1] = 1
 
-    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver):
+    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver_errorcode):
         """Verify multiple failed runs all get NaN'd."""
         # Inject multiple errors
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 2
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 3
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[0] = 2
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[2] = 3
 
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # Runs 0 and 2 should be all NaN
@@ -583,5 +583,5 @@ class TestNaNProcessing:
         assert np.all(np.isnan(result.time_domain_array[..., 1]))
 
         # Restore original status codes
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 0
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[0] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[2] = 0

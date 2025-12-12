@@ -861,8 +861,10 @@ def _execute_step_twice(
     state_len = int(n_states)
     driver_len = int(n_drivers)
     observable_len = int(n_observables)
+    from numba.cuda import config
+    config.llvm_pass_timings = True
 
-    @cuda.jit
+    @cuda.jit(debug=True)
     def kernel(
         state_vec,
         params_vec,
@@ -971,7 +973,6 @@ def _execute_step_twice(
         dt_value,
     )
     cuda.synchronize()
-
     status_host = d_status.copy_to_host()
 
     first_state = d_proposed_first.copy_to_host()
@@ -1118,10 +1119,10 @@ def cpu_step_results(
         niters=(result.status >> 16) & STATUS_MASK,
     )
 
-
+#test equality for all algorithms for two steps, replacing single-step test.
 @pytest.mark.parametrize(
     "solver_settings_override",
-    CACHE_REUSE_CASES_MERGED,
+    STEP_CASES_MERGED,
     indirect=True,
 )
 def test_stage_cache_reuse(
@@ -1288,8 +1289,6 @@ def test_algorithm(
        system,
        precision,
        expected_step_properties,
-       cpu_step_results,
-       device_step_results,
        output_functions,
        tolerance,
        ) -> None:
@@ -1434,35 +1433,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
-
-    # Test equality for a single step
-    tolerances = {
-        "rtol": tolerance.rel_tight * 5,
-        "atol": tolerance.abs_tight * 5,
-    } # 5e-7 is a couple of ULP wiggle room for fma/fmul rounding
-    assert device_step_results.status == cpu_step_results.status, \
-        "status matches"
-
-    assert_allclose(
-        device_step_results.state,
-        cpu_step_results.state,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "state matches"
-    assert_allclose(
-        device_step_results.observables,
-        cpu_step_results.observables,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "observables matches"
-    if step_object.is_adaptive:
-        assert_allclose(
-            device_step_results.error,
-            cpu_step_results.error,
-            rtol=tolerances["rtol"],
-            atol=tolerances["atol"],
-        ), "error matches"
-
 
 
 # Test controller defaults selection based on tableau error estimation
