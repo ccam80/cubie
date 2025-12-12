@@ -5,29 +5,13 @@ import pytest
 from tests.integrators.algorithms.test_step_algorithms import (
     device_step_results  # noqa
 )
-from tests._utils import MID_RUN_PARAMS, merge_param
+from tests._utils import ALGORITHM_PARAM_SETS
 
 from .conftest import print_comparison
 
-STEP_SETTINGS = MID_RUN_PARAMS.copy()
-STEP_SETTINGS.update(
-       {'dt': 0.01,
-      'max_linear_iters': 3,
-      'max_newton_iters': 3,
-      'newton_max_backtracks': 2,
-      'krylov_tolerance': 1e-7,
-      'newton_tolerance': 1e-7,
-      'correction_type': 'minimal_residual'
-    })
-
-
-STEP_CASES_INSTRUMENTED = [merge_param(STEP_SETTINGS, case)
-                           for case in STEP_CASES]
-
-
 @pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES_INSTRUMENTED,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
 @pytest.mark.specific_algos
