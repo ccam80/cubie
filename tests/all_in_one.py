@@ -282,25 +282,6 @@ summarise = summarise_obs_bool or summarise_state_bool
 fixed_mode = controller_type == 'fixed'
 dt0 = dt if fixed_mode else np.sqrt(dt_min * dt_max)
 
-# Validate memory location flags for implicit algorithms
-_valid_memory_locations = {'local', 'shared'}
-for _name, _value in (
-    ('firk_solver_scratch_memory', firk_solver_scratch_memory),
-    ('firk_stage_increment_memory', firk_stage_increment_memory),
-    ('firk_stage_driver_stack_memory', firk_stage_driver_stack_memory),
-    ('firk_stage_state_memory', firk_stage_state_memory),
-    ('rosenbrock_stage_rhs_memory', rosenbrock_stage_rhs_memory),
-    ('rosenbrock_stage_store_memory', rosenbrock_stage_store_memory),
-    (
-        'rosenbrock_cached_auxiliaries_memory',
-        rosenbrock_cached_auxiliaries_memory,
-    ),
-):
-    if _value not in _valid_memory_locations:
-        raise ValueError(
-            f"{_name} must be 'local' or 'shared', got '{_value}'"
-        )
-
 # Memory location flags as booleans for compile-time branching
 # Loop buffer flags
 use_shared_loop_state = loop_state_buffer_memory == 'shared'
@@ -768,8 +749,8 @@ def linear_solver_inline_factory(
         device=True, inline=True, **compile_kwargs)
     def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
                       rhs, x, krylov_iters_out):
-        preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
-        temp = cuda.local.array(n_arraysize, numba_prec)
+        preconditioned_vec = cuda.local.array(int64(n_arraysize), numba_prec)
+        temp = cuda.local.array(int64(n_arraysize), numba_prec)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        x, temp)
@@ -843,6 +824,124 @@ def linear_solver_inline_factory(
     return linear_solver
 
 
+def linear_solver_cached_inline_factory(
+        operator_apply, n, preconditioner, tolerance, max_iters, prec,
+        correction_type
+):
+    """Create cached linear solver device function."""
+    numba_prec = numba_from_dtype(prec)
+    tol_squared = numba_prec(tolerance * tolerance)
+    n_arraysize = int64(n)
+    n = int32(n)
+    max_iters = int32(max_iters)
+    sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
+    mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
+    preconditioned = preconditioner is not None
+    typed_zero_local = numba_prec(0.0)
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def linear_solver(
+        state,
+        parameters,
+        drivers,
+        base_state,
+        cached_auxiliaries,
+        t,
+        h,
+        a_ij,
+        rhs,
+        x,
+        shared,
+        krylov_iters_out,
+    ):
+        preconditioned_vec = cuda.local.array(int64(n_arraysize), numba_prec)
+        temp = cuda.local.array(int64(n_arraysize), numba_prec)
+
+        operator_apply(
+            state,
+            parameters,
+            drivers,
+            base_state,
+            t,
+            h,
+            a_ij,
+            x,
+            temp,
+        )
+        acc = typed_zero_local
+        for i in range(n):
+            residual_value = rhs[i] - temp[i]
+            rhs[i] = residual_value
+            acc += residual_value * residual_value
+        mask = activemask()
+        converged = acc <= tol_squared
+
+        iter_count = int32(0)
+        for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
+            iter_count += int32(1)
+            if preconditioned:
+                preconditioner(
+                    state,
+                    parameters,
+                    drivers,
+                    base_state,
+                    t,
+                    h,
+                    a_ij,
+                    rhs,
+                    preconditioned_vec,
+                    temp,
+                )
+            else:
+                for i in range(n):
+                    preconditioned_vec[i] = rhs[i]
+
+            operator_apply(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                preconditioned_vec,
+                temp,
+            )
+            numerator = typed_zero_local
+            denominator = typed_zero_local
+            if sd_flag:
+                for i in range(n):
+                    zi = preconditioned_vec[i]
+                    numerator += rhs[i] * zi
+                    denominator += temp[i] * zi
+            elif mr_flag:
+                for i in range(n):
+                    ti = temp[i]
+                    numerator += ti * rhs[i]
+                    denominator += ti * ti
+
+            alpha = selp(denominator != typed_zero_local,
+                         numerator / denominator, typed_zero_local)
+            alpha_effective = selp(converged, numba_prec(0.0), alpha)
+
+            acc = typed_zero_local
+            for i in range(n):
+                x[i] += alpha_effective * preconditioned_vec[i]
+                rhs[i] -= alpha_effective * temp[i]
+                residual_value = rhs[i]
+                acc += residual_value * residual_value
+            converged = converged or (acc <= tol_squared)
+
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return int32(final_status)
+
+    return linear_solver
+
+
 # =========================================================================
 # INLINE NEWTON-KRYLOV SOLVER FACTORY
 # =========================================================================
@@ -903,7 +1002,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         final_status = int32(0)
 
         # Local array for linear solver iteration count output
-        krylov_iters_local = cuda.local.array(1, int32)
+        krylov_iters_local = cuda.local.array(int64(1), int32)
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
@@ -1181,22 +1280,24 @@ def dirk_step_inline_factory(
         if stage_increment_in_shared:
             stage_increment = shared[solver_end:solver_end + n]
         else:
-            stage_increment = cuda.local.array(n_arraysize, numba_precision)
+            stage_increment = cuda.local.array(int64(n_arraysize),
+                                               numba_precision)
             for _i in range(n_arraysize):
                 stage_increment[_i] = numba_precision(0.0)
 
         if accumulator_in_shared:
             stage_accumulator = shared[acc_start:acc_end]
         else:
-            stage_accumulator = cuda.local.array(accumulator_length_arraysize,
-                                                 numba_precision)
+            stage_accumulator = cuda.local.array(
+                int64(accumulator_length_arraysize), numba_precision
+            )
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = numba_precision(0.0)
 
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
-            solver_scratch = cuda.local.array(double_n,numba_precision)
+            solver_scratch = cuda.local.array(int64(double_n), numba_precision)
             for _i in range(solver_shared_elements):
                 solver_scratch[_i] = numba_precision(0.0)
 
@@ -1207,7 +1308,8 @@ def dirk_step_inline_factory(
             if stage_base_in_shared:
                 stage_base = shared[:n]
             else:
-                stage_base = cuda.local.array(n_arraysize, numba_precision)
+                stage_base = cuda.local.array(int64(n_arraysize),
+                                              numba_precision)
                 for _i in range(n_arraysize):
                     stage_base[_i] = numba_precision(0.0)
 
@@ -1280,17 +1382,20 @@ def dirk_step_inline_factory(
                     )
 
             if stage_implicit[0]:
-                status_code |= int32(nonlinear_solver(
-                    stage_increment,
-                    parameters,
-                    proposed_drivers,
-                    stage_time,
-                    dt_scalar,
-                    diagonal_coeffs[0],
-                    stage_base,
-                    solver_scratch,
-                    counters,
-                ))
+                status_temp = int32(
+                    nonlinear_solver(
+                        stage_increment,
+                        parameters,
+                        proposed_drivers,
+                        stage_time,
+                        dt_scalar,
+                        diagonal_coeffs[0],
+                        stage_base,
+                        solver_scratch,
+                        counters,
+                    )
+                )
+                status_code = int32(status_code | status_temp)
                 for idx in range(n):
                     stage_base[idx] += (
                         diagonal_coeff * stage_increment[idx]
@@ -1377,17 +1482,20 @@ def dirk_step_inline_factory(
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
             if stage_implicit[stage_idx]:
-                status_code |= int32(nonlinear_solver(
-                    stage_increment,
-                    parameters,
-                    proposed_drivers,
-                    stage_time,
-                    dt_scalar,
-                    diagonal_coeffs[stage_idx],
-                    stage_base,
-                    solver_scratch,
-                    counters,
-                ))
+                status_temp = int32(
+                    nonlinear_solver(
+                        stage_increment,
+                        parameters,
+                        proposed_drivers,
+                        stage_time,
+                        dt_scalar,
+                        diagonal_coeffs[stage_idx],
+                        stage_base,
+                        solver_scratch,
+                        counters,
+                    )
+                )
+                status_code = int32(status_code | status_temp)
 
                 for idx in range(n):
                     stage_base[idx] += diagonal_coeff * stage_increment[idx]
@@ -1622,7 +1730,7 @@ def erk_step_inline_factory(
         if stage_rhs_in_shared:
             stage_rhs = shared[:n]
         else:
-            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
+            stage_rhs = cuda.local.array(int64(n_arraysize), numba_precision)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -1630,7 +1738,7 @@ def erk_step_inline_factory(
         if stage_accumulator_in_shared:
             stage_accumulator = shared[n:n + accumulator_length]
         else:
-            stage_accumulator = cuda.local.array(accumulator_length,
+            stage_accumulator = cuda.local.array(int64(accumulator_length),
                                                  dtype=precision)
 
         # stage_cache for FSAL: alias onto stage_rhs if shared, else
@@ -1996,21 +2104,22 @@ def firk_step_inline_factory(
         if stage_state_shared:
             stage_state = shared[stage_state_start:stage_state_end]
         else:
-            stage_state = cuda.local.array(stage_state_elements_int,
-                                           numba_precision)
+            stage_state = cuda.local.array(
+                int64(stage_state_elements_int), numba_precision
+            )
 
         if solver_scratch_shared:
             solver_scratch = shared[solver_scratch_start:solver_scratch_end]
         else:
             solver_scratch = cuda.local.array(
-                solver_scratch_elements_int, numba_precision
+                int64(solver_scratch_elements_int), numba_precision
             )
 
         if stage_increment_shared:
             stage_increment = shared[stage_increment_start:stage_increment_end]
         else:
             stage_increment = cuda.local.array(
-                stage_increment_elements_int, numba_precision
+                int64(stage_increment_elements_int), numba_precision
             )
 
         if stage_driver_stack_shared:
@@ -2019,7 +2128,7 @@ def firk_step_inline_factory(
             ]
         else:
             stage_driver_stack = cuda.local.array(
-                stage_driver_stack_elements_int, numba_precision
+                int64(stage_driver_stack_elements_int), numba_precision
             )
 
         current_time = time_scalar
@@ -2045,17 +2154,20 @@ def firk_step_inline_factory(
                 ]
                 driver_function(stage_time, driver_coeffs, driver_slice)
 
-        status_code |= int32(nonlinear_solver(
-            stage_increment,
-            parameters,
-            stage_driver_stack,
-            current_time,
-            dt_scalar,
-            typed_zero,
-            state,
-            solver_scratch,
-            counters,
-        ))
+        status_temp = int32(
+            nonlinear_solver(
+                stage_increment,
+                parameters,
+                stage_driver_stack,
+                current_time,
+                dt_scalar,
+                typed_zero,
+                state,
+                solver_scratch,
+                counters,
+            )
+        )
+        status_code = int32(status_code | status_temp)
 
         for stage_idx in range(stage_count):
             stage_time = (
@@ -2333,23 +2445,21 @@ def rosenbrock_step_inline_factory(
         if stage_rhs_shared:
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
         else:
-            stage_rhs = cuda.local.array(n_int, numba_precision)
+            stage_rhs = cuda.local.array(int64(n_int), numba_precision)
 
         if stage_store_shared:
             stage_store = shared[stage_store_start:stage_store_end]
         else:
-            stage_store = cuda.local.array(stage_store_elements_int,
-                                           numba_precision)
+            stage_store = cuda.local.array(
+                int64(stage_store_elements_int), numba_precision
+            )
 
-        if cached_auxiliaries_shared and cached_auxiliary_count > 0:
+        if cached_auxiliaries_shared:
             cached_auxiliaries = shared[cached_aux_start:cached_aux_end]
         else:
-            # Use a minimal local array as placeholder.
-            # When cached_auxiliary_count is 0, we allocate size 1 to avoid
-            # zero-sized array issues in Numba. The array won't be used since
-            # the placeholder prepare_jacobian does nothing.
-            cached_auxiliaries = cuda.local.array(max(1, cached_auxiliary_count_int),
-                                                  numba_precision)
+            cached_auxiliaries = cuda.local.array(
+                int64(cached_auxiliary_count_int), numba_precision
+            )
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -2423,23 +2533,26 @@ def rosenbrock_step_inline_factory(
         # doesn't use it. This empty slice satisfies the signature without
         # allocating memory.
         base_state_placeholder = shared[int32(0):int32(0)]
-        krylov_iters_out = cuda.local.array(1, int32)
+        krylov_iters_out = cuda.local.array(int64(1), int32)
         krylov_iters_out[0] = int32(0)
 
-        status_code |= linear_solver(
-            state,
-            parameters,
-            drivers_buffer,
-            base_state_placeholder,
-            cached_auxiliaries,
-            stage_time,
-            dt_scalar,
-            numba_precision(1.0),
-            stage_rhs,
-            stage_increment,
-            shared,
-            krylov_iters_out,
+        status_temp = int32(
+            linear_solver(
+                state,
+                parameters,
+                drivers_buffer,
+                base_state_placeholder,
+                cached_auxiliaries,
+                stage_time,
+                dt_scalar,
+                numba_precision(1.0),
+                stage_rhs,
+                stage_increment,
+                shared,
+                krylov_iters_out,
+            )
         )
+        status_code = int32(status_code | status_temp)
         if counters.shape[0] > 0:
             counters[0] += krylov_iters_out[0]
         if counters.shape[0] > 1:
@@ -2559,7 +2672,7 @@ def rosenbrock_step_inline_factory(
 
             krylov_iters_out[0] = int32(0)
 
-            status_code |= int32(
+            status_temp = int32(
                 linear_solver(
                     state,
                     parameters,
@@ -2575,6 +2688,7 @@ def rosenbrock_step_inline_factory(
                     krylov_iters_out,
                 )
             )
+            status_code = int32(status_code | status_temp)
             if counters.shape[0] > 0:
                 counters[0] += krylov_iters_out[0]
             if counters.shape[0] > 1:
@@ -3028,8 +3142,7 @@ elif algorithm_type == 'rosenbrock':
         order=preconditioner_order,
     )
 
-    # For Rosenbrock, we need a linear solver with cached Jacobian
-    linear_solver_core = linear_solver_inline_factory(
+    linear_solver_cached = linear_solver_cached_inline_factory(
         operator_fn,
         n_states,
         preconditioner_fn,
@@ -3039,45 +3152,20 @@ elif algorithm_type == 'rosenbrock':
         linear_correction_type,
     )
 
-    def linear_solver_cached(
-        state,
-        parameters,
-        drivers,
-        base_state,
-        cached_auxiliaries,
-        stage_time,
-        dt_value,
-        gamma_value,
-        rhs,
-        out,
-        shared,
-        krylov_iters_out,
-    ):
-        return linear_solver_core(
-            state,
-            parameters,
-            drivers,
-            base_state,
-            stage_time,
-            dt_value,
-            gamma_value,
-            rhs,
-            out,
-            krylov_iters_out,
-        )
-
-    def cached_auxiliary_count_placeholder():
+    # Placeholder implementations; codegen overwrites during generation.
+    # Placeholder factory; generator injects the real cached auxiliary count.
+    def cached_auxiliary_count_factory():
         return int32(1)
 
     @cuda.jit(device=True, inline=True, **compile_kwargs)
-    def prepare_jacobian_placeholder(
+    def prepare_jacobian(
         state, parameters, drivers_buffer, time_value, cached_auxiliaries
     ):
         for idx in range(int(cached_auxiliary_count)):
             cached_auxiliaries[idx] = numba_precision(0.0)
 
     @cuda.jit(device=True, inline=True, **compile_kwargs)
-    def time_derivative_rhs_placeholder(
+    def time_derivative_rhs(
         state, parameters, drivers, driver_derivatives, observables, out, t
     ):
         for idx in range(out.shape[0]):
@@ -3092,13 +3180,13 @@ elif algorithm_type == 'rosenbrock':
         driver_del_t = None
 
     cached_auxiliary_count = int32(
-        max(int32(cached_auxiliary_count_placeholder()), int32(1))
+        max(int32(cached_auxiliary_count_factory()), int32(1))
     )
 
     step_fn = rosenbrock_step_inline_factory(
         linear_solver_cached,
-        prepare_jacobian_placeholder,
-        time_derivative_rhs_placeholder,
+        prepare_jacobian,
+        time_derivative_rhs,
         dxdt_fn,
         observables_function,
         driver_function,
@@ -3426,68 +3514,79 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     if use_shared_loop_state:
         state_buffer = shared_scratch[state_shared_start:state_shared_end]
     else:
-        state_buffer = cuda.local.array(n_states, numba_precision)
+        state_buffer = cuda.local.array(int64(n_states), numba_precision)
 
     if use_shared_loop_state_proposal:
         state_proposal_buffer = shared_scratch[proposed_state_start:
                                                proposed_state_end]
     else:
-        state_proposal_buffer = cuda.local.array(n_states, numba_precision)
+        state_proposal_buffer = cuda.local.array(
+            int64(n_states), numba_precision
+        )
 
     if use_shared_loop_observables:
         observables_buffer = shared_scratch[obs_start:obs_end]
     else:
-        observables_buffer = cuda.local.array(obs_nonzero,
-                                              numba_precision)
+        observables_buffer = cuda.local.array(
+            int64(obs_nonzero), numba_precision
+        )
 
     if use_shared_loop_observables_proposal:
         observables_proposal_buffer = shared_scratch[proposed_obs_start:
                                                      proposed_obs_end]
     else:
-        observables_proposal_buffer = cuda.local.array(obs_nonzero,
-                                                       numba_precision)
+        observables_proposal_buffer = cuda.local.array(
+            int64(obs_nonzero), numba_precision
+        )
 
     if use_shared_loop_parameters:
         parameters_buffer = shared_scratch[params_start:params_end]
     else:
-        parameters_buffer = cuda.local.array(n_parameters, numba_precision)
+        parameters_buffer = cuda.local.array(
+            int64(n_parameters), numba_precision
+        )
 
     if use_shared_loop_drivers:
         drivers_buffer = shared_scratch[drivers_start:drivers_end]
     else:
-        drivers_buffer = cuda.local.array(drv_nonzero, numba_precision)
+        drivers_buffer = cuda.local.array(int64(drv_nonzero), numba_precision)
 
     if use_shared_loop_drivers_proposal:
         drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
                                                  proposed_drivers_end]
     else:
-        drivers_proposal_buffer = cuda.local.array(drv_nonzero,
-                                                   numba_precision)
+        drivers_proposal_buffer = cuda.local.array(
+            int64(drv_nonzero), numba_precision
+        )
 
     if use_shared_loop_state_summary:
         state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
     else:
-        state_summary_buffer = cuda.local.array(n_states,
-                                                numba_precision)
+        state_summary_buffer = cuda.local.array(
+            int64(n_states), numba_precision
+        )
 
     if use_shared_loop_observable_summary:
         observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
     else:
-        observable_summary_buffer = cuda.local.array(obs_nonzero,
-                                                     numba_precision)
+        observable_summary_buffer = cuda.local.array(
+            int64(obs_nonzero), numba_precision
+        )
 
     if use_shared_loop_scratch:
         remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
     else:
         # Local scratch sized for the algorithm (computed at module level)
-        remaining_shared_scratch = cuda.local.array(local_scratch_size,
-                                                    numba_precision)
+        remaining_shared_scratch = cuda.local.array(
+            int64(local_scratch_size), numba_precision
+        )
 
     if use_shared_loop_counters:
         counters_since_save = shared_scratch[counters_start:counters_end]
     else:
-        counters_since_save = cuda.local.array(ncnt_nonzero,
-                                               simsafe_int32)
+        counters_since_save = cuda.local.array(
+            int64(ncnt_nonzero), simsafe_int32
+        )
 
     if save_counters_bool and use_shared_loop_counters:
         # When enabled and shared, use shared memory buffers
@@ -3495,7 +3594,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                                            proposed_counters_end]
     else:
         # When disabled or local, use a local "proposed_counters" buffer
-        proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+        proposed_counters = cuda.local.array(int64(2), dtype=simsafe_int32)
 
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
@@ -3503,7 +3602,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     if use_shared_loop_error:
         error = shared_scratch[error_start:error_end]
     else:
-        error = cuda.local.array(n_states, numba_precision)
+        error = cuda.local.array(int64(n_states), numba_precision)
 
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
@@ -3610,29 +3709,32 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             # Fixed mode auto-accepts all steps; adaptive uses controller
 
-            step_status = int32(step_fn(
-                state_buffer,
-                state_proposal_buffer,
-                parameters_buffer,
-                driver_coefficients,
-                drivers_buffer,
-                drivers_proposal_buffer,
-                observables_buffer,
-                observables_proposal_buffer,
-                error,
-                dt_eff,
-                t_prec,
-                first_step_flag,
-                prev_step_accepted_flag,
-                remaining_shared_scratch,
-                step_persistent_local,
-                proposed_counters,
-            ))
+            step_status = int32(
+                step_fn(
+                    state_buffer,
+                    state_proposal_buffer,
+                    parameters_buffer,
+                    driver_coefficients,
+                    drivers_buffer,
+                    drivers_proposal_buffer,
+                    observables_buffer,
+                    observables_proposal_buffer,
+                    error,
+                    dt_eff,
+                    t_prec,
+                    first_step_flag,
+                    prev_step_accepted_flag,
+                    remaining_shared_scratch,
+                    step_persistent_local,
+                    proposed_counters,
+                )
+            )
             first_step_flag = False
 
             # Iterations now come from counters, not encoded in status
             niters = proposed_counters[0]
-            status = int32(status | step_status)
+            status_temp = int32(step_status)
+            status = int32(status | status_temp)
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
             if not fixed_mode:
@@ -3646,7 +3748,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                     controller_temp,
                 )
 
-                status = int32(status | controller_status)
+                status_temp = int32(controller_status)
+                status = int32(status | status_temp)
                 accept = bool_(accept_step[0] != int32(0))
 
             else:
@@ -3786,7 +3889,9 @@ def integration_kernel(inits, params, d_coefficients, state_output,
         return None
 
     shared_memory = cuda.shared.array(0, dtype=float32)
-    local_scratch = cuda.local.array(local_elements_per_run, dtype=float32)
+    local_scratch = cuda.local.array(
+        int64(local_elements_per_run), dtype=float32
+    )
     c_coefficients = cuda.const.array_like(d_coefficients)
 
     run_idx_low = int32(tx * run_stride_f32)
