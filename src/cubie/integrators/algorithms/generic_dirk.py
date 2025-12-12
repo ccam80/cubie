@@ -399,10 +399,10 @@ class DIRKStep(ODEImplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: int = 2,
         krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 200,
+        max_linear_iters: int = 10,
         linear_correction_type: str = "minimal_residual",
         newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 100,
+        max_newton_iters: int = 10,
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
@@ -850,7 +850,7 @@ class DIRKStep(ODEImplicitStep):
                         )
 
                 if stage_implicit[0]:
-                    status_code |= nonlinear_solver(
+                    status_code |= int32(nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -860,7 +860,7 @@ class DIRKStep(ODEImplicitStep):
                         stage_base,
                         solver_scratch,
                         counters,
-                    )
+                    ))
                     for idx in range(n):
                         stage_base[idx] += (
                             diagonal_coeff * stage_increment[idx]
@@ -909,8 +909,10 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all qtys                    #
             # --------------------------------------------------------------- #
+            mask = activemask()
 
             for prev_idx in range(stages_except_first):
+                cuda.syncwarp(mask)
                 stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
                 matrix_col = stage_rhs_coeffs[prev_idx]
@@ -943,14 +945,13 @@ class DIRKStep(ODEImplicitStep):
                     )
 
                 # Convert accumulator slice to state by adding y_n
-                stage_base = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
-                    stage_base[idx] += state[idx]
+                    stage_base[idx] = stage_accumulator[stage_offset + idx] + state[idx]
 
                 diagonal_coeff = diagonal_coeffs[stage_idx]
 
                 if stage_implicit[stage_idx]:
-                    status_code |= nonlinear_solver(
+                    status_code |= int32(nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -960,7 +961,7 @@ class DIRKStep(ODEImplicitStep):
                         stage_base,
                         solver_scratch,
                         counters,
-                    )
+                    ))
 
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
