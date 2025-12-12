@@ -428,7 +428,9 @@ def observables_factory(constants, prec):
                numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
-        pass
+        observables[0] = state[0]
+        observables[1] = state[1]
+        observables[2] = state[2]
     return get_observables
 
 
@@ -455,6 +457,8 @@ def driver_function_inline_factory(interpolator):
         driver_function(time, coefficients, out)
     """
     prec = interpolator.precision
+    if interpolator.num_inputs <= 0:
+        return None
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
     num_drivers = int32(interpolator.num_inputs)
@@ -529,6 +533,8 @@ def driver_derivative_inline_factory(interpolator):
         driver_derivative(time, coefficients, out)
     """
     prec = interpolator.precision
+    if interpolator.num_inputs <= 0:
+        return None
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
     num_drivers = int32(interpolator.num_inputs)
@@ -1598,6 +1604,27 @@ def erk_step_inline_factory(
         else:
             use_cached_rhs = False
 
+        stage_time = current_time
+        stage_drivers = proposed_drivers
+        if has_driver_function:
+            driver_function(
+                stage_time,
+                driver_coeffs,
+                stage_drivers,
+            )
+        else:
+            for idx in range(n_drivers):
+                stage_drivers[idx] = drivers_buffer[idx]
+
+        if n_observables > 0:
+            observables_function(
+                state,
+                parameters,
+                stage_drivers,
+                proposed_observables,
+                stage_time,
+            )
+
         if multistage:
             if use_cached_rhs:
                 for idx in range(n):
@@ -1606,19 +1633,19 @@ def erk_step_inline_factory(
                 dxdt_fn(
                     state,
                     parameters,
-                    drivers_buffer,
-                    observables,
-                    stage_rhs,
-                    current_time,
-                )
+                stage_drivers,
+                proposed_observables,
+                stage_rhs,
+                stage_time,
+            )
         else:
             dxdt_fn(
                 state,
                 parameters,
-                drivers_buffer,
-                observables,
+                stage_drivers,
+                proposed_observables,
                 stage_rhs,
-                current_time,
+                stage_time,
             )
 
         # b weights can't match a rows for erk, as they would return 0
@@ -1952,6 +1979,9 @@ def firk_step_inline_factory(
                     driver_offset:driver_offset + n_drivers
                 ]
                 driver_function(stage_time, driver_coeffs, driver_slice)
+        else:
+            for idx in range(stage_driver_stack_elements_int):
+                stage_driver_stack[idx] = numba_precision(0.0)
 
         status_code |= nonlinear_solver(
             stage_increment,
@@ -2263,7 +2293,7 @@ def rosenbrock_step_inline_factory(
         )
 
         # Evaluate del_t term at t_n, y_n
-        if has_driver_function:
+        if has_driver_function and driver_del_t is not None:
             driver_del_t(current_time, driver_coeffs, proposed_drivers)
         else:
             for idx in range(n_drivers):
@@ -2294,14 +2324,28 @@ def rosenbrock_step_inline_factory(
         status_code = int32(0)
         stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
+        if has_driver_function:
+            driver_function(stage_time, driver_coeffs, proposed_drivers)
+        else:
+            for idx in range(n_drivers):
+                proposed_drivers[idx] = numba_precision(0.0)
+
+        observables_function(
+            state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            stage_time,
+        )
+
         # Stage 0: uses starting values
         dxdt_fn(
             state,
             parameters,
-            drivers_buffer,
-            observables,
+            proposed_drivers,
+            proposed_observables,
             stage_rhs,
-            current_time,
+            stage_time,
         )
 
         for idx in range(n):
@@ -2365,6 +2409,9 @@ def rosenbrock_step_inline_factory(
 
             if has_driver_function:
                 driver_function(stage_time, driver_coeffs, proposed_drivers)
+            else:
+                for idx in range(n_drivers):
+                    proposed_drivers[idx] = numba_precision(0.0)
 
             observables_function(
                 stage_slice,
@@ -2393,8 +2440,11 @@ def rosenbrock_step_inline_factory(
 
             # Recompute time-derivative for last stage
             if stage_idx == stage_count - int32(1):
-                if has_driver_function:
+                if has_driver_function and driver_del_t is not None:
                     driver_del_t(current_time, driver_coeffs, proposed_drivers)
+                else:
+                    for idx in range(n_drivers):
+                        proposed_drivers[idx] = numba_precision(0.0)
                 time_derivative_rhs(
                     state,
                     parameters,
@@ -2457,6 +2507,9 @@ def rosenbrock_step_inline_factory(
 
         if has_driver_function:
             driver_function(end_time, driver_coeffs, proposed_drivers)
+        else:
+            for idx in range(n_drivers):
+                proposed_drivers[idx] = numba_precision(0.0)
 
         observables_function(
             proposed_state,
@@ -2737,6 +2790,8 @@ def controller_PID_factory(
 # =========================================================================
 
 # Build all device functions using factories with explicit arguments
+if n_observables > 0 and n_observables != 3:
+    raise ValueError("Lorenz observables factory emits exactly 3 outputs.")
 dxdt_fn = dxdt_factory(constants, precision)
 observables_function = observables_factory(constants, precision)
 
@@ -2747,6 +2802,11 @@ if n_drivers > 0 and driver_input_dict is not None:
     
     # Get coefficients from the interpolator
     driver_coefficients = interpolator.coefficients
+    assert driver_coefficients is not None
+    assert interpolator.num_inputs > 0
+    assert driver_coefficients.ndim == 3
+    assert driver_coefficients.shape[1] == n_drivers
+    assert driver_coefficients.shape[2] == (interpolator.order + 1)
     
     # Build inline driver evaluation function
     driver_function = driver_function_inline_factory(interpolator)
@@ -3103,6 +3163,15 @@ shared_pointer = obs_summ_end
 # Total shared memory elements required
 shared_elements = shared_pointer
 
+if use_shared_loop_drivers and drivers_end > shared_elements:
+    raise ValueError("Shared buffer too small for loop drivers slice.")
+if use_shared_loop_drivers_proposal and proposed_drivers_end > shared_elements:
+    raise ValueError("Shared buffer too small for driver proposal slice.")
+if use_shared_loop_observables and obs_end > shared_elements:
+    raise ValueError("Shared buffer too small for observables slice.")
+if use_shared_loop_observables_proposal and proposed_obs_end > shared_elements:
+    raise ValueError("Shared buffer too small for observable proposal slice.")
+
 
 local_dt_slice = slice(0, 1)
 local_accept_slice = slice(1, 2)
@@ -3271,11 +3340,24 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     # ----------------------------------------------------------------------- #
     for k in range(n_states):
         state_buffer[k] = initial_states[k]
+        state_proposal_buffer[k] = initial_states[k]
     for k in range(n_parameters):
         parameters_buffer[k] = parameters[k]
 
+    if n_drivers > 0:
+        if driver_function is not None:
+            driver_function(t_prec, driver_coefficients, drivers_buffer)
+        else:
+            for k in range(n_drivers):
+                drivers_buffer[k] = typed_zero
+        for k in range(n_drivers):
+            drivers_proposal_buffer[k] = drivers_buffer[k]
+    else:
+        for k in range(n_drivers):
+            drivers_buffer[k] = typed_zero
+            drivers_proposal_buffer[k] = typed_zero
+
     # Seed initial observables from initial state.
-    # driver_function not used in this test (n_drivers = 0)
     if n_observables > 0:
         observables_function(
             state_buffer,
@@ -3284,6 +3366,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             observables_buffer,
             t_prec,
         )
+        for k in range(n_observables):
+            observables_proposal_buffer[k] = observables_buffer[k]
 
     save_idx = int32(0)
     summary_idx = int32(0)
@@ -3498,6 +3582,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
 local_elements_per_run = local_elements
 shared_elems_per_run = shared_elements
+if local_elements_per_run < local_step_slice.stop:
+    raise ValueError("Persistent local storage too small for loop slices.")
 f32_per_element = 2 if (precision == np.float64) else 1
 f32_pad_perrun = (
     1 if (shared_elems_per_run % 2 == 0 and f32_per_element == 1) else 0
