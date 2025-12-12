@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/firk_rosenbrock_alignment/agent_plan.md
 
 ## Task Group 1: Source Context Review - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -38,12 +38,21 @@
    - Integration: Will inform inline Rosenbrock factory parity in tests/all_in_one.py.
 
 **Outcomes**:
-- Consolidated notes on required parity between all_in_one inline factories and module implementations, including buffer sizing and helper signatures.
+- Files Reviewed:
+  * tests/all_in_one.py (FIRK/Rosenbrock factories, loop wiring)
+  * src/cubie/integrators/algorithms/generic_firk.py
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py
+  * .github/context/cubie_internal_structure.md
+- Key Parity Notes:
+  * FIRK inline step uses solver_scratch/stage_increment/stage_driver_stack/stage_state buffers but lacks flattened all_stages_n sizing in layout, Kahan accumulation parity, and controller defaults; driver stack filled but solver invocation/status handling diverges from module wiring.
+  * Rosenbrock inline step hardcodes cached_auxiliary_count=0 and simplified placeholders; linear_solver signature missing cached auxiliaries/cached operator alignment and time_derivative/drivers handling; buffer layout omits cached auxiliary sizing.
+  * Loop sizing/controller selection currently generic; shared/local scratch counts and counters/status propagation not aligned with FIRK/Rosenbrock BufferSettings and module controller defaults.
+  * Placeholders allowed only for codegen helpers (Jacobian/time-derivative); other stubs must be realigned with module interfaces.
 
 ---
 
 ## Task Group 2: FIRK Parity Implementation Plan - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1]
 
 **Required Context**:
@@ -107,12 +116,21 @@
    - Integration: Feed chosen controller into build section before loop wiring.
 
 **Outcomes**:
-- FIRK inline factory mirrors generic_firk buffer layout, solver wiring, and controller selection; stage driver stack and status codes aligned.
+- Files Modified:
+  * tests/all_in_one.py (~120 lines changed)
+- Functions/Methods Added/Modified:
+  * firk_step_inline_factory (buffer sizing, driver stack wiring, Kahan accumulators)
+  * Derived controller setup for FIRK implicit path
+- Implementation Summary:
+  * Flattened FIRK buffers use all_stages_n with explicit solver_scratch, stage_increment, stage_driver_stack, and stage_state sizes; shared offsets follow FIRKBufferSettings ordering.
+  * Stage driver stack prefilled per stage and supplied to nonlinear solver; local allocations use nonzero safeguards for simulator mode.
+  * Newton-Krylov invocation and Kahan accumulation aligned with generic_firk weighting; controller_type forced to fixed when tableau lacks error estimate before dt0 computation.
+- Issues Flagged: None.
 
 ---
 
 ## Task Group 3: Rosenbrock Parity Implementation Plan - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1]
 
 **Required Context**:
@@ -167,12 +185,23 @@
    - Integration: Align status_code propagation from linear_solver with SolverRetCodes semantics.
 
 **Outcomes**:
-- Rosenbrock inline factory mirrors generic_rosenbrock_w structure with cached Jacobian/time-derivative placeholders only; buffer layouts and solver wiring match module expectations.
+- Files Modified:
+  * tests/all_in_one.py (~150 lines changed)
+- Functions/Methods Added/Modified:
+  * rosenbrock_step_inline_factory (cached auxiliaries, linear solver wiring, driver derivatives, counters)
+  * Rosenbrock build branch (cached_auxiliary_count, solver wrapper, helper placeholders)
+- Implementation Summary:
+  * Cached Jacobian placeholder aligns signature and sizes cached_auxiliaries with a minimum of one element; shared offsets follow Rosenbrock buffer ordering.
+  * Time-derivative helper uses module signature; driver derivative calls guarded by availability to avoid zero-sized arrays.
+  * Stage drivers refresh at stage times and seed time-derivative slices before stage increment guesses to mirror module staging.
+  * Linear solver wrapped to accept cached auxiliaries/shared and propagate Krylov iteration counts into counters; buffer layout includes cached auxiliaries in shared/local scratch sizing.
+  * Stage assembly uses tableau gamma/a/C coefficients with updated driver/time-derivative flow and status propagation.
+- Issues Flagged: None.
 
 ---
 
 ## Task Group 4: Loop, Controller, and Launch Parity - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [2, 3]
 
 **Required Context**:
@@ -214,12 +243,21 @@
    - Integration: Update saved outputs to include counter strides if save_counters_bool.
 
 **Outcomes**:
-- Loop/shared memory sizing and controller wiring remain consistent across algorithms; kernel launch uses correct shared bytes including FIRK/Rosenbrock buffers.
+- Files Modified:
+  * tests/all_in_one.py (~60 lines changed)
+- Functions/Methods Added/Modified:
+  * Derived controller setup and shared/local scratch sizing in all_in_one.py
+  * Loop counter propagation for implicit algorithms
+- Implementation Summary:
+  * Controller selection derives from tableau capability (fixed when no error estimate, PID otherwise) before dt0/fixed_mode derivation to mirror module defaults.
+  * Scratch sizing now incorporates FIRK flattened buffers and Rosenbrock cached auxiliaries in shared/local paths; shared_pointer advances include new buffers.
+  * Loop captures Krylov iteration counts from implicit solvers into counters for saving and controller usage; dynamic shared memory reflects updated sizes.
+- Issues Flagged: None.
 
 ---
 
 ## Task Group 5: Validation & Lineinfo Integrity - PARALLEL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [2, 3, 4]
 
 **Required Context**:
@@ -245,4 +283,11 @@
    - Integration: Ensure dyn shared calculation includes new buffers exactly once.
 
 **Outcomes**:
-- Ready-to-run all_in_one.py with FIRK/Rosenbrock parity; no extraneous placeholders except system helper codegen.
+- Files Modified:
+  * tests/all_in_one.py (inspection only)
+- Functions/Methods Added/Modified:
+  * None beyond prior groups
+- Implementation Summary:
+  * Verified device/inline decorators retained on updated inline factories; cuda.local.array dimensions guarded with nonzero sizes for simulator compatibility.
+  * Shared memory calculation reflects new FIRK/Rosenbrock buffers; dynamic shared mem fallback remains under MAX_SHARED_MEMORY_PER_BLOCK.
+- Issues Flagged: None.
