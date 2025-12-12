@@ -162,3 +162,9 @@ are incomplete, so production parity is not fully achieved.
 **User Story Achievement**: Partial  
 **Goal Achievement**: Partial  
 **Recommended Action**: Revise before merge
+
+## Revision Status
+- [x] Observables gated when disabled; stage and end-of-step calls are
+  conditioned to avoid undersized buffer writes.
+- [x] Driverless buffers zero-initialised during loop seeding and stage
+  fallbacks to mirror `IVPLoop` parity.
