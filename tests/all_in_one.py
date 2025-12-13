@@ -2315,11 +2315,11 @@ def rosenbrock_step_inline_factory(
         for idx in range(n_drivers):
             proposed_drivers[idx] = numba_precision(0.0)
 
-        # Stage 0 slice copies the cached final increment as its guess
-        stage_increment = stage_store[:n]
+    # Stage 0 slice copies the cached final increment as its guess
+    stage_increment = stage_store[:n]
 
-        for idx in range(n):
-            stage_increment[idx] = time_derivative[idx]
+    for idx in range(n):
+        stage_increment[idx] = time_derivative[idx]
 
         time_derivative_rhs(
             state,
