@@ -33,7 +33,7 @@ def output_test_settings(output_test_overrides):
     return settings
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def test_memory_manager():
     """Create a MemoryManager instance for testing"""
     return MemoryManager(mode="passive")
@@ -128,65 +128,63 @@ class TestOutputArrayContainer:
         assert container.state.memory_type == "device"
 
 
-class TestActiveOutputs:
-    """Test the ActiveOutputs class"""
 
-    def test_active_outputs_initialization(self):
-        """Test ActiveOutputs initialization"""
-        active = ActiveOutputs()
-        assert active.state is False
-        assert active.observables is False
-        assert active.state_summaries is False
-        assert active.observable_summaries is False
-        assert active.status_codes is False
+def test_active_outputs_initialization():
+    """Test ActiveOutputs initialization"""
+    active = ActiveOutputs()
+    assert active.state is False
+    assert active.observables is False
+    assert active.state_summaries is False
+    assert active.observable_summaries is False
+    assert active.status_codes is False
 
-    def test_update_from_outputarrays_all_active(
-        self, output_arrays_manager, sample_output_arrays
-    ):
-        """Test update_from_outputarrays with all arrays active"""
-        # Set up arrays in the manager
-        output_arrays_manager.host.state.array = sample_output_arrays["state"]
-        output_arrays_manager.host.observables.array = sample_output_arrays[
-            "observables"
-        ]
-        output_arrays_manager.host.state_summaries.array = sample_output_arrays[
-            "state_summaries"
-        ]
-        output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
-            "observable_summaries"
-        ]
-        output_arrays_manager.host.status_codes.array = sample_output_arrays[
-            "status_codes"
-        ]
+def test_update_from_outputarrays_all_active(
+    output_arrays_manager, sample_output_arrays
+):
+    """Test update_from_outputarrays with all arrays active"""
+    # Set up arrays in the manager
+    output_arrays_manager.host.state.array = sample_output_arrays["state"]
+    output_arrays_manager.host.observables.array = sample_output_arrays[
+        "observables"
+    ]
+    output_arrays_manager.host.state_summaries.array = sample_output_arrays[
+        "state_summaries"
+    ]
+    output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
+        "observable_summaries"
+    ]
+    output_arrays_manager.host.status_codes.array = sample_output_arrays[
+        "status_codes"
+    ]
 
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
+    active = ActiveOutputs()
+    active.update_from_outputarrays(output_arrays_manager)
 
-        assert active.state is True
-        assert active.observables is True
-        assert active.state_summaries is True
-        assert active.observable_summaries is True
-        assert active.status_codes is True
+    assert active.state is True
+    assert active.observables is True
+    assert active.state_summaries is True
+    assert active.observable_summaries is True
+    assert active.status_codes is True
 
-    def test_update_from_outputarrays_size_one_arrays(
-        self, output_arrays_manager
-    ):
-        """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
-        # Set up size-1 arrays (treated as artifacts)
-        output_arrays_manager.host.state.array = np.array([[[1]]])
-        output_arrays_manager.host.observables.array = np.array([[[1]]])
-        output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.status_codes.array = np.array([[[1]]])
+def test_update_from_outputarrays_size_one_arrays(
+    output_arrays_manager
+):
+    """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
+    # Set up size-1 arrays (treated as artifacts)
+    output_arrays_manager.host.state.array = np.array([[[1]]])
+    output_arrays_manager.host.observables.array = np.array([[[1]]])
+    output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
+    output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
+    output_arrays_manager.host.status_codes.array = np.array([[[1]]])
 
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
+    active = ActiveOutputs()
+    active.update_from_outputarrays(output_arrays_manager)
 
-        assert active.state is False  # Size 1 treated as inactive
-        assert active.observables is False  # Size 1 treated as inactive
-        assert active.state_summaries is False  # None
-        assert active.observable_summaries is False  # None
-        assert active.status_codes is False
+    assert active.state is False  # Size 1 treated as inactive
+    assert active.observables is False  # Size 1 treated as inactive
+    assert active.state_summaries is False  # None
+    assert active.observable_summaries is False  # None
+    assert active.status_codes is False
 
 
 class TestOutputArrays:

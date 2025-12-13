@@ -8,13 +8,12 @@ compiled kernels only need to focus on algorithmic updates.
 Buffer settings classes for memory allocation configuration are also defined
 here, providing selective allocation between shared and local memory.
 """
-from math import ceil
 from typing import Callable, Optional, Set
 
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32, float64, int64
+from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -965,17 +964,6 @@ class IVPLoop(CUDAFactory):
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
 
-            # Cap max iterations - all internal steps at dt_min, plus a bonus
-            # end/start, plus one failure per successful step.
-            # 64-bits required to get any reasonable duration with small step
-            total_duration = duration + settling_time
-            max_steps = min(
-                    int64(2**62), (int64(ceil(total_duration/dt_min)) + 2)
-            )
-            max_steps = max_steps << 1
-
-            shared_scratch[:] = precision(0.0)
-
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
@@ -1089,8 +1077,8 @@ class IVPLoop(CUDAFactory):
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
 
-            first_step_flag = int16(1)
-            prev_step_accepted_flag = int16(1)
+            first_step_flag = True
+            prev_step_accepted_flag = True
 
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
@@ -1173,9 +1161,9 @@ class IVPLoop(CUDAFactory):
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
-            for _ in range(max_steps):
+            while True:
                 # Exit as soon as we've saved the final step
-                finished = next_save > t_end
+                finished = bool_(next_save > t_end)
                 if save_last:
                     # If last save requested, predicated commit dt, finished,
                     # do_save
@@ -1185,19 +1173,20 @@ class IVPLoop(CUDAFactory):
                                  dt_raw)
 
                 # also exit loop if min step size limit hit - things are bad
-                finished |= (status & 0x8)
+                # Similarly, if time doesn't change after we add a step, exit
+                finished = finished or bool_(status & int32(0x8)) or bool_(
+                        status * int32(0x10))
 
                 if all_sync(mask, finished):
                     return status
 
                 if not finished:
-                    do_save = (t_prec + dt_raw) >= next_save
+                    do_save = bool_((t_prec + dt_raw) >= next_save)
                     dt_eff = selp(do_save, next_save - t_prec, dt_raw)
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
 
-
-                    step_status = step_function(
+                    step_status = int32(step_function(
                         state_buffer,
                         state_proposal_buffer,
                         parameters_buffer,
@@ -1214,16 +1203,16 @@ class IVPLoop(CUDAFactory):
                         remaining_shared_scratch,
                         algo_local,
                         proposed_counters,
-                    )
+                    ))
 
-                    first_step_flag = int16(0)
+                    first_step_flag = False
 
-                    niters = (step_status >> 16) & status_mask
-                    status |= step_status & status_mask
+                    niters = proposed_counters[0]
+                    status = int32(status | step_status)
 
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if not fixed_mode:
-                        status |= step_controller(
+                        controller_status = step_controller(
                             dt,
                             state_proposal_buffer,
                             state_buffer,
@@ -1234,6 +1223,7 @@ class IVPLoop(CUDAFactory):
                         )
 
                         accept = accept_step[0] != int32(0)
+                        status = int32(status | controller_status)
 
                     else:
                         accept = True
@@ -1254,6 +1244,13 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] += int32(1)
 
                     t_proposal = t + dt_eff
+                    stagnant = bool_(t_proposal == t)
+                    status = selp(
+                            stagnant,
+                            int32(status | int32(0x10)),
+                            status
+                    )
+
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
 
@@ -1274,12 +1271,12 @@ class IVPLoop(CUDAFactory):
 
                     prev_step_accepted_flag = selp(
                         accept,
-                        int16(1),
-                        int16(0),
+                        int32(1),
+                        int32(0),
                     )
 
                     # Predicated update of next_save; update if save is accepted.
-                    do_save = accept and do_save
+                    do_save = bool_(accept and do_save)
                     if do_save:
                         next_save = selp(do_save, next_save + dt_save, next_save)
                         save_state(
@@ -1321,11 +1318,6 @@ class IVPLoop(CUDAFactory):
                         if save_counters_bool:
                             for i in range(n_counters):
                                 counters_since_save[i] = int32(0)
-
-            if status == int32(0):
-                # Max iterations exhausted without other error
-                status = int32(32)
-            return status
 
         # Attach critical shapes for dummy execution
         # Parameters in order: initial_states, parameters, driver_coefficients,

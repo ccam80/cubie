@@ -160,35 +160,33 @@ def noise_tester_32(sigmas):
 
 def test_get_noise_64():
     """Test get_noise_64 CUDA device function."""
-    precision=np.float64
     # Test with non-zero sigmas
     sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_64(sigmas, precision)
+    result = noise_tester_64(sigmas)
     assert len(result) == 3
     # Results should be different (random) but finite
     assert all(np.isfinite(result))
 
     # Test with zero sigma
     sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_64(sigmas_zero, precision)
+    result_zero = noise_tester_64(sigmas_zero)
     assert result_zero[0] == 0.0  # Should be exactly zero
     assert result_zero[2] == 0.0  # Should be exactly zero
     assert result_zero[1] != 0.0  # Should be non-zero
 
 
-def test_get_noise_32(precision):
+def test_get_noise_32():
     """Test get_noise_32 CUDA device function."""
-    precision=np.float32
     # Test with non-zero sigmas
     sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_32(sigmas, precision)
+    result = noise_tester_32(sigmas)
     assert len(result) == 3
     # Results should be different (random) but finite
     assert all(np.isfinite(result))
 
     # Test with zero sigma
     sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_32(sigmas_zero, precision)
+    result_zero = noise_tester_32(sigmas_zero)
     assert result_zero[0] == 0.0  # Should be exactly zero
     assert result_zero[2] == 0.0  # Should be exactly zero
     assert result_zero[1] != 0.0  # Should be non-zero
