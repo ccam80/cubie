@@ -529,6 +529,8 @@ def driver_derivative_inline_factory(interpolator):
         driver_derivative(time, coefficients, out)
     """
     prec = interpolator.precision
+    if interpolator.num_inputs <= 0:
+        return None
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
     num_drivers = int32(interpolator.num_inputs)
@@ -1202,7 +1204,6 @@ def dirk_step_inline_factory(
                 for idx in range(int32(drivers_buffer.shape[0])):
                     # Use step-start driver values
                     proposed_drivers[idx] = drivers_buffer[idx]
-
             else:
                 if has_driver_function:
                     driver_function(
@@ -1598,6 +1599,23 @@ def erk_step_inline_factory(
         else:
             use_cached_rhs = False
 
+        stage_time = current_time
+        stage_drivers = proposed_drivers
+        if has_driver_function:
+            driver_function(
+                stage_time,
+                driver_coeffs,
+                stage_drivers,
+            )
+
+        observables_function(
+            state,
+            parameters,
+            stage_drivers,
+            proposed_observables,
+            stage_time,
+        )
+
         if multistage:
             if use_cached_rhs:
                 for idx in range(n):
@@ -1606,19 +1624,19 @@ def erk_step_inline_factory(
                 dxdt_fn(
                     state,
                     parameters,
-                    drivers_buffer,
-                    observables,
+                    stage_drivers,
+                    proposed_observables,
                     stage_rhs,
-                    current_time,
+                    stage_time,
                 )
         else:
             dxdt_fn(
                 state,
                 parameters,
-                drivers_buffer,
-                observables,
+                stage_drivers,
+                proposed_observables,
                 stage_rhs,
-                current_time,
+                stage_time,
             )
 
         # b weights can't match a rows for erk, as they would return 0
@@ -1669,11 +1687,11 @@ def erk_step_inline_factory(
                 )
 
             observables_function(
-                    stage_accumulator[stage_offset:stage_offset + n],
-                    parameters,
-                    stage_drivers,
-                    proposed_observables,
-                    stage_time,
+                stage_accumulator[stage_offset:stage_offset + n],
+                parameters,
+                stage_drivers,
+                proposed_observables,
+                stage_time,
             )
 
             dxdt_fn(
@@ -2262,28 +2280,28 @@ def rosenbrock_step_inline_factory(
             state, parameters, drivers_buffer, current_time, cached_auxiliaries
         )
 
-        # Evaluate del_t term at t_n, y_n
-        if has_driver_function:
-            driver_del_t(current_time, driver_coeffs, proposed_drivers)
-        else:
-            for idx in range(n_drivers):
-                proposed_drivers[idx] = numba_precision(0.0)
+    # Evaluate del_t term at t_n, y_n
+    if has_driver_function:
+        driver_del_t(current_time, driver_coeffs, proposed_drivers)
+    else:
+        for idx in range(n_drivers):
+            proposed_drivers[idx] = numba_precision(0.0)
 
-        # Stage 0 slice copies the cached final increment as its guess
-        stage_increment = stage_store[:n]
+    # Stage 0 slice copies the cached final increment as its guess
+    stage_increment = stage_store[:n]
 
-        for idx in range(n):
-            stage_increment[idx] = time_derivative[idx]
+    for idx in range(n):
+        stage_increment[idx] = time_derivative[idx]
 
-        time_derivative_rhs(
-            state,
-            parameters,
-            drivers_buffer,
-            proposed_drivers,
-            observables,
-            time_derivative,
-            current_time,
-        )
+    time_derivative_rhs(
+        state,
+        parameters,
+        drivers_buffer,
+        proposed_drivers,
+        observables,
+        time_derivative,
+        current_time,
+    )
 
         for idx in range(n):
             proposed_state[idx] = state[idx]
@@ -2294,14 +2312,25 @@ def rosenbrock_step_inline_factory(
         status_code = int32(0)
         stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
+        if has_driver_function:
+            driver_function(stage_time, driver_coeffs, proposed_drivers)
+
+        observables_function(
+            state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            stage_time,
+        )
+
         # Stage 0: uses starting values
         dxdt_fn(
             state,
             parameters,
-            drivers_buffer,
-            observables,
+            proposed_drivers,
+            proposed_observables,
             stage_rhs,
-            current_time,
+            stage_time,
         )
 
         for idx in range(n):
@@ -3275,7 +3304,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         parameters_buffer[k] = parameters[k]
 
     # Seed initial observables from initial state.
-    # driver_function not used in this test (n_drivers = 0)
     if n_observables > 0:
         observables_function(
             state_buffer,
@@ -3284,6 +3312,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             observables_buffer,
             t_prec,
         )
+        for k in range(n_observables):
+            observables_proposal_buffer[k] = observables_buffer[k]
 
     save_idx = int32(0)
     summary_idx = int32(0)
