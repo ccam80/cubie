@@ -729,8 +729,7 @@ def linear_solver_inline_factory(
     """
     numba_prec = numba_from_dtype(prec)
     tol_squared = precision(tolerance * tolerance)
-    n_arraysize = n
-    n_arraysize_int64 = int64(n_arraysize)
+    n_arraysize_int64 = int64(n)
     n = int32(n)
     max_iters = int32(max_iters)
     sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
@@ -1738,7 +1737,7 @@ def erk_step_inline_factory(
             stage_accumulator = shared[n:n + accumulator_length]
         else:
             stage_accumulator = cuda.local.array(
-                accumulator_length_int64, dtype=precision
+                accumulator_length_int64, dtype=numba_precision
             )
 
         # stage_cache for FSAL: alias onto stage_rhs if shared, else
