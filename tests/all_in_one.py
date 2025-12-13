@@ -455,8 +455,6 @@ def driver_function_inline_factory(interpolator):
         driver_function(time, coefficients, out)
     """
     prec = interpolator.precision
-    if interpolator.num_inputs <= 0:
-        return None
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
     num_drivers = int32(interpolator.num_inputs)
@@ -1203,11 +1201,9 @@ def dirk_step_inline_factory(
 
         else:
             if can_reuse_accepted_start:
-                for idx in range(proposed_drivers.shape[0]):
-                    proposed_drivers[idx] = typed_zero
                 for idx in range(int32(drivers_buffer.shape[0])):
+                    # Use step-start driver values
                     proposed_drivers[idx] = drivers_buffer[idx]
-
             else:
                 if has_driver_function:
                     driver_function(
@@ -1215,9 +1211,6 @@ def dirk_step_inline_factory(
                         driver_coeffs,
                         proposed_drivers,
                     )
-                else:
-                    for idx in range(proposed_drivers.shape[0]):
-                        proposed_drivers[idx] = typed_zero
 
             if stage_implicit[0]:
                 status_code |= nonlinear_solver(
@@ -1311,11 +1304,6 @@ def dirk_step_inline_factory(
                     driver_coeffs,
                     proposed_drivers,
                 )
-            else:
-                for idx in range(proposed_drivers.shape[0]):
-                    proposed_drivers[idx] = typed_zero
-                for idx in range(n_drivers):
-                    proposed_drivers[idx] = drivers_buffer[idx]
 
             # Convert accumulator slice to state by adding y_n
             stage_base = stage_accumulator[stage_offset:stage_offset + n]
@@ -1391,9 +1379,6 @@ def dirk_step_inline_factory(
                 driver_coeffs,
                 proposed_drivers,
             )
-        else:
-            for idx in range(proposed_drivers.shape[0]):
-                proposed_drivers[idx] = typed_zero
 
         observables_function(
             proposed_state,
@@ -1622,11 +1607,6 @@ def erk_step_inline_factory(
                 driver_coeffs,
                 stage_drivers,
             )
-        else:
-            for idx in range(proposed_drivers.shape[0]):
-                stage_drivers[idx] = typed_zero
-            for idx in range(n_drivers):
-                stage_drivers[idx] = drivers_buffer[idx]
 
         observables_function(
             state,
@@ -1705,11 +1685,6 @@ def erk_step_inline_factory(
                     driver_coeffs,
                     stage_drivers,
                 )
-            else:
-                for idx in range(proposed_drivers.shape[0]):
-                    stage_drivers[idx] = typed_zero
-                for idx in range(n_drivers):
-                    stage_drivers[idx] = drivers_buffer[idx]
 
             observables_function(
                 stage_accumulator[stage_offset:stage_offset + n],
@@ -1769,9 +1744,6 @@ def erk_step_inline_factory(
                 driver_coeffs,
                 proposed_drivers,
             )
-        else:
-            for idx in range(proposed_drivers.shape[0]):
-                proposed_drivers[idx] = typed_zero
 
         observables_function(
             proposed_state,
@@ -2315,11 +2287,11 @@ def rosenbrock_step_inline_factory(
         for idx in range(n_drivers):
             proposed_drivers[idx] = numba_precision(0.0)
 
-    # Stage 0 slice copies the cached final increment as its guess
-    stage_increment = stage_store[:n]
+        # Stage 0 slice copies the cached final increment as its guess
+        stage_increment = stage_store[:n]
 
-    for idx in range(n):
-        stage_increment[idx] = time_derivative[idx]
+        for idx in range(n):
+            stage_increment[idx] = time_derivative[idx]
 
         time_derivative_rhs(
             state,
@@ -3328,23 +3300,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     # ----------------------------------------------------------------------- #
     for k in range(n_states):
         state_buffer[k] = initial_states[k]
-        state_proposal_buffer[k] = initial_states[k]
     for k in range(n_parameters):
         parameters_buffer[k] = parameters[k]
-
-    if n_drivers > 0:
-        if driver_function is not None:
-            driver_function(t_prec, driver_coefficients, drivers_buffer)
-        else:
-            for k in range(n_drivers):
-                drivers_buffer[k] = typed_zero
-        for k in range(n_drivers):
-            drivers_proposal_buffer[k] = drivers_buffer[k]
-    else:
-        for k in range(drivers_buffer.shape[0]):
-            drivers_buffer[k] = typed_zero
-        for k in range(drivers_proposal_buffer.shape[0]):
-            drivers_proposal_buffer[k] = typed_zero
 
     # Seed initial observables from initial state.
     if n_observables > 0:
