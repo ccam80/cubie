@@ -428,9 +428,7 @@ def observables_factory(constants, prec):
                numba_prec[::1], numba_prec),
               device=True, inline=True, **compile_kwargs)
     def get_observables(state, parameters, drivers, observables, t):
-        observables[0] = state[0]
-        observables[1] = state[1]
-        observables[2] = state[2]
+        pass
     return get_observables
 
 
@@ -991,9 +989,6 @@ def dirk_step_inline_factory(
     # Compile-time toggles
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
-    has_observables = (
-        n_observables > 0
-    ) and (observables_function is not None)
     multistage = stage_count > 1
     first_same_as_last = False  # SDIRK does not share first/last stage
     can_reuse_accepted_start = False
@@ -1242,14 +1237,13 @@ def dirk_step_inline_factory(
                     )
 
             # Get obs->dxdt from stage_base
-            if has_observables:
-                observables_function(
-                    stage_base,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
+            observables_function(
+                stage_base,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_time,
+            )
 
             dxdt_fn(
                 stage_base,
@@ -1346,14 +1340,13 @@ def dirk_step_inline_factory(
                 for idx in range(n):
                     stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
-            if has_observables:
-                observables_function(
-                    stage_base,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
+            observables_function(
+                stage_base,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_time,
+            )
 
             dxdt_fn(
                 stage_base,
@@ -1402,14 +1395,13 @@ def dirk_step_inline_factory(
             for idx in range(proposed_drivers.shape[0]):
                 proposed_drivers[idx] = typed_zero
 
-        if has_observables:
-            observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
-            )
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
 
         # Cache increment and RHS for FSAL optimization
         for idx in range(n):
@@ -1474,9 +1466,6 @@ def erk_step_inline_factory(
     first_same_as_last = tableau.first_same_as_last
     multistage = stage_count > int32(1)
     has_error = tableau.has_error_estimate
-    has_observables = (
-        n_observables > 0
-    ) and (observables_function is not None)
 
     stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -1639,14 +1628,13 @@ def erk_step_inline_factory(
             for idx in range(n_drivers):
                 stage_drivers[idx] = drivers_buffer[idx]
 
-        if has_observables:
-            observables_function(
-                state,
-                parameters,
-                stage_drivers,
-                proposed_observables,
-                stage_time,
-            )
+        observables_function(
+            state,
+            parameters,
+            stage_drivers,
+            proposed_observables,
+            stage_time,
+        )
 
         if multistage:
             if use_cached_rhs:
@@ -1723,14 +1711,13 @@ def erk_step_inline_factory(
                 for idx in range(n_drivers):
                     stage_drivers[idx] = drivers_buffer[idx]
 
-            if has_observables:
-                observables_function(
-                    stage_accumulator[stage_offset:stage_offset + n],
-                    parameters,
-                    stage_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
+            observables_function(
+                stage_accumulator[stage_offset:stage_offset + n],
+                parameters,
+                stage_drivers,
+                proposed_observables,
+                stage_time,
+            )
 
             dxdt_fn(
                 stage_accumulator[stage_offset:stage_offset + n],
@@ -1786,14 +1773,13 @@ def erk_step_inline_factory(
             for idx in range(proposed_drivers.shape[0]):
                 proposed_drivers[idx] = typed_zero
 
-        if has_observables:
-            observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
-            )
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
 
         if first_same_as_last:
             for idx in range(n):
@@ -1861,9 +1847,6 @@ def firk_step_inline_factory(
     # Compile-time toggles
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
-    has_observables = (
-        n_observables > 0
-    ) and (observables_function is not None)
 
     stage_rhs_coeffs = tableau.a_flat(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -2070,14 +2053,13 @@ def firk_step_inline_factory(
             do_more_work = (has_error and accumulates_error) or accumulates_output
 
             if do_more_work:
-                if has_observables:
-                    observables_function(
-                        stage_state,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_time,
-                    )
+                observables_function(
+                    stage_state,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_time,
+                )
 
                 stage_rhs = stage_rhs_flat[
                     stage_idx * n:(stage_idx + int32(1)) * n
@@ -2115,14 +2097,13 @@ def firk_step_inline_factory(
                 for idx in range(proposed_drivers.shape[0]):
                     proposed_drivers[idx] = typed_zero
 
-            if has_observables:
-                observables_function(
-                    proposed_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    end_time,
-                )
+            observables_function(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                end_time,
+            )
 
         if not accumulates_error:
             for idx in range(n):
@@ -2203,9 +2184,6 @@ def rosenbrock_step_inline_factory(
 
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
-    has_observables = (
-        n_observables > 0
-    ) and (observables_function is not None)
 
     a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
     C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
@@ -2377,14 +2355,13 @@ def rosenbrock_step_inline_factory(
             for idx in range(proposed_drivers.shape[0]):
                 proposed_drivers[idx] = numba_precision(0.0)
 
-        if has_observables:
-            observables_function(
-                state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                stage_time,
-            )
+        observables_function(
+            state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            stage_time,
+        )
 
         # Stage 0: uses starting values
         dxdt_fn(
@@ -2461,14 +2438,13 @@ def rosenbrock_step_inline_factory(
                 for idx in range(proposed_drivers.shape[0]):
                     proposed_drivers[idx] = numba_precision(0.0)
 
-            if has_observables:
-                observables_function(
-                    stage_slice,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
+            observables_function(
+                stage_slice,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_time,
+            )
 
             dxdt_fn(
                 stage_slice,
@@ -2560,14 +2536,13 @@ def rosenbrock_step_inline_factory(
             for idx in range(proposed_drivers.shape[0]):
                 proposed_drivers[idx] = numba_precision(0.0)
 
-        if has_observables:
-            observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
-            )
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
 
         if not accumulates_error:
             for idx in range(n):
@@ -2843,9 +2818,7 @@ def controller_PID_factory(
 if n_observables > 0 and n_observables != 3:
     raise ValueError("Lorenz observables factory emits exactly 3 outputs.")
 dxdt_fn = dxdt_factory(constants, precision)
-observables_function = (
-    observables_factory(constants, precision) if n_observables > 0 else None
-)
+observables_function = observables_factory(constants, precision)
 
 # Build driver function if drivers are present
 if n_drivers > 0 and driver_input_dict is not None:
