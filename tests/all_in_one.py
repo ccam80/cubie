@@ -44,7 +44,7 @@ algorithm_type = 'dirk'  # 'erk', 'dirk', 'firk', or 'rosenbrock'
 algorithm_tableau_name = 'l_stable_sdirk_4'  # Registry key for the tableau
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
-controller_type = 'fixed'  # 'fixed' or 'pid'
+controller_type = 'pid'  # 'fixed' or 'pid'
 
 # -------------------------------------------------------------------------
 # Precision Configuration
@@ -1040,8 +1040,8 @@ def dirk_step_inline_factory(
     has_driver_function = driver_function is not None
     has_error = tableau.has_error_estimate
     multistage = stage_count > 1
-    first_same_as_last = False  # SDIRK does not share first/last stage
-    can_reuse_accepted_start = False
+    first_same_as_last = tableau.first_same_as_last
+    can_reuse_accepted_start = tableau.reuse_accepted_start
 
     explicit_a_coeffs = tableau.explicit_terms(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -1267,7 +1267,7 @@ def dirk_step_inline_factory(
                     )
 
             if stage_implicit[0]:
-                status_code |= int32(nonlinear_solver(
+                solver_status = nonlinear_solver(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -1277,7 +1277,9 @@ def dirk_step_inline_factory(
                     stage_base,
                     solver_scratch,
                     counters,
-                ))
+                )
+                status_code = int32(status_code | solver_status)
+
                 for idx in range(n):
                     stage_base[idx] += (
                         diagonal_coeff * stage_increment[idx]
@@ -1331,9 +1333,10 @@ def dirk_step_inline_factory(
 
             #DIRK is missing the instruction cache. The unrolled stage loop
             # is instruction dense, taking up most of the instruction space.
-            # Try syncing block-wide per-stage to see whether this will help
-            # the whole block stay in one cache chunk. Play with block size
-            # to enforce the number of blocks per SM.
+            # A block-wide sync hangs indefinitely, as some warps will
+            # finish early and never reach it. We sync a warp to minimal
+            # effect (it's a wash in the profiler) in case of divergence in
+            # big systems.
             cuda.syncwarp(mask)
             stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
@@ -1364,7 +1367,7 @@ def dirk_step_inline_factory(
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
             if stage_implicit[stage_idx]:
-                status_code |= int32(nonlinear_solver(
+                solver_status = nonlinear_solver(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -1374,7 +1377,8 @@ def dirk_step_inline_factory(
                     stage_base,
                     solver_scratch,
                     counters,
-                ))
+                )
+                status_code = int32(status_code | solver_status)
 
                 for idx in range(n):
                     stage_base[idx] += diagonal_coeff * stage_increment[idx]

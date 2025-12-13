@@ -883,6 +883,7 @@ class IVPLoop(CUDAFactory):
             'observable_summary'
         )
 
+
         @cuda.jit(
             # [
             #     (
@@ -921,7 +922,7 @@ class IVPLoop(CUDAFactory):
             t0,
         ): # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
-            
+
             The loop terminates when the time of the next saved sample
             exceeds the end time (t0 + settling_time + duration), or when
             the maximum number of iterations is reached.
@@ -963,6 +964,8 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
+
+            stagnant_counts = int32(0)
 
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
@@ -1243,8 +1246,16 @@ class IVPLoop(CUDAFactory):
                                 # Increment rejected steps counter
                                 counters_since_save[i] += int32(1)
 
-                    t_proposal = t + dt_eff
-                    stagnant = bool_(t_proposal == t)
+                    t_proposal = t + float64(dt_eff)
+                    # test for stagnation - we might have one small step
+                    # which doesn't nudge t if we're right up against a save
+                    # boundary, so we call 2 stale t values in a row "stagnant"
+                    if t_proposal == t:
+                        stagnant_counts += int32(1)
+                    else:
+                        stagnant_counts = int32(0)
+
+                    stagnant = bool_(stagnant_counts >= int32(2))
                     status = selp(
                             stagnant,
                             int32(status | int32(0x10)),

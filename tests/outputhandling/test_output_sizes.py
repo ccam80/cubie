@@ -12,8 +12,6 @@ from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     BatchInputSizes,
 )
-from tests._utils import SHORT_RUN_PARAMS
-
 
 class TestNonzeroProperty:
     """Test the nonzero property functionality"""
@@ -149,11 +147,6 @@ class TestOutputArrayHeights:
         assert nonzero_heights.observable_summaries == 1
         assert nonzero_heights.per_variable == 1
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_from_output_fns_default(self, output_functions):
         """Test creating OutputArrayHeights from output_functions"""
         heights = OutputArrayHeights.from_output_fns(output_functions)
@@ -172,11 +165,7 @@ class TestOutputArrayHeights:
             == output_functions.observable_summaries_output_height
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_explicit_vs_from_output_fns(self, output_functions):
         """Test that explicit initialization matches from_output_fns result"""
         from_fns = OutputArrayHeights.from_output_fns(output_functions)
@@ -248,11 +237,7 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_output_fns_and_run_settings_default(
         self, output_functions, run_settings, solverkernel
     ):
@@ -300,11 +285,7 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_explicit_vs_from_solver(
         self, output_functions, run_settings, solverkernel
     ):

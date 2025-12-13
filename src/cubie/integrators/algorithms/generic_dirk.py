@@ -31,7 +31,7 @@ from typing import Callable, Optional
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
@@ -551,7 +551,7 @@ class DIRKStep(ODEImplicitStep):
         )
 
         operator = get_fn(
-            "linear_operator", # linear operator cached?
+            "linear_operator",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -616,7 +616,7 @@ class DIRKStep(ODEImplicitStep):
         first_same_as_last = self.first_same_as_last
         can_reuse_accepted_start = self.can_reuse_accepted_start
 
-        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+        explicit_a_coeffs = tableau.explicit_terms(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
@@ -678,8 +678,8 @@ class DIRKStep(ODEImplicitStep):
             #     numba_precision[::1],
             #     numba_precision,
             #     numba_precision,
-            #     int16,
-            #     int16,
+            #     int32,
+            #     int32,
             #     numba_precision[::1],
             #     numba_precision[::1],
             #     int32[::1],
@@ -807,14 +807,14 @@ class DIRKStep(ODEImplicitStep):
             #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #
 
-            first_step = first_step_flag != int16(0)
+            first_step = first_step_flag != int32(0)
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step:
                     mask = activemask()
-                    all_threads_accepted = all_sync(mask, accepted_flag != int16(0))
+                    all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False
@@ -850,7 +850,7 @@ class DIRKStep(ODEImplicitStep):
                         )
 
                 if stage_implicit[0]:
-                    status_code |= int32(nonlinear_solver(
+                    solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -860,7 +860,9 @@ class DIRKStep(ODEImplicitStep):
                         stage_base,
                         solver_scratch,
                         counters,
-                    ))
+                    )
+                    status_code = int32(status_code | solver_status)
+
                     for idx in range(n):
                         stage_base[idx] += (
                             diagonal_coeff * stage_increment[idx]
@@ -910,28 +912,25 @@ class DIRKStep(ODEImplicitStep):
             #            Stages 1-s: must refresh all qtys                    #
             # --------------------------------------------------------------- #
             mask = activemask()
-
             for prev_idx in range(stages_except_first):
+                # DIRK is missing the instruction cache. The unrolled loop
+                # is instruction dense, taking up most of the instruction space.
+                # A block-wide sync hangs indefinitely, as some warps will
+                # finish early and never reach it. We sync a warp to minimal
+                # effect (it's a wash in the profiler) in case of divergence in
+                # big systems.
                 cuda.syncwarp(mask)
                 stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
-                matrix_col = stage_rhs_coeffs[prev_idx]
+                matrix_col = explicit_a_coeffs[prev_idx]
 
                 # Stream previous stage's RHS into accumulators for successors
-                # Only stream to current stage and later (not already-processed)
                 for successor_idx in range(stages_except_first):
-                    # Accumulator at index i is for stage i+1
-                    # At prev_idx, current stage is prev_idx+1, so stream to
-                    # accumulators with index >= prev_idx
-
-                    # This guard can be removed, adding a "dead write"
-                    # Do if the compiler needs help unrolling
-                    if successor_idx >= prev_idx:
-                        coeff = matrix_col[successor_idx + int32(1)]
-                        row_offset = successor_idx * n
-                        for idx in range(n):
-                            contribution = coeff * stage_rhs[idx] * dt_scalar
-                            stage_accumulator[row_offset + idx] += contribution
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
+                    for idx in range(n):
+                        contribution = coeff * stage_rhs[idx] * dt_scalar
+                        stage_accumulator[row_offset + idx] += contribution
 
                 stage_time = (
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
@@ -951,7 +950,7 @@ class DIRKStep(ODEImplicitStep):
                 diagonal_coeff = diagonal_coeffs[stage_idx]
 
                 if stage_implicit[stage_idx]:
-                    status_code |= int32(nonlinear_solver(
+                    solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -961,7 +960,8 @@ class DIRKStep(ODEImplicitStep):
                         stage_base,
                         solver_scratch,
                         counters,
-                    ))
+                    )
+                    status_code = int32(status_code | solver_status)
 
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
@@ -1035,7 +1035,7 @@ class DIRKStep(ODEImplicitStep):
                     if not solver_scratch_shared:
                         rhs_cache[idx] = stage_rhs[idx]
 
-            return status_code
+            return int32(status_code)
         # no cover: end
         return StepCache(step=step, nonlinear_solver=nonlinear_solver)
 

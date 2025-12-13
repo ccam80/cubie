@@ -21,12 +21,6 @@ Array = NDArray[np.floating]
 #                      Standard Parameter Sets                                #
 # --------------------------------------------------------------------------- #
 
-SHORT_RUN_PARAMS = {
-    'dt_save': 0.05,
-    'dt_summarise': 0.05,
-    'output_types': ['state', 'time', 'observables', 'mean'],
-}
-
 MID_RUN_PARAMS = {
     'dt': 0.001,
     'dt_save': 0.02,
@@ -42,13 +36,6 @@ LONG_RUN_PARAMS = {
     'dt_summarise': 0.15,
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
-
-RUN_DEFAULTS = {
-    'duration': 0.1,
-    't0': 0.0,
-    'warmup': 0.0,
-}
-STEP_OVERRIDES = MID_RUN_PARAMS
 
 
 STEP_CASES = [
