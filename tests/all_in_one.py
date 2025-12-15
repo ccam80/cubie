@@ -90,11 +90,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.05)
+duration = precision(0.5)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.05)
+dt_save = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -3396,21 +3396,21 @@ elif algorithm_type == 'dirk':
 elif algorithm_type == 'firk':
     # Build implicit solver components for FIRK (fully implicit)
     # FIRK requires n-stage coupled system solving
-    preconditioner_fn = neumann_preconditioner_factory(
+    preconditioner_fn = n_stage_neumann_preconditioner_3(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    residual_fn = stage_residual_factory(
+    residual_fn = n_stage_residual_3(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    operator_fn = linear_operator_factory(
+    operator_fn = n_stage_linear_operator_3(
         constants,
         precision,
         beta=float(beta_solver),
@@ -3419,7 +3419,8 @@ elif algorithm_type == 'firk':
     )
 
     linear_solver_fn = linear_solver_inline_factory(
-        operator_fn, n_states * tableau.stage_count,  # Note: all_stages_n
+        operator_fn,
+        n_states * tableau.stage_count,  # Note: all_stages_n
         preconditioner_fn,
         krylov_tolerance,
         max_linear_iters,
