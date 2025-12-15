@@ -15,3 +15,4 @@ value problems. The source code is available on `Github
    speed
    cuda
    userfunctions
+   firk_mathematical_trace
