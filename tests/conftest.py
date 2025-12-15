@@ -825,7 +825,7 @@ def output_functions(output_settings, system):
     return outputfunctions
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def output_functions_mutable(output_settings, system):
     """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
 
@@ -872,7 +872,7 @@ def solverkernel(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def solverkernel_mutable(
     solver_settings,
     system,
