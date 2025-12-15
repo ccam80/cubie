@@ -220,6 +220,7 @@ def run_reference_loop(
         output_functions.summaries_output_height_per_var,
         precision,
         dt_save=dt_save,
+        exclude_first=True,  # Match IVP loop behavior: skip t=0 in summaries
     )
     final_status = status_flags & STATUS_MASK
 

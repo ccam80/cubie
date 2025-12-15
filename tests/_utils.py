@@ -152,6 +152,7 @@ def calculate_expected_summaries(
     summary_height_per_variable,
     precision,
     dt_save=1.0,
+    exclude_first=False,
 ):
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
@@ -164,14 +165,21 @@ def calculate_expected_summaries(
     - output_types: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - precision: Numpy dtype to use for the output arrays (e.g. np.float32 or np.float64)
     - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
+    - exclude_first: If True, exclude the first sample (t=0) from summary calculations.
+        Used when mimicking IVP loop behavior. Default: False.
 
     Returns:
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
     - expected_obs_summaries: 2D array of shape (summary_samples, n_saved_observables * summary_size_per_state)
     """
-    # Exclude t=0 row (first sample) from summary calculations
-    state = state[1:, summarised_state_indices]
-    observables = observables[1:, summarised_observable_indices]
+    # Optionally exclude t=0 row (first sample) from summary calculations
+    # to match IVP loop behavior where first update_summaries is skipped
+    if exclude_first:
+        state = state[1:, summarised_state_indices]
+        observables = observables[1:, summarised_observable_indices]
+    else:
+        state = state[:, summarised_state_indices]
+        observables = observables[:, summarised_observable_indices]
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
     saved_samples = state.shape[0]
@@ -197,11 +205,15 @@ def calculate_expected_summaries(
         (state, expected_state_summaries),
         (observables, expected_obs_summaries),
     ):
+        # When exclude_first=True, peak indices need +1 offset to convert
+        # from sliced array indices to original save_idx values
+        peak_index_offset = 1 if exclude_first else 0
         calculate_single_summary_array(_input_array, summarise_every,
                                        summary_height_per_variable,
                                        output_types,
                                        output_array=_output_array,
-                                       dt_save=dt_save)
+                                       dt_save=dt_save,
+                                       peak_index_offset=peak_index_offset)
 
     return expected_state_summaries, expected_obs_summaries
 
@@ -213,6 +225,7 @@ def calculate_single_summary_array(
     output_functions_list,
     output_array,
     dt_save=1.0,
+    peak_index_offset=0,
 ):
     """Summarise states in input array in the same way that the device functions do.
 
@@ -224,6 +237,8 @@ def calculate_single_summary_array(
     - n_peaks: Number of peaks to find in the "peaks[n]" output function
     - output_array: 2D array to store the summarised output, shape (n_items * summary_size_per_state, n_samples)
     - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
+    - peak_index_offset: Offset added to peak indices. When exclude_first=True,
+        this is 1 to convert sliced array indices to save_idx values. Default: 0.
 
     Returns:
     - None, but output_array is filled with the summarised values.
@@ -261,6 +276,7 @@ def calculate_single_summary_array(
                             input_array[start_index:end_index, j],
                         )[:n_peaks]
                         + start_index
+                        + peak_index_offset  # Offset for sliced array indexing
                     )
                     output_start_index = (
                         j * summary_size_per_state + summary_index
@@ -343,6 +359,7 @@ def calculate_single_summary_array(
                             input_array[start_index:end_index, j],
                         )[:n_peaks]
                         + start_index
+                        + peak_index_offset  # Offset for sliced array indexing
                     )
                     output_start_index = (
                         j * summary_size_per_state + summary_index
@@ -525,20 +542,32 @@ def calculate_single_summary_array(
 
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
+    """Find local maxima in a signal.
+    
+    Returns indices of local maxima. The +1 offset corrects for the
+    signal[1:-1] slicing used in the comparison (flatnonzero returns
+    indices into the sliced array, not the original signal).
+    """
     return (
         np.flatnonzero(
             (signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])
         )
-        + 1
+        + 1  # Correct for signal[1:-1] indexing offset
     )
 
 
 def local_minima(signal: np.ndarray) -> np.ndarray:
+    """Find local minima in a signal.
+    
+    Returns indices of local minima. The +1 offset corrects for the
+    signal[1:-1] slicing used in the comparison (flatnonzero returns
+    indices into the sliced array, not the original signal).
+    """
     return (
         np.flatnonzero(
             (signal[1:-1] < signal[:-2]) & (signal[1:-1] < signal[2:])
         )
-        + 1
+        + 1  # Correct for signal[1:-1] indexing offset
     )
 
 
