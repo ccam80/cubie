@@ -1137,15 +1137,8 @@ class IVPLoop(CUDAFactory):
                                        summary_idx * summarise_obs_bool, :
                                    ],
                                    saves_per_summary)
-                    
-                    # Log first summary update
-                    update_summaries(
-                        state_buffer,
-                        observables_buffer,
-                        state_summary_buffer,
-                        observable_summary_buffer,
-                        save_idx,
-                    )
+                    # Summary accumulation starts with next accepted save to
+                    # avoid double counting the t0 seed sample.
                 save_idx += int32(1)
 
             status = int32(0)
@@ -1175,8 +1168,7 @@ class IVPLoop(CUDAFactory):
                     dt[0] = selp(at_last_save, precision(t_end - t),
                                  dt_raw)
 
-                # also exit loop if min step size limit hit - things are bad
-                # Similarly, if time doesn't change after we add a step, exit
+                # Exit loop if finished, or min_step exceeded, or time stagnant
                 finished = finished or bool_(status & int32(0x8)) or bool_(
                         status * int32(0x40))
 

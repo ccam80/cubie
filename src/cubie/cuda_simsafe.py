@@ -148,6 +148,7 @@ else:  # pragma: no cover - exercised in GPU environments
     )
     from numba.cuda.cudadrv.devicearray import (  # type: ignore[attr-defined]
         DeviceNDArrayBase,
+        DeviceNDArray,
         MappedNDArray,
     )
     from numba.cuda.cudadrv.driver import GetIpcHandleMixin  # type: ignore[attr-defined]
@@ -269,9 +270,11 @@ __all__ = [
     "CUDA_SIMULATION",
     "activemask",
     "all_sync",
+    "syncwarp",
     "BaseCUDAMemoryManager",
     "compile_kwargs",
     "DeviceNDArrayBase",
+    "DeviceNDArray",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",
     "FakeHostOnlyCUDAManager",
