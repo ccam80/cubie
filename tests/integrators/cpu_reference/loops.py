@@ -208,7 +208,7 @@ def run_reference_loop(
             time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
-    summarise_every = int(np.ceil(dt_summarise / dt_save))
+    summarise_every = int(dt_summarise / dt_save)
 
     state_summary, observable_summary = calculate_expected_summaries(
         state_output,
@@ -220,6 +220,7 @@ def run_reference_loop(
         output_functions.summaries_output_height_per_var,
         precision,
         dt_save=dt_save,
+        exclude_first=True,  # Match IVP loop behavior: skip t=0 in summaries
     )
     final_status = status_flags & STATUS_MASK
 

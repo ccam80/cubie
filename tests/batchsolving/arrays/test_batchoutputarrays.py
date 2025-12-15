@@ -59,6 +59,7 @@ def output_arrays_manager(precision, solver, output_test_settings,
 def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
     solver=solver_mutable
+    solver.kernel.duration = 1.0
     num_runs = output_test_settings["num_runs"]
     dtype = precision
 
@@ -142,6 +143,7 @@ def test_active_outputs_initialization():
 def test_update_from_outputarrays_all_active(
     output_arrays_manager, sample_output_arrays
 ):
+
     """Test update_from_outputarrays with all arrays active"""
     # Set up arrays in the manager
     output_arrays_manager.host.state.array = sample_output_arrays["state"]
@@ -523,9 +525,11 @@ def test_output_arrays_with_different_configs(
     ],
     indirect=True,
 )
-def test_output_arrays_with_different_systems(output_arrays_manager, solver):
+def test_output_arrays_with_different_systems(output_arrays_manager,
+                                              solver_mutable):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
+    solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
 
