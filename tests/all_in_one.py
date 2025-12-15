@@ -1021,12 +1021,13 @@ def linear_solver_inline_factory(
     shared memory buffers.
     """
     numba_prec = numba_from_dtype(prec)
-    tol_squared = precision(tolerance * tolerance)
+    tol_squared = numba_prec(tolerance * tolerance)
+    typed_zero = numba_prec(0.0)
     n_arraysize = n
-    n = int32(n)
+    n_val = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
-    mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
+    sd_flag = 1 if correction_type == "steepest_descent" else 0
+    mr_flag = 1 if correction_type == "minimal_residual" else 0
 
     @cuda.jit(
         # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
@@ -1041,7 +1042,7 @@ def linear_solver_inline_factory(
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
                        x, temp)
         acc = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -1081,12 +1082,12 @@ def linear_solver_inline_factory(
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -1096,7 +1097,7 @@ def linear_solver_inline_factory(
             alpha_effective = selp(converged, numba_prec(0.0), alpha)
 
             acc = typed_zero
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
@@ -1117,11 +1118,11 @@ def linear_solver_cached_inline_factory(
     """Create cached linear solver device function."""
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
-    n_arraysize = int64(n)
-    n = int32(n)
+    n_arraysize = n
+    n_val = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = int32(1) if correction_type == "steepest_descent" else int32(0)
-    mr_flag = int32(1) if correction_type == "minimal_residual" else int32(0)
+    sd_flag = 1 if correction_type == "steepest_descent" else 0
+    mr_flag = 1 if correction_type == "minimal_residual" else 0
     preconditioned = preconditioner is not None
     typed_zero_local = numba_prec(0.0)
 
@@ -1155,7 +1156,7 @@ def linear_solver_cached_inline_factory(
             temp,
         )
         acc = typed_zero_local
-        for i in range(n):
+        for i in range(n_val):
             residual_value = rhs[i] - temp[i]
             rhs[i] = residual_value
             acc += residual_value * residual_value
@@ -1182,7 +1183,7 @@ def linear_solver_cached_inline_factory(
                     temp,
                 )
             else:
-                for i in range(n):
+                for i in range(n_val):
                     preconditioned_vec[i] = rhs[i]
 
             operator_apply(
@@ -1199,12 +1200,12 @@ def linear_solver_cached_inline_factory(
             numerator = typed_zero_local
             denominator = typed_zero_local
             if sd_flag:
-                for i in range(n):
+                for i in range(n_val):
                     zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
-                for i in range(n):
+                for i in range(n_val):
                     ti = temp[i]
                     numerator += ti * rhs[i]
                     denominator += ti * ti
@@ -1214,7 +1215,7 @@ def linear_solver_cached_inline_factory(
             alpha_effective = selp(converged, numba_prec(0.0), alpha)
 
             acc = typed_zero_local
-            for i in range(n):
+            for i in range(n_val):
                 x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
@@ -1243,7 +1244,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
     typed_zero = numba_prec(0.0)
     typed_one = numba_prec(1.0)
     typed_damping = numba_prec(damping)
-    one_int64 = int64(1)
 
     @cuda.jit(
             # [
@@ -1443,7 +1443,7 @@ def dirk_step_inline_factory(
     # Extract tableau properties
     n_arraysize = n
     accumulator_length_arraysize = int(max(tableau.stage_count-1, 1) * n)
-    double_n = 2 * n
+    solver_scratch_local_size = 2 * n  # Python int for cuda.local.array
     n = int32(n)
     stage_count = int32(tableau.stage_count)
 
@@ -1451,7 +1451,6 @@ def dirk_step_inline_factory(
 
     # Compile-time toggles
     has_driver_function = driver_function is not None
-    has_driver_derivative = driver_del_t is not None
     has_error = tableau.has_error_estimate
     multistage = stage_count > 1
     first_same_as_last = tableau.first_same_as_last
@@ -1599,8 +1598,9 @@ def dirk_step_inline_factory(
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
-            solver_scratch = cuda.local.array(double_n, numba_precision)
-            for _i in range(solver_shared_elements):
+            solver_scratch = cuda.local.array(solver_scratch_local_size,
+                                               numba_precision)
+            for _i in range(solver_scratch_local_size):
                 solver_scratch[_i] = numba_precision(0.0)
 
         # Alias stage base onto first stage accumulator or allocate locally
@@ -2283,13 +2283,11 @@ def firk_step_inline_factory(
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     all_stages_n = int32(stage_count) * int32(n)
-    stage_increment_size = all_stages_n
     solver_scratch_size = int32(2) * all_stages_n
     stage_driver_stack_size = int32(stage_count) * int32(n_drivers)
     stage_state_size = int32(n)
 
     # int versions for cuda.local.array sizes
-    stage_count_ary = int(stage_count)
     all_stages_n_ary = int(all_stages_n)
     solver_scratch_ary = int(solver_scratch_size)
     stage_driver_stack_local_size = max(int(stage_driver_stack_size), 1)
@@ -2644,7 +2642,7 @@ def rosenbrock_step_inline_factory(
     stages_except_first = stage_count - int32(1)
 
     # int versions for cuda.local.array sizes
-    n_arraysiza = int(n)
+    n_arraysize = int(n)
     stage_count_int = int(stage_count)
 
 
@@ -2683,8 +2681,6 @@ def rosenbrock_step_inline_factory(
     # int versions for cuda.local.array sizes
     stage_store_elements = int(stage_store_elements)
     cached_auxiliary_count_int = int(cached_auxiliary_count)
-    cached_auxiliary_count_int64 = int64(cached_auxiliary_count_int)
-    one_int64 = int64(1)
 
     # Shared memory indices
     shared_pointer = int32(0)
@@ -2753,7 +2749,7 @@ def rosenbrock_step_inline_factory(
         if stage_rhs_shared:
             stage_rhs = shared[stage_rhs_start:stage_rhs_end]
         else:
-            stage_rhs = cuda.local.array(n_arraysiza, numba_precision)
+            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
 
         if stage_store_shared:
             stage_store = shared[stage_store_start:stage_store_end]
