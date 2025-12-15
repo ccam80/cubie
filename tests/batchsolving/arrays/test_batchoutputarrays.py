@@ -33,7 +33,7 @@ def output_test_settings(output_test_overrides):
     return settings
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def test_memory_manager():
     """Create a MemoryManager instance for testing"""
     return MemoryManager(mode="passive")
@@ -55,9 +55,11 @@ def output_arrays_manager(precision, solver, output_test_settings,
     )
 
 
-@pytest.fixture(scope="session")
-def sample_output_arrays(solver, output_test_settings, precision):
+@pytest.fixture(scope="function")
+def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
+    solver=solver_mutable
+    solver.kernel.duration = 1.0
     num_runs = output_test_settings["num_runs"]
     dtype = precision
 
@@ -75,10 +77,10 @@ def sample_output_arrays(solver, output_test_settings, precision):
             time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), variables_count, num_runs
+            max(0, time_points - 1), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), observables_count, num_runs
+            max(0, time_points - 1), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
@@ -128,65 +130,64 @@ class TestOutputArrayContainer:
         assert container.state.memory_type == "device"
 
 
-class TestActiveOutputs:
-    """Test the ActiveOutputs class"""
 
-    def test_active_outputs_initialization(self):
-        """Test ActiveOutputs initialization"""
-        active = ActiveOutputs()
-        assert active.state is False
-        assert active.observables is False
-        assert active.state_summaries is False
-        assert active.observable_summaries is False
-        assert active.status_codes is False
+def test_active_outputs_initialization():
+    """Test ActiveOutputs initialization"""
+    active = ActiveOutputs()
+    assert active.state is False
+    assert active.observables is False
+    assert active.state_summaries is False
+    assert active.observable_summaries is False
+    assert active.status_codes is False
 
-    def test_update_from_outputarrays_all_active(
-        self, output_arrays_manager, sample_output_arrays
-    ):
-        """Test update_from_outputarrays with all arrays active"""
-        # Set up arrays in the manager
-        output_arrays_manager.host.state.array = sample_output_arrays["state"]
-        output_arrays_manager.host.observables.array = sample_output_arrays[
-            "observables"
-        ]
-        output_arrays_manager.host.state_summaries.array = sample_output_arrays[
-            "state_summaries"
-        ]
-        output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
-            "observable_summaries"
-        ]
-        output_arrays_manager.host.status_codes.array = sample_output_arrays[
-            "status_codes"
-        ]
+def test_update_from_outputarrays_all_active(
+    output_arrays_manager, sample_output_arrays
+):
 
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
+    """Test update_from_outputarrays with all arrays active"""
+    # Set up arrays in the manager
+    output_arrays_manager.host.state.array = sample_output_arrays["state"]
+    output_arrays_manager.host.observables.array = sample_output_arrays[
+        "observables"
+    ]
+    output_arrays_manager.host.state_summaries.array = sample_output_arrays[
+        "state_summaries"
+    ]
+    output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
+        "observable_summaries"
+    ]
+    output_arrays_manager.host.status_codes.array = sample_output_arrays[
+        "status_codes"
+    ]
 
-        assert active.state is True
-        assert active.observables is True
-        assert active.state_summaries is True
-        assert active.observable_summaries is True
-        assert active.status_codes is True
+    active = ActiveOutputs()
+    active.update_from_outputarrays(output_arrays_manager)
 
-    def test_update_from_outputarrays_size_one_arrays(
-        self, output_arrays_manager
-    ):
-        """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
-        # Set up size-1 arrays (treated as artifacts)
-        output_arrays_manager.host.state.array = np.array([[[1]]])
-        output_arrays_manager.host.observables.array = np.array([[[1]]])
-        output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.status_codes.array = np.array([[[1]]])
+    assert active.state is True
+    assert active.observables is True
+    assert active.state_summaries is True
+    assert active.observable_summaries is True
+    assert active.status_codes is True
 
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
+def test_update_from_outputarrays_size_one_arrays(
+    output_arrays_manager
+):
+    """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
+    # Set up size-1 arrays (treated as artifacts)
+    output_arrays_manager.host.state.array = np.array([[[1]]])
+    output_arrays_manager.host.observables.array = np.array([[[1]]])
+    output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
+    output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
+    output_arrays_manager.host.status_codes.array = np.array([[[1]]])
 
-        assert active.state is False  # Size 1 treated as inactive
-        assert active.observables is False  # Size 1 treated as inactive
-        assert active.state_summaries is False  # None
-        assert active.observable_summaries is False  # None
-        assert active.status_codes is False
+    active = ActiveOutputs()
+    active.update_from_outputarrays(output_arrays_manager)
+
+    assert active.state is False  # Size 1 treated as inactive
+    assert active.observables is False  # Size 1 treated as inactive
+    assert active.state_summaries is False  # None
+    assert active.observable_summaries is False  # None
+    assert active.status_codes is False
 
 
 class TestOutputArrays:
@@ -524,9 +525,11 @@ def test_output_arrays_with_different_configs(
     ],
     indirect=True,
 )
-def test_output_arrays_with_different_systems(output_arrays_manager, solver):
+def test_output_arrays_with_different_systems(output_arrays_manager,
+                                              solver_mutable):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
+    solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
 

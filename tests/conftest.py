@@ -308,6 +308,7 @@ def _build_cpu_step_controller(
         precision=precision,
         deadband_min=step_controller_settings["deadband_min"],
         deadband_max=step_controller_settings["deadband_max"],
+        safety=step_controller_settings["safety"],
         max_newton_iters=step_controller_settings["max_newton_iters"],
     )
     if kind == "pi":
@@ -561,15 +562,15 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
-        "dt_save": precision(0.1),
-        "dt_summarise": precision(0.2),
+        "dt_save": precision(0.05),
+        "dt_summarise": precision(0.05),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
         "summarised_observable_indices": [0, 1],
-        "output_types": ["state"],
+        "output_types": ["state", "time", "observables", "mean"],
         "blocksize": 32,
         "stream": 0,
         "profileCUDA": False,
@@ -591,6 +592,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "newton_max_backtracks": 25,
         "min_gain": precision(0.1),
         "max_gain": precision(5.0),
+        "safety": precision(0.9),
         "n": system.sizes.states,
         "kp": precision(0.7),
         "ki": precision(-0.4),
@@ -823,7 +825,7 @@ def output_functions(output_settings, system):
     return outputfunctions
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def output_functions_mutable(output_settings, system):
     """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
 
@@ -870,7 +872,7 @@ def solverkernel(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def solverkernel_mutable(
     solver_settings,
     system,

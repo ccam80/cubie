@@ -9,7 +9,7 @@ import pytest
 
 from cubie import SingleIntegratorRun
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
-from tests._utils import assert_integration_outputs, SHORT_RUN_PARAMS
+from tests._utils import assert_integration_outputs
 
 
 def _compare_scalar(actual, expected, tolerance):
@@ -56,7 +56,7 @@ def _settings_to_dict(settings_source):
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        SHORT_RUN_PARAMS,
+        {},
         {
             "algorithm": "bogacki-shampine-32",
             "step_controller": "pid",

@@ -7,7 +7,6 @@ from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
-from tests._utils import SHORT_RUN_PARAMS
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
@@ -223,15 +222,6 @@ def test_solve_info_property(
     # This test documents the current behavior
     assert hasattr(solve_info, "summarised_observables")
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        SHORT_RUN_PARAMS,
-    ],
-    ids=[""],
-    indirect=True,
-)
 def test_solve_basic(
     solver,
     simple_initial_values,
@@ -256,10 +246,6 @@ def test_solve_basic(
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [SHORT_RUN_PARAMS],
-                         indirect=True
-)
 def test_solve_with_different_grid_types(
     solver,
     simple_initial_values,
@@ -300,10 +286,6 @@ def test_solve_with_different_grid_types(
     )
     assert isinstance(result_verb, SolveResult)
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [SHORT_RUN_PARAMS],
-                         indirect=True
-)
 def test_solve_with_different_result_types(
     solver,
     simple_initial_values,
@@ -743,11 +725,6 @@ def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
 # solve() Fast Path Tests
 # ============================================================================
 
-
-@pytest.mark.parametrize("solver_settings_override",
-                         [SHORT_RUN_PARAMS],
-                         indirect=True
-)
 def test_solve_with_prebuilt_arrays(
     solver, simple_initial_values, simple_parameters, driver_settings
 ):
@@ -768,10 +745,7 @@ def test_solve_with_prebuilt_arrays(
     assert isinstance(result, SolveResult)
 
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [SHORT_RUN_PARAMS],
-                         indirect=True
-)
+
 def test_solve_array_path_matches_dict_path(
     solver, simple_initial_values, simple_parameters, driver_settings
 ):
@@ -807,10 +781,7 @@ def test_solve_array_path_matches_dict_path(
     )
 
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [SHORT_RUN_PARAMS],
-                         indirect=True
-)
+
 def test_solve_dict_path_backward_compatible(
     solver, simple_initial_values, simple_parameters, driver_settings
 ):

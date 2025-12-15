@@ -5,6 +5,7 @@ import math
 from typing import Mapping, Optional, Union
 
 import numpy as np
+import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
@@ -19,12 +20,6 @@ Array = NDArray[np.floating]
 # --------------------------------------------------------------------------- #
 #                      Standard Parameter Sets                                #
 # --------------------------------------------------------------------------- #
-
-SHORT_RUN_PARAMS = {
-    'dt_save': 0.05,
-    'dt_summarise': 0.05,
-    'output_types': ['state', 'time', 'observables', 'mean'],
-}
 
 MID_RUN_PARAMS = {
     'dt': 0.001,
@@ -42,11 +37,49 @@ LONG_RUN_PARAMS = {
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
 
-RUN_DEFAULTS = {
-    'duration': 0.1,
-    't0': 0.0,
-    'warmup': 0.0,
-}
+
+STEP_CASES = [
+    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
+    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
+    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
+    pytest.param({"algorithm": "crank_nicolson", "step_controller": "pid"}, id="crank_nicolson"),
+    pytest.param({"algorithm": "rosenbrock", "step_controller": "i"},
+                 id="rosenbrock"),
+    pytest.param({"algorithm": "erk", "step_controller": "pid"}, id="erk"),
+    pytest.param({"algorithm": "dirk", "step_controller": "fixed"}, id="dirk"),
+    pytest.param({"algorithm": "firk", "step_controller": "fixed"}, id="firk"),
+    # Specific ERK tableaus
+    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pid"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pid"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "fehlberg-45", "step_controller": "i"},
+                 id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pid"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "dop853", "step_controller": "pid"},
+                 id="erk-dop853", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "tsit5", "step_controller": "pid"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "vern7", "step_controller": "pid"}, id="erk-vern7", marks=pytest.mark.specific_algos),
+    # Specific DIRK tableaus
+    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
+                 id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
+    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "fixed"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
+    # Specific FIRK tableaus
+    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
+    # Specific Rosenbrock-W tableaus
+    pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "ode23s", "step_controller": "pid"},
+                 id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
+    pytest.param({"algorithm": "rodas3p", "step_controller": "pid"},
+                 id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos)
+]
+
 
 
 def merge_dicts(*dicts):
@@ -105,6 +138,9 @@ def merge_param(base_settings, param):
         # It's a plain dict
         return pytest.param(merge_dicts(base_settings, param))
 
+# Merged cases with STEP_OVERRIDES baked in
+ALGORITHM_PARAM_SETS = [merge_param(MID_RUN_PARAMS, case)
+                     for case in STEP_CASES]
 
 def calculate_expected_summaries(
     state,
@@ -116,6 +152,7 @@ def calculate_expected_summaries(
     summary_height_per_variable,
     precision,
     dt_save=1.0,
+    exclude_first=False,
 ):
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
@@ -128,13 +165,21 @@ def calculate_expected_summaries(
     - output_types: List of output function names to apply (e.g. ["mean", "peaks[3]", "max", "rms"])
     - precision: Numpy dtype to use for the output arrays (e.g. np.float32 or np.float64)
     - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
+    - exclude_first: If True, exclude the first sample (t=0) from summary calculations.
+        Used when mimicking IVP loop behavior. Default: False.
 
     Returns:
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
     - expected_obs_summaries: 2D array of shape (summary_samples, n_saved_observables * summary_size_per_state)
     """
-    state = state[:,summarised_state_indices]
-    observables = observables[:,summarised_observable_indices]
+    # Optionally exclude t=0 row (first sample) from summary calculations
+    # to match IVP loop behavior where first update_summaries is skipped
+    if exclude_first:
+        state = state[1:, summarised_state_indices]
+        observables = observables[1:, summarised_observable_indices]
+    else:
+        state = state[:, summarised_state_indices]
+        observables = observables[:, summarised_observable_indices]
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
     saved_samples = state.shape[0]
@@ -160,11 +205,15 @@ def calculate_expected_summaries(
         (state, expected_state_summaries),
         (observables, expected_obs_summaries),
     ):
+        # When exclude_first=True, peak indices need +1 offset to convert
+        # from sliced array indices to original save_idx values
+        peak_index_offset = 1 if exclude_first else 0
         calculate_single_summary_array(_input_array, summarise_every,
                                        summary_height_per_variable,
                                        output_types,
                                        output_array=_output_array,
-                                       dt_save=dt_save)
+                                       dt_save=dt_save,
+                                       peak_index_offset=peak_index_offset)
 
     return expected_state_summaries, expected_obs_summaries
 
@@ -176,6 +225,7 @@ def calculate_single_summary_array(
     output_functions_list,
     output_array,
     dt_save=1.0,
+    peak_index_offset=0,
 ):
     """Summarise states in input array in the same way that the device functions do.
 
@@ -187,6 +237,8 @@ def calculate_single_summary_array(
     - n_peaks: Number of peaks to find in the "peaks[n]" output function
     - output_array: 2D array to store the summarised output, shape (n_items * summary_size_per_state, n_samples)
     - dt_save: Time between saved samples (for derivative calculations). Default: 1.0
+    - peak_index_offset: Offset added to peak indices. When exclude_first=True,
+        this is 1 to convert sliced array indices to save_idx values. Default: 0.
 
     Returns:
     - None, but output_array is filled with the summarised values.
@@ -224,6 +276,7 @@ def calculate_single_summary_array(
                             input_array[start_index:end_index, j],
                         )[:n_peaks]
                         + start_index
+                        + peak_index_offset  # Offset for sliced array indexing
                     )
                     output_start_index = (
                         j * summary_size_per_state + summary_index
@@ -306,6 +359,7 @@ def calculate_single_summary_array(
                             input_array[start_index:end_index, j],
                         )[:n_peaks]
                         + start_index
+                        + peak_index_offset  # Offset for sliced array indexing
                     )
                     output_start_index = (
                         j * summary_size_per_state + summary_index
@@ -488,20 +542,32 @@ def calculate_single_summary_array(
 
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
+    """Find local maxima in a signal.
+    
+    Returns indices of local maxima. The +1 offset corrects for the
+    signal[1:-1] slicing used in the comparison (flatnonzero returns
+    indices into the sliced array, not the original signal).
+    """
     return (
         np.flatnonzero(
             (signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])
         )
-        + 1
+        + 1  # Correct for signal[1:-1] indexing offset
     )
 
 
 def local_minima(signal: np.ndarray) -> np.ndarray:
+    """Find local minima in a signal.
+    
+    Returns indices of local minima. The +1 offset corrects for the
+    signal[1:-1] slicing used in the comparison (flatnonzero returns
+    indices into the sliced array, not the original signal).
+    """
     return (
         np.flatnonzero(
             (signal[1:-1] < signal[:-2]) & (signal[1:-1] < signal[2:])
         )
-        + 1
+        + 1  # Correct for signal[1:-1] indexing offset
     )
 
 
@@ -685,7 +751,7 @@ def run_device_loop(
     warmup = solver_config['warmup']
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
-    save_samples = int(np.floor(duration / precision(dt_save))) + 1
+    save_samples = int(np.floor(precision(duration) / precision(dt_save))) + 1
 
     heights = singleintegratorrun.output_array_heights
 
@@ -700,7 +766,8 @@ def run_device_loop(
     )
 
     summarise_dt = singleintegratorrun.dt_summarise
-    summary_samples = int(np.ceil(duration / summarise_dt))
+    summary_samples = int(np.floor(precision(duration) /
+                                  precision(summarise_dt)))
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

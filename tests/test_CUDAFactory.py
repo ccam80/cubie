@@ -5,7 +5,7 @@ import numba
 import pytest
 from numba import cuda
 import numpy as np
-from numba.cuda.cudadrv.devicearray import DeviceNDArray
+from cubie.cuda_simsafe import DeviceNDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.CUDAFactory import _create_placeholder_args

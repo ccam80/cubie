@@ -9,9 +9,10 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int32, int64, float32, float64, bool_
+from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
+from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
+    syncwarp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,
@@ -89,11 +90,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.05)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.05)
+dt_save = precision(1.0)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -120,8 +121,8 @@ max_backtracks = 15
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
 algorithm_order = 2
-kp = precision(0.7)
-ki = precision(-0.4)
+kp = precision(6/5)
+ki = precision(0.0)
 kd = precision(0.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
@@ -979,10 +980,18 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         counters,
     ):
         delta = shared_scratch[:n]
-        residual = shared_scratch[n:int32(2 * n)]
+        residual = shared_scratch[n : int32(2 * n)]
 
-        residual_fn(stage_increment, parameters, drivers, t, h, a_ij,
-                    base_state, residual)
+        residual_fn(
+            stage_increment,
+            parameters,
+            drivers,
+            t,
+            h,
+            a_ij,
+            base_state,
+            residual,
+        )
         norm2_prev = typed_zero
         for i in range(n):
             residual_value = residual[i]
@@ -1014,9 +1023,18 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
 
             if active:
                 krylov_iters_local[0] = int32(0)
-                lin_status = linear_solver(stage_increment, parameters,
-                                           drivers, base_state, t, h, a_ij,
-                                           residual, delta, krylov_iters_local)
+                lin_status = linear_solver(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    base_state,
+                    t,
+                    h,
+                    a_ij,
+                    residual,
+                    delta,
+                    krylov_iters_local,
+                )
                 total_krylov_iters += krylov_iters_local[0]
 
                 lin_failed = lin_status != int32(0)
@@ -1056,9 +1074,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual[i] = selp(accept, -residual[i], residual[i])
                     norm2_prev = selp(accept, norm2_new, norm2_prev)
 
-                done_backtrack = found_step or converged or has_error
-                if all_sync(mask, done_backtrack):
-                    break
                 scale *= typed_damping
 
             # Backtrack failure handling
@@ -1146,8 +1161,8 @@ def dirk_step_inline_factory(
     has_driver_derivative = driver_del_t is not None and n_drivers > 0
     has_error = tableau.has_error_estimate
     multistage = stage_count > 1
-    first_same_as_last = False  # SDIRK does not share first/last stage
-    can_reuse_accepted_start = False
+    first_same_as_last = tableau.first_same_as_last
+    can_reuse_accepted_start = tableau.reuse_accepted_start
 
     explicit_a_coeffs = tableau.explicit_terms(numba_precision)
     solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -1380,20 +1395,19 @@ def dirk_step_inline_factory(
                     )
 
             if stage_implicit[0]:
-                status_temp = int32(
-                    nonlinear_solver(
-                        stage_increment,
-                        parameters,
-                        proposed_drivers,
-                        stage_time,
-                        dt_scalar,
-                        diagonal_coeffs[0],
-                        stage_base,
-                        solver_scratch,
-                        counters,
-                    )
+                solver_status = nonlinear_solver(
+                    stage_increment,
+                    parameters,
+                    proposed_drivers,
+                    stage_time,
+                    dt_scalar,
+                    diagonal_coeffs[0],
+                    stage_base,
+                    solver_scratch,
+                    counters,
                 )
-                status_code = int32(status_code | status_temp)
+                status_code = int32(status_code | solver_status)
+
                 for idx in range(n):
                     stage_base[idx] += (
                         diagonal_coeff * stage_increment[idx]
@@ -1442,15 +1456,16 @@ def dirk_step_inline_factory(
         # --------------------------------------------------------------- #
         #            Stages 1-s: must refresh all qtys                    #
         # --------------------------------------------------------------- #
-
+        mask = activemask()
         for prev_idx in range(stages_except_first):
 
             #DIRK is missing the instruction cache. The unrolled stage loop
             # is instruction dense, taking up most of the instruction space.
-            # Try syncing block-wide per-stage to see whether this will help
-            # the whole block stay in one cache chunk. Play with block size
-            # to enforce the number of blocks per SM.
-            # cuda.syncthreads()
+            # A block-wide sync hangs indefinitely, as some warps will
+            # finish early and never reach it. We sync a warp to minimal
+            # effect (it's a wash in the profiler) in case of divergence in
+            # big systems.
+            syncwarp(mask)
             stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
             matrix_col = explicit_a_coeffs[prev_idx]
@@ -1480,20 +1495,18 @@ def dirk_step_inline_factory(
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
             if stage_implicit[stage_idx]:
-                status_temp = int32(
-                    nonlinear_solver(
-                        stage_increment,
-                        parameters,
-                        proposed_drivers,
-                        stage_time,
-                        dt_scalar,
-                        diagonal_coeffs[stage_idx],
-                        stage_base,
-                        solver_scratch,
-                        counters,
-                    )
+                solver_status = nonlinear_solver(
+                    stage_increment,
+                    parameters,
+                    proposed_drivers,
+                    stage_time,
+                    dt_scalar,
+                    diagonal_coeffs[stage_idx],
+                    stage_base,
+                    solver_scratch,
+                    counters,
                 )
-                status_code = int32(status_code | status_temp)
+                status_code = int32(status_code | solver_status)
 
                 for idx in range(n):
                     stage_base[idx] += diagonal_coeff * stage_increment[idx]
@@ -3408,12 +3421,12 @@ elif algorithm_type == 'firk':
     # FIRK local scratch: sum of all buffer sizes when not in shared memory
     # all_stages_n = stage_count * n_states (calculated in memory size section)
     local_scratch_size = (
-        2 * stage_count * n_states +  # solver_scratch
-        stage_count * n_states +      # stage_increment
-        stage_count * n_drivers +  # stage_driver_stack
-        n_states            # stage_state
+        2 * stage_count * n_states  # solver_scratch
+        + stage_count * n_states  # stage_increment
+        + stage_count * n_drivers  # stage_driver_stack
+        + n_states  # stage_state
     )
-elif algorithm_type == 'rosenbrock':
+elif algorithm_type == "rosenbrock":
     scratch_size = (rosenbrock_scratch_size if use_shared_loop_scratch
                     else int32(0))
     # Rosenbrock local scratch: sum of all buffer sizes when not in shared
@@ -3512,14 +3525,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     t_prec = numba_precision(t)
     t_end = numba_precision(settling_time + t0 + duration)
 
-    # Cap max iterations - all internal steps at dt_min, plus a bonus
-    # end/start, plus one failure per successful step.
-    # 64-bits required to get any reasonable duration with small step
-    total_duration = duration + settling_time
-    max_steps = min(
-            int64(2**62), (int64(ceil(total_duration/dt_min)) + 2)
-    )
-    max_steps = max_steps << 1
+    stagnant_counts = int32(0)
 
     shared_scratch[:] = numba_precision(0.0)
 
@@ -3621,8 +3627,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
 
-    first_step_flag = int32(1)
-    prev_step_accepted_flag = int32(1)
+    first_step_flag = True
+    prev_step_accepted_flag = True
 
     # ----------------------------------------------------------------------- #
     #                       Seed t=0 values                                   #
@@ -3712,7 +3718,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                          dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
-        finished = finished or bool_(status & int32(0x8))
+        # Similarly, if time doesn't change after we add a step, exit
+        finished = finished or bool_(status & int32(0x8)) or bool_(
+                status * int32(0x40))
+
 
         if all_sync(mask, finished):
             return status
@@ -3783,6 +3792,19 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         counters_since_save[i] += int32(1)
 
             t_proposal = t + dt_eff
+
+            if t_proposal == t:
+                stagnant_counts += int32(1)
+            else:
+                stagnant_counts = int32(0)
+
+            stagnant = bool_(stagnant_counts >= int32(2))
+            status = selp(
+                    stagnant,
+                    int32(status | int32(0x40)),
+                    status
+            )
+
             t = selp(accept, t_proposal, t)
             t_prec = numba_precision(t)
 

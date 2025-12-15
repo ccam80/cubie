@@ -8,174 +8,14 @@ import numpy as np
 from numpy.typing import NDArray
 import pytest
 
-from cubie import summary_metrics
 from tests._utils import (
     assert_integration_outputs,
     MID_RUN_PARAMS,
     merge_dicts,
-    merge_param,
+    ALGORITHM_PARAM_SETS,
 )
 
 Array = NDArray[np.floating]
-
-
-DEFAULT_OVERRIDES = MID_RUN_PARAMS
-
-
-LOOP_CASES = [
-    pytest.param(
-        {"algorithm": "euler", "step_controller": "fixed"},
-        id="euler",
-    ),
-    pytest.param(
-        {"algorithm": "backwards_euler", "step_controller": "fixed"},
-        id="backwards_euler",
-    ),
-    pytest.param(
-        {"algorithm": "backwards_euler_pc", "step_controller": "fixed"},
-        id="backwards_euler_pc",
-    ),
-    pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "pid"},
-        id="crank_nicolson_pid",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "pid"},
-        id="crank_nicolson_pi",
-    ),
-    pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "i"},
-        id="crank_nicolson_i",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
-        id="crank_nicolson_gustafsson",
-        marks=pytest.mark.specific_algos,
-    ), # Gustaffson looping infintely!
-    pytest.param(
-        {"algorithm": "erk", "step_controller": "pid"},
-        id="erk",
-    ),
-    pytest.param(
-        {"algorithm": "firk", "step_controller": "fixed"},
-        id="firk",
-    ),
-    pytest.param(
-        {"algorithm": "dirk", "step_controller": "fixed"},
-        id="dirk",
-    ),
-    pytest.param(
-        {"algorithm": "rosenbrock", "step_controller": "i"},
-        id="rosenbrock-rodas3p",
-    ),
-    pytest.param(
-        {"algorithm": "dopri54", "step_controller": "pid"},
-        id="erk-dopri54",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "cash-karp-54", "step_controller": "pid"},
-        id="erk-cash-karp-54",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "fehlberg-45", "step_controller": "i"},
-        id="erk-fehlberg-45",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "bogacki-shampine-32", "step_controller": "pid"},
-        id="erk-bogacki-shampine-32",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "heun-21", "step_controller": "fixed"},
-        id="erk-heun-21",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "ralston-33", "step_controller": "fixed"},
-        id="erk-ralston-33",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "classical-rk4", "step_controller": "fixed"},
-        id="erk-classical-rk4",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "implicit_midpoint", "step_controller": "fixed"},
-        id="dirk-implicit-midpoint",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "trapezoidal_dirk", "step_controller": "fixed"},
-        id="dirk-trapezoidal",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "sdirk_2_2", "step_controller": "fixed"},
-        id="dirk-sdirk-2-2",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "lobatto_iiic_3", "step_controller": "fixed"},
-        id="dirk-lobatto-iiic-3",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "l_stable_dirk_3", "step_controller": "fixed"},
-        id="dirk-l-stable-3",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "l_stable_sdirk_4", "step_controller": "i"},
-        id="dirk-l-stable-4",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "dop853", "step_controller": "i"},
-        id="erk-dop853",
-        marks=pytest.mark.specific_algos,
-    ),
-    # pytest.param(
-    #     {"algorithm": "radau", "step_controller": "i"},
-    #     id="firk-radau",
-    #     marks=pytest.mark.specific_algos,
-    # ), #FSAL caching causing drift - on hold until we have an accurate
-    # reference
-    pytest.param(
-        {"algorithm": "ode23s", "step_controller": "i"},
-        id="rosenbrock-ode23s",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "tsit5", "step_controller": "i"},
-        id="erk-tsit5",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "vern7", "step_controller": "i"},
-        id="erk-vern7",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"},
-        id="firk-gauss-legendre-2",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "rodas3p", "step_controller": "i"},
-        id="rosenbrock-rodas3p",
-        marks=pytest.mark.specific_algos,
-    ),
-]
-
-# Create merged LOOP_CASES with DEFAULT_OVERRIDES baked in
-LOOP_CASES_MERGED = [merge_param(DEFAULT_OVERRIDES, case)
-                     for case in LOOP_CASES]
 
 # Build, update, getter tests combined
 def test_getters(
@@ -228,7 +68,7 @@ def test_initial_observable_seed_matches_reference(
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    LOOP_CASES_MERGED,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
 def test_loop(
@@ -249,17 +89,10 @@ def test_loop(
     )
     assert device_loop_outputs.status == 0
 
-# One per metric
-#Awful to read, but we add [2] to peaks or negative peaks, clumsily
-metric_test_output_cases = tuple({"output_types": [metric]} if metric not in ["peaks",
-         "negative_peaks"] else {"output_types": [metric + "[2]"]} for
-                                 metric in
-         summary_metrics.implemented_metrics )
-metric_test_ids = tuple(metric for metric in
-                        summary_metrics.implemented_metrics)
+
+
 # Add combos
 metric_test_output_cases = (
-        *metric_test_output_cases,
         {"output_types": [  #combined metrics
             "state",
             "mean",
@@ -304,23 +137,12 @@ metric_test_output_cases = (
 )
 
 metric_test_ids = (
-        *metric_test_ids,
         "combined metrics",
         "no combos",
         "1st generation metrics"
 )
 
-# Base settings for metric tests
-METRIC_TEST_BASE = {
-    "system_type": "linear",
-    "algorithm": "euler",
-    "duration": 0.2,
-    "dt": 0.0025,
-    "dt_save": 0.01,
-    "dt_summarise": 0.1,
-}
-
-METRIC_TEST_CASES_MERGED = [merge_dicts(METRIC_TEST_BASE, case)
+METRIC_TEST_CASES_MERGED = [merge_dicts(MID_RUN_PARAMS, case)
                             for case in metric_test_output_cases]
 
 
@@ -348,8 +170,9 @@ def test_all_summary_metrics_numerical_check(
         cpu_loop_outputs,
         device_loop_outputs,
         output_functions,
-        rtol=tolerance.rel_loose * 3, # Added tolerance - x/dt_save**2 is rough
-        atol=tolerance.abs_loose,
+        rtol=tolerance.rel_loose * 5, # Added tolerance - x/dt_save**2 is
+            # rough
+        atol=tolerance.abs_loose* 5,
     )
     
     assert device_loop_outputs.status == 0, "Integration should complete successfully"

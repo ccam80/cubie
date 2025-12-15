@@ -6,7 +6,6 @@ import pytest
 from cubie import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import SHORT_RUN_PARAMS
 
 Array = np.ndarray
 
@@ -106,11 +105,7 @@ class TestSolveResultStaticMethods:
 class TestSolveResultInstantiation:
     """Test the four instantiation types return equivalent results."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_instantiation_type_equivalence(self, solver_with_arrays):
         """Test that the four instantiation types return equivalent results to full + methods."""
 
@@ -163,11 +158,7 @@ class TestSolveResultInstantiation:
             full_result.as_pandas["summaries"]
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_full_instantiation(self, solver_with_arrays):
         """Test full SolveResult instantiation from solver."""
         result = SolveResult.from_solver(
@@ -184,11 +175,7 @@ class TestSolveResultInstantiation:
             == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_numpy_instantiation(self, solver_with_arrays):
         """Test numpy dict instantiation from solver."""
         result = SolveResult.from_solver(
@@ -202,11 +189,7 @@ class TestSolveResultInstantiation:
         assert "summaries_legend" in result
         assert isinstance(result["time_domain_array"], np.ndarray)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_numpy_per_summary_instantiation(
         self, solver_with_arrays
     ):
@@ -224,11 +207,7 @@ class TestSolveResultInstantiation:
         ) in solver_with_arrays.summary_legend_per_variable.values():
             assert summary_type in result
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_pandas_instantiation(self, solver_with_arrays):
         """Test pandas DataFrame instantiation from solver."""
         result = SolveResult.from_solver(
@@ -241,11 +220,6 @@ class TestSolveResultInstantiation:
         assert isinstance(result["time_domain"], pd.DataFrame)
         assert isinstance(result["summaries"], pd.DataFrame)
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 class TestSolveResultFromSolver:
     """Test SolveResult creation and methods using real solver instances."""
 
@@ -295,13 +269,6 @@ class TestSolveResultFromSolver:
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 class TestSolveResultProperties:
     """Test SolveResult property methods using real solver data."""
 
@@ -408,11 +375,6 @@ class TestSolveResultDefaultBehavior:
         per_summary = result.per_summary_arrays
         assert isinstance(per_summary, dict)
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 class TestSolveResultPandasIntegration:
     """Test pandas-specific functionality."""
 
@@ -458,11 +420,6 @@ class TestSolveResultPandasIntegration:
                 )
                 assert len(td_df.index) == len(expected_time)
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 class TestSolveResultErrorHandling:
     """Test error handling and edge cases."""
 
