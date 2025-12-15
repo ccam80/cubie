@@ -174,7 +174,7 @@ def calculate_expected_summaries(
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
     saved_samples = state.shape[0]
-    summary_samples = int(saved_samples / summarise_every)
+    summary_samples = int(np.ceil(saved_samples / summarise_every) - 1)
 
     state_summaries_height = summary_height_per_variable * n_saved_states
     obs_summaries_height = summary_height_per_variable * n_saved_observables
@@ -737,7 +737,7 @@ def run_device_loop(
 
     summarise_dt = singleintegratorrun.dt_summarise
     summary_samples = int(np.floor(precision(duration) /
-                                  precision(summarise_dt))) + 1
+                                  precision(summarise_dt)))
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

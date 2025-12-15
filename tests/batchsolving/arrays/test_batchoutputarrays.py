@@ -55,7 +55,7 @@ def output_arrays_manager(precision, solver, output_test_settings,
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
     solver=solver_mutable
@@ -76,10 +76,10 @@ def sample_output_arrays(solver_mutable, output_test_settings, precision):
             time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), variables_count, num_runs
+            max(0, time_points - 1), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), observables_count, num_runs
+            max(0, time_points - 1), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }

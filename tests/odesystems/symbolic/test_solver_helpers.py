@@ -929,7 +929,8 @@ def neumann_cached_kernel(cached_system, precision):
 @pytest.mark.parametrize(
         "solver_settings_override",
         [{"precision": np.float64}],
-        ids=[""]
+        ids=[""],
+        indirect=True,
 )
 @pytest.mark.parametrize(
     "beta,gamma,h,order",
