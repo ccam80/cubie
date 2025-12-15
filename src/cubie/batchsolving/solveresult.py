@@ -235,6 +235,7 @@ class SolveResult:
                 'state_summaries': solver.state_summaries,
                 'observable_summaries': solver.observable_summaries,
                 'iteration_counters': solver.iteration_counters,
+                'status_codes': solver.status_codes,
             }
         active_outputs = solver.active_output_arrays
         state_active = active_outputs.state

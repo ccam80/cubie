@@ -287,8 +287,8 @@ def newton_krylov_solver_factory(
         )
 
         # Write iteration counts to counters array
-        counters[0] = iters_count
-        counters[1] = total_krylov_iters
+        counters[0] = +iters_count
+        counters[1] = +total_krylov_iters
 
         # Return status without encoding iterations (breaking change per plan)
         return final_status

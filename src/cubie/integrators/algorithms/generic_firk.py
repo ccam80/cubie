@@ -30,7 +30,7 @@ from typing import Callable, Optional
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
@@ -568,7 +568,6 @@ class FIRKStep(ODEImplicitStep):
             max_backtracks=newton_max_backtracks,
             precision=precision,
         )
-
         return nonlinear_solver
 
     def build_step(
@@ -748,8 +747,8 @@ class FIRKStep(ODEImplicitStep):
                             driver_slice
                     )
 
-
-            status_code |= nonlinear_solver(
+            # Solve n-stage nonlinear problem for all stages
+            solver_status = nonlinear_solver(
                 stage_increment,
                 parameters,
                 stage_driver_stack,
@@ -760,6 +759,7 @@ class FIRKStep(ODEImplicitStep):
                 solver_scratch,
                 counters,
             )
+            status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
                 stage_time = (
@@ -885,7 +885,7 @@ class FIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-
+        #TODO: When using the shared buffer settings, invalid address
         config = self.compile_settings
         stage_driver_total = self.stage_count * config.n_drivers
         return (
