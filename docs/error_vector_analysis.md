@@ -48,7 +48,7 @@ where `d_i = b_i - b̂_i` are the error weights.
 Rosenbrock methods are structurally different. The stage increments `k_i` in Rosenbrock methods are **not** equal to `f(Y_i)`. Instead, they solve:
 
 ```
-(I - γ*h*J) * k_i = h * [f(Y_i) + Σ_{j<i} (C_{ij}/h)*k_j + γ_i*h*(∂f/∂t)]
+(I - γ*h*J) * k_i = h * [f(Y_i) + Σ_{j<i} (C_{ij}/h) * k_j + γ_i * (∂f/∂t)]
 ```
 
 The error formula is:
@@ -292,7 +292,7 @@ for idx in range(n):
     # Y_i = y_n + h * Σ_j a_{ij} * k_j    ✓ CORRECT
 ```
 
-**Note**: The a_{ij} coefficients multiply the stage_increment which already contains `h * k_j`. This computes `Y_i = y_n + Σ_j a_{ij} * (h * k_j) = y_n + h * Σ_j a_{ij} * k_j`. ✓
+**Note**: The a_{ij} coefficients multiply the stage_increment which already contains `h * k_j`. This computes `Y_i = y_n + Σ_j a_{ij} * (h * k_j) = y_n + h * (Σ_j a_{ij} * k_j)`. ✓
 
 ### Derivative Re-evaluation (lines 812-821)
 
@@ -370,7 +370,7 @@ error = y_{n+1} - Y_{b_hat_row} = y_{n+1} - ŷ_{n+1}    ✓ CORRECT
 Rosenbrock methods solve for stage increments `k_i` via:
 
 ```
-(M - γ*h*J) * k_i = h * f(Y_i) + Σ_{j<i} C_{ij} * k_j + γ_i * h² * (∂f/∂t)
+(M - γ*h*J) * k_i = h * f(Y_i) + Σ_{j<i} C_{ij} * k_j + γ_i * h * (∂f/∂t)
 ```
 
 where:
