@@ -1178,7 +1178,7 @@ class IVPLoop(CUDAFactory):
                 # also exit loop if min step size limit hit - things are bad
                 # Similarly, if time doesn't change after we add a step, exit
                 finished = finished or bool_(status & int32(0x8)) or bool_(
-                        status * int32(0x10))
+                        status * int32(0x40))
 
                 if all_sync(mask, finished):
                     return status
@@ -1258,7 +1258,7 @@ class IVPLoop(CUDAFactory):
                     stagnant = bool_(stagnant_counts >= int32(2))
                     status = selp(
                             stagnant,
-                            int32(status | int32(0x10)),
+                            int32(status | int32(0x40)),
                             status
                     )
 

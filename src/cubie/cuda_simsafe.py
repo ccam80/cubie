@@ -23,7 +23,6 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 compile_kwargs: dict[str, bool] = (
         {} if CUDA_SIMULATION
         else {
-              "lineinfo": True,
               'fastmath': {
                    'nsz': True,
                    'contract': True,
@@ -122,6 +121,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     MemoryInfo = FakeMemoryInfo
     Stream = FakeStream
     DeviceNDArrayBase = FakeCUDAArray
+    DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
 
     def current_mem_info() -> Tuple[int, int]:
@@ -218,6 +218,13 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     def all_sync(mask, predicate):
         return predicate
 
+    @cuda.jit(
+            device=True,
+            inline=True,
+    )
+    def syncwarp(mask):
+        pass
+
 else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
@@ -242,6 +249,14 @@ else:  # pragma: no cover - relies on GPU runtime
     )
     def all_sync(mask, predicate):
         return cuda.all_sync(mask, predicate)
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def syncwarp(mask):
+        return cuda.syncwarp(mask)
 
 
 def is_cudasim_enabled() -> bool:

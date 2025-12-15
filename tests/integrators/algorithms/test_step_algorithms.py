@@ -779,10 +779,8 @@ def _execute_step_twice(
     state_len = int(n_states)
     driver_len = int(n_drivers)
     observable_len = int(n_observables)
-    from numba.cuda import config
-    config.llvm_pass_timings = True
 
-    @cuda.jit(debug=True)
+    @cuda.jit()
     def kernel(
         state_vec,
         params_vec,
@@ -1207,7 +1205,6 @@ def test_algorithm(
        system,
        precision,
        expected_step_properties,
-       output_functions,
        tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""

@@ -721,7 +721,7 @@ def run_device_loop(
     warmup = solver_config['warmup']
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
-    save_samples = int(np.floor(duration / precision(dt_save))) + 1
+    save_samples = int(np.floor(precision(duration) / precision(dt_save))) + 1
 
     heights = singleintegratorrun.output_array_heights
 
@@ -736,7 +736,8 @@ def run_device_loop(
     )
 
     summarise_dt = singleintegratorrun.dt_summarise
-    summary_samples = int(np.ceil(duration / summarise_dt))
+    summary_samples = int(np.floor(precision(duration) /
+                                  precision(summarise_dt))) + 1
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

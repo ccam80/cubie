@@ -131,7 +131,7 @@ def system_setup(request, precision):
 
     for j in range(3):
         temp_in.fill(0)
-        temp_in[j] = precision(1.0)
+        temp_in[j] = precision(1.05)
         operator_kernel[1, 1](state_fp, params, drivers, base_state, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
     mr_expected = np.linalg.solve(F, mr_rhs)

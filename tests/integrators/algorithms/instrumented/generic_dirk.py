@@ -8,7 +8,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -582,7 +582,7 @@ class DIRKStep(ODEImplicitStep):
                 # Try syncing block-wide per-stage to see whether this will help
                 # the whole block stay in one cache chunk. Play with block size
                 # to enforce the number of blocks per SM.
-                cuda.syncwarp(mask)
+                syncwarp(mask)
                 stage_offset = int32(prev_idx * n)
                 stage_idx = prev_idx + int32(1)
                 matrix_col = explicit_a_coeffs[prev_idx]

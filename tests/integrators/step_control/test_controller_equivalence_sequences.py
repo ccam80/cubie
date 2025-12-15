@@ -277,7 +277,9 @@ class TestControllerEquivalence:
             step_controller_mutable.local_memory_elements,
             dtype=dtype,
         )
-
+        cpu_step_controller.prev_dt = dtype(0)
+        cpu_step_controller._prev_nrm2 = dtype(0)
+        cpu_step_controller._prev_prev_nrm2 = dtype(0)
         cpu_step_controller.dt = dtype(step_controller_mutable.dt0)
         accept_cpu = cpu_step_controller.propose_dt(
             error_vector=error_vec,

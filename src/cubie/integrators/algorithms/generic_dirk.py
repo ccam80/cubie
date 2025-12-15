@@ -35,7 +35,7 @@ from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -919,7 +919,7 @@ class DIRKStep(ODEImplicitStep):
                 # finish early and never reach it. We sync a warp to minimal
                 # effect (it's a wash in the profiler) in case of divergence in
                 # big systems.
-                cuda.syncwarp(mask)
+                syncwarp(mask)
                 stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
                 matrix_col = explicit_a_coeffs[prev_idx]

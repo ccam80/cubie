@@ -56,8 +56,9 @@ def output_arrays_manager(precision, solver, output_test_settings,
 
 
 @pytest.fixture(scope="session")
-def sample_output_arrays(solver, output_test_settings, precision):
+def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
+    solver=solver_mutable
     num_runs = output_test_settings["num_runs"]
     dtype = precision
 

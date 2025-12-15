@@ -11,7 +11,8 @@ from typing import Optional
 import numpy as np
 from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs
+from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
+    syncwarp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,
@@ -1337,7 +1338,7 @@ def dirk_step_inline_factory(
             # finish early and never reach it. We sync a warp to minimal
             # effect (it's a wash in the profiler) in case of divergence in
             # big systems.
-            cuda.syncwarp(mask)
+            syncwarp(mask)
             stage_offset = int32(prev_idx * n)
             stage_idx = prev_idx + int32(1)
             matrix_col = explicit_a_coeffs[prev_idx]
@@ -3208,12 +3209,12 @@ elif algorithm_type == 'firk':
     # FIRK local scratch: sum of all buffer sizes when not in shared memory
     # all_stages_n = stage_count * n_states (calculated in memory size section)
     local_scratch_size = (
-        2 * stage_count * n_states +  # solver_scratch
-        stage_count * n_states +      # stage_increment
-        stage_count * n_drivers +  # stage_driver_stack
-        n_states            # stage_state
+        2 * stage_count * n_states  # solver_scratch
+        + stage_count * n_states  # stage_increment
+        + stage_count * n_drivers  # stage_driver_stack
+        + n_states  # stage_state
     )
-elif algorithm_type == 'rosenbrock':
+elif algorithm_type == "rosenbrock":
     scratch_size = (rosenbrock_scratch_size if use_shared_loop_scratch
                     else int32(0))
     # Rosenbrock local scratch: sum of all buffer sizes when not in shared
@@ -3304,6 +3305,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     t_prec = numba_precision(t)
     t_end = numba_precision(settling_time + t0 + duration)
 
+    stagnant_counts = int32(0)
 
     shared_scratch[:] = numba_precision(0.0)
 
@@ -3485,7 +3487,10 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                          dt_raw)
 
         # also exit loop if min step size limit hit - things are bad
-        finished = finished or bool_(status & int32(0x8))
+        # Similarly, if time doesn't change after we add a step, exit
+        finished = finished or bool_(status & int32(0x8)) or bool_(
+                status * int32(0x40))
+
 
         if all_sync(mask, finished):
             return status
@@ -3552,6 +3557,19 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         counters_since_save[i] += int32(1)
 
             t_proposal = t + dt_eff
+
+            if t_proposal == t:
+                stagnant_counts += int32(1)
+            else:
+                stagnant_counts = int32(0)
+
+            stagnant = bool_(stagnant_counts >= int32(2))
+            status = selp(
+                    stagnant,
+                    int32(status | int32(0x40)),
+                    status
+            )
+
             t = selp(accept, t_proposal, t)
             t_prec = numba_precision(t)
 

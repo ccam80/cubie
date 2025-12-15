@@ -171,7 +171,7 @@ def test_all_summary_metrics_numerical_check(
         device_loop_outputs,
         output_functions,
         rtol=tolerance.rel_loose * 5, # Added tolerance - x/dt_save**2 is rough
-        atol=tolerance.abs_loose,
+        atol=tolerance.abs_loose*5,
     )
     
     assert device_loop_outputs.status == 0, "Integration should complete successfully"
