@@ -169,12 +169,13 @@ def calculate_expected_summaries(
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
     - expected_obs_summaries: 2D array of shape (summary_samples, n_saved_observables * summary_size_per_state)
     """
-    state = state[:,summarised_state_indices]
-    observables = observables[:,summarised_observable_indices]
+    # Exclude t=0 row (first sample) from summary calculations
+    state = state[1:, summarised_state_indices]
+    observables = observables[1:, summarised_observable_indices]
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
     saved_samples = state.shape[0]
-    summary_samples = int(np.ceil(saved_samples / summarise_every) - 1)
+    summary_samples = int(saved_samples / summarise_every)
 
     state_summaries_height = summary_height_per_variable * n_saved_states
     obs_summaries_height = summary_height_per_variable * n_saved_observables

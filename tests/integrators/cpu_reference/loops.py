@@ -208,7 +208,7 @@ def run_reference_loop(
             time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
-    summarise_every = int(np.ceil(dt_summarise / dt_save))
+    summarise_every = int(dt_summarise / dt_save)
 
     state_summary, observable_summary = calculate_expected_summaries(
         state_output,

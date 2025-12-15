@@ -1301,8 +1301,7 @@ class IVPLoop(CUDAFactory):
                                 observable_summary_buffer,
                                 save_idx)
 
-                            if ((save_idx + int32(1)) % saves_per_summary ==
-                                    int32(0)):
+                            if (save_idx % saves_per_summary == int32(0)):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
