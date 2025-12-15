@@ -496,21 +496,21 @@ class BatchSolverKernel(CUDAFactory):
         )
         # no cover: start
         @cuda.jit(
-            (
-                precision[:, ::1],
-                precision[:, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                int32[:, :, :],
-                int32[::1],
-                float64,
-                float64,
-                float64,
-                int32,
-            ),
+            # (
+            #     precision[:, ::1],
+            #     precision[:, ::1],
+            #     precision[:, :, ::1],
+            #     precision[:, :, ::1],
+            #     precision[:, :, ::1],
+            #     precision[:, :, ::1],
+            #     precision[:, :, ::1],
+            #     int32[:, :, :],
+            #     int32[::1],
+            #     float64,
+            #     float64,
+            #     float64,
+            #     int32,
+            # ),
             **compile_kwargs,
         )
         def integration_kernel(
@@ -905,17 +905,14 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def summaries_length(self) -> int:
-        """Number of summary intervals across the integration window.
+        """Number of complete summary intervals across the integration window.
         
-        Note: Summaries use ceil(duration/dt_summarise) WITHOUT the +1
-        because summary intervals represent aggregated metrics across time
-        windows, not point-in-time snapshots. Interval semantics differ
-        from save point semantics (see output_length).
+        Summaries count only complete dt_summarise periods using floor
+        division. No summary is recorded for t=0 and partial intervals at
+        the tail of integration are excluded.
         """
 
-        return int(
-            np.ceil(self._duration / self.single_integrator.dt_summarise)
-        )
+        return int(self._duration / self.single_integrator.dt_summarise)
 
     @property
     def warmup_length(self) -> int:

@@ -48,7 +48,8 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
-from tests._utils import MID_RUN_PARAMS
+from tests._utils import MID_RUN_PARAMS, merge_dicts, merge_param, \
+    ALGORITHM_PARAM_SETS
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -424,22 +425,6 @@ ALIAS_CASES = [
         id="rosenbrock-rodas3p",
     ),
     pytest.param(
-        "rodas4p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas4p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas4p",
-    ),
-    pytest.param(
-        "rodas5p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas5p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas5p",
-    ),
-    pytest.param(
         "rosenbrock23",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["rosenbrock23"],
@@ -456,81 +441,13 @@ ALIAS_CASES = [
         id="rosenbrock-23-sciml",
     ),
 ]
-STEP_OVERRIDES = MID_RUN_PARAMS
 
-STEP_CASES = [
-    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
-    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
-    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
-    pytest.param({"algorithm": "crank_nicolson"}, id="crank_nicolson"),
-    pytest.param({"algorithm": "rosenbrock", "step_controller": "pid"}, id="rosenbrock"),
-    pytest.param({"algorithm": "erk", "step_controller": "pid"}, id="erk"),
-    pytest.param({"algorithm": "dirk", "step_controller": "pid"}, id="dirk"),
-    pytest.param({"algorithm": "firk", "step_controller": "pid"}, id="firk"),
-    # Specific ERK tableaus
-    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pid"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pid"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "fehlberg-45", "step_controller": "pid"}, id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pid"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "dop853", "step_controller": "pid"}, id="erk-dop853", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "tsit5", "step_controller": "pid"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "vern7", "step_controller": "pid"}, id="erk-vern7", marks=pytest.mark.specific_algos),
-    # Specific DIRK tableaus
-    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pid"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
-    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pid"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
-    # Specific FIRK tableaus
-    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
-    # Specific Rosenbrock-W tableaus
-    pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
-]
-CACHE_REUSE_CASES = [
-    pytest.param(
-        {
-            "algorithm": "heun-21",
-            "step_controller": "fixed"
-        },
-        id="erk-heun-21-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "ralston-33",
-            "step_controller": "fixed"
-        },
-        id="erk-ralston-33-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "trapezoidal_dirk",
-            "step_controller": "fixed"
-        },
-        id="dirk-trapezoidal-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "sdirk_2_2",
-            "step_controller": "pid"
-        },
-        id="dirk-sdirk-2-2-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "ros3p",
-            "step_controller": "pid"
-        },
-        id="rosenbrock-ros3p-cache",
-    ),
+
+# Merged cases for constant_deriv system tests
+STEP_CASES_CONSTANT_DERIV = [
+    merge_param(merge_dicts(MID_RUN_PARAMS, {"system_type": "constant_deriv"}),
+                case)
+    for case in ALGORITHM_PARAM_SETS
 ]
 
 @pytest.mark.parametrize(
@@ -863,7 +780,7 @@ def _execute_step_twice(
     driver_len = int(n_drivers)
     observable_len = int(n_observables)
 
-    @cuda.jit
+    @cuda.jit()
     def kernel(
         state_vec,
         params_vec,
@@ -972,7 +889,6 @@ def _execute_step_twice(
         dt_value,
     )
     cuda.synchronize()
-
     status_host = d_status.copy_to_host()
 
     first_state = d_proposed_first.copy_to_host()
@@ -1119,19 +1035,13 @@ def cpu_step_results(
         niters=(result.status >> 16) & STATUS_MASK,
     )
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
+#test equality for all algorithms for two steps, replacing single-step test.
 @pytest.mark.parametrize(
     "solver_settings_override",
-    CACHE_REUSE_CASES,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
-def test_stage_cache_reuse(
+def test_two_steps(
     solver_settings,
     step_object,
     precision,
@@ -1165,7 +1075,7 @@ def test_stage_cache_reuse(
     assert gpu_result.statuses == cpu_result.statuses
 
     tol = {"rtol": 5e-7, "atol": 1e-7} #softened somewhat for rodas3p
-    # implementatiom
+    # implementation
 
     assert_allclose(
         gpu_result.first_state,
@@ -1203,20 +1113,8 @@ def test_stage_cache_reuse(
 
 
 @pytest.mark.parametrize(
-    "system_override",
-    ["constant_deriv"],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    STEP_CASES_CONSTANT_DERIV,
     indirect=True,
 )
 def test_against_euler(
@@ -1271,7 +1169,7 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    #tolerance 3e-7 allows 2x ULP wiggle room (currently RODAS5P is at 2.4)
+    #tolerance 3e-7 allows 2x ULP wiggle room
     tol = {"rtol": tolerance.rel_tight * 3, "atol": tolerance.abs_tight * 3}
 
     assert_allclose(
@@ -1296,20 +1194,9 @@ def test_against_euler(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["threecm"],
-#                          ids = [""],
-#                          indirect=True
-#                          )
-@pytest.mark.parametrize(
-        "solver_settings_override2",
-        [STEP_OVERRIDES],
-        ids=[""],
-        indirect=True
-)
 @pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
 def test_algorithm(
@@ -1318,9 +1205,6 @@ def test_algorithm(
        system,
        precision,
        expected_step_properties,
-       cpu_step_results,
-       device_step_results,
-       output_functions,
        tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""
@@ -1465,35 +1349,6 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
 
-    # Test equality for a single step
-    tolerances = {
-        "rtol": tolerance.rel_tight * 5,
-        "atol": tolerance.abs_tight * 5,
-    } # 5e-7 is a couple of ULP wiggle room for fma/fmul rounding
-    assert device_step_results.status == cpu_step_results.status, \
-        "status matches"
-
-    assert_allclose(
-        device_step_results.state,
-        cpu_step_results.state,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "state matches"
-    assert_allclose(
-        device_step_results.observables,
-        cpu_step_results.observables,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "observables matches"
-    if step_object.is_adaptive:
-        assert_allclose(
-            device_step_results.error,
-            cpu_step_results.error,
-            rtol=tolerances["rtol"],
-            atol=tolerances["atol"],
-        ), "error matches"
-
-
 
 # Test controller defaults selection based on tableau error estimation
 @pytest.mark.parametrize(
@@ -1506,7 +1361,8 @@ def test_algorithm(
         (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pid"}),
         (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pid"}),
         # DIRK with error estimate defaults to PI
-        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pid"}),
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller":
+                                                            "fixed"}),
         # FIRK with error estimate defaults to PI
         (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI

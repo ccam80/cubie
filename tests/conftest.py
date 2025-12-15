@@ -51,7 +51,118 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
+import json
+from collections import defaultdict
 
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--param-set-report",
+        action="store",
+        default=None,
+        help="Optional path to write a JSON report of test -> parameter-set grouping."
+    )
+
+def _session_param_fixture_names(session):
+    """
+    Return the set of fixture names that are:
+      - defined (arg2fixturedefs),
+      - have scope 'session', and
+      - are parameterized (fixturedef.params exists and is non-empty).
+    """
+    fm = session._fixturemanager
+    names = set()
+    # fm._arg2fixturedefs is a dict mapping fixture name -> list of FixtureDef
+    for name, defs in getattr(fm, "_arg2fixturedefs", {}).items():
+        for fdef in defs:
+            # some fixtures may have no .params attribute (not parameterized)
+            if getattr(fdef, "scope", None) == "session" and getattr(fdef, "params", None):
+                names.add(name)
+                break
+    return names
+
+def _callspec_signature_for_item(item, session_fixture_names):
+    """
+    Return a deterministic signature (tuple) for grouping:
+      - If the item has a callspec and at least one of its param names
+        matches a session-scoped parameterized fixture, use only those keys.
+      - Otherwise, use the item's full callspec (if any).
+      - If no callspec at all, return a sentinel ('__NO_PARAMS__',).
+    Signature is a tuple of (name, repr(value)) sorted by name so dict order doesn't matter.
+    """
+    callspec = getattr(item, "callspec", None)
+    if not callspec or not getattr(callspec, "params", None):
+        return ("__NO_PARAMS__",)
+
+    all_params = dict(callspec.params)
+    # choose keys that match session-scoped parameterized fixtures
+    session_keys = [k for k in all_params.keys() if k in session_fixture_names]
+
+    if session_keys:
+        keys = sorted(session_keys)
+    else:
+        # fallback: group by the full callspec keys
+        keys = sorted(all_params.keys())
+
+    # represent values deterministically; use repr to keep it JSON-serializable-friendly
+    sig = tuple((k, repr(all_params[k])) for k in keys)
+    return sig
+
+def pytest_collection_finish(session):
+    """
+    After collection, group items by the signature that determines session fixture instances,
+    then print a summary and optionally write JSON.
+    """
+    items = list(session.items)
+    session_fixture_names = _session_param_fixture_names(session)
+
+    groups = defaultdict(list)
+    for item in items:
+        sig = _callspec_signature_for_item(item, session_fixture_names)
+        groups[sig].append(item.nodeid)
+
+    # Print summary to terminal
+    total_sets = len(groups)
+    total_tests = len(items)
+    session.config._metadata = getattr(session.config, "_metadata", {})
+    print("\n=== pytest parameter-set grouping report ===")
+    print(f"Total collected tests: {total_tests}")
+    print(f"Unique parameter-sets (groups): {total_sets}")
+    print("Groups (showing signature -> tests):\n")
+
+    # sort groups for stable ordering: place NO_PARAMS last
+    def sig_sort_key(sig):
+        return (sig == ("__NO_PARAMS__",), str(sig))
+
+    for i, sig in enumerate(sorted(groups.keys(), key=sig_sort_key), start=1):
+        tests = groups[sig]
+        print(f"GROUP {i}: {len(tests)} test(s)")
+        if sig == ("__NO_PARAMS__",):
+            print("  signature: (no callspec / no params)")
+        else:
+            # pretty print signature
+            pretty = ", ".join(f"{k}={v}" for k, v in sig)
+            print(f"  signature: {pretty}")
+        for t in tests:
+            print(f"    - {t}")
+        print()
+
+    # optionally dump JSON
+    outpath = session.config.getoption("--param-set-report")
+    if outpath:
+        # produce JSON-serializable structure
+        json_groups = []
+        for sig, tests in groups.items():
+            if sig == ("__NO_PARAMS__",):
+                sig_dict = {}
+            else:
+                sig_dict = {k: v for k, v in sig}
+            json_groups.append({"signature": sig_dict, "tests": tests})
+        with open(outpath, "w", encoding="utf-8") as fh:
+            json.dump({"total_tests": total_tests, "groups": json_groups}, fh, indent=2)
+        print(f"Param-set JSON report written to: {outpath}")
+
+    print("=== end of report ===\n")
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -197,6 +308,7 @@ def _build_cpu_step_controller(
         precision=precision,
         deadband_min=step_controller_settings["deadband_min"],
         deadband_max=step_controller_settings["deadband_max"],
+        safety=step_controller_settings["safety"],
         max_newton_iters=step_controller_settings["max_newton_iters"],
     )
     if kind == "pi":
@@ -340,24 +452,23 @@ def _get_algorithm_tableau(algorithm_name_or_tableau):
 # ========================================
 
 @pytest.fixture(scope="session")
-def precision_override(request):
-    if hasattr(request, "param"):
-        if request.param is np.float64:
-            return np.float64
+def precision(solver_settings_override, solver_settings_override2):
+    """Return precision from overrides, defaulting to float32.
 
-
-@pytest.fixture(scope="session")
-def precision(precision_override, system_override):
-    """
-    Run tests with float32 by default, upgrade to float64 for stiff problems.
+    Precedence: override2 (class-level) is checked first, then override
+    (method-level). This allows class-level precision to be overridden
+    by individual test methods.
 
     Usage:
-    @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"precision": np.float64}], indirect=True)
     def test_something(precision):
         # precision will be np.float64 here
     """
-    if precision_override is not None:
-        return precision_override
+    # Check override2 first (class-level), then override (method-level)
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'precision' in override:
+            return override['precision']
     return np.float32
 
 
@@ -393,30 +504,21 @@ def tolerance(tolerance_override, precision):
 
 
 @pytest.fixture(scope="session")
-def system_override(request):
-    """Override for system model type, if provided."""
-    if hasattr(request, "param"):
-        if request.param:
-            return request.param
-    return "nonlinear"
+def system(request, solver_settings_override, solver_settings_override2,
+           precision):
+    """Return the appropriate symbolic system, defaulting to nonlinear.
 
-
-@pytest.fixture(scope="session")
-def system(request, system_override, precision):
-    """
-    Return the appropriate symbolic system, defaulting to ``linear``.
-
-    Usage
-    -----
-    @pytest.mark.parametrize(
-        "system_override",
-        ["three_chamber"],
-        indirect=True,
-    )
+    Usage:
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"system_type": "three_chamber"}], indirect=True)
     def test_something(system):
         # system will be the cardiovascular symbolic model here
     """
-    model_type = system_override
+    model_type = 'nonlinear'
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'system_type' in override:
+            model_type = override['system_type']
+            break
 
     if model_type == "linear":
         return build_three_state_linear_system(precision)
@@ -453,21 +555,22 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
+        "system_type": "nonlinear",
         "duration": np.float64(0.2),
         "warmup": np.float64(0.0),
         "t0": np.float64(0.0),
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
-        "dt_save": precision(0.1),
-        "dt_summarise": precision(0.2),
+        "dt_save": precision(0.05),
+        "dt_summarise": precision(0.05),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
         "summarised_observable_indices": [0, 1],
-        "output_types": ["state"],
+        "output_types": ["state", "time", "observables", "mean"],
         "blocksize": 32,
         "stream": 0,
         "profileCUDA": False,
@@ -489,6 +592,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "newton_max_backtracks": 25,
         "min_gain": precision(0.1),
         "max_gain": precision(5.0),
+        "safety": precision(0.9),
         "n": system.sizes.states,
         "kp": precision(0.7),
         "ki": precision(-0.4),
@@ -952,7 +1056,7 @@ def step_object_mutable(single_integrator_run_mutable):
     return single_integrator_run_mutable._algo_step
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
@@ -1011,7 +1115,7 @@ def buffer_settings(solver_settings, output_functions):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def buffer_settings_mutable(solver_settings, output_functions_mutable):
     """Function-scoped buffer settings from mutable output functions.
     

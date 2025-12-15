@@ -26,7 +26,7 @@
 # ]
 #
 # # Create fixtures for symbolic models
-# @pytest.fixture(scope="function")
+# @pytest.fixture(scope="session")
 # def symbolic_threeCM_strict():
 #     """Symbolic ThreeCM with all parameters, states, and observables specified."""
 #     return create_ODE_system(
@@ -39,7 +39,7 @@
 #         strict=True
 #     )
 #
-# @pytest.fixture(scope="function")
+# @pytest.fixture(scope="session")
 # def symbolic_threeCM_nonstrict():
 #     """Symbolic ThreeCM with only equations specified."""
 #     return create_ODE_system(
@@ -48,7 +48,7 @@
 #         strict=False
 #     )
 #
-# @pytest.fixture(scope="function")
+# @pytest.fixture(scope="session")
 # def original_threeCM():
 #     """Original ThreeCM model for comparison."""
 #     return ThreeChamberModel()

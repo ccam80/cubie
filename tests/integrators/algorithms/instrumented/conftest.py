@@ -299,7 +299,7 @@ def instrumented_step_results(
     d_driver_coeffs = cuda.to_device(driver_coefficients)
 
     # Define the CUDA kernel inside the results fixture so closures match device fixture
-    @cuda.jit(debug=True)
+    @cuda.jit()
     def kernel(
         state_vec,
         proposed_matrix,

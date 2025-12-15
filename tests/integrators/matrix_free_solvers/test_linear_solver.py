@@ -23,6 +23,10 @@ def placeholder_operator(precision):
 
 
 # Removed placeholder Neumann factory usage; use real generated preconditioner via system_setup
+@pytest.mark.parametrize("solver_settings_override",
+                         [{"precision": np.float64}],
+                         ids=[""],
+                         indirect=True)
 @pytest.mark.parametrize("order", [1, 2])
 @pytest.mark.parametrize("system_setup", ["linear"], indirect=True)
 def test_neumann_preconditioner(

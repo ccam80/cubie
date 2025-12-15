@@ -30,10 +30,10 @@ def extend_expected_settings(settings, precision):
     # So they will be False until solve is called
     extended["ActiveOutputs"] = ActiveOutputs(
         state=True,
-        observables=False, 
+        observables=True,
         state_summaries=False,
         observable_summaries=False,
-        status_codes=False,
+        status_codes=False   ,
         iteration_counters=False,
     )
     

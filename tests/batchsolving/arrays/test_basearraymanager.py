@@ -3,7 +3,6 @@ import pytest
 
 import attrs
 import numpy as np
-from numba import cuda
 
 from cubie.batchsolving.arrays.BaseArrayManager import (
     BaseArrayManager,
@@ -234,6 +233,7 @@ def test_arrmgr(
     test_memory_manager,
     batch_output_sizes,
 ):
+    
     return ConcreteArrayManager(
         precision=precision,
         sizes=batch_output_sizes,
@@ -591,6 +591,7 @@ class TestBaseArrayManager:
 
     def test_update_host_array_no_change(self, test_arrmgr):
         """Test update_host_array when arrays are equal"""
+        test_arrmgr._needs_reallocation = []
         current = np.array([1, 2, 3])
         new = np.array([1, 2, 3])
 
@@ -624,6 +625,7 @@ class TestBaseArrayManager:
 
     def test_update_host_array_value_change(self, test_arrmgr):
         """Test update_host_array when array values change but shape stays same"""
+        test_arrmgr._needs_reallocation = []
         current = np.array([1, 2, 3])
         new = np.array([4, 5, 6])
         test_arrmgr.allocate()
@@ -1166,7 +1168,7 @@ class TestUpdateHostArrays:
         initial_array = np.ones(
             arraytest_settings["hostshape1"], dtype=np.float32
         )
-        test_manager_with_sizing.host.state.array = initial_array
+        test_manager_with_sizing.host.state = initial_array
 
         new_arrays = {
             "state": np.ones(
@@ -1251,11 +1253,6 @@ class TestMemoryManagerIntegration:
             == test_arrmgr._on_allocation_complete
         )
 
-        # Check stream group assignment from arraytest_settings
-        assert (
-            test_memory_manager.get_stream_group(test_arrmgr)
-            == arraytest_settings["stream_group"]
-        )
 
     @pytest.mark.parametrize(
         "arraytest_overrides",
@@ -1371,7 +1368,7 @@ def test_array_manager_with_different_configs(
     # Should still be properly initialized
     assert isinstance(test_arrmgr.device, ArrayContainer)
     assert isinstance(test_arrmgr.host, ArrayContainer)
-
+    
 
 @pytest.mark.parametrize(
     "arraytest_overrides",

@@ -206,17 +206,17 @@ class GustafssonController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            [
-                (
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    numba_precision[::1],
-                    int32,
-                    int32[::1],
-                    numba_precision[::1],
-                )
-            ],
+            # [
+            #     (
+            #         numba_precision[::1],
+            #         numba_precision[::1],
+            #         numba_precision[::1],
+            #         numba_precision[::1],
+            #         int32,
+            #         int32[::1],
+            #         numba_precision[::1],
+            #     )
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,

@@ -15,7 +15,7 @@ from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from tests._utils import assert_integration_outputs, run_device_loop
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def time_driver_solver_settings(precision):
     settings = {
         "algorithm": "euler",
@@ -49,7 +49,7 @@ def time_driver_solver_settings(precision):
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def time_driver_systems(precision):
     sinusoid_equations = [
         "dx = -x + sin(t)",
@@ -79,7 +79,7 @@ def time_driver_systems(precision):
     return function_system, interpolated_system
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def sinusoid_driver_array(precision, time_driver_solver_settings):
     duration = float(time_driver_solver_settings["duration"])
     sample_dt = float(time_driver_solver_settings["dt_save"])
@@ -252,15 +252,6 @@ def test_time_driver_array_matches_function(
     output_functions_function = OutputFunctions(
         function_system.sizes.states,
         function_system.sizes.observables,
-        solver_settings["output_types"],
-        solver_settings["saved_state_indices"],
-        solver_settings["saved_observable_indices"],
-        solver_settings["summarised_state_indices"],
-        solver_settings["summarised_observable_indices"],
-    )
-    output_functions_driver = OutputFunctions(
-        interpolated_system.sizes.states,
-        interpolated_system.sizes.observables,
         solver_settings["output_types"],
         solver_settings["saved_state_indices"],
         solver_settings["saved_observable_indices"],

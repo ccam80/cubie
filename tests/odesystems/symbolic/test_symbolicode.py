@@ -7,7 +7,7 @@ from cubie.odesystems.symbolic.symbolicODE import (
 )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def symbolic_input_simple():
     return {
         "observables": ["obs1", "obs2"],
@@ -24,7 +24,7 @@ def symbolic_input_simple():
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_ode_strict(symbolic_input_simple):
     return SymbolicODE.create(
         dxdt=symbolic_input_simple["dxdt"],
@@ -38,7 +38,7 @@ def simple_ode_strict(symbolic_input_simple):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_ode_nonstrict(symbolic_input_simple):
     return SymbolicODE.create(
         dxdt=symbolic_input_simple["dxdt"],
@@ -97,13 +97,13 @@ def test_create_ODE_system_nonstrict(
     assert_array_equal(sys1.num_drivers, sys2.num_drivers)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def built_simple_strict(simple_ode_strict):
     simple_ode_strict.build()
     return simple_ode_strict
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def built_simple_nonstrict(simple_ode_nonstrict):
     simple_ode_nonstrict.build()
     return simple_ode_nonstrict

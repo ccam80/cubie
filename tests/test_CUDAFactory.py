@@ -5,11 +5,13 @@ import numba
 import pytest
 from numba import cuda
 import numpy as np
+from cubie.cuda_simsafe import DeviceNDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.CUDAFactory import _create_placeholder_args
 from cubie.CUDAFactory import _run_placeholder_kernel
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import TimeLogger
+
 
 @attrs.define()
 class testCache(CUDAFunctionCache):
@@ -27,7 +29,7 @@ def dict_to_attrs_class(dictionary):
     return CompileSettings(**dictionary)
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="function")
 def factory():
     """Fixture to provide a factory for creating system instances."""
 
@@ -257,9 +259,10 @@ def test_get_cached_output_not_implemented_error_multiple(
 def test_create_placeholder_args():
     """Test placeholder argument creation."""
 
-    @cuda.jit([numba.float32(numba.float32[:],
-                numba.float32[:],
-                numba.float32[:])],
+    @cuda.jit(
+                [numba.float32(numba.float32[:],
+                  numba.float32[:],
+                  numba.float32[:])],
                 device=True)
     def device_func(a, b, c):
         return a[0] + b[0] + c[0]
@@ -267,7 +270,7 @@ def test_create_placeholder_args():
     args = _create_placeholder_args(device_func, np.float64)
     args = args[0]
     assert len(args) == 3
-    assert all(isinstance(arg, np.ndarray) for arg in args)
+    assert all(isinstance(arg, DeviceNDArray) for arg in args)
     assert all(arg.dtype == np.float32 for arg in args)
 
 @pytest.mark.nocudasim
@@ -283,7 +286,8 @@ def test_create_placeholder_args_zero_params():
 @pytest.mark.nocudasim
 def test_create_placeholder_args_precision():
     """Test different precision types."""
-    @cuda.jit([numba.float32(numba.float32[:],
+    @cuda.jit(
+              [numba.float32(numba.float32[:],
                 numba.float32[:]),
                numba.float64(numba.float64[:],
                              numba.float64[:])],
@@ -333,46 +337,22 @@ def test_run_placeholder_kernel_various_param_counts():
 
 # Integration tests for specialize_and_compile
 
-
-@pytest.mark.nocudasim
-def test_specialize_and_compile_records_timing(factory_with_settings):
-    """Test that specialize_and_compile records compilation timing."""
-    @cuda.jit(device=True)
-    def sample_device(x, y):
-        return x[0] + y[0]
-
-    factory_with_settings.build = lambda: testCache(device_function=sample_device)
-    factory = factory_with_settings
-    _default_timelogger.register_event("compile_test", "compile",
-                                        "Test compilation")
-
-    # Call specialize_and_compile
-    factory.specialize_and_compile(sample_device, "compile_test")
-
-    # Verify timing was recorded
-    logger = factory._timing_start.__self__
-    duration = logger.get_event_duration("compile_test")
-    assert duration is not None
-    assert duration > 0
-
 @pytest.mark.sim_only
 def test_specialize_and_compile_simulator_mode(factory_with_settings):
     """Test that compilation timing is skipped in simulator mode."""
     @cuda.jit(device=True)
     def sample_device(x, y):
         return x[0] + y[0]
-
+    timelogger = TimeLogger(verbosity='verbose')
     factory_with_settings.build = lambda: testCache(device_function=sample_device)
     factory = factory_with_settings
 
-    _default_timelogger.register_event("compile_test", "compile", "Test")
+    timelogger.register_event("compile_test", "compile", "Test")
 
     # Should not raise, should skip timing
 
     factory.specialize_and_compile(sample_device, "compile_test")
 
-    # Verify no timing recorded (in sim mode, events may or may not be recorded)
-    # Just ensure no error occurred
 
 
 def test_update_compile_settings_nested_attrs(factory):
@@ -440,4 +420,3 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
-

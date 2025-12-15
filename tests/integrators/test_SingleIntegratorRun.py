@@ -56,16 +56,7 @@ def _settings_to_dict(settings_source):
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "algorithm": "euler",
-            "step_controller": "fixed",
-            "dt": 0.01,
-            "dt_max": 0.01,
-            "dt_save": 0.1,
-            "dt_summarise": 0.3,
-            "duration": 0.3,
-            "output_types": ["state","time", "observables","mean"]
-        },
+        {},
         {
             "algorithm": "bogacki-shampine-32",
             "step_controller": "pid",
@@ -317,7 +308,6 @@ class TestSingleIntegratorRun:
         )
 
 
-@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_update_routes_to_children(
     single_integrator_run_mutable,
     solver_settings,

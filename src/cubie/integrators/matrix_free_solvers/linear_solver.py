@@ -237,19 +237,20 @@ def linear_solver_factory(
 
     # no cover: start
     @cuda.jit(
-        [
-            (precision[::1],
-             precision[::1],
-             precision[::1],
-             precision[::1],
-             precision,
-             precision,
-             precision,
-             precision[::1],
-             precision[::1],
-             precision[::1],
-            )
-        ],
+        # [
+        #     (precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #      precision,
+        #      precision,
+        #      precision,
+        #      precision[::1],
+        #      precision[::1],
+        #      precision[::1],
+        #      int32[::1],
+        #     )
+        # ],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -265,6 +266,7 @@ def linear_solver_factory(
         rhs,
         x,
         shared,
+        krylov_iters_out,
     ):
         """Run one preconditioned steepest-descent or minimal-residual solve.
 
@@ -292,6 +294,8 @@ def linear_solver_factory(
             final solution.
         shared
             Shared memory array for selective buffer allocation.
+        krylov_iters_out
+            Single-element int32 array to receive the iteration count.
 
         Returns
         -------
@@ -331,6 +335,9 @@ def linear_solver_factory(
 
         iter_count = int32(0)
         for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
             iter_count += int32(1)
             if preconditioned:
                 preconditioner(
@@ -388,13 +395,10 @@ def linear_solver_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+        # Single exit point - status based on converged flag
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return final_status
 
     # no cover: end
     return linear_solver
@@ -491,6 +495,7 @@ def linear_solver_cached_factory(
         rhs,
         x,
         shared,
+        krylov_iters_out,
     ):
         """Run one cached preconditioned steepest-descent or MR solve."""
 
@@ -520,6 +525,9 @@ def linear_solver_cached_factory(
 
         iter_count = int32(0)
         for _ in range(max_iters):
+            if all_sync(mask, converged):
+                break
+
             iter_count += int32(1)
             if preconditioned:
                 preconditioner(
@@ -579,13 +587,10 @@ def linear_solver_cached_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+        # Single exit point - status based on converged flag
+        final_status = selp(converged, int32(0), int32(4))
+        krylov_iters_out[0] = iter_count
+        return final_status
 
     # no cover: end
     return linear_solver_cached

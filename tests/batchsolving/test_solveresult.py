@@ -6,11 +6,10 @@ import pytest
 from cubie import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import SHORT_RUN_PARAMS
 
 Array = np.ndarray
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_with_arrays(
     solver,
     batch_input_arrays,
@@ -106,11 +105,7 @@ class TestSolveResultStaticMethods:
 class TestSolveResultInstantiation:
     """Test the four instantiation types return equivalent results."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_instantiation_type_equivalence(self, solver_with_arrays):
         """Test that the four instantiation types return equivalent results to full + methods."""
 
@@ -163,11 +158,7 @@ class TestSolveResultInstantiation:
             full_result.as_pandas["summaries"]
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_full_instantiation(self, solver_with_arrays):
         """Test full SolveResult instantiation from solver."""
         result = SolveResult.from_solver(
@@ -184,11 +175,7 @@ class TestSolveResultInstantiation:
             == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_numpy_instantiation(self, solver_with_arrays):
         """Test numpy dict instantiation from solver."""
         result = SolveResult.from_solver(
@@ -202,11 +189,7 @@ class TestSolveResultInstantiation:
         assert "summaries_legend" in result
         assert isinstance(result["time_domain_array"], np.ndarray)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_numpy_per_summary_instantiation(
         self, solver_with_arrays
     ):
@@ -224,11 +207,7 @@ class TestSolveResultInstantiation:
         ) in solver_with_arrays.summary_legend_per_variable.values():
             assert summary_type in result
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_from_solver_pandas_instantiation(self, solver_with_arrays):
         """Test pandas DataFrame instantiation from solver."""
         result = SolveResult.from_solver(
@@ -241,16 +220,10 @@ class TestSolveResultInstantiation:
         assert isinstance(result["time_domain"], pd.DataFrame)
         assert isinstance(result["summaries"], pd.DataFrame)
 
-
 class TestSolveResultFromSolver:
     """Test SolveResult creation and methods using real solver instances."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
-    @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
+
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
         """Test time domain legend creation from real solver."""
         legend = SolveResult.time_domain_legend_from_solver(solver_with_arrays)
@@ -265,11 +238,6 @@ class TestSolveResultFromSolver:
             v.startswith("o") for v in legend.values() if isinstance(v, str)
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_summary_legend_from_solver(self, solver_with_arrays):
         """Test summary legend creation from real solver."""
         legend = SolveResult.summary_legend_from_solver(solver_with_arrays)
@@ -286,11 +254,7 @@ class TestSolveResultFromSolver:
         for metric in summary_metrics:
             assert any(metric in val for val in legend_values)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_stride_order_from_solver(self, solver_with_arrays):
         """Test that stride order is correctly captured from solver."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -305,16 +269,10 @@ class TestSolveResultFromSolver:
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
-
-
 class TestSolveResultProperties:
     """Test SolveResult property methods using real solver data."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
+
     def test_as_numpy_property(self, solver_with_arrays):
         """Test as_numpy property returns correct structure."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -332,11 +290,6 @@ class TestSolveResultProperties:
         )
         assert numpy_dict["time_domain_array"] is not result.time_domain_array
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_per_summary_arrays_property(self, solver_with_arrays):
         """Test per_summary_arrays property splits summaries correctly."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -350,11 +303,6 @@ class TestSolveResultProperties:
             assert summary_name in per_summary
             assert isinstance(per_summary[summary_name], np.ndarray)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_as_pandas_property(self, solver_with_arrays):
         """Test as_pandas property creates proper DataFrames."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -382,11 +330,6 @@ class TestSolveResultProperties:
             for i, run_name in enumerate(run_levels):
                 assert run_name == f"run_{i}"
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_active_outputs_property(self, solver_with_arrays):
         """Test active_outputs property returns correct ActiveOutputs."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -432,15 +375,9 @@ class TestSolveResultDefaultBehavior:
         per_summary = result.per_summary_arrays
         assert isinstance(per_summary, dict)
 
-
 class TestSolveResultPandasIntegration:
     """Test pandas-specific functionality."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_pandas_shape_consistency(self, solver_with_arrays):
         """Test pandas DataFrame shapes are consistent with array dimensions."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -465,11 +402,6 @@ class TestSolveResultPandasIntegration:
             )
             assert sum_df.shape[1] == expected_sum_cols
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [SHORT_RUN_PARAMS],
-        indirect=True,
-    )
     def test_pandas_time_indexing(self, solver_with_arrays):
         """Test that time array is used as DataFrame index when available."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -488,11 +420,10 @@ class TestSolveResultPandasIntegration:
                 )
                 assert len(td_df.index) == len(expected_time)
 
-
 class TestSolveResultErrorHandling:
     """Test error handling and edge cases."""
 
-    def test_empty_summaries_per_summary_arrays(self):
+    def test_empty_summaries_per_summary_arrays(self, solver_settings):
         """Test per_summary_arrays with no summaries."""
         result = SolveResult()
         result._active_outputs = ActiveOutputs(
@@ -503,11 +434,6 @@ class TestSolveResultErrorHandling:
         assert per_summary == {}
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [SHORT_RUN_PARAMS],
-    indirect=True,
-)
 def test_status_codes_attribute(solver_with_arrays):
     """Verify status_codes attribute is present in SolveResult."""
     result = SolveResult.from_solver(solver_with_arrays)
@@ -524,12 +450,9 @@ def test_status_codes_attribute(solver_with_arrays):
 
 
 @pytest.fixture(scope="session")
-def solved_batch_solver(system, precision):
-    """Run a single batch solve and return the solver with computed arrays.
-
-    This session-scoped fixture runs once and is reused by all tests,
-    significantly reducing test runtime by avoiding repeated compilation
-    and batch solves.
+def solved_batch_solver_errorcode(system, precision):
+    """Fixture providing a solver with multiple runs where some
+    runs have error codes.
     """
     solver = Solver(system, dt_save=0.01)
 
@@ -550,10 +473,6 @@ def solved_batch_solver(system, precision):
     solver.kernel.output_arrays.host.status_codes.array[1] = 1
     return solver
 
-
-@pytest.mark.parametrize(
-    "system_override", ["linear"], ids=[""], indirect=True
-)
 class TestNaNProcessing:
     """Test NaN processing by manually modifying status codes.
 
@@ -562,12 +481,12 @@ class TestNaNProcessing:
     solves.
     """
 
-    def test_nan_processing_with_simulated_errors(self, solved_batch_solver):
+    def test_nan_processing_with_simulated_errors(self, solved_batch_solver_errorcode):
         """Verify NaN processing works by manually setting error codes."""
         # Manually inject error into status codes
 
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # Verify run 1 is all NaN
@@ -580,20 +499,20 @@ class TestNaNProcessing:
         assert not np.all(np.isnan(result.time_domain_array[..., 0]))
         assert not np.all(np.isnan(result.time_domain_array[..., 2]))
 
-    def test_nan_disabled_preserves_error_data(self, solved_batch_solver):
+    def test_nan_disabled_preserves_error_data(self, solved_batch_solver_errorcode):
         """Verify nan_error_trajectories=False preserves data even with errors."""
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=False
+            solved_batch_solver_errorcode, nan_error_trajectories=False
         )
         assert not np.all(np.isnan(result.time_domain_array[..., 1]))
 
     def test_successful_runs_unchanged_with_nan_enabled(
-        self, solved_batch_solver
+        self, solved_batch_solver_errorcode
     ):
         """Verify successful runs are not modified when NaN processing enabled."""
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[1] = 0
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # All runs should have status code 0 (success)
@@ -603,16 +522,16 @@ class TestNaNProcessing:
         assert not np.any(np.isnan(result.time_domain_array))
         if result.summaries_array.size > 0:
             assert not np.any(np.isnan(result.summaries_array))
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[1] = 1
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[1] = 1
 
-    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver):
+    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver_errorcode):
         """Verify multiple failed runs all get NaN'd."""
         # Inject multiple errors
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 2
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 3
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[0] = 2
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[2] = 3
 
         result = SolveResult.from_solver(
-            solved_batch_solver, nan_error_trajectories=True
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
 
         # Runs 0 and 2 should be all NaN
@@ -621,5 +540,5 @@ class TestNaNProcessing:
         assert np.all(np.isnan(result.time_domain_array[..., 1]))
 
         # Restore original status codes
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[0] = 0
-        solved_batch_solver.kernel.output_arrays.host.status_codes.array[2] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[0] = 0
+        solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array[2] = 0

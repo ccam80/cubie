@@ -357,9 +357,9 @@ class ArrayInterpolator(CUDAFactory):
             resolution if pad_clamped else precision(0.0)))
         # no cover: start
         @cuda.jit(
-                (numba_precision,
-                numba_precision[:,:,::1],
-                numba_precision[::1]),
+                # (numba_precision,
+                #  numba_precision[:,:,::1],
+                #  numba_precision[::1]),
                 device=True,
                 inline=True)
         def evaluate_all(
@@ -403,9 +403,10 @@ class ArrayInterpolator(CUDAFactory):
         # no cover: end
 
         # no cover: start
-        @cuda.jit([(numba_precision,
-                numba_precision[:,:,::1],
-                numba_precision[::1])],
+        @cuda.jit(
+                # [(numba_precision,
+                #   numba_precision[:,:,::1],
+                #   numba_precision[::1])],
                 device=True,
                 inline=True)
         def evaluate_time_derivative(
@@ -560,7 +561,7 @@ class ArrayInterpolator(CUDAFactory):
         device_eval = self.evaluation_function
 
         # no cover: start
-        @cuda.jit
+        @cuda.jit()
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
             if idx < times_device.shape[0]:

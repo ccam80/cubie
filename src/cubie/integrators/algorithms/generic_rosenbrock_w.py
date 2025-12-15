@@ -600,24 +600,24 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision,
-                numba_precision,
-                int16,
-                int16,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int16,
+            #     int16,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -752,6 +752,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # Create an unused reference for solver signature consistency.
             base_state_placeholder = shared[int32(0):int32(0)]
 
+            # Local array for linear solver iteration count output
+            krylov_iters_out = cuda.local.array(1, int32)
+            krylov_iters_out[0] = int32(0)
+
             # Use stored copy as the initial guess for the first stage.
             status_code |= linear_solver(
                 state,
@@ -765,6 +769,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs,
                 stage_increment,
                 shared,
+                krylov_iters_out,
             )
 
             for idx in range(n):
@@ -898,6 +903,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_increment,
                     shared,
+                    krylov_iters_out,
                 )
 
                 if accumulates_output:

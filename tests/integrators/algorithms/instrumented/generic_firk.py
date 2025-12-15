@@ -5,7 +5,7 @@ from typing import Callable, Optional
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -289,40 +289,40 @@ class FIRKStep(ODEImplicitStep):
         stage_state_local_size = local_sizes.nonzero('stage_state')
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision,
-                numba_precision,
-                int32,
-                int32,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )

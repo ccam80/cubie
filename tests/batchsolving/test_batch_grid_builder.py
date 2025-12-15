@@ -8,12 +8,12 @@ import itertools
 # from cubie.odesystems.systems.decays import Decays
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def grid_builder(system):
     return BatchGridBuilder.from_system(system)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def example_arrays():
     """Fixture providing three example arrays for states, parameters, observables."""
     a = np.array([1, 2, 3])
@@ -21,7 +21,7 @@ def example_arrays():
     return a, b
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def example_grids(example_arrays):
     """Fixture providing example grids for combinatorial and verbatim.
     
@@ -39,7 +39,7 @@ def example_grids(example_arrays):
     return combinatorial_grid, verbatim_grid
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_settings(request):
     """Fixture providing default batch settings."""
     defaults = {
@@ -56,7 +56,7 @@ def batch_settings(request):
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_request(system, batch_settings):
     """Fixture providing a requested_batch dict using state and parameter names from the system."""
     state_names = list(system.initial_values.names)
@@ -386,7 +386,7 @@ def test_grid_arrays_empty_inputs(system, grid_builder, batch_settings):
         assert initial_values_array.shape[1] == numinits
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def param_dict(system, batch_settings):
     param_names = list(system.parameters.names)
     return {
@@ -394,7 +394,7 @@ def param_dict(system, batch_settings):
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def state_dict(system, batch_settings):
     state_names = list(system.initial_values.names)
     return {
@@ -402,17 +402,17 @@ def state_dict(system, batch_settings):
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def param_seq(system, batch_settings):
     return np.arange(system.parameters.n - 1).tolist()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def state_seq(system, batch_settings):
     return tuple(np.arange(system.initial_values.n - 1))
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def state_array(system, batch_settings):
     numvals = batch_settings["num_state_vals"]
     return np.hstack(
@@ -423,7 +423,7 @@ def state_array(system, batch_settings):
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def param_array(system, batch_settings):
     numvals = batch_settings["num_param_vals"]
     return np.hstack(
@@ -438,7 +438,6 @@ def param_array(system, batch_settings):
     "mixed_type, params_type,states_type",
     list(itertools.product(["dict", "seq", "array"], repeat=3)),
 )
-@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_input_types(
     grid_builder,
     system,
@@ -524,8 +523,6 @@ def test_call_input_types(
         np.full_like(initial[-1, :], system.initial_values.values_array[-1]),
     )
 
-
-@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_outputs(system, grid_builder):
     # Input arrays are in (variable, run) format
     testarray1 = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
@@ -796,7 +793,10 @@ def test_docstring_examples(grid_builder, system, tolerance):
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32, np.float64], indirect=True
+        "solver_settings_override",
+        [{"precision": np.float32},
+         {"precision": np.float64}],
+        indirect=True
 )
 def test_grid_builder_precision_enforcement(system, precision):
     """Test that BatchGridBuilder enforces system precision on output arrays.

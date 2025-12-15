@@ -5,10 +5,10 @@ from typing import Callable, Optional
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -219,7 +219,7 @@ class DIRKStep(ODEImplicitStep):
         first_same_as_last = self.first_same_as_last
         can_reuse_accepted_start = self.can_reuse_accepted_start
 
-        stage_rhs_coeffs = tableau.typed_columns(tableau.a, numba_precision)
+        explicit_a_coeffs = tableau.explicit_terms(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
@@ -269,41 +269,41 @@ class DIRKStep(ODEImplicitStep):
 
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision,
-                numba_precision,
-                int32,
-                int32,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -574,28 +574,30 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh obs/drivers                 #
             # --------------------------------------------------------------- #
-
+            mask = activemask()
             for prev_idx in range(stages_except_first):
-                stage_offset = prev_idx * n
+
+                #DIRK is missing the instruction cache. The unrolled stage loop
+                # is instruction dense, taking up most of the instruction space.
+                # Try syncing block-wide per-stage to see whether this will help
+                # the whole block stay in one cache chunk. Play with block size
+                # to enforce the number of blocks per SM.
+                syncwarp(mask)
+                stage_offset = int32(prev_idx * n)
                 stage_idx = prev_idx + int32(1)
-                matrix_col = stage_rhs_coeffs[prev_idx]
+                matrix_col = explicit_a_coeffs[prev_idx]
 
                 # Stream previous stage's RHS into accumulators for successors
                 # Only stream to current stage and later (not already-processed)
                 for successor_idx in range(stages_except_first):
-                    # Accumulator at index i is for stage i+1
-                    # At prev_idx, current stage is prev_idx+1, so stream to
-                    # accumulators with index >= prev_idx
-                    if successor_idx >= prev_idx:
-                        coeff = matrix_col[successor_idx + int32(1)]
-                        row_offset = successor_idx * n
-                        for idx in range(n):
-                            contribution = coeff * stage_rhs[idx] * dt_scalar
-                            stage_accumulator[row_offset + idx] += contribution
+                    coeff = matrix_col[successor_idx + int32(1)]
+                    row_offset = successor_idx * n
+                    for idx in range(n):
+                        contribution = coeff * stage_rhs[idx] * dt_scalar
+                        stage_accumulator[row_offset + idx] += contribution
 
                 stage_time = (
-                    current_time
-                    + dt_scalar * stage_time_fractions[stage_idx]
+                    current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
                 if has_driver_function:
@@ -609,9 +611,11 @@ class DIRKStep(ODEImplicitStep):
                     proposed_drivers_out[stage_idx, driver_idx] = proposed_drivers[driver_idx]
 
                 # Convert accumulator slice to state by adding y_n
-                stage_base = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
-                    stage_base[idx] += state[idx]
+                    stage_base[idx] = (
+                            stage_accumulator[stage_offset + idx] + state[idx]
+                    )
+
 
                 diagonal_coeff = diagonal_coeffs[stage_idx]
 

@@ -102,15 +102,15 @@ class FixedStepController(BaseStepController):
         """
         precision = self.compile_settings.numba_precision
         @cuda.jit(
-                [(
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    int32,
-                    int32[::1],
-                    precision[::1],
-                )],
+                # [(
+                #     precision[::1],
+                #     precision[::1],
+                #     precision[::1],
+                #     precision[::1],
+                #     int32,
+                #     int32[::1],
+                #     precision[::1],
+                # )],
             device=True,
             inline=True,
             **compile_kwargs,
