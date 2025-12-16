@@ -50,7 +50,7 @@ algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
-controller_type = 'fixed'  # 'fixed' or 'pid'
+controller_type = 'pid'  # 'fixed' or 'pid'
 
 # -------------------------------------------------------------------------
 # Precision Configuration
@@ -95,11 +95,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.50)
+duration = precision(0.20)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.25)
+dt_save = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -2534,68 +2534,45 @@ def firk_step_inline_factory(
                     for idx in range(n):
                         error[idx] = stage_state[idx]
 
-            # Evaluate f at each stage for accumulation
-            do_more_work = (has_error and accumulates_error) or accumulates_output
-
-            if do_more_work:
-                observables_function(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
-
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + int32(1)) * n
-                ]
-                dxdt_fn(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
-
-        # Use Kahan summation algorithm to reduce floating point errors
+        # Kahan summation to reduce floating point errors
         if accumulates_output:
             for idx in range(n):
                 solution_acc = typed_zero
                 compensation = typed_zero
                 for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
-                    weighted = solution_weights[stage_idx] * rhs_value
+                    increment_value = stage_increment[stage_idx * n + idx]
+                    weighted = solution_weights[stage_idx] * increment_value
                     term = weighted - compensation
                     temp = solution_acc + term
                     compensation = (temp - solution_acc) - term
                     solution_acc = temp
-                proposed_state[idx] = state[idx] + solution_acc * dt_scalar
+                proposed_state[idx] = state[idx] + solution_acc
 
         if has_error and accumulates_error:
             for idx in range(n):
                 error_acc = typed_zero
                 compensation = typed_zero
                 for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
-                    weighted = error_weights[stage_idx] * rhs_value
+                    increment_value = stage_increment[stage_idx * n + idx]
+                    weighted = error_weights[stage_idx] * increment_value
                     term = weighted - compensation
                     temp = error_acc + term
                     compensation = (temp - error_acc) - term
                     error_acc = temp
-                error[idx] = dt_scalar * error_acc
+                error[idx] = error_acc
 
         if not ends_at_one:
             if has_driver_function:
                 driver_function(end_time, driver_coeffs, proposed_drivers)
 
-            observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
-            )
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
+
 
         if not accumulates_error:
             for idx in range(n):

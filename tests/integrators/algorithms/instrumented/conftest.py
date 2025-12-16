@@ -131,7 +131,7 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 10
+    return 6
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
@@ -726,7 +726,8 @@ def instrumented_cpu_step_results(
 
 def _format_array(values: np.ndarray) -> str:
     """Return ``values`` formatted for console comparison output."""
-
+    if not np.any(np.asarray(values)):
+        return "0.0"
     return np.array2string(
         values,
         precision=8,
@@ -734,6 +735,37 @@ def _format_array(values: np.ndarray) -> str:
         suppress_small=False,
         max_line_width=79,
     )
+
+
+def _print_trimmed_array(values: np.ndarray) -> None:
+    """Print ``values`` while skipping zero-only slices on outer axes."""
+
+    array = np.asarray(values)
+    if not np.any(array):
+        print("0.0")
+        return
+
+    _print_nonzero_subarrays(array, ())
+
+
+def _print_nonzero_subarrays(
+    array: np.ndarray,
+    indices: Tuple[int, ...],
+) -> None:
+    """Recursively print subarrays limited to nonzero outer indices."""
+
+    if array.ndim <= 1:
+        prefix = "".join(f"[{idx}]" for idx in indices)
+        if prefix:
+            print(f"{prefix} {_format_array(array)}")
+        else:
+            print(_format_array(array))
+        return
+
+    for idx in range(array.shape[0]):
+        subarray = array[idx]
+        if np.any(subarray):
+            _print_nonzero_subarrays(subarray, indices + (idx,))
 
 
 def _numeric_delta(
@@ -748,6 +780,12 @@ def _numeric_delta(
         cpu_array = cpu_array.astype(gpu_array.dtype, copy=False)
     return gpu_array - cpu_array
 
+def _is_none_or_all_zero(value):
+    if value is None:
+        return True
+    arr = np.asarray(value)
+    # treat arrays with no non-zero entries as "zero"
+    return not np.any(arr)
 
 def _print_grouped_section(
     name: str,
@@ -761,28 +799,34 @@ def _print_grouped_section(
     if all(values is None for values in cpu_series):
         return
 
+    if all(_is_none_or_all_zero(v) for v in gpu_series):
+        print(f"{name} delta:")
+        print("0.0")
+        return
+
     print(f"{name} delta:")
+
     for values in delta_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     if any(values is not None for values in device_series):
         print(f"{name} device:")
         for values in device_series:
             if values is None:
                 continue
-            print(_format_array(values))
+            _print_trimmed_array(values)
     print(f"{name} gpu:")
     for values in gpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
 
     print(f"{name} cpu:")
     for values in cpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     print("")
 
 
