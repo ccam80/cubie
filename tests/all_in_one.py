@@ -11,6 +11,8 @@ from typing import Optional
 import numpy as np
 from numba import cuda, int32, float32, float64, bool_, int64
 from numba import from_dtype as numba_from_dtype
+from numba.cuda import any_sync
+
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
     syncwarp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -45,7 +47,7 @@ algorithm_type = 'firk'  # 'erk', 'dirk', 'firk', or 'rosenbrock'
 algorithm_tableau_name = 'radau'  # Registry key for the tableau
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
-controller_type = 'pid'  # 'fixed' or 'pid'
+controller_type = 'fixed'  # 'fixed' or 'pid'
 
 # -------------------------------------------------------------------------
 # Precision Configuration
@@ -90,11 +92,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.05)
+duration = precision(0.50)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.05)
+dt_save = precision(0.25)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -121,8 +123,8 @@ max_backtracks = 15
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
 algorithm_order = 2
-kp = precision(6/5)
-ki = precision(0.0)
+kp = precision(0.7)
+ki = precision(-0.4)
 kd = precision(0.0)
 min_gain = precision(0.2)
 max_gain = precision(5.0)
@@ -212,7 +214,7 @@ rosenbrock_cached_auxiliaries_memory = 'local'  # 'local' or 'shared'
 MAX_SHARED_MEMORY_PER_BLOCK = 32768
 
 # Block size for kernel launch
-blocksize = 448
+blocksize = 64
 
 # =========================================================================
 # DERIVED CONFIGURATION (computed from above settings)
@@ -439,7 +441,7 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
     Handles 3 stages with ``s * n`` unknowns.
     Order is ignored, included for compatibility with preconditioner API.
     """
-    beta = precision(beta)
+    # beta = precision(beta)
     gamma = precision(gamma)
     sigma = precision(constants['sigma'])
     beta = precision(constants['beta'])
@@ -514,6 +516,9 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
     """
     sigma = precision(constants['sigma'])
     beta = precision(constants['beta'])
+    gamma = precision(gamma) #TODO: Cast gamma to precision in prod factory
+    # TODO Clarify in codegen whether gamma, sigma,
+    #  beta should be passed to factory or as constants.
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -1310,62 +1315,80 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             # Predicated iteration count update
             active = not done
             iters_count = selp(
-                    active, int32(iters_count + int32(1)), iters_count
+                active, int32(iters_count + int32(1)), iters_count
             )
 
-            if active:
-                krylov_iters_local[0] = int32(0)
-                lin_status = linear_solver(
-                    stage_increment,
-                    parameters,
-                    drivers,
-                    base_state,
-                    t,
-                    h,
-                    a_ij,
-                    residual,
-                    delta,
-                    krylov_iters_local,
-                )
-                total_krylov_iters += krylov_iters_local[0]
+            krylov_iters_local[0] = int32(0)
+            lin_status = linear_solver(
+                stage_increment,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                residual,
+                delta,
+                krylov_iters_local,
+            )
 
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                final_status = selp(lin_failed,
-                                    int32(final_status | lin_status),
-                                    final_status)
+            lin_failed = lin_status != int32(0)
+            has_error = has_error or lin_failed
+            final_status = selp(
+                lin_failed, int32(final_status | lin_status), final_status
+            )
 
+            total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
+
+            # Backtracking loop
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
+            active_bt = True
 
             for _ in range(max_backtracks):
-                active_backtrack = active and not found_step
-                if active_backtrack:
-                    delta_scale = scale - scale_applied
-                    for i in range(n):
-                        stage_increment[i] += delta_scale * delta[i]
-                    scale_applied = scale
+                if not any_sync(mask, active_bt):
+                    break
 
-                    residual_fn(stage_increment, parameters, drivers, t, h,
-                                a_ij, base_state, residual)
+                active_bt = active and (not found_step) and (not converged)
+                delta_scale = selp(
+                        active_bt,
+                        scale - scale_applied,
+                        typed_zero
+                )
 
-                    norm2_new = typed_zero
-                    for i in range(n):
-                        residual_value = residual[i]
-                        norm2_new += residual_value * residual_value
+                for i in range(n):
+                    stage_increment[i] += delta_scale * delta[i]
 
-                    # Check convergence
-                    just_converged = norm2_new <= tol_squared
-                    converged = converged or just_converged
+                scale_applied = selp(active_bt, scale, scale_applied)
 
-                    accept = (not converged) and (norm2_new < norm2_prev)
-                    found_step = found_step or accept
+                residual_fn(
+                        stage_increment,
+                        parameters,
+                        drivers,
+                        t,
+                        h,
+                        a_ij,
+                        base_state,
+                        residual
+                )
 
-                    for i in range(n):
-                        residual[i] = selp(accept, -residual[i], residual[i])
-                    norm2_prev = selp(accept, norm2_new, norm2_prev)
+                norm2_new = typed_zero
+                for i in range(n):
+                    residual_value = residual[i]
+                    norm2_new += residual_value * residual_value
 
+                # Check convergence
+                just_converged = active_bt and (norm2_new <= tol_squared)
+                converged = converged or just_converged
+
+                accept = active_bt and (not converged) and (norm2_new < norm2_prev)
+                found_step = found_step or accept
+
+                for i in range(n):
+                    residual[i] = selp(accept, -residual[i], residual[i])
+
+                norm2_prev = selp(accept, norm2_new, norm2_prev)
                 scale *= typed_damping
 
             # Backtrack failure handling
@@ -1377,7 +1400,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                     final_status
             )
 
-            # Revert state if backtrack failed using predicated pattern
+            # Revert state if backtrack failed
             revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
             for i in range(n):
                 stage_increment[i] += revert_scale * delta[i]
@@ -2480,11 +2503,8 @@ def firk_step_inline_factory(
 
             if has_driver_function:
                 stage_base = stage_idx * n_drivers
-                stage_slice = stage_driver_stack[
-                    stage_base:stage_base + n_drivers
-                ]
                 for idx in range(n_drivers):
-                    proposed_drivers[idx] = stage_slice[idx]
+                    proposed_drivers[idx] = stage_driver_stack[stage_base + idx]
 
             for idx in range(n):
                 value = state[idx]
@@ -3392,21 +3412,21 @@ elif algorithm_type == 'dirk':
 elif algorithm_type == 'firk':
     # Build implicit solver components for FIRK (fully implicit)
     # FIRK requires n-stage coupled system solving
-    preconditioner_fn = neumann_preconditioner_factory(
+    preconditioner_fn = n_stage_neumann_preconditioner_3(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    residual_fn = stage_residual_factory(
+    residual_fn = n_stage_residual_3(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    operator_fn = linear_operator_factory(
+    operator_fn = n_stage_linear_operator_3(
         constants,
         precision,
         beta=float(beta_solver),
@@ -3415,7 +3435,8 @@ elif algorithm_type == 'firk':
     )
 
     linear_solver_fn = linear_solver_inline_factory(
-        operator_fn, n_states * tableau.stage_count,  # Note: all_stages_n
+        operator_fn,
+        n_states * tableau.stage_count,  # Note: all_stages_n
         preconditioner_fn,
         krylov_tolerance,
         max_linear_iters,
