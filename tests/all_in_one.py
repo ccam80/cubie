@@ -37,14 +37,17 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 # -------------------------------------------------------------------------
 # Algorithm Configuration
 # -------------------------------------------------------------------------
-# Algorithm type options:
-#   'erk'         - Explicit Runge-Kutta (ERK_TABLEAU_REGISTRY)
-#   'dirk'        - Diagonally Implicit Runge-Kutta (DIRK_TABLEAU_REGISTRY)
-#   'firk'        - Fully Implicit Runge-Kutta (FIRK_TABLEAU_REGISTRY)
-#   'rosenbrock'  - Rosenbrock-W methods (ROSENBROCK_TABLEAUS)
+
 script_start = perf_counter()
-algorithm_type = 'firk'  # 'erk', 'dirk', 'firk', or 'rosenbrock'
-algorithm_tableau_name = 'radau'  # Registry key for the tableau
+#
+algorithm_type = 'dirk'
+algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'erk'
+# algorithm_tableau_name = 'tsit5'
+# algorithm_type = 'firk'
+# algorithm_tableau_name = 'radau'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'fixed'  # 'fixed' or 'pid'
@@ -1242,6 +1245,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                                  max_iters, damping, max_backtracks, prec):
     """Create inline Newton-Krylov solver device function."""
     numba_prec = numba_from_dtype(prec)
+    n_arraysize = int(n)
     n = int32(n)
     max_iters = int32(max_iters)
     max_backtracks = int32(max_backtracks + 1)
@@ -1361,7 +1365,8 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                     stage_increment[i] += delta_scale * delta[i]
 
                 scale_applied = selp(active_bt, scale, scale_applied)
-
+                #TODO: Add this to the local/shared toggle list
+                residual_temp = cuda.local.array(n_arraysize, numba_prec)
                 residual_fn(
                         stage_increment,
                         parameters,
@@ -1370,8 +1375,11 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         h,
                         a_ij,
                         base_state,
-                        residual
+                        residual_temp
                 )
+
+                for i in range(n):
+                    residual[i] = selp(active_bt, residual_temp[i], residual[i])
 
                 norm2_new = typed_zero
                 for i in range(n):
@@ -2510,9 +2518,10 @@ def firk_step_inline_factory(
                 value = state[idx]
                 for contrib_idx in range(stage_count):
                     flat_idx = stage_idx * stage_count + contrib_idx
+                    increment_idx = contrib_idx * n
                     coeff = stage_rhs_coeffs[flat_idx]
                     if coeff != typed_zero:
-                        value += coeff * stage_increment[contrib_idx * n + idx]
+                        value += coeff * stage_increment[increment_idx + idx]
                 stage_state[idx] = value
 
             # Capture precalculated outputs if tableau allows
@@ -3728,6 +3737,7 @@ proposed_counters_end = (proposed_counters_start + proposed_counters_size
 shared_pointer = proposed_counters_end
 
 # Scratch buffer for step algorithms
+#TODO: This is busted.
 scratch_start = shared_pointer
 if algorithm_type == 'dirk':
     scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
@@ -4413,6 +4423,7 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
     print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")
 
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
+    print(f"Intial state sample (run -1): {state_output[0, :n_states, -1]}")
     print(f"Final state sample (run 0): {state_output[-1, :n_states, 0]}")
     print(f"Final state sample (run -1): {state_output[-1, :n_states, -1]}")
     print("\n\n\n")
