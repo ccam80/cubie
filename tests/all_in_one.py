@@ -9,7 +9,7 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int32, float32, float64, bool_, int64
+from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
 from numba.cuda import any_sync
 
@@ -1031,8 +1031,8 @@ def linear_solver_inline_factory(
     n_arraysize = n
     n_val = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = True if correction_type == "steepest_descent" else False
+    mr_flag = True if correction_type == "minimal_residual" else False
 
     @cuda.jit(
         # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
@@ -1126,8 +1126,8 @@ def linear_solver_cached_inline_factory(
     n_arraysize = n
     n_val = int32(n)
     max_iters = int32(max_iters)
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = True if correction_type == "steepest_descent" else False
+    mr_flag = True if correction_type == "minimal_residual" else False
     preconditioned = preconditioner is not None
     typed_zero_local = numba_prec(0.0)
 
