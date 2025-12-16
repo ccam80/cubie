@@ -221,6 +221,13 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         return predicate
 
     @cuda.jit(
+        device=True,
+        inline=True,
+    )
+    def any_sync(mask, predicate):
+        return predicate
+
+    @cuda.jit(
             device=True,
             inline=True,
     )
@@ -251,6 +258,14 @@ else:  # pragma: no cover - relies on GPU runtime
     )
     def all_sync(mask, predicate):
         return cuda.all_sync(mask, predicate)
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def any_sync(mask, predicate):
+        return cuda.any_sync(mask, predicate)
 
     @cuda.jit(
         device=True,

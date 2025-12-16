@@ -11,10 +11,8 @@ from typing import Optional
 import numpy as np
 from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
-from numba.cuda import any_sync
-
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
-    syncwarp
+    syncwarp, any_sync
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,

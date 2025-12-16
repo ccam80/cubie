@@ -4,9 +4,8 @@ from typing import Callable, Optional
 
 import numpy as np
 from numba import cuda, int32, from_dtype
-
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
 
 
 def inst_linear_solver_factory(
@@ -320,7 +319,7 @@ def inst_newton_krylov_solver_factory(
     precision: PrecisionDType = np.float32,
 ) -> Callable:
     """Create an instrumented damped Newton--Krylov solver."""
-
+    n_arraysize = int(n)
     precision_dtype = np.dtype(precision)
     if precision_dtype not in ALLOWED_PRECISIONS:
         raise ValueError("precision must be float16, float32, or float64.")
@@ -417,12 +416,10 @@ def inst_newton_krylov_solver_factory(
         newton_squared_norms[stage_index, log_index] = norm2_prev
         log_index += int32(1)
 
-        # Boolean control flags replace status-code-based loop control
         converged = norm2_prev <= tol_squared
         has_error = False
         final_status = int32(0)
 
-        # Local array for linear solver iteration count output
         krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
@@ -443,88 +440,91 @@ def inst_newton_krylov_solver_factory(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
-            if active:
-                iter_slot = int(iters_count) - 1
-                krylov_iters_local[0] = int32(0)
-                lin_status = linear_solver(
-                    stage_increment,
-                    parameters,
-                    drivers,
-                    base_state,
-                    t,
-                    h,
-                    a_ij,
-                    residual,
-                    delta,
-                    linear_slot_base + iter_slot,
-                    linear_initial_guesses,
-                    linear_iteration_guesses,
-                    linear_residuals,
-                    linear_squared_norms,
-                    linear_preconditioned_vectors,
-                    krylov_iters_local,
-                )
-                total_krylov_iters += krylov_iters_local[0]
-
-                # Update error flag on linear solver failure
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                # Accumulate error code via OR
-                final_status = selp(
-                    lin_failed, int32(final_status | lin_status), final_status
-                )
+            iter_slot = int(iters_count) - 1
+            krylov_iters_local[0] = int32(0)
+            lin_status = linear_solver(
+                stage_increment,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                residual,
+                delta,
+                linear_slot_base + iter_slot,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
+                krylov_iters_local,
+            )
+            lin_failed = lin_status != int32(0)
+            has_error = has_error or lin_failed
+            final_status = selp(
+                lin_failed, int32(final_status | lin_status), final_status
+            )
+            total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
             snapshot_ready = False
             norm2_new = typed_zero
+            active_bt = True
 
             for _ in range(max_backtracks + 1):
-                active_backtrack = active and not found_step
-                if active_backtrack:
-                    delta_scale = scale - scale_applied
-                    for i in range(n):
-                        stage_increment[i] += delta_scale * delta[i]
-                    scale_applied = scale
-
-                    residual_function(
-                        stage_increment,
-                        parameters,
-                        drivers,
-                        t,
-                        h,
-                        a_ij,
-                        base_state,
-                        residual,
-                    )
-
-                    norm2_new = typed_zero
-                    for i in range(n):
-                        residual_value = residual[i]
-                        norm2_new += residual_value * residual_value
-                        stage_increment_snapshot[i] = stage_increment[i]
-                        residual_snapshot[i] = residual_value
-                    snapshot_ready = True
-
-                    # Check convergence
-                    just_converged = norm2_new <= tol_squared
-                    converged = converged or just_converged
-
-                    accept = (not converged) and (norm2_new < norm2_prev)
-                    found_step = found_step or accept
-
-                    for i in range(n):
-                        residual[i] = selp(
-                            accept,
-                            -residual[i],
-                            residual[i],
-                        )
-                    norm2_prev = selp(accept, norm2_new, norm2_prev)
-
-                done_backtrack = found_step or converged or has_error
-                if all_sync(mask, done_backtrack):
+                if not any_sync(mask, active_bt):
                     break
+
+                active_bt = active and (not found_step) and (not converged)
+                delta_scale = selp(
+                        active_bt,
+                        scale - scale_applied,
+                        typed_zero
+                )
+                for i in range(n):
+                    stage_increment[i] += delta_scale * delta[i]
+                    scale_applied = scale
+                scale_applied = selp(active_bt, scale, scale_applied)
+                residual_temp = cuda.local.array(n_arraysize, dtype=numba_precision)
+
+                residual_function(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    t,
+                    h,
+                    a_ij,
+                    base_state,
+                    residual_temp,
+                )
+                for i in range(n):
+                    residual[i] = selp(active_bt, residual_temp[i], residual[i])
+
+                norm2_new = typed_zero
+                for i in range(n):
+                    residual_value = residual[i]
+                    norm2_new += residual_value * residual_value
+                    stage_increment_snapshot[i] = stage_increment[i]
+                    residual_snapshot[i] = residual_value
+                snapshot_ready = True
+
+                # Check convergence
+                just_converged = active_bt and (norm2_new <= tol_squared)
+                converged = converged or just_converged
+
+                accept = active_bt and (not converged) and (norm2_new < norm2_prev)
+                found_step = found_step or accept
+
+                for i in range(n):
+                    residual[i] = selp(
+                        accept,
+                        -residual[i],
+                        residual[i],
+                    )
+                norm2_prev = selp(accept, norm2_new, norm2_prev)
                 scale *= typed_damping
 
             # Backtrack failure handling

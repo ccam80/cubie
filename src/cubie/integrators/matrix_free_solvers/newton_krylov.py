@@ -9,9 +9,8 @@ from typing import Callable
 
 from numba import cuda, int32, from_dtype
 import numpy as np
-
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync, selp
+from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
 
 
 def newton_krylov_solver_factory(
@@ -72,6 +71,7 @@ def newton_krylov_solver_factory(
         raise ValueError("precision must be float16, float32, or float64.")
 
     precision = from_dtype(precision_dtype)
+    n_arraysize = int(n)
     tol_squared = precision(tolerance * tolerance)
     typed_zero = precision(0.0)
     typed_one = precision(1.0)
@@ -193,79 +193,84 @@ def newton_krylov_solver_factory(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
-            if active:
-                # Linear solver shared memory starts after newton's scratch
-                lin_shared = shared_scratch[2 * n:]
-                krylov_iters_local[0] = int32(0)
-                lin_status = linear_solver(
-                    stage_increment,
-                    parameters,
-                    drivers,
-                    base_state,
-                    t,
-                    h,
-                    a_ij,
-                    residual,
-                    delta,
-                    lin_shared,
-                    krylov_iters_local,
-                )
-                total_krylov_iters += krylov_iters_local[0]
+            # Linear solver shared memory starts after newton's scratch
+            lin_shared = shared_scratch[2 * n:]
+            krylov_iters_local[0] = int32(0)
+            lin_status = linear_solver(
+                stage_increment,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                residual,
+                delta,
+                lin_shared,
+                krylov_iters_local,
+            )
 
-                # Update error flag on linear solver failure
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                # Accumulate error code via OR
-                final_status = selp(
+            lin_failed = lin_status != int32(0)
+            has_error = has_error or lin_failed
+            final_status = selp(
                     lin_failed, int32(final_status | lin_status), final_status
-                )
+            )
+            total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
+            # Backtracking loop
             scale = typed_one
             scale_applied = typed_zero
             found_step = False
+            active_bt = True
 
             for _ in range(max_backtracks + 1):
-                active_backtrack = active and not found_step
-                if active_backtrack:
-                    delta_scale = scale - scale_applied
-                    for i in range(n):
-                        stage_increment[i] += delta_scale * delta[i]
-                    scale_applied = scale
+                if not any_sync(mask, active_bt):
+                    break
 
-                    residual_function(
-                        stage_increment,
-                        parameters,
-                        drivers,
-                        t,
-                        h,
-                        a_ij,
-                        base_state,
-                        residual,
+                active_bt = active and (not found_step) and (not converged)
+                delta_scale = selp(
+                    active_bt, scale - scale_applied, typed_zero
+                )
+                for i in range(n):
+                    stage_increment[i] += delta_scale * delta[i]
+                scale_applied = selp(active_bt, scale, scale_applied)
+                residual_temp = cuda.local.array(n_arraysize, precision)
+
+                residual_function(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    t,
+                    h,
+                    a_ij,
+                    base_state,
+                    residual_temp,
+                )
+
+                for i in range(n):
+                    residual[i] = selp(
+                        active_bt, residual_temp[i], residual[i]
                     )
 
-                    norm2_new = typed_zero
-                    for i in range(n):
-                        residual_value = residual[i]
-                        norm2_new += residual_value * residual_value
+                norm2_new = typed_zero
+                for i in range(n):
+                    residual_value = residual[i]
+                    norm2_new += residual_value * residual_value
 
-                    # Check convergence
-                    just_converged = norm2_new <= tol_squared
-                    converged = converged or just_converged
+                # Check convergence
+                just_converged = active_bt and (norm2_new <= tol_squared)
+                converged = converged or just_converged
 
-                    accept = (not converged) and (norm2_new < norm2_prev)
-                    found_step = found_step or accept
+                accept = active_bt and (not converged) and (norm2_new < norm2_prev)
+                found_step = found_step or accept
 
-                    for i in range(n):
-                        residual[i] = selp(
-                            accept,
-                            -residual[i],
-                            residual[i],
-                        )
-                    norm2_prev = selp(accept, norm2_new, norm2_prev)
-
-                done_backtrack = found_step or converged or has_error
-                if all_sync(mask, done_backtrack):
-                    break
+                for i in range(n):
+                    residual[i] = selp(
+                        accept,
+                        -residual[i],
+                        residual[i],
+                    )
+                norm2_prev = selp(accept, norm2_new, norm2_prev)
                 scale *= typed_damping
 
             # Backtrack failure handling
