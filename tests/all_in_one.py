@@ -12,7 +12,7 @@ import numpy as np
 from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
-    syncwarp, any_sync
+    syncwarp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,
@@ -1343,26 +1343,17 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
-            scale = typed_one
-            scale_applied = typed_zero
+            stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
+            for i in range(n):
+                stage_base_bt[i] = stage_increment[i]
+
             found_step = False
-            active_bt = True
+            alpha = typed_one
 
             for _ in range(max_backtracks):
-                if not any_sync(mask, active_bt):
-                    break
-
-                active_bt = active and (not found_step) and (not converged)
-                delta_scale = selp(
-                        active_bt,
-                        scale - scale_applied,
-                        typed_zero
-                )
-
                 for i in range(n):
-                    stage_increment[i] += delta_scale * delta[i]
+                    stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
 
-                scale_applied = selp(active_bt, scale, scale_applied)
                 #TODO: Add this to the local/shared toggle list
                 residual_temp = cuda.local.array(n_arraysize, numba_prec)
                 residual_fn(
@@ -1376,26 +1367,25 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                         residual_temp
                 )
 
-                for i in range(n):
-                    residual[i] = selp(active_bt, residual_temp[i], residual[i])
-
                 norm2_new = typed_zero
                 for i in range(n):
-                    residual_value = residual[i]
+                    residual_value = residual_temp[i]
                     norm2_new += residual_value * residual_value
 
                 # Check convergence
-                just_converged = active_bt and (norm2_new <= tol_squared)
-                converged = converged or just_converged
+                if norm2_new <= tol_squared:
+                    converged = True
+                    found_step = True
+                    break
 
-                accept = active_bt and (not converged) and (norm2_new < norm2_prev)
-                found_step = found_step or accept
+                if norm2_new < norm2_prev:
+                    for i in range(n):
+                        residual[i] = -residual_temp[i]
+                    norm2_prev = norm2_new
+                    found_step = True
+                    break
 
-                for i in range(n):
-                    residual[i] = selp(accept, -residual[i], residual[i])
-
-                norm2_prev = selp(accept, norm2_new, norm2_prev)
-                scale *= typed_damping
+                alpha *= typed_damping
 
             # Backtrack failure handling
             backtrack_failed = active and (not found_step) and (not converged)
@@ -1407,9 +1397,9 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             )
 
             # Revert state if backtrack failed
-            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
-            for i in range(n):
-                stage_increment[i] += revert_scale * delta[i]
+            if backtrack_failed:
+                for i in range(n):
+                    stage_increment[i] = stage_base_bt[i]
 
         # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
