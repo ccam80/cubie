@@ -527,13 +527,13 @@ class FIRKStep(ODEImplicitStep):
                         proposed_drivers,
                     )
 
-                observables_function(
-                    proposed_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    end_time,
-                )
+            observables_function(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                end_time,
+            )
 
             if not accumulates_error:
                 for idx in range(n):

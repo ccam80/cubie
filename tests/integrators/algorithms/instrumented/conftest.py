@@ -726,16 +726,46 @@ def instrumented_cpu_step_results(
 
 def _format_array(values: np.ndarray) -> str:
     """Return ``values`` formatted for console comparison output."""
-    if not np.any(np.nonzero(values)):
+    if not np.any(np.asarray(values)):
         return "0.0"
-    else:
-        return np.array2string(
-            values,
-            precision=8,
-            floatmode="fixed",
-            suppress_small=False,
-            max_line_width=79,
-        )
+    return np.array2string(
+        values,
+        precision=8,
+        floatmode="fixed",
+        suppress_small=False,
+        max_line_width=79,
+    )
+
+
+def _print_trimmed_array(values: np.ndarray) -> None:
+    """Print ``values`` while skipping zero-only slices on outer axes."""
+
+    array = np.asarray(values)
+    if not np.any(array):
+        print("0.0")
+        return
+
+    _print_nonzero_subarrays(array, ())
+
+
+def _print_nonzero_subarrays(
+    array: np.ndarray,
+    indices: Tuple[int, ...],
+) -> None:
+    """Recursively print subarrays limited to nonzero outer indices."""
+
+    if array.ndim <= 1:
+        prefix = "".join(f"[{idx}]" for idx in indices)
+        if prefix:
+            print(f"{prefix} {_format_array(array)}")
+        else:
+            print(_format_array(array))
+        return
+
+    for idx in range(array.shape[0]):
+        subarray = array[idx]
+        if np.any(subarray):
+            _print_nonzero_subarrays(subarray, indices + (idx,))
 
 
 def _numeric_delta(
@@ -779,24 +809,24 @@ def _print_grouped_section(
     for values in delta_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     if any(values is not None for values in device_series):
         print(f"{name} device:")
         for values in device_series:
             if values is None:
                 continue
-            print(_format_array(values))
+            _print_trimmed_array(values)
     print(f"{name} gpu:")
     for values in gpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
 
     print(f"{name} cpu:")
     for values in cpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     print("")
 
 

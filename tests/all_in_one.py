@@ -2565,13 +2565,14 @@ def firk_step_inline_factory(
             if has_driver_function:
                 driver_function(end_time, driver_coeffs, proposed_drivers)
 
-            observables_function(
-                proposed_state,
-                parameters,
-                proposed_drivers,
-                proposed_observables,
-                end_time,
-            )
+        observables_function(
+            proposed_state,
+            parameters,
+            proposed_drivers,
+            proposed_observables,
+            end_time,
+        )
+
 
         if not accumulates_error:
             for idx in range(n):
