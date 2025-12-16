@@ -1,7 +1,11 @@
 """Tests for Rosenbrock-W tableau registry integration."""
 
+import numpy as np
 import pytest
 
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    GenericRosenbrockWStep,
+)
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     DEFAULT_ROSENBROCK_TABLEAU_NAME,
@@ -58,3 +62,18 @@ def test_rosenbrock_step_accepts_registry_tableau(step_object):
     """GPU Rosenbrock step should load tableaus from the registry."""
 
     assert step_object.tableau is ROSENBROCK_TABLEAUS["ros3p"]
+
+
+def test_rosenbrock_instantiation_no_build():
+    """Rosenbrock solver instantiation should not trigger a build."""
+    step = GenericRosenbrockWStep(
+        precision=np.float64,
+        n=3,
+        tableau=DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    # Accessing shared_memory_required should not trigger build
+    shared_mem = step.shared_memory_required
+    # Default buffer settings use local memory; shared memory should be 0
+    assert shared_mem == 0
+    # Verify build wasn't triggered by checking cached auxiliary count
+    assert step._cached_auxiliary_count is None
