@@ -593,7 +593,7 @@ class DIRKStep(ODEImplicitStep):
                     coeff = matrix_col[successor_idx + int32(1)]
                     row_offset = successor_idx * n
                     for idx in range(n):
-                        contribution = coeff * stage_rhs[idx] * dt_scalar
+                        contribution = coeff * stage_rhs[idx]
                         stage_accumulator[row_offset + idx] += contribution
 
                 stage_time = (
@@ -613,7 +613,8 @@ class DIRKStep(ODEImplicitStep):
                 # Convert accumulator slice to state by adding y_n
                 for idx in range(n):
                     stage_base[idx] = (
-                            stage_accumulator[stage_offset + idx] + state[idx]
+                            stage_accumulator[stage_offset + idx]* dt_scalar
+                            + state[idx]
                     )
 
 

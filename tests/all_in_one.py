@@ -40,12 +40,12 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 
 script_start = perf_counter()
 #
-algorithm_type = 'dirk'
-algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'dirk'
+# algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-# algorithm_type = 'firk'
-# algorithm_tableau_name = 'radau'
+algorithm_type = 'firk'
+algorithm_tableau_name = 'radau'
 # algorithm_type = 'rosenbrock'
 # algorithm_tableau_name = 'ode23s'
 
@@ -1794,7 +1794,7 @@ def dirk_step_inline_factory(
                 coeff = matrix_col[successor_idx + int32(1)]
                 row_offset = successor_idx * n
                 for idx in range(n):
-                    contribution = coeff * stage_rhs[idx] * dt_scalar
+                    contribution = coeff * stage_rhs[idx]
                     stage_accumulator[row_offset + idx] += contribution
 
             stage_time = (
@@ -1809,7 +1809,8 @@ def dirk_step_inline_factory(
                 )
 
             for idx in range(n):
-                stage_base[idx] = stage_accumulator[stage_offset + idx] + state[idx]
+                stage_base[idx] = (stage_accumulator[stage_offset + idx] *
+                                   dt_scalar + state[idx])
 
             diagonal_coeff = diagonal_coeffs[stage_idx]
 
