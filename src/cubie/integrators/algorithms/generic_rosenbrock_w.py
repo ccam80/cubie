@@ -117,6 +117,13 @@ class RosenbrockBufferSettings(BufferSettings):
         Memory location for stage store buffer: 'local' or 'shared'.
     cached_auxiliaries_location : str
         Memory location for cached auxiliaries: 'local' or 'shared'.
+
+    Notes
+    -----
+    The cached_auxiliary_count is initially 0 and is updated after
+    build_implicit_helpers() is called on GenericRosenbrockWStep.
+    Memory calculations requiring the final count should access
+    buffer_settings after the step has been built.
     """
 
     n: int = attrs.field(validator=getype_validator(int, 1))

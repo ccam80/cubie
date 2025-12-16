@@ -5,12 +5,166 @@ The helpers in this module wrap the linear solver provided by
 Newton iterations suitable for CUDA device execution.
 """
 
-from typing import Callable
+from typing import Callable, Optional
 
+import attrs
+from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
-from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
+from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType, getype_validator
+from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings
+)
+
+
+@attrs.define
+class NewtonLocalSizes(LocalSizes):
+    """Local array sizes for Newton solver buffers.
+
+    Attributes
+    ----------
+    delta : int
+        Newton direction buffer size (n elements).
+    residual : int
+        Residual buffer size (n elements).
+    residual_temp : int
+        Temporary residual buffer size (n elements, always local).
+    krylov_iters : int
+        Krylov iteration counter (1 element, always local).
+    """
+
+    delta: int = attrs.field(validator=getype_validator(int, 0))
+    residual: int = attrs.field(validator=getype_validator(int, 0))
+    residual_temp: int = attrs.field(validator=getype_validator(int, 0))
+    krylov_iters: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class NewtonSliceIndices(SliceIndices):
+    """Slice container for Newton solver shared memory layouts.
+
+    Attributes
+    ----------
+    delta : slice
+        Slice covering the delta buffer (empty if local).
+    residual : slice
+        Slice covering the residual buffer (empty if local).
+    local_end : int
+        Offset of the end of Newton-managed shared memory.
+    lin_solver_start : int
+        Start offset for linear solver shared memory.
+    """
+
+    delta: slice = attrs.field()
+    residual: slice = attrs.field()
+    local_end: int = attrs.field()
+    lin_solver_start: int = attrs.field()
+
+
+@attrs.define
+class NewtonBufferSettings(BufferSettings):
+    """Configuration for Newton solver buffer sizes and locations.
+
+    Controls memory locations for delta and residual buffers used
+    during Newton-Krylov iteration. residual_temp and krylov_iters
+    are always local.
+
+    Attributes
+    ----------
+    n : int
+        Number of state variables.
+    delta_location : str
+        Memory location for delta buffer: 'local' or 'shared'.
+    residual_location : str
+        Memory location for residual buffer: 'local' or 'shared'.
+    linear_solver_buffer_settings : LinearSolverBufferSettings
+        Buffer settings for the nested linear solver.
+    """
+
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    delta_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    residual_location: str = attrs.field(
+        default='shared', validator=validators.in_(["local", "shared"])
+    )
+    linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
+        attrs.field(default=None)
+    )
+
+    @property
+    def use_shared_delta(self) -> bool:
+        """Return True if delta buffer uses shared memory."""
+        return self.delta_location == 'shared'
+
+    @property
+    def use_shared_residual(self) -> bool:
+        """Return True if residual buffer uses shared memory."""
+        return self.residual_location == 'shared'
+
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared memory elements required."""
+        total = 0
+        if self.use_shared_delta:
+            total += self.n
+        if self.use_shared_residual:
+            total += self.n
+        # Add linear solver shared memory
+        if self.linear_solver_buffer_settings is not None:
+            total += self.linear_solver_buffer_settings.shared_memory_elements
+        return total
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total local memory elements required."""
+        total = 0
+        if not self.use_shared_delta:
+            total += self.n
+        if not self.use_shared_residual:
+            total += self.n
+        # residual_temp and krylov_iters always local
+        total += self.n  # residual_temp
+        total += 1       # krylov_iters (int32, but counted as 1 element)
+        # Add linear solver local memory
+        if self.linear_solver_buffer_settings is not None:
+            total += self.linear_solver_buffer_settings.local_memory_elements
+        return total
+
+    @property
+    def local_sizes(self) -> NewtonLocalSizes:
+        """Return NewtonLocalSizes instance with buffer sizes."""
+        return NewtonLocalSizes(
+            delta=self.n,
+            residual=self.n,
+            residual_temp=self.n,
+            krylov_iters=1,
+        )
+
+    @property
+    def shared_indices(self) -> NewtonSliceIndices:
+        """Return NewtonSliceIndices instance with shared memory layout."""
+        ptr = 0
+        if self.use_shared_delta:
+            delta_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            delta_slice = slice(0, 0)
+
+        if self.use_shared_residual:
+            residual_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            residual_slice = slice(0, 0)
+
+        return NewtonSliceIndices(
+            delta=delta_slice,
+            residual=residual_slice,
+            local_end=ptr,
+            lin_solver_start=ptr,
+        )
 
 
 def newton_krylov_solver_factory(
@@ -22,6 +176,7 @@ def newton_krylov_solver_factory(
     damping: float = 0.5,
     max_backtracks: int = 8,
     precision: PrecisionDType = np.float32,
+    buffer_settings: Optional[NewtonBufferSettings] = None,
 ) -> Callable:
     """Create a damped Newton--Krylov solver device function.
 
@@ -45,6 +200,10 @@ def newton_krylov_solver_factory(
         Maximum number of damping attempts per Newton step.
     precision
         Floating-point precision used when compiling the device function.
+    buffer_settings
+        Optional buffer settings controlling memory allocation. When provided,
+        the solver uses selective allocation between shared and local memory.
+        When None (default), all buffers use shared memory.
 
     Returns
     -------
@@ -69,6 +228,21 @@ def newton_krylov_solver_factory(
     precision_dtype = np.dtype(precision)
     if precision_dtype not in ALLOWED_PRECISIONS:
         raise ValueError("precision must be float16, float32, or float64.")
+
+    # Default buffer settings - shared delta/residual (current behavior)
+    if buffer_settings is None:
+        buffer_settings = NewtonBufferSettings(n=n)
+
+    # Extract compile-time flags
+    delta_shared = buffer_settings.use_shared_delta
+    residual_shared = buffer_settings.use_shared_residual
+    shared_indices = buffer_settings.shared_indices
+    delta_slice = shared_indices.delta
+    residual_slice = shared_indices.residual
+    lin_solver_start = shared_indices.lin_solver_start
+    local_sizes = buffer_settings.local_sizes
+    delta_local_size = local_sizes.nonzero('delta')
+    residual_local_size = local_sizes.nonzero('residual')
 
     precision = from_dtype(precision_dtype)
     n_arraysize = int(n)
@@ -151,8 +325,20 @@ def newton_krylov_solver_factory(
         updates are reverted if no acceptable backtracking step is found.
         """
 
-        delta = shared_scratch[:n]
-        residual = shared_scratch[n: 2 * n]
+        # Selective allocation based on buffer_settings
+        if delta_shared:
+            delta = shared_scratch[delta_slice]
+        else:
+            delta = cuda.local.array(delta_local_size, precision)
+            for _i in range(delta_local_size):
+                delta[_i] = typed_zero
+
+        if residual_shared:
+            residual = shared_scratch[residual_slice]
+        else:
+            residual = cuda.local.array(residual_local_size, precision)
+            for _i in range(residual_local_size):
+                residual[_i] = typed_zero
 
         residual_function(
             stage_increment,
@@ -194,7 +380,7 @@ def newton_krylov_solver_factory(
             )
 
             # Linear solver shared memory starts after newton's scratch
-            lin_shared = shared_scratch[2 * n:]
+            lin_shared = shared_scratch[lin_solver_start:]
             krylov_iters_local[0] = int32(0)
             lin_status = linear_solver(
                 stage_increment,

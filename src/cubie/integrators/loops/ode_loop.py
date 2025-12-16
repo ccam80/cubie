@@ -452,6 +452,9 @@ class LoopBufferSettings(BufferSettings):
             total += self.error_size
         if not self.use_shared_counters:
             total += self.counters_size
+            # Add proposed_counters (2 elements when counters active)
+            if self.n_counters > 0:
+                total += 2
         if not self.use_shared_state_summary:
             total += self.state_summary_size
         if not self.use_shared_observable_summary:

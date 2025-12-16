@@ -128,6 +128,8 @@ class DIRKBufferSettings(BufferSettings):
         Memory location for stage accumulator buffer: 'local' or 'shared'.
     solver_scratch_location : str
         Memory location for Newton solver scratch: 'local' or 'shared'.
+    newton_buffer_settings : NewtonBufferSettings
+        Buffer settings for the Newton solver (for memory accounting).
     """
 
     n: int = attrs.field(validator=getype_validator(int, 1))
@@ -143,6 +145,9 @@ class DIRKBufferSettings(BufferSettings):
     )
     solver_scratch_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
+    )
+    newton_buffer_settings: Optional["NewtonBufferSettings"] = attrs.field(
+        default=None,
     )
 
     @property
@@ -172,7 +177,15 @@ class DIRKBufferSettings(BufferSettings):
 
     @property
     def solver_scratch_elements(self) -> int:
-        """Return the number of solver scratch elements (2 * n)."""
+        """Return the number of solver scratch elements.
+
+        When newton_buffer_settings is provided, returns its shared
+        memory requirement (which includes 2*n + linear solver).
+        Otherwise falls back to 2*n for backwards compatibility.
+        """
+        if self.newton_buffer_settings is not None:
+            return self.newton_buffer_settings.shared_memory_elements
+        # Fallback for backwards compatibility
         return 2 * self.n
 
     @property
@@ -472,10 +485,26 @@ class DIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+
+        # Create solver buffer settings for accurate memory accounting.
+        # DIRK solves each stage independently, so linear solver uses n.
+        from cubie.integrators.matrix_free_solvers.linear_solver import (
+            LinearSolverBufferSettings
+        )
+        from cubie.integrators.matrix_free_solvers.newton_krylov import (
+            NewtonBufferSettings
+        )
+        linear_buffer_settings = LinearSolverBufferSettings(n=n)
+        newton_buffer_settings = NewtonBufferSettings(
+            n=n,
+            linear_solver_buffer_settings=linear_buffer_settings,
+        )
+
         # Create buffer_settings - only pass locations if explicitly provided
         buffer_kwargs = {
             'n': n,
             'stage_count': tableau.stage_count,
+            'newton_buffer_settings': newton_buffer_settings,
         }
         if stage_increment_location is not None:
             buffer_kwargs['stage_increment_location'] = stage_increment_location
@@ -562,6 +591,14 @@ class DIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
+        # Extract newton_buffer_settings from buffer_settings for memory chain
+        newton_buffer_settings = config.buffer_settings.newton_buffer_settings
+        linear_buffer_settings = None
+        if newton_buffer_settings is not None:
+            linear_buffer_settings = (
+                newton_buffer_settings.linear_solver_buffer_settings
+            )
+
         linear_solver = linear_solver_factory(
             operator,
             n=n,
@@ -569,6 +606,7 @@ class DIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            buffer_settings=linear_buffer_settings,
         )
 
         newton_tolerance = config.newton_tolerance
@@ -585,6 +623,7 @@ class DIRKStep(ODEImplicitStep):
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
             precision=precision,
+            buffer_settings=newton_buffer_settings,
         )
 
         return nonlinear_solver

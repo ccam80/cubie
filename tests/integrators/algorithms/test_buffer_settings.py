@@ -180,9 +180,32 @@ class TestDIRKBufferSettings:
         assert settings.stage_base_aliases_accumulator is False
 
     def test_solver_scratch_elements(self):
-        """Solver scratch should be 2 * n."""
+        """Solver scratch should be 2 * n without newton_buffer_settings."""
         settings = DIRKBufferSettings(n=5, stage_count=3)
         assert settings.solver_scratch_elements == 10
+
+    def test_solver_scratch_with_newton_buffer_settings(self):
+        """Solver scratch should use newton_buffer_settings when provided."""
+        from cubie.integrators.matrix_free_solvers.newton_krylov import (
+            NewtonBufferSettings
+        )
+        from cubie.integrators.matrix_free_solvers.linear_solver import (
+            LinearSolverBufferSettings
+        )
+        linear_settings = LinearSolverBufferSettings(n=5)
+        newton_settings = NewtonBufferSettings(
+            n=5,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        settings = DIRKBufferSettings(
+            n=5,
+            stage_count=3,
+            newton_buffer_settings=newton_settings,
+        )
+        # Should use newton_buffer_settings.shared_memory_elements
+        assert settings.solver_scratch_elements == (
+            newton_settings.shared_memory_elements
+        )
 
     def test_shared_memory_elements_multistage(self):
         """Shared memory should sum sizes of shared buffers."""
@@ -253,10 +276,34 @@ class TestFIRKBufferSettings:
         assert settings.all_stages_n == 12
 
     def test_solver_scratch_elements(self):
-        """Solver scratch should be 2 * all_stages_n."""
+        """Solver scratch should be 2 * all_stages_n without buffer settings."""
         settings = FIRKBufferSettings(n=3, stage_count=4)
         # 2 * (4 * 3) = 24
         assert settings.solver_scratch_elements == 24
+
+    def test_solver_scratch_with_newton_buffer_settings(self):
+        """Solver scratch should use newton_buffer_settings when provided."""
+        from cubie.integrators.matrix_free_solvers.newton_krylov import (
+            NewtonBufferSettings
+        )
+        from cubie.integrators.matrix_free_solvers.linear_solver import (
+            LinearSolverBufferSettings
+        )
+        all_stages_n = 4 * 3  # stage_count * n
+        linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            newton_buffer_settings=newton_settings,
+        )
+        # Should use newton_buffer_settings.shared_memory_elements
+        assert settings.solver_scratch_elements == (
+            newton_settings.shared_memory_elements
+        )
 
     def test_stage_driver_stack_elements(self):
         """Stage driver stack should be stage_count * n_drivers."""
