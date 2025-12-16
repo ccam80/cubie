@@ -559,19 +559,12 @@ class FIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-
-        config = self.compile_settings
-        stage_driver_total = config.stage_count * config.n_drivers
-        return (
-            self.solver_shared_elements
-            + stage_driver_total
-            + config.all_stages_n
-        )
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return self.compile_settings.n
+        return self.compile_settings.buffer_settings.local_memory_elements
 
     @property
     def persistent_local_required(self) -> int:

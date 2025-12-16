@@ -1063,19 +1063,12 @@ class DIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-
-        tableau = self.tableau
-        stage_count = tableau.stage_count
-        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return (accumulator_span
-            + self.solver_shared_elements
-            + self.cached_auxiliary_count
-        )
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return 2 * self.compile_settings.n
+        return self.compile_settings.buffer_settings.local_memory_elements
 
     @property
     def persistent_local_required(self) -> int:
