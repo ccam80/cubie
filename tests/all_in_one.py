@@ -50,7 +50,7 @@ algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
-controller_type = 'fixed'  # 'fixed' or 'pid'
+controller_type = 'pid'  # 'fixed' or 'pid'
 
 # -------------------------------------------------------------------------
 # Precision Configuration
@@ -95,11 +95,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.50)
+duration = precision(0.20)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.25)
+dt_save = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -2534,21 +2534,7 @@ def firk_step_inline_factory(
                     for idx in range(n):
                         error[idx] = stage_state[idx]
 
-            # Observables still needed for intermediate stage outputs
-            # dxdt_fn no longer needed since accumulation uses stage_increment
-            do_more_work = (has_error and accumulates_error) or accumulates_output
-
-            if do_more_work:
-                observables_function(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_time,
-                )
-
         # Kahan summation to reduce floating point errors
-        # (stage_increment contains h*k, so no dt_scalar needed)
         if accumulates_output:
             for idx in range(n):
                 solution_acc = typed_zero
@@ -2563,7 +2549,6 @@ def firk_step_inline_factory(
                 proposed_state[idx] = state[idx] + solution_acc
 
         if has_error and accumulates_error:
-            # (stage_increment contains h*k, so no dt_scalar needed)
             for idx in range(n):
                 error_acc = typed_zero
                 compensation = typed_zero

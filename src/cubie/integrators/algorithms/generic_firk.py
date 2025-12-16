@@ -795,23 +795,7 @@ class FIRKStep(ODEImplicitStep):
                         for idx in range(n):
                             error[idx] = stage_state[idx]
 
-                # Observables still needed for intermediate stage outputs
-                # dxdt_fn no longer needed since accumulation uses stage_increment
-                do_more_work = ((has_error and accumulates_error) or
-                                accumulates_output)
-
-                if do_more_work:
-                    observables_function(
-                        stage_state,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_time,
-                    )
-
-
             # Kahan summation to reduce floating point errors
-            # (stage_increment contains h*k, so no dt_scalar needed)
             # see https://en.wikipedia.org/wiki/Kahan_summation_algorithm
             if accumulates_output:
                 for idx in range(n):
@@ -828,7 +812,6 @@ class FIRKStep(ODEImplicitStep):
 
             if has_error and accumulates_error:
                 # Standard accumulation path for error
-                # (stage_increment contains h*k, so no dt_scalar needed)
                 for idx in range(n):
                     error_acc = typed_zero
                     for stage_idx in range(stage_count):

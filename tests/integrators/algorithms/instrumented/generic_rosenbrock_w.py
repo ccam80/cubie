@@ -484,6 +484,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             base_state_placeholder = shared[int32(0):int32(0)]
             initial_linear_slot = int32(0)
+            krylov_iters = cuda.local.array(0, dtype=int32)
             solver_ret = linear_solver(
                 state,
                 parameters,
@@ -501,6 +502,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 linear_residuals,
                 linear_squared_norms,
                 linear_preconditioned_vectors,
+                krylov_iters,
             )
             status_code |= solver_ret
 

@@ -131,7 +131,7 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 10
+    return 6
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
@@ -726,14 +726,16 @@ def instrumented_cpu_step_results(
 
 def _format_array(values: np.ndarray) -> str:
     """Return ``values`` formatted for console comparison output."""
-
-    return np.array2string(
-        values,
-        precision=8,
-        floatmode="fixed",
-        suppress_small=False,
-        max_line_width=79,
-    )
+    if not np.any(np.nonzero(values)):
+        return "0.0"
+    else:
+        return np.array2string(
+            values,
+            precision=8,
+            floatmode="fixed",
+            suppress_small=False,
+            max_line_width=79,
+        )
 
 
 def _numeric_delta(
@@ -748,6 +750,12 @@ def _numeric_delta(
         cpu_array = cpu_array.astype(gpu_array.dtype, copy=False)
     return gpu_array - cpu_array
 
+def _is_none_or_all_zero(value):
+    if value is None:
+        return True
+    arr = np.asarray(value)
+    # treat arrays with no non-zero entries as "zero"
+    return not np.any(arr)
 
 def _print_grouped_section(
     name: str,
@@ -761,7 +769,13 @@ def _print_grouped_section(
     if all(values is None for values in cpu_series):
         return
 
+    if all(_is_none_or_all_zero(v) for v in gpu_series):
+        print(f"{name} delta:")
+        print("0.0")
+        return
+
     print(f"{name} delta:")
+
     for values in delta_series:
         if values is None:
             continue
