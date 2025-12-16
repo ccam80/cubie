@@ -2525,7 +2525,8 @@ def firk_step_inline_factory(
                     for idx in range(n):
                         error[idx] = stage_state[idx]
 
-            # Evaluate f at each stage for accumulation
+            # Observables still needed for intermediate stage outputs
+            # dxdt_fn no longer needed since accumulation uses stage_increment
             do_more_work = (has_error and accumulates_error) or accumulates_output
 
             if do_more_work:
@@ -2537,44 +2538,34 @@ def firk_step_inline_factory(
                     stage_time,
                 )
 
-                stage_rhs = stage_rhs_flat[
-                    stage_idx * n:(stage_idx + int32(1)) * n
-                ]
-                dxdt_fn(
-                    stage_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    stage_time,
-                )
-
-        # Use Kahan summation algorithm to reduce floating point errors
+        # Kahan summation to reduce floating point errors
+        # (stage_increment contains h*k, so no dt_scalar needed)
         if accumulates_output:
             for idx in range(n):
                 solution_acc = typed_zero
                 compensation = typed_zero
                 for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
-                    weighted = solution_weights[stage_idx] * rhs_value
+                    increment_value = stage_increment[stage_idx * n + idx]
+                    weighted = solution_weights[stage_idx] * increment_value
                     term = weighted - compensation
                     temp = solution_acc + term
                     compensation = (temp - solution_acc) - term
                     solution_acc = temp
-                proposed_state[idx] = state[idx] + solution_acc * dt_scalar
+                proposed_state[idx] = state[idx] + solution_acc
 
         if has_error and accumulates_error:
+            # (stage_increment contains h*k, so no dt_scalar needed)
             for idx in range(n):
                 error_acc = typed_zero
                 compensation = typed_zero
                 for stage_idx in range(stage_count):
-                    rhs_value = stage_rhs_flat[stage_idx * n + idx]
-                    weighted = error_weights[stage_idx] * rhs_value
+                    increment_value = stage_increment[stage_idx * n + idx]
+                    weighted = error_weights[stage_idx] * increment_value
                     term = weighted - compensation
                     temp = error_acc + term
                     compensation = (temp - error_acc) - term
                     error_acc = temp
-                error[idx] = dt_scalar * error_acc
+                error[idx] = error_acc
 
         if not ends_at_one:
             if has_driver_function:
