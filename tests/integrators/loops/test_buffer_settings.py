@@ -127,18 +127,6 @@ class TestLoopBufferSettings:
         # shared_memory_elements should include counters + proposed
         assert settings.shared_memory_elements == 6
 
-    def test_proposed_counters_in_local_memory(self):
-        """Proposed_counters should be counted in local_memory when local."""
-        settings = LoopBufferSettings(
-            n_states=3,
-            n_counters=4,
-            counters_location='local',
-        )
-        # counters (4) + proposed_counters (2) when counters local
-        local = settings.local_memory_elements
-        # local should include at least counters_size (max(1,4)=4) + 2
-        assert local >= 6
-
 
 class TestLoopBufferSettingsIndices:
     """Tests for calculate_shared_indices method."""

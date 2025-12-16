@@ -51,6 +51,8 @@ class NewtonSliceIndices(SliceIndices):
         Slice covering the delta buffer (empty if local).
     residual : slice
         Slice covering the residual buffer (empty if local).
+    residual_temp : slice
+        Slice covering the residual_temp buffer (empty if local).
     local_end : int
         Offset of the end of Newton-managed shared memory.
     lin_solver_start : int
@@ -59,6 +61,7 @@ class NewtonSliceIndices(SliceIndices):
 
     delta: slice = attrs.field()
     residual: slice = attrs.field()
+    residual_temp: slice = attrs.field()
     local_end: int = attrs.field()
     lin_solver_start: int = attrs.field()
 
@@ -67,9 +70,8 @@ class NewtonSliceIndices(SliceIndices):
 class NewtonBufferSettings(BufferSettings):
     """Configuration for Newton solver buffer sizes and locations.
 
-    Controls memory locations for delta and residual buffers used
-    during Newton-Krylov iteration. residual_temp and krylov_iters
-    are always local.
+    Controls memory locations for delta, residual, and residual_temp buffers
+    used during Newton-Krylov iteration. krylov_iters is always local.
 
     Attributes
     ----------
@@ -79,6 +81,8 @@ class NewtonBufferSettings(BufferSettings):
         Memory location for delta buffer: 'local' or 'shared'.
     residual_location : str
         Memory location for residual buffer: 'local' or 'shared'.
+    residual_temp_location : str
+        Memory location for residual_temp buffer: 'local' or 'shared'.
     linear_solver_buffer_settings : LinearSolverBufferSettings
         Buffer settings for the nested linear solver.
     """
@@ -89,6 +93,9 @@ class NewtonBufferSettings(BufferSettings):
     )
     residual_location: str = attrs.field(
         default='shared', validator=validators.in_(["local", "shared"])
+    )
+    residual_temp_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
     )
     linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
         attrs.field(default=None)
@@ -105,12 +112,19 @@ class NewtonBufferSettings(BufferSettings):
         return self.residual_location == 'shared'
 
     @property
+    def use_shared_residual_temp(self) -> bool:
+        """Return True if residual_temp buffer uses shared memory."""
+        return self.residual_temp_location == 'shared'
+
+    @property
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required."""
         total = 0
         if self.use_shared_delta:
             total += self.n
         if self.use_shared_residual:
+            total += self.n
+        if self.use_shared_residual_temp:
             total += self.n
         # Add linear solver shared memory
         if self.linear_solver_buffer_settings is not None:
@@ -125,8 +139,9 @@ class NewtonBufferSettings(BufferSettings):
             total += self.n
         if not self.use_shared_residual:
             total += self.n
-        # residual_temp and krylov_iters always local
-        total += self.n  # residual_temp
+        # residual_temp conditional on location
+        if not self.use_shared_residual_temp:
+            total += self.n
         total += 1       # krylov_iters (int32, but counted as 1 element)
         # Add linear solver local memory
         if self.linear_solver_buffer_settings is not None:
@@ -159,9 +174,16 @@ class NewtonBufferSettings(BufferSettings):
         else:
             residual_slice = slice(0, 0)
 
+        if self.use_shared_residual_temp:
+            residual_temp_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            residual_temp_slice = slice(0, 0)
+
         return NewtonSliceIndices(
             delta=delta_slice,
             residual=residual_slice,
+            residual_temp=residual_temp_slice,
             local_end=ptr,
             lin_solver_start=ptr,
         )
@@ -243,6 +265,9 @@ def newton_krylov_solver_factory(
     local_sizes = buffer_settings.local_sizes
     delta_local_size = local_sizes.nonzero('delta')
     residual_local_size = local_sizes.nonzero('residual')
+    residual_temp_shared = buffer_settings.use_shared_residual_temp
+    residual_temp_slice = shared_indices.residual_temp
+    residual_temp_local_size = local_sizes.nonzero('residual_temp')
 
     precision = from_dtype(precision_dtype)
     n_arraysize = int(n)
@@ -420,7 +445,12 @@ def newton_krylov_solver_factory(
                 for i in range(n):
                     stage_increment[i] += delta_scale * delta[i]
                 scale_applied = selp(active_bt, scale, scale_applied)
-                residual_temp = cuda.local.array(n_arraysize, precision)
+                if residual_temp_shared:
+                    residual_temp = shared_scratch[residual_temp_slice]
+                else:
+                    residual_temp = cuda.local.array(
+                        residual_temp_local_size, precision
+                    )
 
                 residual_function(
                     stage_increment,

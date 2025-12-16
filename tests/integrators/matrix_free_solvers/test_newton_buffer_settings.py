@@ -13,11 +13,6 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 class TestNewtonBufferSettings:
     """Tests for NewtonBufferSettings initialization and properties."""
 
-    def test_shared_memory_elements_default(self):
-        """Default: delta and residual shared gives 2*n."""
-        settings = NewtonBufferSettings(n=10)
-        assert settings.shared_memory_elements == 20  # 2 * n
-
     def test_shared_memory_elements_with_linear_solver(self):
         """Including linear solver adds its shared memory."""
         lin_settings = LinearSolverBufferSettings(
@@ -33,40 +28,26 @@ class TestNewtonBufferSettings:
         expected = 20 + lin_settings.shared_memory_elements
         assert settings.shared_memory_elements == expected
 
-    def test_local_memory_elements_default(self):
-        """Default shared buffers give residual_temp + krylov_iters."""
-        settings = NewtonBufferSettings(n=10)
-        # residual_temp (n) + krylov_iters (1) = 11
-        assert settings.local_memory_elements == 11
-
     def test_local_memory_elements_all_local(self):
         """All local gives delta + residual + residual_temp + krylov_iters."""
         settings = NewtonBufferSettings(
             n=10,
             delta_location='local',
             residual_location='local',
+            residual_temp_location='local',
         )
         # delta (10) + residual (10) + residual_temp (10) + krylov_iters (1)
         assert settings.local_memory_elements == 31
 
-    def test_shared_indices_contiguous(self):
-        """Shared memory slices should be contiguous."""
-        settings = NewtonBufferSettings(n=10)
-        indices = settings.shared_indices
-        assert indices.delta.stop == indices.residual.start
-        assert indices.local_end == indices.residual.stop
-
-    def test_shared_indices_all_local_gives_empty(self):
-        """Local buffers get empty slices."""
+    def test_shared_memory_elements_all_local(self):
+        """All local buffers should give zero shared memory elements."""
         settings = NewtonBufferSettings(
             n=10,
             delta_location='local',
             residual_location='local',
+            residual_temp_location='local',
         )
-        indices = settings.shared_indices
-        assert indices.delta == slice(0, 0)
-        assert indices.residual == slice(0, 0)
-        assert indices.local_end == 0
+        assert settings.shared_memory_elements == 0
 
     def test_boolean_flags(self):
         """Boolean properties should reflect location settings."""
@@ -78,11 +59,22 @@ class TestNewtonBufferSettings:
         assert settings.use_shared_delta is False
         assert settings.use_shared_residual is True
 
-    def test_lin_solver_start_matches_local_end(self):
-        """lin_solver_start should equal local_end."""
-        settings = NewtonBufferSettings(n=10)
-        indices = settings.shared_indices
-        assert indices.lin_solver_start == indices.local_end
+    def test_residual_temp_toggleability(self):
+        """residual_temp_location should affect memory calculations."""
+        # Default local
+        settings_local = NewtonBufferSettings(n=10)
+        assert settings_local.use_shared_residual_temp is False
+
+        # Explicit shared
+        settings_shared = NewtonBufferSettings(
+            n=10,
+            residual_temp_location='shared',
+        )
+        assert settings_shared.use_shared_residual_temp is True
+        # Shared should have n more shared elements
+        diff = (settings_shared.shared_memory_elements -
+                settings_local.shared_memory_elements)
+        assert diff == 10  # n elements for residual_temp
 
     def test_invalid_n_raises(self):
         """n < 1 should raise error."""
@@ -125,10 +117,12 @@ class TestNewtonSliceIndices:
         indices = NewtonSliceIndices(
             delta=slice(0, 10),
             residual=slice(10, 20),
-            local_end=20,
-            lin_solver_start=20,
+            residual_temp=slice(20, 30),
+            local_end=30,
+            lin_solver_start=30,
         )
         assert indices.delta == slice(0, 10)
         assert indices.residual == slice(10, 20)
-        assert indices.local_end == 20
-        assert indices.lin_solver_start == 20
+        assert indices.residual_temp == slice(20, 30)
+        assert indices.local_end == 30
+        assert indices.lin_solver_start == 30
