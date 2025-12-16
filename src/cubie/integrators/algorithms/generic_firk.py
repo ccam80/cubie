@@ -885,14 +885,7 @@ class FIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        #TODO: When using the shared buffer settings, invalid address
-        config = self.compile_settings
-        stage_driver_total = self.stage_count * config.n_drivers
-        return (
-            self.solver_shared_elements
-            + stage_driver_total
-            + config.all_stages_n
-        )
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:
@@ -904,7 +897,6 @@ class FIRKStep(ODEImplicitStep):
     @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
-
         return 0
 
     @property

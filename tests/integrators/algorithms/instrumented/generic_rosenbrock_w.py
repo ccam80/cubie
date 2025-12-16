@@ -723,13 +723,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-
-        stage_count = max(self.tableau.stage_count, 1)
-        state_len = self.compile_settings.n
-        stage_buffer = stage_count * state_len
-        shared_vectors = 3 * state_len
-        cached_auxiliary_count = self.cached_auxiliary_count
-        return stage_buffer + shared_vectors + cached_auxiliary_count
+        return self.compile_settings.buffer_settings.shared_memory_elements
 
     @property
     def local_scratch_required(self) -> int:
