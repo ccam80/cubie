@@ -734,7 +734,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
-        return 0
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def is_implicit(self) -> bool:

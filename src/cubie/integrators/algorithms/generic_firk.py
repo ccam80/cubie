@@ -268,6 +268,15 @@ class FIRKBufferSettings(BufferSettings):
             local_end=ptr,
         )
 
+    @property
+    def persistent_local_elements(self) -> int:
+        """Return persistent local memory elements required.
+
+        FIRK methods do not use FSAL caching, so no persistent
+        local memory is required.
+        """
+        return 0
+
 
 # Buffer location parameters for FIRK algorithms
 ALL_FIRK_BUFFER_LOCATION_PARAMETERS = {
@@ -897,7 +906,8 @@ class FIRKStep(ODEImplicitStep):
     @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
-        return 0
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
 
     @property
     def stage_count(self) -> int:

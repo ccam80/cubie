@@ -112,3 +112,13 @@ class BufferSettings(ABC):
         in shared memory. Local buffers receive empty slices.
         """
         pass
+
+    @property
+    @abstractmethod
+    def persistent_local_elements(self) -> int:
+        """Return persistent local memory elements required.
+
+        Persistent local memory survives between step invocations,
+        used for FSAL (First Same As Last) caching optimization.
+        """
+        pass
