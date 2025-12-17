@@ -472,3 +472,114 @@ class TestRosenbrockBufferSettings:
                 stage_count=4,
                 stage_rhs_location='invalid'
             )
+
+    def test_shared_memory_elements_includes_linear_solver(self):
+        """Shared memory should include linear solver's shared elements."""
+        linear_settings = LinearSolverBufferSettings(
+            n=3,
+            preconditioned_vec_location='shared',
+            temp_location='shared',
+        )
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='shared',
+            cached_auxiliaries_location='shared',
+            linear_solver_buffer_settings=linear_settings,
+        )
+        # rhs (3) + store (12) + aux (10) + linear_solver (3+3=6) = 31
+        assert settings.shared_memory_elements == 31
+
+    def test_local_memory_elements_includes_linear_solver(self):
+        """Local memory should include linear solver's local elements."""
+        linear_settings = LinearSolverBufferSettings(
+            n=3,
+            preconditioned_vec_location='local',
+            temp_location='local',
+        )
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='local',
+            stage_store_location='local',
+            cached_auxiliaries_location='local',
+            linear_solver_buffer_settings=linear_settings,
+        )
+        # rhs (3) + store (12) + aux (10) + linear_solver (3+3=6) = 31
+        assert settings.local_memory_elements == 31
+
+    def test_shared_indices_includes_linear_solver_slice(self):
+        """shared_indices should include linear_solver slice."""
+        linear_settings = LinearSolverBufferSettings(
+            n=3,
+            preconditioned_vec_location='shared',
+            temp_location='shared',
+        )
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='shared',
+            cached_auxiliaries_location='shared',
+            linear_solver_buffer_settings=linear_settings,
+        )
+        indices = settings.shared_indices
+
+        assert indices.stage_rhs == slice(0, 3)
+        assert indices.stage_store == slice(3, 15)
+        assert indices.cached_auxiliaries == slice(15, 25)
+        # linear_solver: 6 elements (3 precond + 3 temp)
+        assert indices.linear_solver == slice(25, 31)
+        assert indices.local_end == 31
+
+    def test_shared_indices_linear_solver_slice_empty_when_local(self):
+        """linear_solver slice should be empty when solver uses local."""
+        linear_settings = LinearSolverBufferSettings(
+            n=3,
+            preconditioned_vec_location='local',
+            temp_location='local',
+        )
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='shared',
+            cached_auxiliaries_location='shared',
+            linear_solver_buffer_settings=linear_settings,
+        )
+        indices = settings.shared_indices
+
+        # linear_solver uses local, so slice is empty
+        assert indices.linear_solver == slice(0, 0)
+        # local_end is 25 (rhs=3 + store=12 + aux=10)
+        assert indices.local_end == 25
+
+    def test_memory_accounting_no_double_counting(self):
+        """Memory accounting should not double-count between shared/local."""
+        linear_settings = LinearSolverBufferSettings(
+            n=3,
+            preconditioned_vec_location='shared',
+            temp_location='local',
+        )
+        settings = RosenbrockBufferSettings(
+            n=3,
+            stage_count=4,
+            cached_auxiliary_count=10,
+            stage_rhs_location='shared',
+            stage_store_location='local',
+            cached_auxiliaries_location='shared',
+            linear_solver_buffer_settings=linear_settings,
+        )
+        # shared: rhs (3) + aux (10) + linear precond (3) = 16
+        # local: store (12) + linear temp (3) = 15
+        assert settings.shared_memory_elements == 16
+        assert settings.local_memory_elements == 15
+        # Total should equal all elements counted once
+        total_elements = 3 + 12 + 10 + 3 + 3  # rhs + store + aux + precond + temp
+        assert (settings.shared_memory_elements +
+                settings.local_memory_elements) == total_elements

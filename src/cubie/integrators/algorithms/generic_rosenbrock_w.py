@@ -89,6 +89,8 @@ class RosenbrockSliceIndices(SliceIndices):
         Slice covering the stage store buffer.
     cached_auxiliaries : slice
         Slice covering the cached auxiliaries buffer.
+    linear_solver : slice
+        Slice covering the linear solver's shared memory region.
     local_end : int
         Offset of the end of algorithm-managed shared memory.
     """
@@ -96,6 +98,7 @@ class RosenbrockSliceIndices(SliceIndices):
     stage_rhs: slice = attrs.field()
     stage_store: slice = attrs.field()
     cached_auxiliaries: slice = attrs.field()
+    linear_solver: slice = attrs.field()
     local_end: int = attrs.field()
 
 
@@ -181,8 +184,8 @@ class RosenbrockBufferSettings(BufferSettings):
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required.
 
-        Includes stage_rhs, stage_store, and cached_auxiliaries
-        if configured for shared memory.
+        Includes stage_rhs, stage_store, cached_auxiliaries,
+        and linear solver buffers if configured for shared memory.
         """
         total = 0
         if self.use_shared_stage_rhs:
@@ -191,13 +194,16 @@ class RosenbrockBufferSettings(BufferSettings):
             total += self.stage_store_elements
         if self.use_shared_cached_auxiliaries:
             total += self.cached_auxiliary_count
+        if self.linear_solver_buffer_settings is not None:
+            total += self.linear_solver_buffer_settings.shared_memory_elements
         return total
 
     @property
     def local_memory_elements(self) -> int:
         """Return total local memory elements required.
 
-        Includes buffers configured with location='local'.
+        Includes buffers configured with location='local' and
+        linear solver local buffers.
         """
         total = 0
         if not self.use_shared_stage_rhs:
@@ -206,6 +212,8 @@ class RosenbrockBufferSettings(BufferSettings):
             total += self.stage_store_elements
         if not self.use_shared_cached_auxiliaries:
             total += self.cached_auxiliary_count
+        if self.linear_solver_buffer_settings is not None:
+            total += self.linear_solver_buffer_settings.local_memory_elements
         return total
 
     @property
@@ -250,10 +258,21 @@ class RosenbrockBufferSettings(BufferSettings):
         else:
             cached_auxiliaries_slice = slice(0, 0)
 
+        if (self.linear_solver_buffer_settings is not None and
+                self.linear_solver_buffer_settings.shared_memory_elements > 0):
+            lin_solver_shared = (
+                self.linear_solver_buffer_settings.shared_memory_elements
+            )
+            linear_solver_slice = slice(ptr, ptr + lin_solver_shared)
+            ptr += lin_solver_shared
+        else:
+            linear_solver_slice = slice(0, 0)
+
         return RosenbrockSliceIndices(
             stage_rhs=stage_rhs_slice,
             stage_store=stage_store_slice,
             cached_auxiliaries=cached_auxiliaries_slice,
+            linear_solver=linear_solver_slice,
             local_end=ptr,
         )
 
