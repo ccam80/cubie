@@ -31,6 +31,8 @@ class NewtonLocalSizes(LocalSizes):
         Residual buffer size (n elements).
     residual_temp : int
         Temporary residual buffer size (n elements, always local).
+    stage_base_bt : int
+        Backtracking state backup buffer size (n elements).
     krylov_iters : int
         Krylov iteration counter (1 element, always local).
     """
@@ -38,6 +40,7 @@ class NewtonLocalSizes(LocalSizes):
     delta: int = attrs.field(validator=getype_validator(int, 0))
     residual: int = attrs.field(validator=getype_validator(int, 0))
     residual_temp: int = attrs.field(validator=getype_validator(int, 0))
+    stage_base_bt: int = attrs.field(validator=getype_validator(int, 0))
     krylov_iters: int = attrs.field(validator=getype_validator(int, 0))
 
 
@@ -53,6 +56,8 @@ class NewtonSliceIndices(SliceIndices):
         Slice covering the residual buffer (empty if local).
     residual_temp : slice
         Slice covering the residual_temp buffer (empty if local).
+    stage_base_bt : slice
+        Slice covering the backtracking state backup buffer (empty if local).
     local_end : int
         Offset of the end of Newton-managed shared memory.
     lin_solver_start : int
@@ -62,6 +67,7 @@ class NewtonSliceIndices(SliceIndices):
     delta: slice = attrs.field()
     residual: slice = attrs.field()
     residual_temp: slice = attrs.field()
+    stage_base_bt: slice = attrs.field()
     local_end: int = attrs.field()
     lin_solver_start: int = attrs.field()
 
@@ -70,8 +76,9 @@ class NewtonSliceIndices(SliceIndices):
 class NewtonBufferSettings(BufferSettings):
     """Configuration for Newton solver buffer sizes and locations.
 
-    Controls memory locations for delta, residual, and residual_temp buffers
-    used during Newton-Krylov iteration. krylov_iters is always local.
+    Controls memory locations for delta, residual, residual_temp, and
+    stage_base_bt buffers used during Newton-Krylov iteration.
+    krylov_iters is always local.
 
     Attributes
     ----------
@@ -83,6 +90,8 @@ class NewtonBufferSettings(BufferSettings):
         Memory location for residual buffer: 'local' or 'shared'.
     residual_temp_location : str
         Memory location for residual_temp buffer: 'local' or 'shared'.
+    stage_base_bt_location : str
+        Memory location for backtracking state backup: 'local' or 'shared'.
     linear_solver_buffer_settings : LinearSolverBufferSettings
         Buffer settings for the nested linear solver.
     """
@@ -95,6 +104,9 @@ class NewtonBufferSettings(BufferSettings):
         default='shared', validator=validators.in_(["local", "shared"])
     )
     residual_temp_location: str = attrs.field(
+        default='local', validator=validators.in_(["local", "shared"])
+    )
+    stage_base_bt_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
     linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
@@ -117,6 +129,11 @@ class NewtonBufferSettings(BufferSettings):
         return self.residual_temp_location == 'shared'
 
     @property
+    def use_shared_stage_base_bt(self) -> bool:
+        """Return True if stage_base_bt buffer uses shared memory."""
+        return self.stage_base_bt_location == 'shared'
+
+    @property
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required."""
         total = 0
@@ -125,6 +142,8 @@ class NewtonBufferSettings(BufferSettings):
         if self.use_shared_residual:
             total += self.n
         if self.use_shared_residual_temp:
+            total += self.n
+        if self.use_shared_stage_base_bt:
             total += self.n
         # Add linear solver shared memory
         if self.linear_solver_buffer_settings is not None:
@@ -142,6 +161,8 @@ class NewtonBufferSettings(BufferSettings):
         # residual_temp conditional on location
         if not self.use_shared_residual_temp:
             total += self.n
+        if not self.use_shared_stage_base_bt:
+            total += self.n
         total += 1       # krylov_iters (int32, but counted as 1 element)
         # Add linear solver local memory
         if self.linear_solver_buffer_settings is not None:
@@ -155,6 +176,7 @@ class NewtonBufferSettings(BufferSettings):
             delta=self.n,
             residual=self.n,
             residual_temp=self.n,
+            stage_base_bt=self.n,
             krylov_iters=1,
         )
 
@@ -180,10 +202,17 @@ class NewtonBufferSettings(BufferSettings):
         else:
             residual_temp_slice = slice(0, 0)
 
+        if self.use_shared_stage_base_bt:
+            stage_base_bt_slice = slice(ptr, ptr + self.n)
+            ptr += self.n
+        else:
+            stage_base_bt_slice = slice(0, 0)
+
         return NewtonSliceIndices(
             delta=delta_slice,
             residual=residual_slice,
             residual_temp=residual_temp_slice,
+            stage_base_bt=stage_base_bt_slice,
             local_end=ptr,
             lin_solver_start=ptr,
         )
@@ -268,6 +297,9 @@ def newton_krylov_solver_factory(
     residual_temp_shared = buffer_settings.use_shared_residual_temp
     residual_temp_slice = shared_indices.residual_temp
     residual_temp_local_size = local_sizes.nonzero('residual_temp')
+    stage_base_bt_shared = buffer_settings.use_shared_stage_base_bt
+    stage_base_bt_slice = shared_indices.stage_base_bt
+    stage_base_bt_local_size = local_sizes.nonzero('stage_base_bt')
 
     precision = from_dtype(precision_dtype)
     tol_squared = precision(tolerance * tolerance)
@@ -436,7 +468,11 @@ def newton_krylov_solver_factory(
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
-            stage_base_bt = cuda.local.array(n_arraysize, precision)
+            if stage_base_bt_shared:
+                stage_base_bt = shared_scratch[stage_base_bt_slice]
+            else:
+                stage_base_bt = cuda.local.array(stage_base_bt_local_size,
+                                                 precision)
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
             found_step = False
