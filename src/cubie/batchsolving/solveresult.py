@@ -233,11 +233,7 @@ class SolveResult:
                 'observables': solver.observables,
                 'state_summaries': solver.state_summaries,
                 'observable_summaries': solver.observable_summaries,
-                'iteration_counters': (
-                    solver.iteration_counters
-                    if solver.iteration_counters is not None
-                    else np.array([])
-                ),
+                'iteration_counters': solver.iteration_counters,
                 'status_codes': solver.status_codes,
             }
         active_outputs = solver.active_output_arrays
@@ -248,8 +244,8 @@ class SolveResult:
         solve_settings = solver.solve_info
 
         # Retrieve status codes for non-raw results
-        status_codes = solver.status_codes if results_type != 'raw' else None
-
+        status_codes = solver.status_codes
+        iteration_counters = solver.iteration_counters
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
@@ -307,11 +303,7 @@ class SolveResult:
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
-            iteration_counters=(
-                solver.iteration_counters
-                if solver.iteration_counters is not None
-                else np.array([])
-            ),
+            iteration_counters=iteration_counters,
             status_codes=status_codes,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
