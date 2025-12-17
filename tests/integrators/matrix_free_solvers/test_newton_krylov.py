@@ -35,7 +35,8 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     residual, operator, base_state = placeholder_system
     n = 1
     linear_solver = linear_solver_factory(
-        operator, n, tolerance=1e-8, max_iters=32
+        operator, n, tolerance=1e-8, max_iters=32,
+        precision=precision,
     )
     solver = newton_krylov_solver_factory(
         residual_function=residual,
@@ -278,7 +279,9 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+    def zero_operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
         # Linear operator always zero => inner solver cannot make progress
         out[0] = precision(0.0)
 
@@ -287,6 +290,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     linear_solver = linear_solver_factory(
         zero_operator,
         n,
+        precision=precision,
         correction_type="minimal_residual",
         tolerance=1e-20,
         max_iters=8,

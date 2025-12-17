@@ -622,6 +622,7 @@ class DIRKStep(ODEImplicitStep):
         linear_solver = linear_solver_factory(
             operator,
             n=n,
+            precision=precision,
             preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
@@ -812,7 +813,7 @@ class DIRKStep(ODEImplicitStep):
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
-                for _i in range(stage_increment_local_size):
+                for _i in range(int32(stage_increment_local_size)):
                     stage_increment[_i] = numba_precision(0.0)
 
             if accumulator_shared:
@@ -820,7 +821,7 @@ class DIRKStep(ODEImplicitStep):
             else:
                 stage_accumulator = cuda.local.array(accumulator_local_size,
                                                      precision)
-                for _i in range(accumulator_local_size):
+                for _i in range(int32(accumulator_local_size)):
                     stage_accumulator[_i] = numba_precision(0.0)
 
             # solver_scratch always from shared memory
@@ -836,7 +837,7 @@ class DIRKStep(ODEImplicitStep):
             else:
                 # Separate local allocation
                 stage_base = cuda.local.array(stage_base_local_size, precision)
-                for _i in range(stage_base_local_size):
+                for _i in range(int32(stage_base_local_size)):
                     stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #

@@ -544,6 +544,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         )
         linear_solver = linear_solver_cached_factory(
             linear_operator,
+            precision=precision,
             n=n,
             preconditioner=preconditioner,
             correction_type=correction_type,

@@ -269,6 +269,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         linear_solver = linear_solver_factory(operator,
                                               n=n,
+                                              precision=self.precision,
                                               preconditioner=preconditioner,
                                               correction_type=correction_type,
                                               tolerance=krylov_tolerance,
@@ -287,6 +288,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             max_iters=max_newton_iters,
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
+            precision=self.precision,
         )
         return nonlinear_solver
 

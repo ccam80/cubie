@@ -154,11 +154,11 @@ def inst_linear_solver_factory(
 def inst_linear_solver_cached_factory(
     operator_apply: Callable,
     n: int,
+    precision: PrecisionDType,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
 ) -> Callable:
     """Create a cached instrumented steepest-descent or MR solver."""
 

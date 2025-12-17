@@ -139,6 +139,7 @@ def test_linear_solver_symbolic(
     solver = linear_solver_factory(
         operator,
         n,
+        precision=precision,
         preconditioner=precond,
         correction_type=correction_type,
         tolerance=1e-8,
@@ -174,6 +175,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     solver = linear_solver_factory(
         zero_operator,
         n,
+        precision=precision,
         correction_type="minimal_residual",
         tolerance=1e-20,
         max_iters=16,
