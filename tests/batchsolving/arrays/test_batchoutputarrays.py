@@ -190,6 +190,19 @@ def test_update_from_outputarrays_size_one_arrays(
     assert active.status_codes is False
 
 
+def test_iteration_counters_marked_active_for_single_save(
+    output_arrays_manager,
+):
+    """Counters should be active even when only one save is present."""
+    output_arrays_manager.host.iteration_counters.array = np.zeros(
+        (1, 4, 1), dtype=np.int32
+    )
+    active = ActiveOutputs()
+    active.update_from_outputarrays(output_arrays_manager)
+
+    assert active.iteration_counters is True
+
+
 class TestOutputArrays:
     """Test the OutputArrays class"""
 

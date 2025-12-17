@@ -28,6 +28,8 @@ from cubie._utils import (
     precision_validator,
 )
 
+ITERATION_COUNTER_STRIDE = ("time", "counter", "run")
+
 
 def _format_time_domain_label(label: str, unit: str) -> str:
     """Format a time-domain legend label with unit if not dimensionless.
@@ -419,15 +421,23 @@ class SolveResult:
         Returns
         -------
         dict[str, Optional[NDArray]]
-            Dictionary containing copies of time, time_domain_array, summaries_array,
-            time_domain_legend, and summaries_legend.
+            Dictionary containing copies of time, time_domain_array,
+            summaries_array, time_domain_legend, summaries_legend,
+            iteration_counters, and iteration counter stride labels.
         """
+        iteration_counters = (
+            self.iteration_counters.copy()
+            if self.iteration_counters is not None
+            else None
+        )
         return {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "summaries_array": self.summaries_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
+            "iteration_counters": iteration_counters,
+            "iteration_counters_stride_order": ITERATION_COUNTER_STRIDE,
         }
 
     @property
@@ -439,12 +449,19 @@ class SolveResult:
         -------
         dict[str, Optional[NDArray]]
             Dictionary containing time, time_domain_array, time_domain_legend,
-            and individual summary arrays.
+            iteration counters with stride labels, and individual summary
+            arrays.
         """
         arrays = {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
+            "iteration_counters": (
+                self.iteration_counters.copy()
+                if self.iteration_counters is not None
+                else None
+            ),
+            "iteration_counters_stride_order": ITERATION_COUNTER_STRIDE,
         }
         arrays.update(**self.per_summary_arrays)
 
