@@ -13,7 +13,8 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
-from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
+from cubie.cuda_simsafe import (activemask, all_sync, selp, any_sync,
+                                compile_kwargs)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolverBufferSettings
 )
@@ -98,10 +99,10 @@ class NewtonBufferSettings(BufferSettings):
 
     n: int = attrs.field(validator=getype_validator(int, 1))
     delta_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     residual_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
+        default='local', validator=validators.in_(["local", "shared"])
     )
     residual_temp_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
@@ -309,7 +310,7 @@ def newton_krylov_solver_factory(
     n_arraysize = int(n)
     n = int32(n)
     max_iters = int32(max_iters)
-    max_backtracks = int32(max_backtracks)
+    max_backtracks = int32(max_backtracks+1)
     # no cover: start
 
     @cuda.jit(
@@ -323,7 +324,8 @@ def newton_krylov_solver_factory(
             #   precision[::1],
             #   int32[::1])],
             device=True,
-            inline=True)
+            inline=True,
+            **compile_kwargs)
     def newton_krylov_solver(
         stage_increment,
         parameters,
@@ -387,15 +389,15 @@ def newton_krylov_solver_factory(
             delta = shared_scratch[delta_slice]
         else:
             delta = cuda.local.array(delta_local_size, precision)
-            for _i in range(delta_local_size):
-                delta[_i] = typed_zero
+            # for _i in range(delta_local_size):
+            #     delta[_i] = typed_zero
 
         if residual_shared:
             residual = shared_scratch[residual_slice]
         else:
             residual = cuda.local.array(residual_local_size, precision)
-            for _i in range(residual_local_size):
-                residual[_i] = typed_zero
+            # for _i in range(residual_local_size):
+            #     residual[_i] = typed_zero
 
         if residual_temp_shared:
             residual_temp = shared_scratch[residual_temp_slice]

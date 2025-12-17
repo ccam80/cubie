@@ -288,16 +288,16 @@ class DIRKBufferSettings(BufferSettings):
             stage_base_size = 0  # Will use shared memory
         elif self.multistage and not self.use_shared_accumulator:
             # Can alias local accumulator in device function
-            stage_base_size = 0
+            stage_base_size = int(self.n)
         else:
-            stage_base_size = self.n
+            stage_base_size = int(self.n)
         return DIRKLocalSizes(
-            stage_increment=self.n,
+            stage_increment=int(self.n),
             stage_base=stage_base_size,
-            accumulator=self.accumulator_length,
-            solver_scratch=self.solver_scratch_elements,
-            increment_cache=0,  # Always 0 since solver_scratch shared
-            rhs_cache=0,        # Always 0 since solver_scratch shared
+            accumulator=int(self.accumulator_length),
+            solver_scratch=int(self.solver_scratch_elements),
+            increment_cache=0,
+            rhs_cache=0,
         )
 
     @property
@@ -520,6 +520,7 @@ class DIRKStep(ODEImplicitStep):
 
         # Create solver buffer settings for accurate memory accounting.
         # DIRK solves each stage independently, so linear solver uses n.
+        #TODO: Pass buffer locations through from top level
         linear_buffer_settings = LinearSolverBufferSettings(n=n)
         newton_buffer_settings = NewtonBufferSettings(
             n=n,
@@ -663,6 +664,7 @@ class DIRKStep(ODEImplicitStep):
         precision = self.precision
         tableau = config.tableau
         nonlinear_solver = solver_fn
+        n_arraysize = int(n)
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
@@ -848,7 +850,7 @@ class DIRKStep(ODEImplicitStep):
             if has_rhs_in_scratch:
                 stage_rhs = solver_scratch[:n]
             else:
-                stage_rhs = cuda.local.array(n, precision)
+                stage_rhs = cuda.local.array(n_arraysize, precision)
 
             # increment_cache and rhs_cache persist between steps for FSAL.
             # Allocation depends on solver_scratch size:

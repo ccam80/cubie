@@ -43,7 +43,7 @@ class LocalSizes(ABC):
             max(attribute_value, 1) ensuring valid size for local arrays.
         """
         value = getattr(self, attr_name)
-        return max(value, 1)
+        return int(max(value, 1))
 
 
 @attrs.define

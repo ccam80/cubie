@@ -7,6 +7,7 @@ from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
+from cubie.cuda_simsafe import compile_kwargs
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -323,6 +324,7 @@ class FIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def step(
             state,
