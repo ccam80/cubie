@@ -11,8 +11,14 @@ from typing import Optional
 import numpy as np
 from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
-    syncwarp
+from cubie.cuda_simsafe import (
+    activemask,
+    all_sync,
+    selp,
+    compile_kwargs,
+    syncwarp,
+    any_sync,
+)
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,
@@ -42,10 +48,10 @@ script_start = perf_counter()
 # algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-# algorithm_type = 'firk'
-# algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ode23s'
+algorithm_type = 'firk'
+algorithm_tableau_name = 'radau'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -93,11 +99,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.01)
+duration = precision(0.2)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.01)
+dt_save = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -1491,6 +1497,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
+            #TODO: Add this to buffersettings
             stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
@@ -1499,39 +1506,41 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             alpha = typed_one
 
             for _ in range(max_backtracks):
-                for i in range(n):
-                    stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
-
-                #TODO: Add this to the local/shared toggle list
-                residual_temp = cuda.local.array(n_arraysize, numba_prec)
-                residual_fn(
-                        stage_increment,
-                        parameters,
-                        drivers,
-                        t,
-                        h,
-                        a_ij,
-                        base_state,
-                        residual_temp
-                )
-
-                norm2_new = typed_zero
-                for i in range(n):
-                    residual_value = residual_temp[i]
-                    norm2_new += residual_value * residual_value
-
-                # Check convergence
-                if norm2_new <= tol_squared:
-                    converged = True
-                    found_step = True
+                active_bt = active and (not found_step) and (not converged)
+                if not any_sync(mask, active_bt):
                     break
 
-                if norm2_new < norm2_prev:
+                if active_bt:
                     for i in range(n):
-                        residual[i] = -residual_temp[i]
-                    norm2_prev = norm2_new
-                    found_step = True
-                    break
+                        stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
+
+                    residual_temp = cuda.local.array(n_arraysize, numba_prec)
+                    residual_fn(
+                            stage_increment,
+                            parameters,
+                            drivers,
+                            t,
+                            h,
+                            a_ij,
+                            base_state,
+                            residual_temp
+                    )
+
+                    norm2_new = typed_zero
+                    for i in range(n):
+                        residual_value = residual_temp[i]
+                        norm2_new += residual_value * residual_value
+
+                    # Check convergence
+                    if norm2_new <= tol_squared:
+                        converged = True
+                        found_step = True
+
+                    if norm2_new < norm2_prev:
+                        for i in range(n):
+                            residual[i] = -residual_temp[i]
+                        norm2_prev = norm2_new
+                        found_step = True
 
                 alpha *= typed_damping
 
@@ -2606,7 +2615,6 @@ def firk_step_inline_factory(
         current_time = time_scalar
         end_time = current_time + dt_scalar
         status_code = int32(0)
-        stage_rhs_flat = solver_scratch[:all_stages_n]
 
         for idx in range(n):
             if accumulates_output:
@@ -2642,9 +2650,6 @@ def firk_step_inline_factory(
         status_code = int32(status_code | status_temp)
 
         for stage_idx in range(stage_count):
-            stage_time = (
-                current_time + dt_scalar * stage_time_fractions[stage_idx]
-            )
 
             if has_driver_function:
                 stage_base = stage_idx * n_drivers

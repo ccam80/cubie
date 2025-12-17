@@ -747,7 +747,6 @@ class FIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
             status_code = int32(0)
-            stage_rhs_flat = solver_scratch[:all_stages_n]
 
             for idx in range(n):
                 if accumulates_output:
@@ -766,11 +765,7 @@ class FIRKStep(ODEImplicitStep):
                     driver_slice = stage_driver_stack[
                         driver_offset:driver_offset + n_drivers
                     ]
-                    driver_function(
-                            stage_time,
-                            driver_coeffs,
-                            driver_slice
-                    )
+                    driver_function(stage_time, driver_coeffs, driver_slice)
 
             # Solve n-stage nonlinear problem for all stages
             solver_status = nonlinear_solver(
@@ -787,27 +782,20 @@ class FIRKStep(ODEImplicitStep):
             status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
-                stage_time = (
-                    current_time + dt_scalar * stage_time_fractions[stage_idx]
-                )
 
                 if has_driver_function:
                     stage_base = stage_idx * n_drivers
-                    stage_slice = stage_driver_stack[
-                        stage_base:stage_base + n_drivers
-                    ]
                     for idx in range (n_drivers):
-                        proposed_drivers[idx] = stage_slice[idx]
+                        proposed_drivers[idx] = stage_driver_stack[stage_base + idx]
 
                 for idx in range(n):
                     value = state[idx]
                     for contrib_idx in range(stage_count):
                         flat_idx = stage_idx * stage_count + contrib_idx
+                        increment_idx = contrib_idx * n
                         coeff = stage_rhs_coeffs[flat_idx]
                         if coeff != typed_zero:
-                            value += (
-                                coeff * stage_increment[contrib_idx * n + idx]
-                            )
+                            value += coeff * stage_increment[increment_idx + idx]
                     stage_state[idx] = value
 
                 # Capture precalculated outputs if tableau allows
@@ -828,8 +816,10 @@ class FIRKStep(ODEImplicitStep):
                     compensation = typed_zero
                     for stage_idx in range(stage_count):
                         increment_value = stage_increment[stage_idx * n + idx]
-                        term = (solution_weights[stage_idx] * increment_value -
-                                compensation)
+                        weighted = (
+                            solution_weights[stage_idx] * increment_value
+                        )
+                        term = weighted - compensation
                         temp = solution_acc + term
                         compensation = (temp - solution_acc) - term
                         solution_acc = temp
@@ -839,10 +829,15 @@ class FIRKStep(ODEImplicitStep):
                 # Standard accumulation path for error
                 for idx in range(n):
                     error_acc = typed_zero
+                    compensation = typed_zero
                     for stage_idx in range(stage_count):
                         increment_value = stage_increment[stage_idx * n + idx]
-                        error_acc += error_weights[stage_idx] * increment_value
-                    error[idx] = error_acc   
+                        weighted = error_weights[stage_idx] * increment_value
+                        term = weighted - compensation
+                        temp = error_acc + term
+                        compensation = (temp - error_acc) - term
+                        error_acc = temp
+                    error[idx] = error_acc
 
             if not ends_at_one:
                 if has_driver_function:

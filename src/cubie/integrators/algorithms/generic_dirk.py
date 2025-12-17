@@ -840,9 +840,8 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] = typed_zero
 
             if use_cached_rhs:
-                # Load cached RHS from persistent storage; solver_scratch is
-                # always shared so rhs_cache aliases stage_rhs (no-op)
-                pass
+                for idx in range(n):
+                    stage_rhs[idx] = rhs_cache[idx]
 
             else:
                 if can_reuse_accepted_start:
@@ -1039,8 +1038,8 @@ class DIRKStep(ODEImplicitStep):
             # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
-                # rhs_cache aliases stage_rhs when solver_scratch is shared
-                # so no explicit copy needed
+                if first_same_as_last:
+                    rhs_cache[idx] = stage_rhs[idx]
 
             return int32(status_code)
         # no cover: end
