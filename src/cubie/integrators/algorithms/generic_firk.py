@@ -366,19 +366,14 @@ class FIRKStepConfig(ImplicitStepConfig):
         return self.stage_count * self.n
 
     @property
-    def newton_buffer_settings(self) -> Optional[NewtonBufferSettings]:
+    def newton_buffer_settings(self) -> NewtonBufferSettings:
         """Return newton_buffer_settings from buffer_settings."""
-        if self.buffer_settings is None:
-            return None
         return self.buffer_settings.newton_buffer_settings
 
     @property
-    def linear_solver_buffer_settings(self) -> Optional[LinearSolverBufferSettings]:
+    def linear_solver_buffer_settings(self) -> LinearSolverBufferSettings:
         """Return linear_solver_buffer_settings from newton_buffer_settings."""
-        newton_settings = self.newton_buffer_settings
-        if newton_settings is None:
-            return None
-        return newton_settings.linear_solver_buffer_settings
+        return self.buffer_settings.newton_buffer_settings.linear_solver_buffer_settings
 
 
 class FIRKStep(ODEImplicitStep):

@@ -365,6 +365,13 @@ def newton_krylov_solver_factory(
             for _i in range(residual_local_size):
                 residual[_i] = typed_zero
 
+        if residual_temp_shared:
+            residual_temp = shared_scratch[residual_temp_slice]
+        else:
+            residual_temp = cuda.local.array(
+                residual_temp_local_size, precision
+            )
+
         residual_function(
             stage_increment,
             parameters,
@@ -445,12 +452,6 @@ def newton_krylov_solver_factory(
                 for i in range(n):
                     stage_increment[i] += delta_scale * delta[i]
                 scale_applied = selp(active_bt, scale, scale_applied)
-                if residual_temp_shared:
-                    residual_temp = shared_scratch[residual_temp_slice]
-                else:
-                    residual_temp = cuda.local.array(
-                        residual_temp_local_size, precision
-                    )
 
                 residual_function(
                     stage_increment,

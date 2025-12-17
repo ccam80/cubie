@@ -1,6 +1,11 @@
 """Tests for base BufferSettings infrastructure."""
 import pytest
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings,
+    LinearSolverLocalSizes,
+    LinearSolverSliceIndices,
+)
 
 
 class TestLocalSizes:
@@ -8,9 +13,6 @@ class TestLocalSizes:
 
     def test_nonzero_returns_value_when_positive(self):
         """nonzero() should return actual value when positive."""
-        from cubie.integrators.matrix_free_solvers.linear_solver import (
-            LinearSolverLocalSizes
-        )
         sizes = LinearSolverLocalSizes(preconditioned_vec=10, temp=5)
         assert sizes.nonzero('preconditioned_vec') == 10
         assert sizes.nonzero('temp') == 5
@@ -20,9 +22,6 @@ class TestLocalSizes:
 
         This ensures cuda.local.array always gets valid size >= 1.
         """
-        from cubie.integrators.matrix_free_solvers.linear_solver import (
-            LinearSolverLocalSizes
-        )
         sizes = LinearSolverLocalSizes(preconditioned_vec=0, temp=0)
         assert sizes.nonzero('preconditioned_vec') == 1
         assert sizes.nonzero('temp') == 1
@@ -36,9 +35,6 @@ class TestSliceIndices:
 
     def test_slice_indices_subclass_instantiation(self):
         """Concrete subclasses should instantiate properly."""
-        from cubie.integrators.matrix_free_solvers.linear_solver import (
-            LinearSolverSliceIndices
-        )
         indices = LinearSolverSliceIndices(
             preconditioned_vec=slice(0, 10),
             temp=slice(10, 20),
@@ -57,9 +53,6 @@ class TestBufferSettingsAbstract:
 
     def test_buffer_settings_subclass_has_required_properties(self):
         """Concrete subclasses should implement abstract properties."""
-        from cubie.integrators.matrix_free_solvers.linear_solver import (
-            LinearSolverBufferSettings
-        )
         settings = LinearSolverBufferSettings(n=10)
         # All these should be implemented
         assert isinstance(settings.shared_memory_elements, int)

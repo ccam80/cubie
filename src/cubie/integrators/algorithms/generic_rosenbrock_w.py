@@ -53,6 +53,9 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings,
+)
 
 
 @attrs.define
@@ -117,6 +120,8 @@ class RosenbrockBufferSettings(BufferSettings):
         Memory location for stage store buffer: 'local' or 'shared'.
     cached_auxiliaries_location : str
         Memory location for cached auxiliaries: 'local' or 'shared'.
+    linear_solver_buffer_settings : LinearSolverBufferSettings
+        Buffer settings for the linear solver (for memory accounting).
 
     Notes
     -----
@@ -140,6 +145,17 @@ class RosenbrockBufferSettings(BufferSettings):
     cached_auxiliaries_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
+    linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
+        attrs.field(default=None)
+    )
+
+    def __attrs_post_init__(self):
+        """Set default linear_solver_buffer_settings if not provided."""
+        if self.linear_solver_buffer_settings is None:
+            object.__setattr__(
+                self, 'linear_solver_buffer_settings',
+                LinearSolverBufferSettings(n=self.n)
+            )
 
     @property
     def use_shared_stage_rhs(self) -> bool:
@@ -490,6 +506,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
+        linear_buffer_settings = (
+            config.buffer_settings.linear_solver_buffer_settings
+        )
         linear_solver = linear_solver_cached_factory(
             linear_operator,
             n=n,
@@ -497,6 +516,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            buffer_settings=linear_buffer_settings,
         )
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
