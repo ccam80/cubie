@@ -161,8 +161,8 @@ class ActiveOutputs:
 
         Notes
         -----
-        An output is considered active if the corresponding array exists
-        and has more than one element (size > 1).
+        An output is considered active when the corresponding array exists
+        and represents more than a single placeholder element.
         """
         self.state = (
             output_arrays.host.state.array is not None
@@ -184,9 +184,9 @@ class ActiveOutputs:
             output_arrays.host.status_codes.array is not None
             and output_arrays.host.status_codes.array.size > 1
         )
+        counters = output_arrays.host.iteration_counters.array
         self.iteration_counters = (
-            output_arrays.host.iteration_counters.array is not None
-            and output_arrays.host.iteration_counters.array.size > 4
+            counters is not None and counters.shape[1] == 4
         )
 
 

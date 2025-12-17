@@ -28,7 +28,6 @@ from cubie._utils import (
     precision_validator,
 )
 
-
 def _format_time_domain_label(label: str, unit: str) -> str:
     """Format a time-domain legend label with unit if not dimensionless.
 
@@ -127,13 +126,13 @@ class SolveResult:
     Parameters
     ----------
     time_domain_array
-        Optional NumPy array containing time-domain results.
+        NumPy array containing time-domain results.
     summaries_array
-        Optional NumPy array containing summary results.
+        NumPy array containing summary results.
     time
         Optional NumPy array containing time values.
     iteration_counters
-        Optional NumPy array containing iteration counts per run.
+        NumPy array containing iteration counts per run.
     status_codes
         Optional NumPy array containing solver status codes per run (0 for
         success, nonzero for errors). Shape is (n_runs,) with dtype int32.
@@ -151,23 +150,23 @@ class SolveResult:
         Optional mapping from summary offsets to legend labels.
     """
 
-    time_domain_array: Optional[NDArray] = attrs.field(
+    time_domain_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
-    summaries_array: Optional[NDArray] = attrs.field(
+    summaries_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
     time: Optional[NDArray] = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
         validator=val.optional(val.instance_of(np.ndarray)),
     )
-    iteration_counters: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
+    iteration_counters: NDArray = attrs.field(
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
     status_codes: Optional[NDArray] = attrs.field(
@@ -245,8 +244,8 @@ class SolveResult:
         solve_settings = solver.solve_info
 
         # Retrieve status codes for non-raw results
-        status_codes = solver.status_codes if results_type != 'raw' else None
-
+        status_codes = solver.status_codes
+        iteration_counters = solver.iteration_counters
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
@@ -304,7 +303,7 @@ class SolveResult:
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
-            iteration_counters=solver.iteration_counters,
+            iteration_counters=iteration_counters,
             status_codes=status_codes,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
@@ -419,8 +418,9 @@ class SolveResult:
         Returns
         -------
         dict[str, Optional[NDArray]]
-            Dictionary containing copies of time, time_domain_array, summaries_array,
-            time_domain_legend, and summaries_legend.
+            Dictionary containing copies of time, time_domain_array,
+            summaries_array, time_domain_legend, summaries_legend, and
+            iteration_counters.
         """
         return {
             "time": self.time.copy() if self.time is not None else None,
@@ -428,6 +428,7 @@ class SolveResult:
             "summaries_array": self.summaries_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
+            "iteration_counters": self.iteration_counters.copy(),
         }
 
     @property
@@ -439,12 +440,13 @@ class SolveResult:
         -------
         dict[str, Optional[NDArray]]
             Dictionary containing time, time_domain_array, time_domain_legend,
-            and individual summary arrays.
+            iteration counters, and individual summary arrays.
         """
         arrays = {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
+            "iteration_counters": self.iteration_counters.copy(),
         }
         arrays.update(**self.per_summary_arrays)
 
