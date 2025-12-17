@@ -217,6 +217,19 @@ class RosenbrockBufferSettings(BufferSettings):
         return total
 
     @property
+    def persistent_local_elements(self) -> int:
+        """Return persistent local elements for cached stage increment.
+
+        When stage_store is shared, the final stage increment persists
+        between steps for use as the initial guess. When stage_store is
+        local, a persistent_local buffer of size n is needed to cache
+        the final stage increment.
+        """
+        if self.use_shared_stage_store:
+            return 0
+        return self.n
+
+    @property
     def local_sizes(self) -> RosenbrockLocalSizes:
         """Return RosenbrockLocalSizes instance with buffer sizes.
 
@@ -749,11 +762,31 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             else:
                 proposed_drivers[:] = numba_precision(0.0)
 
-            # Stage 0 slice copies the cached final increment as its guess.
+            # Stage 0 uses cached value as initial guess.
+            # When stage_store is shared, time_derivative persists between steps.
+            # When stage_store is local, use persistent_local for caching.
+            # On first step, no cached value exists - use zero initialization.
             stage_increment = stage_store[:n]
+            first_step = first_step_flag != int32(0)
 
-            for idx in range(n):
-                stage_increment[idx] = time_derivative[idx]
+            if stage_store_shared:
+                # When shared, time_derivative persists automatically
+                if first_step:
+                    # No cached value on first step - use zeros
+                    for idx in range(n):
+                        stage_increment[idx] = numba_precision(0.0)
+                else:
+                    for idx in range(n):
+                        stage_increment[idx] = time_derivative[idx]
+            else:
+                # When local, use persistent_local for caching
+                if first_step:
+                    # No cached value on first step - use zeros
+                    for idx in range(n):
+                        stage_increment[idx] = numba_precision(0.0)
+                else:
+                    for idx in range(n):
+                        stage_increment[idx] = persistent_local[idx]
 
             time_derivative_rhs(
                 state,
@@ -989,6 +1022,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 end_time,
             )
 
+            # Cache time_derivative for next step's initial guess.
+            # When stage_store is shared, time_derivative persists automatically.
+            # When local, save to persistent_local for next step.
+            if not stage_store_shared:
+                for idx in range(n):
+                    persistent_local[idx] = time_derivative[idx]
+
             return status_code
         # no cover: end
         return StepCache(step=step)
@@ -1024,8 +1064,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return 0
+        """Return the number of persistent local entries required.
+
+        Returns n when stage_store is local (to cache final stage increment
+        for use as initial guess in next step). When stage_store is shared,
+        returns 0 as the increment persists in shared memory.
+        """
+        return self.compile_settings.buffer_settings.persistent_local_elements
 
     @property
     def is_implicit(self) -> bool:
