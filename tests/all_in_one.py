@@ -523,7 +523,7 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
     """
     sigma = precision(constants['sigma'])
     beta = precision(constants['beta'])
-    gamma = precision(gamma) #TODO: Cast gamma to precision in prod factory
+    gamma = precision(gamma)
     # TODO Clarify in codegen whether gamma, sigma,
     #  beta should be passed to factory or as constants.
     @cuda.jit(
@@ -3856,7 +3856,6 @@ proposed_counters_end = (proposed_counters_start + proposed_counters_size
 shared_pointer = proposed_counters_end
 
 # Scratch buffer for step algorithms
-#TODO: This is busted.
 scratch_start = shared_pointer
 if algorithm_type == 'dirk':
     scratch_size = dirk_scratch_size if use_shared_loop_scratch else int32(0)
