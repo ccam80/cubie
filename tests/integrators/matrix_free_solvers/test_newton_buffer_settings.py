@@ -29,15 +29,18 @@ class TestNewtonBufferSettings:
         assert settings.shared_memory_elements == expected
 
     def test_local_memory_elements_all_local(self):
-        """All local gives delta + residual + residual_temp + krylov_iters."""
+        """All local gives delta + residual + residual_temp + stage_base_bt
+        + krylov_iters."""
         settings = NewtonBufferSettings(
             n=10,
             delta_location='local',
             residual_location='local',
             residual_temp_location='local',
+            stage_base_bt_location='local',
         )
-        # delta (10) + residual (10) + residual_temp (10) + krylov_iters (1)
-        assert settings.local_memory_elements == 31
+        # delta(10) + residual(10) + residual_temp(10) + stage_base_bt(10)
+        # + krylov_iters(1)
+        assert settings.local_memory_elements == 41
 
     def test_shared_memory_elements_all_local(self):
         """All local buffers should give zero shared memory elements."""
@@ -46,6 +49,7 @@ class TestNewtonBufferSettings:
             delta_location='local',
             residual_location='local',
             residual_temp_location='local',
+            stage_base_bt_location='local',
         )
         assert settings.shared_memory_elements == 0
 
@@ -76,6 +80,23 @@ class TestNewtonBufferSettings:
                 settings_local.shared_memory_elements)
         assert diff == 10  # n elements for residual_temp
 
+    def test_stage_base_bt_toggleability(self):
+        """stage_base_bt_location should affect memory calculations."""
+        # Default local
+        settings_local = NewtonBufferSettings(n=10)
+        assert settings_local.use_shared_stage_base_bt is False
+
+        # Explicit shared
+        settings_shared = NewtonBufferSettings(
+            n=10,
+            stage_base_bt_location='shared',
+        )
+        assert settings_shared.use_shared_stage_base_bt is True
+        # Shared should have n more shared elements
+        diff = (settings_shared.shared_memory_elements -
+                settings_local.shared_memory_elements)
+        assert diff == 10  # n elements for stage_base_bt
+
     def test_invalid_n_raises(self):
         """n < 1 should raise error."""
         with pytest.raises((ValueError, TypeError)):
@@ -93,19 +114,23 @@ class TestNewtonLocalSizes:
     def test_nonzero_returns_value_when_positive(self):
         """nonzero should return actual value when positive."""
         sizes = NewtonLocalSizes(
-            delta=10, residual=10, residual_temp=10, krylov_iters=1
+            delta=10, residual=10, residual_temp=10, stage_base_bt=10,
+            krylov_iters=1
         )
         assert sizes.nonzero('delta') == 10
         assert sizes.nonzero('residual') == 10
+        assert sizes.nonzero('stage_base_bt') == 10
 
     def test_nonzero_returns_one_when_zero(self):
         """nonzero should return 1 for zero-size attributes."""
         sizes = NewtonLocalSizes(
-            delta=0, residual=0, residual_temp=0, krylov_iters=0
+            delta=0, residual=0, residual_temp=0, stage_base_bt=0,
+            krylov_iters=0
         )
         assert sizes.nonzero('delta') == 1
         assert sizes.nonzero('residual') == 1
         assert sizes.nonzero('residual_temp') == 1
+        assert sizes.nonzero('stage_base_bt') == 1
         assert sizes.nonzero('krylov_iters') == 1
 
 
@@ -118,11 +143,13 @@ class TestNewtonSliceIndices:
             delta=slice(0, 10),
             residual=slice(10, 20),
             residual_temp=slice(20, 30),
-            local_end=30,
-            lin_solver_start=30,
+            stage_base_bt=slice(30, 40),
+            local_end=40,
+            lin_solver_start=40,
         )
         assert indices.delta == slice(0, 10)
         assert indices.residual == slice(10, 20)
         assert indices.residual_temp == slice(20, 30)
-        assert indices.local_end == 30
-        assert indices.lin_solver_start == 30
+        assert indices.stage_base_bt == slice(30, 40)
+        assert indices.local_end == 40
+        assert indices.lin_solver_start == 40
