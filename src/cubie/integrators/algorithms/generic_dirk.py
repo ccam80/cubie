@@ -48,8 +48,12 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.matrix_free_solvers import (
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings,
     linear_solver_factory,
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonBufferSettings,
     newton_krylov_solver_factory,
 )
 
@@ -95,7 +99,7 @@ class DIRKSliceIndices(SliceIndices):
     accumulator : slice
         Slice covering the stage accumulator buffer.
     solver_scratch : slice
-        Slice covering the solver scratch buffer.
+        Slice covering the solver scratch buffer (always shared).
     local_end : int
         Offset of the end of algorithm-managed shared memory.
     """
@@ -111,8 +115,9 @@ class DIRKSliceIndices(SliceIndices):
 class DIRKBufferSettings(BufferSettings):
     """Configuration for DIRK step buffer sizes and memory locations.
 
-    Controls memory locations for stage_increment, stage_base, accumulator,
-    and solver_scratch buffers used during DIRK integration steps.
+    Controls memory locations for stage_increment, stage_base, and accumulator
+    buffers used during DIRK integration steps. solver_scratch is always
+    passed from shared memory.
 
     Attributes
     ----------
@@ -126,8 +131,8 @@ class DIRKBufferSettings(BufferSettings):
         Memory location for stage base buffer: 'local' or 'shared'.
     accumulator_location : str
         Memory location for stage accumulator buffer: 'local' or 'shared'.
-    solver_scratch_location : str
-        Memory location for Newton solver scratch: 'local' or 'shared'.
+    newton_buffer_settings : NewtonBufferSettings
+        Buffer settings for the Newton solver (for memory accounting).
     """
 
     n: int = attrs.field(validator=getype_validator(int, 1))
@@ -141,9 +146,19 @@ class DIRKBufferSettings(BufferSettings):
     accumulator_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
-    solver_scratch_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
+    newton_buffer_settings: Optional[NewtonBufferSettings] = attrs.field(
+        default=None,
     )
+
+    def __attrs_post_init__(self):
+        """Set default newton_buffer_settings if not provided."""
+        if self.newton_buffer_settings is None:
+            linear_settings = LinearSolverBufferSettings(n=self.n)
+            newton_settings = NewtonBufferSettings(
+                n=self.n,
+                linear_solver_buffer_settings=linear_settings,
+            )
+            object.__setattr__(self, 'newton_buffer_settings', newton_settings)
 
     @property
     def use_shared_stage_increment(self) -> bool:
@@ -161,32 +176,26 @@ class DIRKBufferSettings(BufferSettings):
         return self.accumulator_location == 'shared'
 
     @property
-    def use_shared_solver_scratch(self) -> bool:
-        """Return True if solver_scratch buffer uses shared memory."""
-        return self.solver_scratch_location == 'shared'
-
-    @property
     def accumulator_length(self) -> int:
         """Return the length of the stage accumulator buffer."""
         return max(self.stage_count - 1, 0) * self.n
 
     @property
     def solver_scratch_elements(self) -> int:
-        """Return the number of solver scratch elements (2 * n)."""
-        return 2 * self.n
+        """Return the number of solver scratch elements.
+
+        Returns newton_buffer_settings.shared_memory_elements.
+        """
+        return self.newton_buffer_settings.shared_memory_elements
 
     @property
     def persistent_local_elements(self) -> int:
         """Return persistent local elements for increment_cache and rhs_cache.
 
-        Both increment_cache and rhs_cache must persist between step calls
-        for FSAL. When solver_scratch is local, both caches use persistent
-        local memory.
+        Returns 0 since solver_scratch is always shared from parent.
+        increment_cache and rhs_cache share the solver_scratch region.
         """
-        if self.use_shared_solver_scratch:
-            return 0
-        # 2 * n: n for increment_cache, n for rhs_cache
-        return 2 * self.n
+        return 0
 
     @property
     def multistage(self) -> bool:
@@ -206,14 +215,14 @@ class DIRKBufferSettings(BufferSettings):
         """Return total shared memory elements required.
 
         Includes accumulator, solver_scratch, and stage_increment if shared.
+        solver_scratch is always included as it is passed from shared memory.
         stage_base aliases accumulator when multistage, so not counted
         separately.
         """
         total = 0
         if self.use_shared_accumulator:
             total += self.accumulator_length
-        if self.use_shared_solver_scratch:
-            total += self.solver_scratch_elements
+        total += self.solver_scratch_elements  # Always included
         if self.use_shared_stage_increment:
             total += self.n
         # stage_base aliases accumulator when multistage; only add if
@@ -227,12 +236,11 @@ class DIRKBufferSettings(BufferSettings):
         """Return total local memory elements required.
 
         Includes buffers configured with location='local'.
+        solver_scratch is not included as it is always shared from parent.
         """
         total = 0
         if not self.use_shared_accumulator:
             total += self.accumulator_length
-        if not self.use_shared_solver_scratch:
-            total += self.solver_scratch_elements
         if not self.use_shared_stage_increment:
             total += self.n
         # stage_base needs local storage when single-stage and local
@@ -252,16 +260,13 @@ class DIRKBufferSettings(BufferSettings):
             stage_base_size = 0  # Aliases accumulator when multistage
         else:
             stage_base_size = self.n
-        # increment_cache and rhs_cache need persistent local when
-        # solver_scratch is local
-        cache_size = self.n if not self.use_shared_solver_scratch else 0
         return DIRKLocalSizes(
             stage_increment=self.n,
             stage_base=stage_base_size,
             accumulator=self.accumulator_length,
             solver_scratch=self.solver_scratch_elements,
-            increment_cache=cache_size,
-            rhs_cache=cache_size,
+            increment_cache=0,  # Always 0 since solver_scratch shared
+            rhs_cache=0,        # Always 0 since solver_scratch shared
         )
 
     @property
@@ -279,11 +284,9 @@ class DIRKBufferSettings(BufferSettings):
         else:
             accumulator_slice = slice(0, 0)
 
-        if self.use_shared_solver_scratch:
-            solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
-            ptr += self.solver_scratch_elements
-        else:
-            solver_scratch_slice = slice(0, 0)
+        # solver_scratch always included in shared memory layout
+        solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
+        ptr += self.solver_scratch_elements
 
         if self.use_shared_stage_increment:
             stage_increment_slice = slice(ptr, ptr + self.n)
@@ -317,7 +320,6 @@ ALL_DIRK_BUFFER_LOCATION_PARAMETERS = {
     "stage_increment_location",
     "stage_base_location",
     "accumulator_location",
-    "solver_scratch_location",
 }
 
 
@@ -385,6 +387,16 @@ class DIRKStepConfig(ImplicitStepConfig):
         ),
     )
 
+    @property
+    def newton_buffer_settings(self) -> NewtonBufferSettings:
+        """Return newton_buffer_settings from buffer_settings."""
+        return self.buffer_settings.newton_buffer_settings
+
+    @property
+    def linear_solver_buffer_settings(self) -> LinearSolverBufferSettings:
+        """Return linear_solver_buffer_settings from newton_buffer_settings."""
+        return self.buffer_settings.newton_buffer_settings.linear_solver_buffer_settings
+
 
 class DIRKStep(ODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
@@ -410,7 +422,6 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_location: Optional[str] = None,
         stage_base_location: Optional[str] = None,
         accumulator_location: Optional[str] = None,
-        solver_scratch_location: Optional[str] = None,
     ) -> None:
         """Initialise the DIRK step configuration.
         
@@ -472,10 +483,20 @@ class DIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+
+        # Create solver buffer settings for accurate memory accounting.
+        # DIRK solves each stage independently, so linear solver uses n.
+        linear_buffer_settings = LinearSolverBufferSettings(n=n)
+        newton_buffer_settings = NewtonBufferSettings(
+            n=n,
+            linear_solver_buffer_settings=linear_buffer_settings,
+        )
+
         # Create buffer_settings - only pass locations if explicitly provided
         buffer_kwargs = {
             'n': n,
             'stage_count': tableau.stage_count,
+            'newton_buffer_settings': newton_buffer_settings,
         }
         if stage_increment_location is not None:
             buffer_kwargs['stage_increment_location'] = stage_increment_location
@@ -483,8 +504,6 @@ class DIRKStep(ODEImplicitStep):
             buffer_kwargs['stage_base_location'] = stage_base_location
         if accumulator_location is not None:
             buffer_kwargs['accumulator_location'] = accumulator_location
-        if solver_scratch_location is not None:
-            buffer_kwargs['solver_scratch_location'] = solver_scratch_location
         buffer_settings = DIRKBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
@@ -562,6 +581,9 @@ class DIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
+        newton_buffer_settings = config.newton_buffer_settings
+        linear_buffer_settings = config.linear_solver_buffer_settings
+
         linear_solver = linear_solver_factory(
             operator,
             n=n,
@@ -569,6 +591,7 @@ class DIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            buffer_settings=linear_buffer_settings,
         )
 
         newton_tolerance = config.newton_tolerance
@@ -585,6 +608,7 @@ class DIRKStep(ODEImplicitStep):
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
             precision=precision,
+            buffer_settings=newton_buffer_settings,
         )
 
         return nonlinear_solver
@@ -648,7 +672,6 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_shared = buffer_settings.use_shared_stage_increment
         stage_base_shared = buffer_settings.use_shared_stage_base
         accumulator_shared = buffer_settings.use_shared_accumulator
-        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
 
         # Unpack slice indices for shared memory layout
         shared_indices = buffer_settings.shared_indices
@@ -662,7 +685,6 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_local_size = local_sizes.nonzero('stage_increment')
         stage_base_local_size = local_sizes.nonzero('stage_base')
         accumulator_local_size = local_sizes.nonzero('accumulator')
-        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
 
         # no cover: start
         @cuda.jit(
@@ -762,13 +784,8 @@ class DIRKStep(ODEImplicitStep):
                 for _i in range(accumulator_local_size):
                     stage_accumulator[_i] = numba_precision(0.0)
 
-            if solver_scratch_shared:
-                solver_scratch = shared[solver_scratch_slice]
-            else:
-                solver_scratch = cuda.local.array(solver_scratch_local_size,
-                                                  precision)
-                for _i in range(solver_scratch_local_size):
-                    solver_scratch[_i] = numba_precision(0.0)
+            # solver_scratch always from shared memory
+            solver_scratch = shared[solver_scratch_slice]
 
             # Alias stage base onto first stage accumulator or allocate locally
             if multistage:
@@ -788,14 +805,9 @@ class DIRKStep(ODEImplicitStep):
             stage_rhs = solver_scratch[:n]
 
             # increment_cache and rhs_cache persist between steps for FSAL.
-            # When solver_scratch is shared, slice from it; when local, use
-            # persistent_local to maintain state between step invocations.
-            if solver_scratch_shared:
-                increment_cache = solver_scratch[n:int32(2)*n]
-                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs when shared
-            else:
-                increment_cache = persistent_local[:n]
-                rhs_cache = persistent_local[n:int32(2)*n]
+            # solver_scratch is always shared, so slice from it.
+            increment_cache = solver_scratch[n:int32(2)*n]
+            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -828,12 +840,9 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] = typed_zero
 
             if use_cached_rhs:
-                # Load cached RHS from persistent storage (when solver_scratch
-                # is local, rhs_cache points to persistent_local; when shared,
-                # it aliases stage_rhs so this is a no-op)
-                if not solver_scratch_shared:
-                    for idx in range(n):
-                        stage_rhs[idx] = rhs_cache[idx]
+                # Load cached RHS from persistent storage; solver_scratch is
+                # always shared so rhs_cache aliases stage_rhs (no-op)
+                pass
 
             else:
                 if can_reuse_accepted_start:
@@ -1030,11 +1039,8 @@ class DIRKStep(ODEImplicitStep):
             # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
-                # Save RHS to cache (when solver_scratch is local, rhs_cache
-                # points to persistent_local; when shared, aliases stage_rhs)
-                if first_same_as_last:
-                    if not solver_scratch_shared:
-                        rhs_cache[idx] = stage_rhs[idx]
+                # rhs_cache aliases stage_rhs when solver_scratch is shared
+                # so no explicit copy needed
 
             return int32(status_code)
         # no cover: end

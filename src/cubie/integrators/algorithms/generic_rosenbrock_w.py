@@ -36,7 +36,7 @@ from typing import Callable, Optional, Tuple
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
@@ -53,6 +53,9 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings,
+)
 
 
 @attrs.define
@@ -117,6 +120,15 @@ class RosenbrockBufferSettings(BufferSettings):
         Memory location for stage store buffer: 'local' or 'shared'.
     cached_auxiliaries_location : str
         Memory location for cached auxiliaries: 'local' or 'shared'.
+    linear_solver_buffer_settings : LinearSolverBufferSettings
+        Buffer settings for the linear solver (for memory accounting).
+
+    Notes
+    -----
+    The cached_auxiliary_count is initially 0 and is updated after
+    build_implicit_helpers() is called on GenericRosenbrockWStep.
+    Memory calculations requiring the final count should access
+    buffer_settings after the step has been built.
     """
 
     n: int = attrs.field(validator=getype_validator(int, 1))
@@ -133,6 +145,17 @@ class RosenbrockBufferSettings(BufferSettings):
     cached_auxiliaries_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
+    linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
+        attrs.field(default=None)
+    )
+
+    def __attrs_post_init__(self):
+        """Set default linear_solver_buffer_settings if not provided."""
+        if self.linear_solver_buffer_settings is None:
+            object.__setattr__(
+                self, 'linear_solver_buffer_settings',
+                LinearSolverBufferSettings(n=self.n)
+            )
 
     @property
     def use_shared_stage_rhs(self) -> bool:
@@ -404,6 +427,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             buffer_kwargs['stage_store_location'] = stage_store_location
         if cached_auxiliaries_location is not None:
             buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
+
         buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
@@ -483,6 +507,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
+        linear_buffer_settings = (
+            config.buffer_settings.linear_solver_buffer_settings
+        )
         linear_solver = linear_solver_cached_factory(
             linear_operator,
             n=n,
@@ -490,6 +517,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            buffer_settings=linear_buffer_settings,
         )
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
@@ -750,7 +778,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs[idx] = rhs_value * gamma
 
             # Create an unused reference for solver signature consistency.
-            base_state_placeholder = shared[int32(0):int32(0)]
+            base_state_placeholder = cuda.local.array(1, int32)
 
             # Local array for linear solver iteration count output
             krylov_iters_out = cuda.local.array(1, int32)
@@ -793,7 +821,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * K_j))
-                stage_slice = stage_store[stage_offset:stage_offset + n]
+                stage_slice = stage_store[stage_offset:stage_offset + n] #
+                # TODO: remove slice and make explicit index
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
 

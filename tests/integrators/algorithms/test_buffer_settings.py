@@ -21,6 +21,12 @@ from cubie.integrators.algorithms.generic_rosenbrock_w import (
     RosenbrockLocalSizes,
     RosenbrockSliceIndices,
 )
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonBufferSettings
+)
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings
+)
 
 
 class TestERKBufferSettings:
@@ -144,7 +150,6 @@ class TestDIRKBufferSettings:
         assert settings.stage_increment_location == 'local'
         assert settings.stage_base_location == 'local'
         assert settings.accumulator_location == 'local'
-        assert settings.solver_scratch_location == 'local'
 
     def test_boolean_flags(self):
         """Boolean properties should reflect location settings."""
@@ -180,21 +185,38 @@ class TestDIRKBufferSettings:
         assert settings.stage_base_aliases_accumulator is False
 
     def test_solver_scratch_elements(self):
-        """Solver scratch should be 2 * n."""
-        settings = DIRKBufferSettings(n=5, stage_count=3)
-        assert settings.solver_scratch_elements == 10
+        """Solver scratch should use newton_buffer_settings."""
+        linear_settings = LinearSolverBufferSettings(n=5)
+        newton_settings = NewtonBufferSettings(
+            n=5,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        settings = DIRKBufferSettings(
+            n=5,
+            stage_count=3,
+            newton_buffer_settings=newton_settings,
+        )
+        assert settings.solver_scratch_elements == (
+            newton_settings.shared_memory_elements
+        )
 
     def test_shared_memory_elements_multistage(self):
         """Shared memory should sum sizes of shared buffers."""
+        linear_settings = LinearSolverBufferSettings(n=3)
+        newton_settings = NewtonBufferSettings(
+            n=3,
+            linear_solver_buffer_settings=linear_settings,
+        )
         settings = DIRKBufferSettings(
             n=3,
             stage_count=4,
             accumulator_location='shared',
-            solver_scratch_location='shared',
             stage_increment_location='shared',
+            newton_buffer_settings=newton_settings,
         )
-        # accumulator ((4-1)*3=9) + solver (2*3=6) + increment (3) = 18
-        assert settings.shared_memory_elements == 18
+        # accumulator ((4-1)*3=9) + solver (newton shared) + increment (3)
+        expected = 9 + newton_settings.shared_memory_elements + 3
+        assert settings.shared_memory_elements == expected
 
     def test_local_sizes_property(self):
         """local_sizes property should return DIRKLocalSizes instance."""
@@ -204,24 +226,29 @@ class TestDIRKBufferSettings:
         assert isinstance(sizes, DIRKLocalSizes)
         assert sizes.stage_increment == 3
         assert sizes.accumulator == 9  # (4-1)*3
-        assert sizes.solver_scratch == 6  # 2*3
 
     def test_shared_indices_property(self):
         """shared_indices property should return DIRKSliceIndices instance."""
+        linear_settings = LinearSolverBufferSettings(n=3)
+        newton_settings = NewtonBufferSettings(
+            n=3,
+            linear_solver_buffer_settings=linear_settings,
+        )
         settings = DIRKBufferSettings(
             n=3,
             stage_count=4,
             accumulator_location='shared',
-            solver_scratch_location='shared',
             stage_increment_location='shared',
+            newton_buffer_settings=newton_settings,
         )
         indices = settings.shared_indices
+        solver_size = newton_settings.shared_memory_elements
 
         assert isinstance(indices, DIRKSliceIndices)
         assert indices.accumulator == slice(0, 9)
-        assert indices.solver_scratch == slice(9, 15)
-        assert indices.stage_increment == slice(15, 18)
-        assert indices.local_end == 18
+        assert indices.solver_scratch == slice(9, 9 + solver_size)
+        assert indices.stage_increment == slice(9 + solver_size, 9 + solver_size + 3)
+        assert indices.local_end == 9 + solver_size + 3
 
 
 class TestFIRKBufferSettings:
@@ -231,7 +258,6 @@ class TestFIRKBufferSettings:
         """Default locations should match expected values."""
         settings = FIRKBufferSettings(n=3, stage_count=4)
 
-        assert settings.solver_scratch_location == 'local'
         assert settings.stage_increment_location == 'local'
         assert settings.stage_driver_stack_location == 'local'
         assert settings.stage_state_location == 'local'
@@ -241,10 +267,8 @@ class TestFIRKBufferSettings:
         settings = FIRKBufferSettings(
             n=3,
             stage_count=4,
-            solver_scratch_location='local',
         )
 
-        assert settings.use_shared_solver_scratch is False
         assert settings.use_shared_stage_increment is False
 
     def test_all_stages_n(self):
@@ -253,10 +277,21 @@ class TestFIRKBufferSettings:
         assert settings.all_stages_n == 12
 
     def test_solver_scratch_elements(self):
-        """Solver scratch should be 2 * all_stages_n."""
-        settings = FIRKBufferSettings(n=3, stage_count=4)
-        # 2 * (4 * 3) = 24
-        assert settings.solver_scratch_elements == 24
+        """Solver scratch should use newton_buffer_settings."""
+        all_stages_n = 4 * 3  # stage_count * n
+        linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        settings = FIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            newton_buffer_settings=newton_settings,
+        )
+        assert settings.solver_scratch_elements == (
+            newton_settings.shared_memory_elements
+        )
 
     def test_stage_driver_stack_elements(self):
         """Stage driver stack should be stage_count * n_drivers."""
@@ -266,31 +301,45 @@ class TestFIRKBufferSettings:
 
     def test_shared_memory_elements(self):
         """Shared memory should sum sizes of shared buffers."""
+        all_stages_n = 4 * 3
+        linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_settings,
+        )
         settings = FIRKBufferSettings(
             n=3,
             stage_count=4,
             n_drivers=2,
-            solver_scratch_location='shared',
             stage_increment_location='shared',
             stage_driver_stack_location='shared',
             stage_state_location='shared',
+            newton_buffer_settings=newton_settings,
         )
-        # solver (2*12=24) + increment (12) + drivers (8) + state (3) = 47
-        assert settings.shared_memory_elements == 47
+        # solver (newton) + increment (12) + drivers (8) + state (3)
+        expected = newton_settings.shared_memory_elements + 12 + 8 + 3
+        assert settings.shared_memory_elements == expected
 
     def test_local_memory_elements(self):
         """Local memory should sum sizes of local buffers."""
+        all_stages_n = 4 * 3
+        linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_settings,
+        )
         settings = FIRKBufferSettings(
             n=3,
             stage_count=4,
             n_drivers=2,
-            solver_scratch_location='local',
             stage_increment_location='local',
             stage_driver_stack_location='local',
             stage_state_location='local',
+            newton_buffer_settings=newton_settings,
         )
-        # solver (24) + increment (12) + drivers (8) + state (3) = 47
-        assert settings.local_memory_elements == 47
+        # solver NOT included (always shared from parent)
+        # increment (12) + drivers (8) + state (3) = 23
+        assert settings.local_memory_elements == 23
 
     def test_local_sizes_property(self):
         """local_sizes property should return FIRKLocalSizes instance."""
@@ -298,30 +347,36 @@ class TestFIRKBufferSettings:
         sizes = settings.local_sizes
 
         assert isinstance(sizes, FIRKLocalSizes)
-        assert sizes.solver_scratch == 24  # 2*4*3
         assert sizes.stage_increment == 12  # 4*3
         assert sizes.stage_driver_stack == 8  # 4*2
         assert sizes.stage_state == 3
 
     def test_shared_indices_property(self):
         """shared_indices property should return FIRKSliceIndices instance."""
+        all_stages_n = 4 * 3
+        linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_settings,
+        )
         settings = FIRKBufferSettings(
             n=3,
             stage_count=4,
             n_drivers=2,
-            solver_scratch_location='shared',
             stage_increment_location='shared',
             stage_driver_stack_location='shared',
             stage_state_location='shared',
+            newton_buffer_settings=newton_settings,
         )
         indices = settings.shared_indices
+        solver_size = newton_settings.shared_memory_elements
 
         assert isinstance(indices, FIRKSliceIndices)
-        assert indices.solver_scratch == slice(0, 24)
-        assert indices.stage_increment == slice(24, 36)
-        assert indices.stage_driver_stack == slice(36, 44)
-        assert indices.stage_state == slice(44, 47)
-        assert indices.local_end == 47
+        assert indices.solver_scratch == slice(0, solver_size)
+        assert indices.stage_increment == slice(solver_size, solver_size + 12)
+        assert indices.stage_driver_stack == slice(solver_size + 12, solver_size + 20)
+        assert indices.stage_state == slice(solver_size + 20, solver_size + 23)
+        assert indices.local_end == solver_size + 23
 
 
 class TestRosenbrockBufferSettings:

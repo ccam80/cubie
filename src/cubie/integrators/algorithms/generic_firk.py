@@ -46,8 +46,12 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.matrix_free_solvers import (
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverBufferSettings,
     linear_solver_factory,
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonBufferSettings,
     newton_krylov_solver_factory,
 )
 
@@ -81,7 +85,7 @@ class FIRKSliceIndices(SliceIndices):
     Attributes
     ----------
     solver_scratch : slice
-        Slice covering the solver scratch buffer (empty if local).
+        Slice covering the solver scratch buffer (always shared).
     stage_increment : slice
         Slice covering the stage increment buffer.
     stage_driver_stack : slice
@@ -103,9 +107,9 @@ class FIRKSliceIndices(SliceIndices):
 class FIRKBufferSettings(BufferSettings):
     """Configuration for FIRK step buffer sizes and memory locations.
 
-    Controls memory locations for solver_scratch, stage_increment,
-    stage_driver_stack, and stage_state buffers used during FIRK
-    integration steps.
+    Controls memory locations for stage_increment, stage_driver_stack, and
+    stage_state buffers used during FIRK integration steps. solver_scratch
+    is always passed from shared memory.
 
     Attributes
     ----------
@@ -115,22 +119,19 @@ class FIRKBufferSettings(BufferSettings):
         Number of RK stages.
     n_drivers : int
         Number of driver variables.
-    solver_scratch_location : str
-        Memory location for Newton solver scratch: 'local' or 'shared'.
     stage_increment_location : str
         Memory location for stage increment buffer: 'local' or 'shared'.
     stage_driver_stack_location : str
         Memory location for stage driver stack: 'local' or 'shared'.
     stage_state_location : str
         Memory location for stage state buffer: 'local' or 'shared'.
+    newton_buffer_settings : NewtonBufferSettings
+        Buffer settings for the Newton solver (for memory accounting).
     """
 
     n: int = attrs.field(validator=getype_validator(int, 1))
     stage_count: int = attrs.field(validator=getype_validator(int, 1))
     n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
-    solver_scratch_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
     stage_increment_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
@@ -140,11 +141,20 @@ class FIRKBufferSettings(BufferSettings):
     stage_state_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
+    newton_buffer_settings: Optional[NewtonBufferSettings] = attrs.field(
+        default=None,
+    )
 
-    @property
-    def use_shared_solver_scratch(self) -> bool:
-        """Return True if solver_scratch buffer uses shared memory."""
-        return self.solver_scratch_location == 'shared'
+    def __attrs_post_init__(self):
+        """Set default newton_buffer_settings if not provided."""
+        if self.newton_buffer_settings is None:
+            all_stages_n = self.stage_count * self.n
+            linear_settings = LinearSolverBufferSettings(n=all_stages_n)
+            newton_settings = NewtonBufferSettings(
+                n=all_stages_n,
+                linear_solver_buffer_settings=linear_settings,
+            )
+            object.__setattr__(self, 'newton_buffer_settings', newton_settings)
 
     @property
     def use_shared_stage_increment(self) -> bool:
@@ -168,8 +178,11 @@ class FIRKBufferSettings(BufferSettings):
 
     @property
     def solver_scratch_elements(self) -> int:
-        """Return solver scratch elements (2 * all_stages_n)."""
-        return 2 * self.all_stages_n
+        """Return solver scratch elements (includes linear solver).
+
+        Returns newton_buffer_settings.shared_memory_elements.
+        """
+        return self.newton_buffer_settings.shared_memory_elements
 
     @property
     def stage_driver_stack_elements(self) -> int:
@@ -180,12 +193,11 @@ class FIRKBufferSettings(BufferSettings):
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required.
 
-        Includes solver_scratch, stage_increment, and stage_driver_stack
-        if configured for shared memory.
+        Always includes solver_scratch as it is passed from shared memory.
+        Includes stage_increment and stage_driver_stack if configured for
+        shared memory.
         """
-        total = 0
-        if self.use_shared_solver_scratch:
-            total += self.solver_scratch_elements
+        total = self.solver_scratch_elements  # Always included
         if self.use_shared_stage_increment:
             total += self.all_stages_n
         if self.use_shared_stage_driver_stack:
@@ -199,10 +211,10 @@ class FIRKBufferSettings(BufferSettings):
         """Return total local memory elements required.
 
         Includes buffers configured with location='local'.
+        solver_scratch is not included as it is always shared from parent.
         """
         total = 0
-        if not self.use_shared_solver_scratch:
-            total += self.solver_scratch_elements
+        # solver_scratch always shared from parent, not counted
         if not self.use_shared_stage_increment:
             total += self.all_stages_n
         if not self.use_shared_stage_driver_stack:
@@ -234,11 +246,9 @@ class FIRKBufferSettings(BufferSettings):
         """
         ptr = 0
 
-        if self.use_shared_solver_scratch:
-            solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
-            ptr += self.solver_scratch_elements
-        else:
-            solver_scratch_slice = slice(0, 0)
+        # solver_scratch always included in shared memory layout
+        solver_scratch_slice = slice(ptr, ptr + self.solver_scratch_elements)
+        ptr += self.solver_scratch_elements
 
         if self.use_shared_stage_increment:
             stage_increment_slice = slice(ptr, ptr + self.all_stages_n)
@@ -271,7 +281,6 @@ class FIRKBufferSettings(BufferSettings):
 
 # Buffer location parameters for FIRK algorithms
 ALL_FIRK_BUFFER_LOCATION_PARAMETERS = {
-    "solver_scratch_location",
     "stage_increment_location",
     "stage_driver_stack_location",
     "stage_state_location",
@@ -356,6 +365,16 @@ class FIRKStepConfig(ImplicitStepConfig):
 
         return self.stage_count * self.n
 
+    @property
+    def newton_buffer_settings(self) -> NewtonBufferSettings:
+        """Return newton_buffer_settings from buffer_settings."""
+        return self.buffer_settings.newton_buffer_settings
+
+    @property
+    def linear_solver_buffer_settings(self) -> LinearSolverBufferSettings:
+        """Return linear_solver_buffer_settings from newton_buffer_settings."""
+        return self.buffer_settings.newton_buffer_settings.linear_solver_buffer_settings
+
 
 class FIRKStep(ODEImplicitStep):
     """Fully implicit Runge--Kutta step with an embedded error estimate."""
@@ -378,7 +397,6 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
-        solver_scratch_location: Optional[str] = None,
         stage_increment_location: Optional[str] = None,
         stage_driver_stack_location: Optional[str] = None,
         stage_state_location: Optional[str] = None,
@@ -447,14 +465,24 @@ class FIRKStep(ODEImplicitStep):
         """
 
         mass = np.eye(n, dtype=precision)
+
+        # Create solver buffer settings for accurate memory accounting.
+        # FIRK solves all stages as a coupled system; linear solver uses
+        # all_stages_n = stage_count * n for the full system dimension.
+        all_stages_n = tableau.stage_count * n
+        linear_buffer_settings = LinearSolverBufferSettings(n=all_stages_n)
+        newton_buffer_settings = NewtonBufferSettings(
+            n=all_stages_n,
+            linear_solver_buffer_settings=linear_buffer_settings,
+        )
+
         # Create buffer_settings - only pass locations if explicitly provided
         buffer_kwargs = {
             'n': n,
             'stage_count': tableau.stage_count,
             'n_drivers': n_drivers,
+            'newton_buffer_settings': newton_buffer_settings,
         }
-        if solver_scratch_location is not None:
-            buffer_kwargs['solver_scratch_location'] = solver_scratch_location
         if stage_increment_location is not None:
             buffer_kwargs['stage_increment_location'] = stage_increment_location
         if stage_driver_stack_location is not None:
@@ -544,6 +572,9 @@ class FIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
+        newton_buffer_settings = config.newton_buffer_settings
+        linear_buffer_settings = config.linear_solver_buffer_settings
+
         linear_solver = linear_solver_factory(
             operator,
             n=all_stages_n,
@@ -551,6 +582,7 @@ class FIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            buffer_settings=linear_buffer_settings,
         )
 
         newton_tolerance = config.newton_tolerance
@@ -567,6 +599,7 @@ class FIRKStep(ODEImplicitStep):
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
             precision=precision,
+            buffer_settings=newton_buffer_settings,
         )
         return nonlinear_solver
 
@@ -620,7 +653,6 @@ class FIRKStep(ODEImplicitStep):
         buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
-        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
         stage_increment_shared = buffer_settings.use_shared_stage_increment
         stage_driver_stack_shared = buffer_settings.use_shared_stage_driver_stack
         stage_state_shared = buffer_settings.use_shared_stage_state
@@ -634,7 +666,6 @@ class FIRKStep(ODEImplicitStep):
 
         # Unpack local sizes for local array allocation
         local_sizes = buffer_settings.local_sizes
-        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
         stage_increment_local_size = local_sizes.nonzero('stage_increment')
         stage_driver_stack_local_size = local_sizes.nonzero('stage_driver_stack')
         stage_state_local_size = local_sizes.nonzero('stage_state')
@@ -691,14 +722,8 @@ class FIRKStep(ODEImplicitStep):
                 for _i in range(stage_state_local_size):
                     stage_state[_i] = numba_precision(0.0)
 
-            if solver_scratch_shared:
-                solver_scratch = shared[solver_scratch_slice]
-            else:
-                solver_scratch = cuda.local.array(
-                    solver_scratch_local_size, precision
-                )
-                for _i in range(solver_scratch_local_size):
-                    solver_scratch[_i] = numba_precision(0.0)
+            # solver_scratch always from shared memory
+            solver_scratch = shared[solver_scratch_slice]
 
             if stage_increment_shared:
                 stage_increment = shared[stage_increment_slice]

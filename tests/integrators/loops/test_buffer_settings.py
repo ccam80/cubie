@@ -100,7 +100,7 @@ class TestLoopBufferSettings:
             state_summary_location='shared',
             observable_summary_location='shared',
         )
-        assert settings.local_memory_elements == 0
+        assert settings.local_memory_elements == 2
 
     def test_property_aliases(self):
         """total_shared_elements and total_local_elements aliases."""
@@ -112,21 +112,6 @@ class TestLoopBufferSettings:
         )
         assert settings.total_shared_elements == settings.shared_memory_elements
         assert settings.total_local_elements == settings.local_memory_elements
-
-    def test_counters_with_n_counters_positive(self):
-        """Counters with n_counters > 0 should include proposed_counters."""
-        settings = LoopBufferSettings(
-            n_states=3,
-            n_counters=4,
-            counters_location='shared',
-        )
-        # counters (4) + proposed_counters (2) = 6
-        indices = settings.calculate_shared_indices()
-        assert indices.counters == slice(0, 4)
-        assert indices.proposed_counters == slice(4, 6)
-        # shared_memory_elements should include counters + proposed
-        assert settings.shared_memory_elements == 6
-
 
 class TestLoopBufferSettingsIndices:
     """Tests for calculate_shared_indices method."""
@@ -222,7 +207,6 @@ class TestLoopSliceIndicesProperties:
             observable_summaries=slice(19, 19),
             error=slice(19, 24),
             counters=slice(24, 24),
-            proposed_counters=slice(24, 24),
             local_end=24,
             scratch=slice(24, None),
             all=slice(None),
@@ -245,7 +229,6 @@ class TestLoopSliceIndicesProperties:
             observable_summaries=slice(14, 14),
             error=slice(14, 17),
             counters=slice(17, 17),
-            proposed_counters=slice(17, 17),
             local_end=17,
             scratch=slice(17, None),
             all=slice(None),
@@ -276,7 +259,6 @@ class TestLoopLocalSizes:
         assert sizes.observables == 2
         assert sizes.error == 3
         assert sizes.counters == 4
-        assert sizes.proposed_counters == 2  # 2 when counters > 0
 
     def test_nonzero_returns_one_for_zero_size(self):
         """nonzero method should return 1 for zero-size attributes."""
@@ -290,7 +272,6 @@ class TestLoopLocalSizes:
             proposed_observables=0,
             error=0,
             counters=0,
-            proposed_counters=0,
             state_summary=0,
             observable_summary=0,
         )
@@ -311,7 +292,6 @@ class TestLoopLocalSizes:
             proposed_observables=4,
             error=5,
             counters=4,
-            proposed_counters=2,
             state_summary=0,
             observable_summary=0,
         )

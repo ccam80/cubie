@@ -42,10 +42,10 @@ script_start = perf_counter()
 # algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-algorithm_type = 'firk'
-algorithm_tableau_name = 'radau'
-# algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ode23s'
+# algorithm_type = 'firk'
+# algorithm_tableau_name = 'radau'
+algorithm_type = 'rosenbrock'
+algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -93,11 +93,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.20)
+duration = precision(0.01)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.2)
+dt_save = precision(0.01)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -729,6 +729,154 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             out[i] = beta_inv * out[i]
     return preconditioner
 
+# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY
+def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
+    """Cached Neumann preconditioner using stored auxiliaries.
+    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
+    Neumann series with cached auxiliaries. Returns device function:
+      preconditioner(
+          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp
+      )
+    """
+    n = int32(3)
+    order = int32(order)
+    gamma = precision(gamma)
+    beta = precision(beta)
+    beta_inv = precision(1.0 / beta)
+    h_eff_factor = precision(gamma * beta_inv)
+    sigma = precision(constants['sigma'])
+    beta = precision(constants['beta'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def preconditioner(
+        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp
+    ):
+        for i in range(n):
+            out[i] = v[i]
+        h_eff = h * h_eff_factor * a_ij
+        for _ in range(order):
+            j_00 = -sigma
+            j_01 = sigma
+            j_10 = parameters[0] - state[2]
+            j_11 = precision(-1)
+            j_12 = -state[0]
+            j_20 = state[1]
+            j_21 = state[0]
+            j_22 = -beta
+            jvp[0] = j_00*out[0] + j_01*out[1]
+            jvp[1] = j_10*out[0] + j_11*out[1] + j_12*out[2]
+            jvp[2] = j_20*out[0] + j_21*out[1] + j_22*out[2]
+            for i in range(n):
+                out[i] = v[i] + h_eff * jvp[i]
+        for i in range(n):
+            out[i] = beta_inv * out[i]
+    return preconditioner
+
+# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY
+def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated cached linear operator.
+    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
+    using cached auxiliary intermediates.
+    Returns device function:
+      operator_apply(
+          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out
+      )
+    argument 'order' is ignored, included for compatibility with
+    preconditioner API.
+    """
+    beta = precision(beta)
+    gamma = precision(gamma)
+    sigma = precision(constants['sigma'])
+    beta = precision(constants['beta'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def operator_apply(
+        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out
+    ):
+        m_00 = precision(1.00000)
+        m_11 = precision(1.00000)
+        m_22 = precision(1.00000)
+        j_00 = -sigma
+        j_01 = sigma
+        j_10 = parameters[0] - state[2]
+        j_11 = precision(-1)
+        j_12 = -state[0]
+        j_20 = state[1]
+        j_21 = state[0]
+        j_22 = -beta
+        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1]) + beta*m_00*v[0]
+        out[1] = -a_ij*gamma*h*(j_10*v[0] + j_11*v[1] + j_12*v[2]) + beta*m_11*v[1]
+        out[2] = -a_ij*gamma*h*(j_20*v[0] + j_21*v[1] + j_22*v[2]) + beta*m_22*v[2]
+    return operator_apply
+
+# AUTO-GENERATED JACOBIAN PREPARATION FACTORY
+def prepare_jac(constants, precision):
+    """Auto-generated Jacobian auxiliary preparation.
+    Populates cached_aux with intermediate Jacobian values.
+    """
+    sigma = precision(constants['sigma'])
+    beta = precision(constants['beta'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def prepare_jac(state, parameters, drivers, t, cached_aux):
+        pass
+    return prepare_jac
+
+# AUTO-GENERATED TIME-DERIVATIVE FACTORY
+def time_derivative_rhs(constants, precision):
+    """Auto-generated time-derivative factory."""
+    sigma = precision(constants['sigma'])
+    beta = precision(constants['beta'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision),
+        device=True,
+        inline=True)
+    def time_derivative_rhs(
+        state, parameters, drivers, driver_dt, observables, out, t
+    ):
+        time_dx = precision(0)
+        time_dy = precision(0)
+        time_dz = precision(0)
+        out[0] = time_dx
+        out[1] = time_dy
+        out[2] = time_dz
+
+    return time_derivative_rhs
 
 # =========================================================================
 # DRIVER INTERPOLATION INLINE DEVICE FUNCTIONS

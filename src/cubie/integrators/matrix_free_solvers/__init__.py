@@ -13,7 +13,12 @@ from .linear_solver import (
     linear_solver_factory,
     linear_solver_cached_factory,
 )
-from .newton_krylov import newton_krylov_solver_factory
+from .newton_krylov import (
+    NewtonBufferSettings,
+    NewtonLocalSizes,
+    NewtonSliceIndices,
+    newton_krylov_solver_factory,
+)
 
 
 class SolverRetCodes(IntEnum):
@@ -37,4 +42,7 @@ __all__ = [
     "LinearSolverBufferSettings",
     "LinearSolverLocalSizes",
     "LinearSolverSliceIndices",
+    "NewtonBufferSettings",
+    "NewtonLocalSizes",
+    "NewtonSliceIndices",
 ]
