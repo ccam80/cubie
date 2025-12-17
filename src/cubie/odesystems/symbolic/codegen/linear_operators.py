@@ -764,6 +764,7 @@ N_STAGE_OPERATOR_TEMPLATE = (
     "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "{const_lines}"
+    "    gamma = precision(gamma)\n"
     "{metadata_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"

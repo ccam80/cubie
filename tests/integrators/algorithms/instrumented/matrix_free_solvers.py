@@ -162,13 +162,13 @@ def inst_linear_solver_cached_factory(
 ) -> Callable:
     """Create a cached instrumented steepest-descent or MR solver."""
 
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = True if correction_type == "steepest_descent" else False
+    mr_flag = True if correction_type == "minimal_residual" else False
     if correction_type not in ("steepest_descent", "minimal_residual"):
         raise ValueError(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
-    preconditioned = 1 if preconditioner is not None else 0
+    preconditioned = preconditioner is not None
 
     precision_dtype = np.dtype(precision)
     precision_scalar = from_dtype(precision_dtype)
@@ -427,7 +427,6 @@ def inst_newton_krylov_solver_factory(
         mask = activemask()
         stage_increment_snapshot = cuda.local.array(n, numba_precision)
         residual_snapshot = cuda.local.array(n, numba_precision)
-        snapshot_ready = False
 
         for _ in range(max_iters):
             done = converged or has_error
@@ -467,65 +466,59 @@ def inst_newton_krylov_solver_factory(
             )
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
-            scale = typed_one
-            scale_applied = typed_zero
+            stage_base_bt = cuda.local.array(n_arraysize, numba_precision)
+            for i in range(n):
+                stage_base_bt[i] = stage_increment[i]
+
+            alpha = typed_one
             found_step = False
             snapshot_ready = False
-            norm2_new = typed_zero
-            active_bt = True
 
-            for _ in range(max_backtracks + 1):
+            for _ in range(max_backtracks):
+                active_bt = active and (not found_step) and (not converged)
                 if not any_sync(mask, active_bt):
                     break
 
-                active_bt = active and (not found_step) and (not converged)
-                delta_scale = selp(
-                        active_bt,
-                        scale - scale_applied,
-                        typed_zero
-                )
-                for i in range(n):
-                    stage_increment[i] += delta_scale * delta[i]
-                    scale_applied = scale
-                scale_applied = selp(active_bt, scale, scale_applied)
-                residual_temp = cuda.local.array(n_arraysize, dtype=numba_precision)
+                if active_bt:
+                    for i in range(n):
+                        stage_increment[i] = (
+                            stage_base_bt[i] + alpha * delta[i]
+                        )
 
-                residual_function(
-                    stage_increment,
-                    parameters,
-                    drivers,
-                    t,
-                    h,
-                    a_ij,
-                    base_state,
-                    residual_temp,
-                )
-                for i in range(n):
-                    residual[i] = selp(active_bt, residual_temp[i], residual[i])
-
-                norm2_new = typed_zero
-                for i in range(n):
-                    residual_value = residual[i]
-                    norm2_new += residual_value * residual_value
-                    stage_increment_snapshot[i] = stage_increment[i]
-                    residual_snapshot[i] = residual_value
-                snapshot_ready = True
-
-                # Check convergence
-                just_converged = active_bt and (norm2_new <= tol_squared)
-                converged = converged or just_converged
-
-                accept = active_bt and (not converged) and (norm2_new < norm2_prev)
-                found_step = found_step or accept
-
-                for i in range(n):
-                    residual[i] = selp(
-                        accept,
-                        -residual[i],
-                        residual[i],
+                    residual_temp = cuda.local.array(
+                        n_arraysize, dtype=numba_precision
                     )
-                norm2_prev = selp(accept, norm2_new, norm2_prev)
-                scale *= typed_damping
+
+                    residual_function(
+                        stage_increment,
+                        parameters,
+                        drivers,
+                        t,
+                        h,
+                        a_ij,
+                        base_state,
+                        residual_temp,
+                    )
+                    norm2_new = typed_zero
+                    for i in range(n):
+                        residual_value = residual_temp[i]
+                        norm2_new += residual_value * residual_value
+                        stage_increment_snapshot[i] = stage_increment[i]
+                        residual_snapshot[i] = residual_value
+                    snapshot_ready = True
+
+                    # Check convergence
+                    if norm2_new <= tol_squared:
+                        converged = True
+                        found_step = True
+
+                    if norm2_new < norm2_prev:
+                        for i in range(n):
+                            residual[i] = -residual_temp[i]
+                        norm2_prev = norm2_new
+                        found_step = True
+
+                alpha *= typed_damping
 
             # Backtrack failure handling
             backtrack_failed = active and (not found_step) and (not converged)
@@ -534,10 +527,10 @@ def inst_newton_krylov_solver_factory(
                 backtrack_failed, int32(final_status | int32(1)), final_status
             )
 
-            # Revert state if backtrack failed using predicated pattern
-            revert_scale = selp(backtrack_failed, -scale_applied, typed_zero)
-            for i in range(n):
-                stage_increment[i] += revert_scale * delta[i]
+            # Revert state if backtrack failed
+            if backtrack_failed:
+                for i in range(n):
+                    stage_increment[i] = stage_base_bt[i]
 
             iter_slot = int(iters_count) - 1
             if iter_slot >= 0:
@@ -551,7 +544,7 @@ def inst_newton_krylov_solver_factory(
                         )
                     newton_squared_norms[stage_index, log_index] = norm2_new
                     log_index += int32(1)
-                newton_iteration_scale[stage_index, iter_slot] = scale_applied
+                newton_iteration_scale[stage_index, iter_slot] = alpha
 
         # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
@@ -564,7 +557,7 @@ def inst_newton_krylov_solver_factory(
         counters[1] = total_krylov_iters
 
         # Return status without encoding iterations (breaking change per plan)
-        return final_status
+        return int32(final_status)
 
     # no cover: end
     return newton_krylov_solver

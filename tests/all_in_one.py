@@ -11,8 +11,14 @@ from typing import Optional
 import numpy as np
 from numba import cuda, int32, float32, float64, bool_
 from numba import from_dtype as numba_from_dtype
-from cubie.cuda_simsafe import activemask, all_sync, selp, compile_kwargs, \
-    syncwarp
+from cubie.cuda_simsafe import (
+    activemask,
+    all_sync,
+    selp,
+    compile_kwargs,
+    syncwarp,
+    any_sync,
+)
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRK_TABLEAU_REGISTRY,
@@ -42,10 +48,10 @@ script_start = perf_counter()
 # algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-# algorithm_type = 'firk'
-# algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ode23s'
+algorithm_type = 'firk'
+algorithm_tableau_name = 'radau'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -93,11 +99,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.01)
+duration = precision(0.2)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.01)
+dt_save = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -123,11 +129,11 @@ max_backtracks = 15
 # -------------------------------------------------------------------------
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
-algorithm_order = 2
+algorithm_order = 5
 kp = precision(0.7)
 ki = precision(-0.4)
 kd = precision(0.0)
-min_gain = precision(0.2)
+min_gain = precision(0.1)
 max_gain = precision(5.0)
 deadband_min = precision(1.0)
 deadband_max = precision(1.0)
@@ -1491,6 +1497,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
+            #TODO: Add this to buffersettings
             stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
@@ -1499,39 +1506,41 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             alpha = typed_one
 
             for _ in range(max_backtracks):
-                for i in range(n):
-                    stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
-
-                #TODO: Add this to the local/shared toggle list
-                residual_temp = cuda.local.array(n_arraysize, numba_prec)
-                residual_fn(
-                        stage_increment,
-                        parameters,
-                        drivers,
-                        t,
-                        h,
-                        a_ij,
-                        base_state,
-                        residual_temp
-                )
-
-                norm2_new = typed_zero
-                for i in range(n):
-                    residual_value = residual_temp[i]
-                    norm2_new += residual_value * residual_value
-
-                # Check convergence
-                if norm2_new <= tol_squared:
-                    converged = True
-                    found_step = True
+                active_bt = active and (not found_step) and (not converged)
+                if not any_sync(mask, active_bt):
                     break
 
-                if norm2_new < norm2_prev:
+                if active_bt:
                     for i in range(n):
-                        residual[i] = -residual_temp[i]
-                    norm2_prev = norm2_new
-                    found_step = True
-                    break
+                        stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
+
+                    residual_temp = cuda.local.array(n_arraysize, numba_prec)
+                    residual_fn(
+                            stage_increment,
+                            parameters,
+                            drivers,
+                            t,
+                            h,
+                            a_ij,
+                            base_state,
+                            residual_temp
+                    )
+
+                    norm2_new = typed_zero
+                    for i in range(n):
+                        residual_value = residual_temp[i]
+                        norm2_new += residual_value * residual_value
+
+                    # Check convergence
+                    if norm2_new <= tol_squared:
+                        converged = True
+                        found_step = True
+
+                    if norm2_new < norm2_prev:
+                        for i in range(n):
+                            residual[i] = -residual_temp[i]
+                        norm2_prev = norm2_new
+                        found_step = True
 
                 alpha *= typed_damping
 
@@ -2606,7 +2615,6 @@ def firk_step_inline_factory(
         current_time = time_scalar
         end_time = current_time + dt_scalar
         status_code = int32(0)
-        stage_rhs_flat = solver_scratch[:all_stages_n]
 
         for idx in range(n):
             if accumulates_output:
@@ -2642,9 +2650,6 @@ def firk_step_inline_factory(
         status_code = int32(status_code | status_temp)
 
         for stage_idx in range(stage_count):
-            stage_time = (
-                current_time + dt_scalar * stage_time_fractions[stage_idx]
-            )
 
             if has_driver_function:
                 stage_base = stage_idx * n_drivers
@@ -4050,14 +4055,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             ncnt_nonzero, simsafe_int32
         )
 
-    if save_counters_bool and use_shared_loop_counters:
-        # When enabled and shared, use shared memory buffers
-        proposed_counters = shared_scratch[proposed_counters_start:
-                                           proposed_counters_end]
-    else:
-        # When disabled or local, use a local "proposed_counters" buffer
-        proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
 
+    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
 
@@ -4065,6 +4064,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         error = shared_scratch[error_start:error_end]
     else:
         error = cuda.local.array(n_arraysize, numba_precision)
+        for _i in range(n_arraysize):
+            error[_i] = precision(0.0)
 
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
@@ -4081,6 +4082,12 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         parameters_buffer[k] = parameters[k]
 
     # Seed initial observables from initial state.
+    if driver_function is not None and n_drivers > int32(0):
+        driver_function(
+                t_prec,
+                driver_coefficients,
+                drivers_buffer,
+        )
     if n_observables > 0:
         observables_function(
             state_buffer,
@@ -4089,8 +4096,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             observables_buffer,
             t_prec,
         )
-        for k in range(n_observables):
-            observables_proposal_buffer[k] = observables_buffer[k]
 
     save_idx = int32(0)
     summary_idx = int32(0)
@@ -4122,15 +4127,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                                       summary_idx * summarise_obs_bool, :
                                   ],
                                   saves_per_summary)
-
-            # Log first summary update
-            update_summaries_inline(
-                state_buffer,
-                observables_buffer,
-                state_summary_buffer,
-                observable_summary_buffer,
-                save_idx,
-            )
         save_idx += int32(1)
 
     status = int32(0)
@@ -4165,7 +4161,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         finished = finished or bool_(status & int32(0x8)) or bool_(
                 status * int32(0x40))
 
-
         if all_sync(mask, finished):
             return status
 
@@ -4199,8 +4194,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             # Iterations now come from counters, not encoded in status
             niters = proposed_counters[0]
-            status_temp = int32(step_status)
-            status = int32(status | status_temp)
+            status = int32(status | step_status)
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
             if not fixed_mode:
@@ -4214,8 +4208,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                     controller_temp,
                 )
 
-                status_temp = int32(controller_status)
-                status = int32(status | status_temp)
+                status = int32(status | controller_status)
                 accept = bool_(accept_step[0] != int32(0))
 
             else:
@@ -4234,7 +4227,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         # Increment rejected steps counter
                         counters_since_save[i] += int32(1)
 
-            t_proposal = t + dt_eff
+            t_proposal = t + float64(dt_eff)
 
             if t_proposal == t:
                 stagnant_counts += int32(1)

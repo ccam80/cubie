@@ -31,7 +31,7 @@ from typing import Callable, Optional
 
 import attrs
 from attrs import validators
-from numba import cuda, int16, int32
+from numba import cuda, int32, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
@@ -534,8 +534,8 @@ class ERKStep(ODEExplicitStep):
             #     numba_precision[::1],
             #     numba_precision,
             #     numba_precision,
-            #     int16,
-            #     int16,
+            #     int32,
+            #     int32,
             #     numba_precision[::1],
             #     numba_precision[::1],
             #     int32[::1],
@@ -640,7 +640,7 @@ class ERKStep(ODEExplicitStep):
                     mask = activemask()
                     all_threads_accepted = all_sync(
                             mask,
-                            accepted_flag != int16(0))
+                            accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False

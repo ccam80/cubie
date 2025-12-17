@@ -814,7 +814,6 @@ class IVPLoop(CUDAFactory):
         saves_per_summary = config.saves_per_summary
         dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
-        dt_min = precision(config.dt_min)
         # save_last is not yet piped up from this level, but is intended and
         # included in loop logic
         save_last = False
@@ -829,10 +828,8 @@ class IVPLoop(CUDAFactory):
         n_counters = int32(buffer_settings.n_counters)
         
         fixed_mode = not config.is_adaptive
-        status_mask = int32(0xFFFF)
 
         # Buffer settings from compile_settings for selective shared/local.
-        # IVPLoop.__init__ ensures buffer_settings is always set.
 
         # Unpack boolean flags as compile-time constants
         state_shared = buffer_settings.use_shared_state
@@ -1113,8 +1110,6 @@ class IVPLoop(CUDAFactory):
                                        summary_idx * summarise_obs_bool, :
                                    ],
                                    saves_per_summary)
-                    # Summary accumulation starts with next accepted save to
-                    # avoid double counting the t0 seed sample.
                 save_idx += int32(1)
 
             status = int32(0)
@@ -1157,24 +1152,26 @@ class IVPLoop(CUDAFactory):
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
 
-                    step_status = int32(step_function(
-                        state_buffer,
-                        state_proposal_buffer,
-                        parameters_buffer,
-                        driver_coefficients,
-                        drivers_buffer,
-                        drivers_proposal_buffer,
-                        observables_buffer,
-                        observables_proposal_buffer,
-                        error,
-                        dt_eff,
-                        t_prec,
-                        first_step_flag,
-                        prev_step_accepted_flag,
-                        remaining_shared_scratch,
-                        algo_local,
-                        proposed_counters,
-                    ))
+                    step_status = int32(
+                        step_function(
+                            state_buffer,
+                            state_proposal_buffer,
+                            parameters_buffer,
+                            driver_coefficients,
+                            drivers_buffer,
+                            drivers_proposal_buffer,
+                            observables_buffer,
+                            observables_proposal_buffer,
+                            error,
+                            dt_eff,
+                            t_prec,
+                            first_step_flag,
+                            prev_step_accepted_flag,
+                            remaining_shared_scratch,
+                            algo_local,
+                            proposed_counters,
+                        )
+                    )
 
                     first_step_flag = False
 
@@ -1193,7 +1190,7 @@ class IVPLoop(CUDAFactory):
                             controller_temp,
                         )
 
-                        accept = accept_step[0] != int32(0)
+                        accept = bool_(accept_step[0] != int32(0))
                         status = int32(status | controller_status)
 
                     else:
