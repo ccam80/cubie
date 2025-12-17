@@ -771,22 +771,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             if stage_store_shared:
                 # When shared, time_derivative persists automatically
-                if first_step:
-                    # No cached value on first step - use zeros
-                    for idx in range(n):
-                        stage_increment[idx] = numba_precision(0.0)
-                else:
-                    for idx in range(n):
-                        stage_increment[idx] = time_derivative[idx]
+                for idx in range(n):
+                    stage_increment[idx] = time_derivative[idx]
             else:
-                # When local, use persistent_local for caching
-                if first_step:
-                    # No cached value on first step - use zeros
-                    for idx in range(n):
-                        stage_increment[idx] = numba_precision(0.0)
-                else:
-                    for idx in range(n):
-                        stage_increment[idx] = persistent_local[idx]
+                for idx in range(n):
+                    stage_increment[idx] = persistent_local[idx]
 
             time_derivative_rhs(
                 state,

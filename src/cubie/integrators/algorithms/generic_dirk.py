@@ -828,9 +828,6 @@ class DIRKStep(ODEImplicitStep):
             if stage_base_aliases:
                 # Both accumulator and stage_base are shared; alias first slice
                 stage_base = stage_accumulator[:n]
-            elif multistage and not accumulator_shared and not stage_base_shared:
-                # Both local; can alias local accumulator
-                stage_base = stage_accumulator[:n]
             elif stage_base_shared:
                 # Separate shared allocation (accumulator local or single-stage)
                 stage_base = shared[stage_base_slice]
