@@ -129,11 +129,11 @@ max_backtracks = 15
 # -------------------------------------------------------------------------
 # PID Controller Parameters (adaptive mode only)
 # -------------------------------------------------------------------------
-algorithm_order = 2
+algorithm_order = 5
 kp = precision(0.7)
 ki = precision(-0.4)
 kd = precision(0.0)
-min_gain = precision(0.2)
+min_gain = precision(0.1)
 max_gain = precision(5.0)
 deadband_min = precision(1.0)
 deadband_max = precision(1.0)
@@ -4055,14 +4055,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             ncnt_nonzero, simsafe_int32
         )
 
-    if save_counters_bool and use_shared_loop_counters:
-        # When enabled and shared, use shared memory buffers
-        proposed_counters = shared_scratch[proposed_counters_start:
-                                           proposed_counters_end]
-    else:
-        # When disabled or local, use a local "proposed_counters" buffer
-        proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
 
+    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
 
@@ -4070,6 +4064,8 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         error = shared_scratch[error_start:error_end]
     else:
         error = cuda.local.array(n_arraysize, numba_precision)
+        for _i in range(n_arraysize):
+            error[_i] = precision(0.0)
 
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
@@ -4086,6 +4082,12 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         parameters_buffer[k] = parameters[k]
 
     # Seed initial observables from initial state.
+    if driver_function is not None and n_drivers > int32(0):
+        driver_function(
+                t_prec,
+                driver_coefficients,
+                drivers_buffer,
+        )
     if n_observables > 0:
         observables_function(
             state_buffer,
@@ -4094,8 +4096,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             observables_buffer,
             t_prec,
         )
-        for k in range(n_observables):
-            observables_proposal_buffer[k] = observables_buffer[k]
 
     save_idx = int32(0)
     summary_idx = int32(0)
@@ -4127,15 +4127,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                                       summary_idx * summarise_obs_bool, :
                                   ],
                                   saves_per_summary)
-
-            # Log first summary update
-            update_summaries_inline(
-                state_buffer,
-                observables_buffer,
-                state_summary_buffer,
-                observable_summary_buffer,
-                save_idx,
-            )
         save_idx += int32(1)
 
     status = int32(0)
@@ -4170,7 +4161,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
         finished = finished or bool_(status & int32(0x8)) or bool_(
                 status * int32(0x40))
 
-
         if all_sync(mask, finished):
             return status
 
@@ -4204,8 +4194,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
 
             # Iterations now come from counters, not encoded in status
             niters = proposed_counters[0]
-            status_temp = int32(step_status)
-            status = int32(status | status_temp)
+            status = int32(status | step_status)
 
             # Adjust dt if step rejected - auto-accepts if fixed-step
             if not fixed_mode:
@@ -4219,8 +4208,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                     controller_temp,
                 )
 
-                status_temp = int32(controller_status)
-                status = int32(status | status_temp)
+                status = int32(status | controller_status)
                 accept = bool_(accept_step[0] != int32(0))
 
             else:
@@ -4239,7 +4227,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         # Increment rejected steps counter
                         counters_since_save[i] += int32(1)
 
-            t_proposal = t + dt_eff
+            t_proposal = t + float64(dt_eff)
 
             if t_proposal == t:
                 stagnant_counts += int32(1)

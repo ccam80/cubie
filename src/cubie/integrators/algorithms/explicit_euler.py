@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16, int32
+from numba import cuda, int32, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
@@ -108,8 +108,8 @@ class ExplicitEulerStep(ODEExplicitStep):
             #     numba_precision[::1],
             #     numba_precision,
             #     numba_precision,
-            #     int16,
-            #     int16,
+            #     int32,
+            #     int32,
             #     numba_precision[::1],
             #     numba_precision[::1],
             #     int32[::1],

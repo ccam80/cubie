@@ -306,7 +306,7 @@ def newton_krylov_solver_factory(
     typed_zero = precision(0.0)
     typed_one = precision(1.0)
     typed_damping = precision(damping)
-    n_arraysize = int32(n)
+    n_arraysize = int(n)
     n = int32(n)
     max_iters = int32(max_iters)
     max_backtracks = int32(max_backtracks)
