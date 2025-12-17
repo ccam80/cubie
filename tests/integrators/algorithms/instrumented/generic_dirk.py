@@ -251,12 +251,12 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_shared = buffer_settings.use_shared_stage_increment
         stage_base_shared = buffer_settings.use_shared_stage_base
         accumulator_shared = buffer_settings.use_shared_accumulator
-        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
+        stage_base_aliases = buffer_settings.stage_base_aliases_accumulator
 
         # Unpack slice indices for shared memory layout
         shared_indices = buffer_settings.shared_indices
         stage_increment_slice = shared_indices.stage_increment
-        # stage_base aliases accumulator when multistage, so no dedicated slice
+        stage_base_slice = shared_indices.stage_base
         accumulator_slice = shared_indices.accumulator
         solver_scratch_slice = shared_indices.solver_scratch
 
@@ -265,7 +265,6 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_local_size = local_sizes.nonzero('stage_increment')
         stage_base_local_size = local_sizes.nonzero('stage_base')
         accumulator_local_size = local_sizes.nonzero('accumulator')
-        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
 
         # no cover: start
         @cuda.jit(
@@ -399,24 +398,24 @@ class DIRKStep(ODEImplicitStep):
                 for _i in range(accumulator_local_size):
                     stage_accumulator[_i] = numba_precision(0.0)
 
-            if solver_scratch_shared:
-                solver_scratch = shared[solver_scratch_slice]
-            else:
-                solver_scratch = cuda.local.array(solver_scratch_local_size,
-                                                  precision)
-                for _i in range(solver_scratch_local_size):
-                    solver_scratch[_i] = numba_precision(0.0)
+            # solver_scratch always from shared memory
+            solver_scratch = shared[solver_scratch_slice]
 
-            # Alias stage base onto first stage accumulator or allocate locally
-            if multistage:
+            # Check aliasing eligibility based on BOTH parent and child locations
+            if stage_base_aliases:
+                # Both accumulator and stage_base are shared; alias first slice
                 stage_base = stage_accumulator[:n]
+            elif multistage and not accumulator_shared and not stage_base_shared:
+                # Both local; can alias local accumulator
+                stage_base = stage_accumulator[:n]
+            elif stage_base_shared:
+                # Separate shared allocation (accumulator local or single-stage)
+                stage_base = shared[stage_base_slice]
             else:
-                if stage_base_shared:
-                    stage_base = shared[:n]
-                else:
-                    stage_base = cuda.local.array(stage_base_local_size, precision)
-                    for _i in range(stage_base_local_size):
-                        stage_base[_i] = numba_precision(0.0)
+                # Separate local allocation
+                stage_base = cuda.local.array(stage_base_local_size, precision)
+                for _i in range(stage_base_local_size):
+                    stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #
             # Instrumentation local buffers
@@ -428,14 +427,9 @@ class DIRKStep(ODEImplicitStep):
             stage_rhs = solver_scratch[:n]
 
             # increment_cache and rhs_cache persist between steps for FSAL.
-            # When solver_scratch is shared, slice from it; when local, use
-            # persistent_local to maintain state between step invocations.
-            if solver_scratch_shared:
-                increment_cache = solver_scratch[n:int32(2)*n]
-                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs when shared
-            else:
-                increment_cache = persistent_local[:n]
-                rhs_cache = persistent_local[n:int32(2)*n]
+            # solver_scratch is always shared, so slice from it.
+            increment_cache = solver_scratch[n:int32(2)*n]
+            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -468,12 +462,10 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] = typed_zero
 
             if use_cached_rhs:
-                # Load cached RHS from persistent storage (when solver_scratch
-                # is local, rhs_cache points to persistent_local; when shared,
-                # it aliases stage_rhs so this is a no-op)
-                if not solver_scratch_shared:
-                    for idx in range(n):
-                        stage_rhs[idx] = rhs_cache[idx]
+                # Load cached RHS from persistent storage
+                # solver_scratch is always shared; rhs_cache aliases stage_rhs
+                # so this copy is only needed when not using shared cache
+                pass  # No copy needed - rhs_cache aliases stage_rhs
 
             else:
                 if can_reuse_accepted_start:
@@ -728,11 +720,7 @@ class DIRKStep(ODEImplicitStep):
             # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
-                # Save RHS to cache (when solver_scratch is local, rhs_cache
-                # points to persistent_local; when shared, aliases stage_rhs)
-                if first_same_as_last:
-                    if not solver_scratch_shared:
-                        rhs_cache[idx] = stage_rhs[idx]
+                # rhs_cache aliases stage_rhs; no separate copy needed
 
             return status_code
         # no cover: end

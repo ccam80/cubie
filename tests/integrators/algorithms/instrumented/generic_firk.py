@@ -269,7 +269,6 @@ class FIRKStep(ODEImplicitStep):
         buffer_settings = config.buffer_settings
 
         # Unpack boolean flags as compile-time constants
-        solver_scratch_shared = buffer_settings.use_shared_solver_scratch
         stage_increment_shared = buffer_settings.use_shared_stage_increment
         stage_driver_stack_shared = buffer_settings.use_shared_stage_driver_stack
         stage_state_shared = buffer_settings.use_shared_stage_state
@@ -283,7 +282,6 @@ class FIRKStep(ODEImplicitStep):
 
         # Unpack local sizes for local array allocation
         local_sizes = buffer_settings.local_sizes
-        solver_scratch_local_size = local_sizes.nonzero('solver_scratch')
         stage_increment_local_size = local_sizes.nonzero('stage_increment')
         stage_driver_stack_local_size = local_sizes.nonzero('stage_driver_stack')
         stage_state_local_size = local_sizes.nonzero('stage_state')
@@ -373,14 +371,8 @@ class FIRKStep(ODEImplicitStep):
                 for _i in range(stage_state_local_size):
                     stage_state[_i] = numba_precision(0.0)
 
-            if solver_scratch_shared:
-                solver_scratch = shared[solver_scratch_slice]
-            else:
-                solver_scratch = cuda.local.array(
-                    solver_scratch_local_size, precision
-                )
-                for _i in range(solver_scratch_local_size):
-                    solver_scratch[_i] = numba_precision(0.0)
+            # solver_scratch always from shared memory
+            solver_scratch = shared[solver_scratch_slice]
 
             if stage_increment_shared:
                 stage_increment = shared[stage_increment_slice]

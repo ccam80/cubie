@@ -163,11 +163,12 @@ class TestDIRKBufferSettings:
         assert settings.use_shared_accumulator is False
 
     def test_stage_base_aliases_accumulator_multistage(self):
-        """stage_base should alias accumulator when multistage and shared."""
+        """stage_base should alias accumulator when multistage and BOTH shared."""
         settings = DIRKBufferSettings(
             n=3,
             stage_count=4,
             accumulator_location='shared',
+            stage_base_location='shared',
         )
 
         assert settings.multistage is True
@@ -249,6 +250,87 @@ class TestDIRKBufferSettings:
         assert indices.solver_scratch == slice(9, 9 + solver_size)
         assert indices.stage_increment == slice(9 + solver_size, 9 + solver_size + 3)
         assert indices.local_end == 9 + solver_size + 3
+
+    def test_stage_base_aliases_requires_both_shared(self):
+        """stage_base should only alias when BOTH accumulator and stage_base shared."""
+        # Case 1: Both shared - should alias
+        settings_both_shared = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='shared',
+            stage_base_location='shared',
+        )
+        assert settings_both_shared.stage_base_aliases_accumulator is True
+
+        # Case 2: accumulator local, stage_base shared - should NOT alias
+        settings_acc_local = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='local',
+            stage_base_location='shared',
+        )
+        assert settings_acc_local.stage_base_aliases_accumulator is False
+
+        # Case 3: accumulator shared, stage_base local - should NOT alias
+        settings_base_local = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='shared',
+            stage_base_location='local',
+        )
+        assert settings_base_local.stage_base_aliases_accumulator is False
+
+    def test_shared_memory_counts_stage_base_when_not_aliased(self):
+        """Shared memory should include stage_base when it cannot alias."""
+        linear_settings = LinearSolverBufferSettings(n=3)
+        newton_settings = NewtonBufferSettings(
+            n=3,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        # accumulator local, stage_base shared -> needs separate shared alloc
+        settings = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='local',
+            stage_base_location='shared',
+            newton_buffer_settings=newton_settings,
+        )
+        # Should include: solver_scratch + stage_base (n=3)
+        expected = newton_settings.shared_memory_elements + 3
+        assert settings.shared_memory_elements == expected
+
+    def test_shared_indices_stage_base_separate_allocation(self):
+        """shared_indices should allocate stage_base separately when needed."""
+        linear_settings = LinearSolverBufferSettings(n=3)
+        newton_settings = NewtonBufferSettings(
+            n=3,
+            linear_solver_buffer_settings=linear_settings,
+        )
+        settings = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='local',
+            stage_base_location='shared',
+            newton_buffer_settings=newton_settings,
+        )
+        indices = settings.shared_indices
+        solver_size = newton_settings.shared_memory_elements
+
+        # stage_base should have its own slice after solver_scratch
+        assert indices.stage_base == slice(solver_size, solver_size + 3)
+        assert indices.accumulator == slice(0, 0)  # local
+
+    def test_local_sizes_stage_base_with_local_accumulator(self):
+        """local_sizes.stage_base should be 0 when aliasing local accumulator."""
+        settings = DIRKBufferSettings(
+            n=3,
+            stage_count=4,
+            accumulator_location='local',
+            stage_base_location='local',
+        )
+        sizes = settings.local_sizes
+        # Can alias local accumulator in device function
+        assert sizes.stage_base == 0
 
 
 class TestFIRKBufferSettings:

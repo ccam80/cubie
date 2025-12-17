@@ -206,18 +206,19 @@ class DIRKBufferSettings(BufferSettings):
     def stage_base_aliases_accumulator(self) -> bool:
         """Return True if stage_base can alias first slice of accumulator.
 
-        Only valid when multistage and accumulator is in shared memory.
+        Only valid when multistage, BOTH stage_base AND accumulator are
+        in shared memory.
         """
-        return self.multistage and self.use_shared_accumulator
+        return (self.multistage
+                and self.use_shared_accumulator
+                and self.use_shared_stage_base)
 
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required.
 
         Includes accumulator, solver_scratch, and stage_increment if shared.
-        solver_scratch is always included as it is passed from shared memory.
-        stage_base aliases accumulator when multistage, so not counted
-        separately.
+        stage_base is counted separately when it cannot alias accumulator.
         """
         total = 0
         if self.use_shared_accumulator:
@@ -225,9 +226,9 @@ class DIRKBufferSettings(BufferSettings):
         total += self.solver_scratch_elements  # Always included
         if self.use_shared_stage_increment:
             total += self.n
-        # stage_base aliases accumulator when multistage; only add if
-        # single-stage and shared
-        if not self.multistage and self.use_shared_stage_base:
+        # stage_base needs separate allocation when:
+        # - shared AND (single-stage OR accumulator is local)
+        if self.use_shared_stage_base and not self.stage_base_aliases_accumulator:
             total += self.n
         return total
 
@@ -243,8 +244,8 @@ class DIRKBufferSettings(BufferSettings):
             total += self.accumulator_length
         if not self.use_shared_stage_increment:
             total += self.n
-        # stage_base needs local storage when single-stage and local
-        if not self.multistage and not self.use_shared_stage_base:
+        # stage_base needs local storage when local
+        if not self.use_shared_stage_base:
             total += self.n
         return total
 
@@ -255,9 +256,13 @@ class DIRKBufferSettings(BufferSettings):
         The returned object provides nonzero sizes suitable for
         cuda.local.array allocation.
         """
-        # stage_base size depends on whether it aliases accumulator
-        if self.multistage:
-            stage_base_size = 0  # Aliases accumulator when multistage
+        # stage_base needs local allocation when not aliasing accumulator
+        # and configured for local memory
+        if self.use_shared_stage_base:
+            stage_base_size = 0  # Will use shared memory
+        elif self.multistage and not self.use_shared_accumulator:
+            # Can alias local accumulator in device function
+            stage_base_size = 0
         else:
             stage_base_size = self.n
         return DIRKLocalSizes(
@@ -294,16 +299,19 @@ class DIRKBufferSettings(BufferSettings):
         else:
             stage_increment_slice = slice(0, 0)
 
-        # stage_base aliases accumulator when multistage
+        # stage_base: alias accumulator, separate shared, or local
         if self.stage_base_aliases_accumulator:
+            # Alias first n elements of accumulator
             stage_base_slice = slice(
                 accumulator_slice.start,
                 accumulator_slice.start + self.n
             )
-        elif self.use_shared_stage_base and not self.multistage:
+        elif self.use_shared_stage_base:
+            # Separate shared allocation
             stage_base_slice = slice(ptr, ptr + self.n)
             ptr += self.n
         else:
+            # Local allocation
             stage_base_slice = slice(0, 0)
 
         return DIRKSliceIndices(
@@ -672,11 +680,12 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_shared = buffer_settings.use_shared_stage_increment
         stage_base_shared = buffer_settings.use_shared_stage_base
         accumulator_shared = buffer_settings.use_shared_accumulator
+        stage_base_aliases = buffer_settings.stage_base_aliases_accumulator
 
         # Unpack slice indices for shared memory layout
         shared_indices = buffer_settings.shared_indices
         stage_increment_slice = shared_indices.stage_increment
-        # stage_base aliases accumulator when multistage, so no dedicated slice
+        stage_base_slice = shared_indices.stage_base
         accumulator_slice = shared_indices.accumulator
         solver_scratch_slice = shared_indices.solver_scratch
 
@@ -787,16 +796,21 @@ class DIRKStep(ODEImplicitStep):
             # solver_scratch always from shared memory
             solver_scratch = shared[solver_scratch_slice]
 
-            # Alias stage base onto first stage accumulator or allocate locally
-            if multistage:
+            # Check aliasing eligibility based on BOTH parent and child locations
+            if stage_base_aliases:
+                # Both accumulator and stage_base are shared; alias first slice
                 stage_base = stage_accumulator[:n]
+            elif multistage and not accumulator_shared and not stage_base_shared:
+                # Both local; can alias local accumulator
+                stage_base = stage_accumulator[:n]
+            elif stage_base_shared:
+                # Separate shared allocation (accumulator local or single-stage)
+                stage_base = shared[stage_base_slice]
             else:
-                if stage_base_shared:
-                    stage_base = shared[:n]
-                else:
-                    stage_base = cuda.local.array(stage_base_local_size, precision)
-                    for _i in range(stage_base_local_size):
-                        stage_base[_i] = numba_precision(0.0)
+                # Separate local allocation
+                stage_base = cuda.local.array(stage_base_local_size, precision)
+                for _i in range(stage_base_local_size):
+                    stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #
 
