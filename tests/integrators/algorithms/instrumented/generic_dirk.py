@@ -252,6 +252,8 @@ class DIRKStep(ODEImplicitStep):
         stage_base_shared = buffer_settings.use_shared_stage_base
         accumulator_shared = buffer_settings.use_shared_accumulator
         stage_base_aliases = buffer_settings.stage_base_aliases_accumulator
+        has_rhs_in_scratch = buffer_settings.solver_scratch_has_rhs_space
+        has_increment_in_scratch = buffer_settings.solver_scratch_has_increment_space
 
         # Unpack slice indices for shared memory layout
         shared_indices = buffer_settings.shared_indices
@@ -424,12 +426,30 @@ class DIRKStep(ODEImplicitStep):
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
-            stage_rhs = solver_scratch[:n]
+
+            # stage_rhs is used during Newton iterations and overwritten.
+            # When solver_scratch has at least n elements, slice from it.
+            # This also enables rhs_cache to alias stage_rhs for FSAL.
+            if has_rhs_in_scratch:
+                stage_rhs = solver_scratch[:n]
+            else:
+                stage_rhs = cuda.local.array(n, precision)
 
             # increment_cache and rhs_cache persist between steps for FSAL.
-            # solver_scratch is always shared, so slice from it.
-            increment_cache = solver_scratch[n:int32(2)*n]
-            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
+            # Allocation depends on solver_scratch size:
+            # - >= 2n: both caches in solver_scratch, rhs_cache aliases stage_rhs
+            # - >= n: increment_cache in persistent_local, rhs_cache aliases
+            #         stage_rhs (which is in shared solver_scratch)
+            # - < n: both caches in persistent_local
+            if has_increment_in_scratch:
+                increment_cache = solver_scratch[n:int32(2)*n]
+                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
+            elif has_rhs_in_scratch:
+                increment_cache = persistent_local[:n]
+                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
+            else:
+                increment_cache = persistent_local[:n]
+                rhs_cache = persistent_local[n:int32(2)*n]
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -462,10 +482,12 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] = typed_zero
 
             if use_cached_rhs:
-                # Load cached RHS from persistent storage
-                # solver_scratch is always shared; rhs_cache aliases stage_rhs
-                # so this copy is only needed when not using shared cache
-                pass  # No copy needed - rhs_cache aliases stage_rhs
+                # Load cached RHS from persistent storage.
+                # When rhs_cache aliases stage_rhs (has_rhs_in_scratch=True),
+                # this is a no-op. Otherwise, copy from persistent_local.
+                if not has_rhs_in_scratch:
+                    for idx in range(n):
+                        stage_rhs[idx] = rhs_cache[idx]
 
             else:
                 if can_reuse_accepted_start:
@@ -720,7 +742,10 @@ class DIRKStep(ODEImplicitStep):
             # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
-                # rhs_cache aliases stage_rhs; no separate copy needed
+                # rhs_cache aliases stage_rhs when has_rhs_in_scratch=True,
+                # so no explicit copy needed. Otherwise, copy to persistent_local.
+                if not has_rhs_in_scratch:
+                    rhs_cache[idx] = stage_rhs[idx]
 
             return status_code
         # no cover: end
