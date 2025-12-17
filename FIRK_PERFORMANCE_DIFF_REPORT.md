@@ -269,7 +269,7 @@ Missing `**compile_kwargs` on critical FIRK solver device functions:
 
 **compile_kwargs definition** (`cuda_simsafe.py` lines 23-34):
 ```python
-compile_kwargs: dict[str, bool] = (
+compile_kwargs = (
     {} if CUDA_SIMULATION
     else {
         'lineinfo': True,
