@@ -429,8 +429,9 @@ class TestRosenbrockBufferSettings:
             stage_store_location='local',
             cached_auxiliaries_location='local',
         )
-        # rhs (3) + store (12) + aux (10) = 25
-        assert settings.local_memory_elements == 25
+        # rhs (3) + store (12) + aux (10) + linear_solver default (3+3=6) = 31
+        # Default linear_solver_buffer_settings has both buffers as 'local'
+        assert settings.local_memory_elements == 31
 
     def test_local_sizes_property(self):
         """local_sizes property should return RosenbrockLocalSizes instance."""
