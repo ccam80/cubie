@@ -36,7 +36,7 @@ from typing import Callable, Optional, Tuple
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
@@ -427,6 +427,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             buffer_kwargs['stage_store_location'] = stage_store_location
         if cached_auxiliaries_location is not None:
             buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
+
         buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
@@ -777,7 +778,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs[idx] = rhs_value * gamma
 
             # Create an unused reference for solver signature consistency.
-            base_state_placeholder = shared[int32(0):int32(0)]
+            base_state_placeholder = cuda.local.array(1, int32)
 
             # Local array for linear solver iteration count output
             krylov_iters_out = cuda.local.array(1, int32)
@@ -820,7 +821,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
 
                 # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * K_j))
-                stage_slice = stage_store[stage_offset:stage_offset + n]
+                stage_slice = stage_store[stage_offset:stage_offset + n] #
+                # TODO: remove slice and make explicit index
                 for idx in range(n):
                     stage_slice[idx] = state[idx]
 

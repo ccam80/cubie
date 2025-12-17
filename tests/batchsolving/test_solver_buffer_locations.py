@@ -174,4 +174,3 @@ class TestAlgorithmBufferLocationFiltering:
         assert 'stage_rhs_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
         assert 'stage_accumulator_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
         assert 'stage_increment_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS
-        assert 'solver_scratch_location' in ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS

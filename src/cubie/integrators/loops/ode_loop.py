@@ -49,8 +49,6 @@ class LoopLocalSizes(LocalSizes):
         Error buffer size.
     counters : int
         Counters buffer size.
-    proposed_counters : int
-        Proposed counters buffer size.
     state_summary : int
         State summary buffer size.
     observable_summary : int
@@ -66,7 +64,6 @@ class LoopLocalSizes(LocalSizes):
     proposed_observables: int = attrs.field(validator=getype_validator(int, 0))
     error: int = attrs.field(validator=getype_validator(int, 0))
     counters: int = attrs.field(validator=getype_validator(int, 0))
-    proposed_counters: int = attrs.field(validator=getype_validator(int, 0))
     state_summary: int = attrs.field(validator=getype_validator(int, 0))
     observable_summary: int = attrs.field(validator=getype_validator(int, 0))
 
@@ -99,8 +96,6 @@ class LoopSliceIndices(SliceIndices):
         Slice covering the shared error buffer.
     counters : slice
         Slice covering the iteration counters buffer.
-    proposed_counters : slice
-        Slice covering the proposed iteration counters buffer.
     local_end : int
         Offset of the end of loop-managed shared memory.
     scratch : slice
@@ -120,7 +115,6 @@ class LoopSliceIndices(SliceIndices):
     observable_summaries: slice = attrs.field()
     error: slice = attrs.field()
     counters: slice = attrs.field()
-    proposed_counters: slice = attrs.field()
     local_end: int = attrs.field()
     scratch: slice = attrs.field()
     all: slice = attrs.field()
@@ -380,7 +374,7 @@ class LoopBufferSettings(BufferSettings):
     @property
     def proposed_counters_size(self) -> int:
         """Return proposed counters buffer size (2 if active, else 1)."""
-        return 2 if self.n_counters > 0 else 1
+        return 2
 
     @property
     def state_summary_size(self) -> int:
@@ -418,8 +412,6 @@ class LoopBufferSettings(BufferSettings):
             total += self.n_error
         if self.use_shared_counters:
             total += self.n_counters
-            if self.n_counters > 0:
-                total += 2  # proposed_counters (newton, krylov iters)
         if self.use_shared_state_summary:
             total += self.state_summary_buffer_height
         if self.use_shared_observable_summary:
@@ -433,7 +425,7 @@ class LoopBufferSettings(BufferSettings):
         Only buffers configured with location='local' contribute to
         this total.
         """
-        total = 0
+        total = 2 # proposed_counters is always local
         if not self.use_shared_state:
             total += self.state_buffer_size
         if not self.use_shared_state_proposal:
@@ -452,9 +444,6 @@ class LoopBufferSettings(BufferSettings):
             total += self.error_size
         if not self.use_shared_counters:
             total += self.counters_size
-            # Add proposed_counters (2 elements when counters active)
-            if self.n_counters > 0:
-                total += 2
         if not self.use_shared_state_summary:
             total += self.state_summary_size
         if not self.use_shared_observable_summary:
@@ -567,13 +556,8 @@ class LoopBufferSettings(BufferSettings):
         if self.use_shared_counters:
             counters_slice = slice(ptr, ptr + self.n_counters)
             ptr += self.n_counters
-            # proposed_counters: 2 elements (newton, krylov iters from step)
-            proposed_counters_len = 2 if self.n_counters > 0 else 0
-            proposed_counters_slice = slice(ptr, ptr + proposed_counters_len)
-            ptr += proposed_counters_len
         else:
             counters_slice = slice(0, 0)
-            proposed_counters_slice = slice(0, 0)
 
         local_end = ptr
         scratch_slice = slice(ptr, None)
@@ -590,7 +574,6 @@ class LoopBufferSettings(BufferSettings):
             observable_summaries=observable_summaries_slice,
             error=error_slice,
             counters=counters_slice,
-            proposed_counters=proposed_counters_slice,
             local_end=local_end,
             scratch=scratch_slice,
             all=slice(None),
@@ -613,7 +596,6 @@ class LoopBufferSettings(BufferSettings):
             proposed_observables=self.n_observables,
             error=self.n_error,
             counters=self.n_counters,
-            proposed_counters=2 if self.n_counters > 0 else 0,
             state_summary=self.state_summary_buffer_height,
             observable_summary=self.observable_summary_buffer_height,
         )
@@ -821,7 +803,6 @@ class IVPLoop(CUDAFactory):
         drivers_prop_shared_ind = shared_indices.proposed_drivers
         error_shared_ind = shared_indices.error
         counters_shared_ind = shared_indices.counters
-        proposed_counters_shared_ind = shared_indices.proposed_counters
         remaining_scratch_ind = shared_indices.scratch
 
         dt_slice = local_indices.dt
@@ -1069,15 +1050,7 @@ class IVPLoop(CUDAFactory):
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
             # ----------------------------------------------------------- #
 
-            if save_counters_bool:
-                # When enabled, use shared memory buffers
-                proposed_counters = shared_scratch[proposed_counters_shared_ind]
-            else:
-                # When disabled, use a dummy local "proposed_counters" buffer
-                proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-                for _i in range(2):
-                    proposed_counters[_i] = int32(0)
-
+            proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             controller_temp = persistent_local[controller_slice]

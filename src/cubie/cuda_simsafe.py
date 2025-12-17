@@ -24,6 +24,7 @@ compile_kwargs: dict[str, bool] = (
         {} if CUDA_SIMULATION
         else {
             'lineinfo': True,
+            # 'debug':True,
             'fastmath': {
                 'nsz': True,
                    'contract': True,
