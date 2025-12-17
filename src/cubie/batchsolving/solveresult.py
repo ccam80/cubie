@@ -28,9 +28,6 @@ from cubie._utils import (
     precision_validator,
 )
 
-ITERATION_COUNTER_STRIDE = ("time", "counter", "run")
-
-
 def _format_time_domain_label(label: str, unit: str) -> str:
     """Format a time-domain legend label with unit if not dimensionless.
 
@@ -129,13 +126,13 @@ class SolveResult:
     Parameters
     ----------
     time_domain_array
-        Optional NumPy array containing time-domain results.
+        NumPy array containing time-domain results.
     summaries_array
-        Optional NumPy array containing summary results.
+        NumPy array containing summary results.
     time
         Optional NumPy array containing time values.
     iteration_counters
-        Optional NumPy array containing iteration counts per run.
+        NumPy array containing iteration counts per run.
     status_codes
         Optional NumPy array containing solver status codes per run (0 for
         success, nonzero for errors). Shape is (n_runs,) with dtype int32.
@@ -153,23 +150,23 @@ class SolveResult:
         Optional mapping from summary offsets to legend labels.
     """
 
-    time_domain_array: Optional[NDArray] = attrs.field(
+    time_domain_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
-    summaries_array: Optional[NDArray] = attrs.field(
+    summaries_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
     time: Optional[NDArray] = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
         validator=val.optional(val.instance_of(np.ndarray)),
     )
-    iteration_counters: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
+    iteration_counters: NDArray = attrs.field(
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
     status_codes: Optional[NDArray] = attrs.field(
@@ -236,7 +233,11 @@ class SolveResult:
                 'observables': solver.observables,
                 'state_summaries': solver.state_summaries,
                 'observable_summaries': solver.observable_summaries,
-                'iteration_counters': solver.iteration_counters,
+                'iteration_counters': (
+                    solver.iteration_counters
+                    if solver.iteration_counters is not None
+                    else np.array([])
+                ),
                 'status_codes': solver.status_codes,
             }
         active_outputs = solver.active_output_arrays
@@ -306,7 +307,11 @@ class SolveResult:
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
-            iteration_counters=solver.iteration_counters,
+            iteration_counters=(
+                solver.iteration_counters
+                if solver.iteration_counters is not None
+                else np.array([])
+            ),
             status_codes=status_codes,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
@@ -422,22 +427,16 @@ class SolveResult:
         -------
         dict[str, Optional[NDArray]]
             Dictionary containing copies of time, time_domain_array,
-            summaries_array, time_domain_legend, summaries_legend,
-            iteration_counters, and iteration counter stride labels.
+            summaries_array, time_domain_legend, summaries_legend, and
+            iteration_counters.
         """
-        iteration_counters = (
-            self.iteration_counters.copy()
-            if self.iteration_counters is not None
-            else None
-        )
         return {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "summaries_array": self.summaries_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
-            "iteration_counters": iteration_counters,
-            "iteration_counters_stride_order": ITERATION_COUNTER_STRIDE,
+            "iteration_counters": self.iteration_counters.copy(),
         }
 
     @property
@@ -449,19 +448,13 @@ class SolveResult:
         -------
         dict[str, Optional[NDArray]]
             Dictionary containing time, time_domain_array, time_domain_legend,
-            iteration counters with stride labels, and individual summary
-            arrays.
+            iteration counters, and individual summary arrays.
         """
         arrays = {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
-            "iteration_counters": (
-                self.iteration_counters.copy()
-                if self.iteration_counters is not None
-                else None
-            ),
-            "iteration_counters_stride_order": ITERATION_COUNTER_STRIDE,
+            "iteration_counters": self.iteration_counters.copy(),
         }
         arrays.update(**self.per_summary_arrays)
 

@@ -912,17 +912,6 @@ def assert_integration_outputs(
         device.state,
         output_functions,
     )
-    counters = device.counters
-    if counters is not None:
-        run_count = state_dev.shape[2] if state_dev.ndim == 3 else 1
-        time_len = state_dev.shape[0]
-        expected_counters_shape = (time_len, 4, run_count)
-        assert counters.shape == expected_counters_shape, (
-            "iteration counters should use (time, counter, run) ordering. "
-            f"got {counters.shape}, expected {expected_counters_shape}"
-        )
-        counter_plane = counters[:, 0, :]
-        assert counter_plane.shape == (time_len, run_count)
     observables_ref = reference.observables
     observables_dev = device.observables
 
