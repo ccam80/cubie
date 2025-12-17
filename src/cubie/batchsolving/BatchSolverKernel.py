@@ -6,7 +6,7 @@ from warnings import warn
 
 import numpy as np
 from numba import cuda, float64, float32
-from numba import int32, int16
+from numba import int32
 
 import attrs
 
@@ -564,10 +564,10 @@ class BatchSolverKernel(CUDAFactory):
             None
                 The device kernel performs integration for its side effects.
             """
-            tx = int16(cuda.threadIdx.x)
-            ty = int16(cuda.threadIdx.y)
+            tx = int32(cuda.threadIdx.x)
+            ty = int32(cuda.threadIdx.y)
             block_index = int32(cuda.blockIdx.x)
-            runs_per_block = cuda.blockDim.y
+            runs_per_block = int32(cuda.blockDim.y)
             run_index = int32(runs_per_block * block_index + ty)
             if run_index >= n_runs:
                 return None
@@ -578,8 +578,8 @@ class BatchSolverKernel(CUDAFactory):
                 local_elements_per_run, dtype=float32
             )
             c_coefficients = cuda.const.array_like(d_coefficients)
-            run_idx_low = ty * run_stride_f32
-            run_idx_high = (
+            run_idx_low = int32(ty * run_stride_f32)
+            run_idx_high = int32(
                 run_idx_low + f32_per_element * shared_elems_per_run
             )
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(

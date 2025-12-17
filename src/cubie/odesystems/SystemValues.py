@@ -222,7 +222,7 @@ class SystemValues:
         Returns
         -------
         numpy.ndarray
-            Array of ``np.int16`` indices targeting ``values_array``.
+            Array of ``np.int32`` indices targeting ``values_array``.
 
         Raises
         ------
@@ -243,11 +243,11 @@ class SystemValues:
                         self.get_index_of_key(state, silent)
                         for state in keys_or_indices
                     ],
-                    dtype=np.int16,
+                    dtype=np.int32,
                 )
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
-                indices = np.asarray(keys_or_indices, dtype=np.int16)
+                indices = np.asarray(keys_or_indices, dtype=np.int32)
             else:
                 # List contains mixed types or unsupported types
                 non_str_int_types = [
@@ -273,20 +273,20 @@ class SystemValues:
         elif isinstance(keys_or_indices, str):
             # A single string
             indices = np.asarray(
-                [self.get_index_of_key(keys_or_indices)], dtype=np.int16
+                [self.get_index_of_key(keys_or_indices)], dtype=np.int32
             )
         elif isinstance(keys_or_indices, int):
             # A single int
-            indices = np.asarray([keys_or_indices], dtype=np.int16)
+            indices = np.asarray([keys_or_indices], dtype=np.int32)
 
         elif isinstance(keys_or_indices, slice):
             # A slice object
             indices = np.arange(len(self.values_array))[
                 keys_or_indices
-            ].astype(np.int16)
+            ].astype(np.int32)
 
         elif isinstance(keys_or_indices, np.ndarray):
-            indices = keys_or_indices.astype(np.int16)
+            indices = keys_or_indices.astype(np.int32)
 
         else:
             raise TypeError(

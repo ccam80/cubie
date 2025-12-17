@@ -127,7 +127,7 @@ def _create_placeholder_args(
                             args += (
                                 cuda.to_device(np.ones(shape, dtype=np.int32)),
                             )
-                        elif item.dtype == numba.types.int16:
+                        elif item.dtype == numba.types.int32:
                             args += (
                                 cuda.to_device(np.ones(shape, dtype=np.int32)),
                             )
@@ -146,7 +146,7 @@ def _create_placeholder_args(
                         if item.bitwidth <= 8:
                             args += (np.int8(value),)
                         elif item.bitwidth <= 16:
-                            args += (np.int16(value),)
+                            args += (np.int32(value),)
                         elif item.bitwidth <= 32:
                             args += (np.int32(value),)
                         elif item.bitwidth <= 64:
