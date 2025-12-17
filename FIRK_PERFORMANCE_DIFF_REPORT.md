@@ -336,7 +336,16 @@ numba type derived from it. Using raw dtype may cause type inference overhead.
    the primary cause of the performance gap.
 
 2. **Use boolean flags** in module code for `sd_flag`/`mr_flag` to match
-   `all_in_one.py`.
+   `all_in_one.py`. In `linear_solver.py` lines 207-208, change:
+   ```python
+   sd_flag = 1 if correction_type == "steepest_descent" else 0
+   mr_flag = 1 if correction_type == "minimal_residual" else 0
+   ```
+   to:
+   ```python
+   sd_flag = True if correction_type == "steepest_descent" else False
+   mr_flag = True if correction_type == "minimal_residual" else False
+   ```
 
 3. **Add `+1` to max_backtracks** in `newton_krylov_solver_factory` to match
    the debug script behavior.
