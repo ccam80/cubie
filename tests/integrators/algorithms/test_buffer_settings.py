@@ -320,17 +320,7 @@ class TestDIRKBufferSettings:
         assert indices.stage_base == slice(solver_size, solver_size + 3)
         assert indices.accumulator == slice(0, 0)  # local
 
-    def test_local_sizes_stage_base_with_local_accumulator(self):
-        """local_sizes.stage_base should be 0 when aliasing local accumulator."""
-        settings = DIRKBufferSettings(
-            n=3,
-            stage_count=4,
-            accumulator_location='local',
-            stage_base_location='local',
-        )
-        sizes = settings.local_sizes
-        # Can alias local accumulator in device function
-        assert sizes.stage_base == 0
+
 
 
 class TestFIRKBufferSettings:

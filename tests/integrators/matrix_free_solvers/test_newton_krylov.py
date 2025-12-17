@@ -185,9 +185,12 @@ def test_newton_krylov_failure(precision):
         out[0] = vec[0]
 
     n = 1
-    linear_solver = linear_solver_factory(operator, n, tolerance=1e-12, max_iters=8)
+    linear_solver = linear_solver_factory(operator, n,
+                                          precision=precision,
+                                          tolerance=1e-12, max_iters=8)
     solver = newton_krylov_solver_factory(
         residual_function=residual,
+        precision=precision,
         linear_solver=linear_solver,
         n=n,
         tolerance=1e-8,
@@ -226,15 +229,21 @@ def test_newton_krylov_failure(precision):
             == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
     )
 
-def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
+def test_newton_krylov_max_newton_iters_exceeded(
+    placeholder_system, precision
+):
     """Returns MAX_NEWTON_ITERATIONS_EXCEEDED when max_iters=0 and residual>tolerance."""
 
     residual, operator, base_state = placeholder_system
     n = 1
-    linear_solver = linear_solver_factory(operator, n, tolerance=1e-8, max_iters=32)
+    linear_solver = linear_solver_factory(
+        operator, n, precision=precision, tolerance=1e-8, max_iters=32
+    )
     solver = newton_krylov_solver_factory(
         residual_function=residual,
         linear_solver=linear_solver,
+        precision=precision,
+
         n=n,
         tolerance=1e-6,
         max_iters=0,  # force no Newton iterations

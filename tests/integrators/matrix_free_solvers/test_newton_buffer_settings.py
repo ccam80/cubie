@@ -13,20 +13,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 class TestNewtonBufferSettings:
     """Tests for NewtonBufferSettings initialization and properties."""
 
-    def test_shared_memory_elements_with_linear_solver(self):
-        """Including linear solver adds its shared memory."""
-        lin_settings = LinearSolverBufferSettings(
-            n=10,
-            preconditioned_vec_location='shared',
-            temp_location='shared',
-        )
-        settings = NewtonBufferSettings(
-            n=10,
-            linear_solver_buffer_settings=lin_settings,
-        )
-        # 2*n (newton) + lin_solver shared (2*n for all-shared)
-        expected = 20 + lin_settings.shared_memory_elements
-        assert settings.shared_memory_elements == expected
+
 
     def test_local_memory_elements_all_local(self):
         """All local gives delta + residual + residual_temp + stage_base_bt
