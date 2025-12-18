@@ -9,17 +9,15 @@ from numba import cuda
 from cubie.cuda_simsafe import compile_kwargs
 from math import sqrt
 
-from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
-    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
+@register_metric(summary_metrics)
 class RMS(SummaryMetric):
     """Summary metric that calculates the root mean square of a variable.
 
@@ -29,14 +27,13 @@ class RMS(SummaryMetric):
     evaluates ``sqrt(sum_of_squares / summarise_every)`` when saving results.
     """
 
-    def __init__(self, precision: PrecisionDType) -> None:
+    def __init__(self) -> None:
         """Initialise the RMS summary metric with fixed buffer sizes."""
         super().__init__(
             name="rms",
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
-            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

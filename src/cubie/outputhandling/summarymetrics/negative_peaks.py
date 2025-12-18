@@ -8,17 +8,15 @@ of local minima (negative peaks) in variable values during integration.
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
-from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
-    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
+@register_metric(summary_metrics)
 class NegativePeaks(SummaryMetric):
     """Summary metric that records the indices of detected negative peaks.
 
@@ -29,14 +27,13 @@ class NegativePeaks(SummaryMetric):
     occur in valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self, precision: PrecisionDType) -> None:
+    def __init__(self) -> None:
         """Initialise the NegativePeaks summary metric."""
         super().__init__(
             name="negative_peaks",
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
             unit_modification="s",
-            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

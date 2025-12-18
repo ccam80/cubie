@@ -120,8 +120,9 @@ def load_cellml_model(
     path : str
         Filesystem path to the CellML source file. Must have .cellml
         extension and be a valid CellML 1.0 or 1.1 model file.
-    precision : numpy dtype
+    precision : numpy dtype, optional
         Target floating-point precision for compiled kernels.
+        Default is np.float32.
     name : str, optional
         Identifier for the generated system. If None, uses the
         filename without extension.

@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 from numpy.testing import assert_array_equal
 
 from cubie.odesystems.symbolic.symbolicODE import (
@@ -35,7 +34,6 @@ def simple_ode_strict(symbolic_input_simple):
         observables=symbolic_input_simple["observables"],
         drivers=symbolic_input_simple["drivers"],
         name="simpletest_strict",
-        precision=np.float32,
         strict=True,
     )
 
@@ -46,7 +44,6 @@ def simple_ode_nonstrict(symbolic_input_simple):
         dxdt=symbolic_input_simple["dxdt"],
         strict=False,
         name="simpletest_nonstrict",
-        precision=np.float32,
     )
 
 
@@ -59,7 +56,6 @@ def test_create_ODE_system_strict(simple_ode_strict, symbolic_input_simple):
         observables=symbolic_input_simple["observables"],
         drivers=symbolic_input_simple["drivers"],
         name="simpletest_strict",
-        precision=np.float32,
         strict=True,
     )
     sys2 = simple_ode_strict
@@ -84,7 +80,6 @@ def test_create_ODE_system_nonstrict(
     sys1 = create_ODE_system(
         dxdt=symbolic_input_simple["dxdt"],
         name="simpletest_nonstrict",
-        precision=np.float32,
     )
     sys2 = simple_ode_nonstrict
     assert_array_equal(
@@ -163,8 +158,7 @@ class TestSympyStringEquivalence:
             dxdt=dxdt_sympy,
             states={'x': 1.0, 'y': 0.0},
             parameters={'k': 0.1},
-            name='test_sympy',
-            precision=np.float32,
+            name='test_sympy'
         )
         
         dxdt_string = ["dx = -k * x", "dy = k * x"]
@@ -173,8 +167,7 @@ class TestSympyStringEquivalence:
             dxdt=dxdt_string,
             states={'x': 1.0, 'y': 0.0},
             parameters={'k': 0.1},
-            name='test_string',
-            precision=np.float32,
+            name='test_string'
         )
         
         assert is_devfunc(ode_sympy.dxdt_function)
@@ -228,8 +221,7 @@ class TestSympyStringEquivalence:
             dxdt=dxdt_sympy,
             states={'x': 1.0},
             parameters={'k': 0.1},
-            observables=['z'],
-            precision=np.float32,
+            observables=['z']
         )
         
         dxdt_string = ["dx = -k * x", "z = x * k"]
@@ -238,8 +230,7 @@ class TestSympyStringEquivalence:
             dxdt=dxdt_string,
             states={'x': 1.0},
             parameters={'k': 0.1},
-            observables=['z'],
-            precision=np.float32,
+            observables=['z']
         )
         
         assert len(ode_sympy.indices.observables.index_map) == 1

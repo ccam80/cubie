@@ -25,9 +25,7 @@ def operator_system():
         "dx1 = c*x0 + d*x1",
     ]
     constants = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
-    system = create_ODE_system(
-        dxdt, states=["x0", "x1"], constants=constants, precision=np.float32
-    )
+    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
     return system
 
 
@@ -90,9 +88,7 @@ def cached_system():
         "dx1 = c*x0*x1 + d*cos(x1)",
     ]
     constants = {"a": 0.5, "b": 1.3, "c": -0.7, "d": 0.9}
-    system = create_ODE_system(
-        dxdt, states=["x0", "x1"], constants=constants, precision=np.float32
-    )
+    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
     return system
 
 
@@ -1087,9 +1083,7 @@ def residual_system():
         "dx1 = c*x0 + d*x1",
     ]
     constants = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
-    system = create_ODE_system(
-        dxdt, states=["x0", "x1"], constants=constants, precision=np.float32
-    )
+    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
     system.build()
     return system
 

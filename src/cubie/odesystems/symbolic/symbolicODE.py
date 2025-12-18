@@ -47,6 +47,7 @@ from cubie.time_logger import _default_timelogger
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
+    precision: PrecisionDType,
     states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
@@ -54,8 +55,6 @@ def create_ODE_system(
     drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
-    *,
-    precision: PrecisionDType,
     strict: bool = False,
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
@@ -141,10 +140,9 @@ class SymbolicODE(BaseODE):
     def __init__(
         self,
         equations: ParsedEquations,
+        precision: PrecisionDType,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        *,
-        precision: PrecisionDType,
         fn_hash: Optional[int] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
@@ -214,6 +212,7 @@ class SymbolicODE(BaseODE):
     def create(
         cls,
         dxdt: Union[str, Iterable[str]],
+        precision: PrecisionDType,
         states: Optional[Union[dict[str, float], Iterable[str]]] = None,
         observables: Optional[Iterable[str]] = None,
         parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
@@ -221,8 +220,6 @@ class SymbolicODE(BaseODE):
         drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
-        *,
-        precision: PrecisionDType,
         strict: bool = False,
         state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
         parameter_units: Optional[Union[dict[str, str], Iterable[str]]] = None,

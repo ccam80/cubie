@@ -179,6 +179,7 @@ class ODEData:
     @classmethod
     def from_BaseODE_initargs(
         cls,
+        precision: PrecisionDType,
         initial_values: Optional[Dict[str, float]] = None,
         parameters: Optional[Dict[str, float]] = None,
         constants: Optional[Dict[str, float]] = None,
@@ -187,8 +188,6 @@ class ODEData:
         default_parameters: Optional[Dict[str, float]] = None,
         default_constants: Optional[Dict[str, float]] = None,
         default_observable_names: Optional[Dict[str, float]] = None,
-        *,
-        precision: PrecisionDType,
         num_drivers: int = 1,
     ) -> "ODEData":
         """Create :class:`ODEData` from ``BaseODE`` initialization arguments.
@@ -212,7 +211,8 @@ class ODEData:
         default_observable_names
             Default observable names if ``observables`` omits entries.
         precision
-            Precision factory used for calculations.
+            Precision factory used for calculations. Defaults to
+            :class:`numpy.float64`.
         num_drivers
             Number of driver or forcing functions. Defaults to ``1``.
 

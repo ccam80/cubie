@@ -10,17 +10,15 @@ finite differences.
 from numba import cuda
 
 from cubie.cuda_simsafe import selp
-from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
-    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
+@register_metric(summary_metrics)
 class DxdtExtrema(SummaryMetric):
     """Summary metric that tracks both maximum and minimum derivative values.
 
@@ -31,14 +29,13 @@ class DxdtExtrema(SummaryMetric):
     Outputs two values: maximum derivative followed by minimum derivative.
     """
 
-    def __init__(self, precision: PrecisionDType) -> None:
+    def __init__(self) -> None:
         """Initialise the DxdtExtrema summary metric."""
         super().__init__(
             name="dxdt_extrema",
             buffer_size=3,
             output_size=2,
             unit_modification="[unit]*s^-1",
-            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

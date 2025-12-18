@@ -1,7 +1,6 @@
 """Test CUDA compilation timing and caching behavior."""
 
 import time
-import numpy as np
 import pytest
 from cubie import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
@@ -45,8 +44,7 @@ def test_compilation_caching():
     system1 = create_ODE_system(
         dxdt=equations,
         parameters=list(parameters.keys()),
-        name="TestSystem1",
-        precision=np.float32,
+        name="TestSystem1"
     )
     
     start_time1 = time.perf_counter()
@@ -85,8 +83,7 @@ def test_compilation_caching():
     system2 = create_ODE_system(
         dxdt=equations_swapped,
         parameters=list(parameters.keys()),
-        name="TestSystem2",
-        precision=np.float32,
+        name="TestSystem2"
     )
     
     # Reorder initial values to match
@@ -161,8 +158,7 @@ def test_timelogger_default_mode_printing():
     system = create_ODE_system(
         dxdt=equations,
         parameters=list(parameters.keys()),
-        name="TestPrintingSystem",
-        precision=np.float32,
+        name="TestPrintingSystem"
     )
     
     result = solve_ivp(

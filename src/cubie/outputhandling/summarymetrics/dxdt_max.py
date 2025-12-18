@@ -9,18 +9,16 @@ using finite differences.
 
 from numba import cuda
 
-from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
-    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
+@register_metric(summary_metrics)
 class DxdtMax(SummaryMetric):
     """Summary metric that tracks maximum first derivative values.
 
@@ -31,14 +29,13 @@ class DxdtMax(SummaryMetric):
     differences and scaled by dt_save in the save function.
     """
 
-    def __init__(self, precision: PrecisionDType) -> None:
+    def __init__(self) -> None:
         """Initialise the DxdtMax summary metric."""
         super().__init__(
             name="dxdt_max",
             buffer_size=2,
             output_size=1,
             unit_modification="[unit]*s^-1",
-            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

@@ -107,8 +107,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             loop_settings = {}
 
         precision = system.precision
-        output_settings = output_settings.copy()
-        output_precision = output_settings.pop("precision", precision)
 
         self._system = system
         system_sizes = system.sizes
@@ -117,7 +115,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
-            precision=output_precision,
             **output_settings,
         )
 
@@ -147,7 +144,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         self.check_compatibility(
             algorithm_settings["algorithm"],
             controller_settings["step_controller"],
-            precision=precision,
+            precision,
         )
 
         loop_settings["dt0"] = self._step_controller.dt0
@@ -202,10 +199,9 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def check_compatibility(
         self,
+        precision: PrecisionDType,
         algorithm_name: str = None,
         controller_name: str = None,
-        *,
-        precision: PrecisionDType,
     ) -> None:
         """Validate algorithm and controller compatibility.
 
@@ -226,8 +222,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         controller_name : str, optional
             Name of the controller being used. If not provided, retrieved from
             compile_settings.
-        precision : PrecisionDType
-            Numerical precision for the controller.
+        precision : PrecisionDType, optional
+            Numerical precision for the controller. If not provided, retrieved
+            from system.
 
         Notes
         -----
@@ -252,6 +249,9 @@ class SingleIntegratorRunCore(CUDAFactory):
                 algorithm_name = self.compile_settings.algorithm
             if controller_name is None:
                 controller_name = self.compile_settings.step_controller
+            if precision is None:
+                precision = self._system.precision
+            
             warnings.warn(
                 f"Adaptive step controller '{controller_name}' cannot be "
                 f"used with fixed-step algorithm '{algorithm_name}'. "
@@ -491,11 +491,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         if recognized:
             self._invalidate_cache()
 
-        self.check_compatibility(
-            self.compile_settings.algorithm,
-            self.compile_settings.step_controller,
-            precision=self.compile_settings.precision,
-        )
+        self.check_compatibility()
 
         # Include unpacked dict keys in recognized set
         return recognized | unpacked_keys

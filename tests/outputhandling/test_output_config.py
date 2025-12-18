@@ -367,7 +367,6 @@ class TestFromLoopSettings:
             output_types=["state", "observables"],
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
 
         assert config.save_state is True
@@ -382,7 +381,6 @@ class TestFromLoopSettings:
             saved_state_indices=[1, 3],
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
 
         assert config.save_state is True
@@ -399,7 +397,6 @@ class TestFromLoopSettings:
             summarised_state_indices=[1],
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
 
         assert config.save_state is True
@@ -415,7 +412,6 @@ class TestFromLoopSettings:
             output_types=["peaks[3]", "state"],
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
 
         assert "peaks[3]" in config.summary_types
@@ -428,7 +424,6 @@ class TestFromLoopSettings:
             saved_observable_indices=np.array([0], dtype=np.int_),
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
         np.testing.assert_array_equal(
             config.summarised_state_indices, np.array([0, 1])
@@ -443,7 +438,6 @@ class TestFromLoopSettings:
             output_types=["state", "mean", "peaks[3]", "observables"],
             max_states=10,
             max_observables=5,
-            precision=np.float32,
         )
         assert config.save_state is True
         assert config.save_observables is True

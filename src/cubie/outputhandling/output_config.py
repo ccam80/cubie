@@ -879,6 +879,7 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
+        precision: Optional[np.dtype],
         saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
@@ -886,8 +887,6 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
-        *,
-        precision: PrecisionDType,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -914,7 +913,8 @@ class OutputConfig:
         dt_save
             Time interval between saved states. Defaults to ``0.01`` if
         precision
-            Numerical precision for output calculations.
+            Numerical precision for output calculations. Defaults to
+            ``np.float32`` if not provided.
 
         Returns
         -------

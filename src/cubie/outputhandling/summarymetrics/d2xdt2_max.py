@@ -9,18 +9,16 @@ for each variable using central finite differences.
 
 from numba import cuda
 
-from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
-    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
+@register_metric(summary_metrics)
 class D2xdt2Max(SummaryMetric):
     """Summary metric that tracks maximum second derivative values.
 
@@ -32,14 +30,13 @@ class D2xdt2Max(SummaryMetric):
     scaled by dt_save² in the save function.
     """
 
-    def __init__(self, precision: PrecisionDType) -> None:
+    def __init__(self) -> None:
         """Initialise the D2xdt2Max summary metric."""
         super().__init__(
             name="d2xdt2_max",
             buffer_size=3,
             output_size=1,
             unit_modification="[unit]*s^-2",
-            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:
