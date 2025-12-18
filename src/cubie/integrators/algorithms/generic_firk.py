@@ -720,8 +720,8 @@ class FIRKStep(ODEImplicitStep):
             else:
                 stage_state = cuda.local.array(stage_state_local_size,
                                                precision)
-                for _i in range(stage_state_local_size):
-                    stage_state[_i] = numba_precision(0.0)
+                # for _i in range(stage_state_local_size):
+                #     stage_state[_i] = numba_precision(0.0)
 
             # solver_scratch always from shared memory
             solver_scratch = shared[solver_scratch_slice]
@@ -731,8 +731,8 @@ class FIRKStep(ODEImplicitStep):
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
-                for _i in range(stage_increment_local_size):
-                    stage_increment[_i] = numba_precision(0.0)
+                # for _i in range(stage_increment_local_size):
+                #     stage_increment[_i] = numba_precision(0.0)
 
             if stage_driver_stack_shared:
                 stage_driver_stack = shared[stage_driver_stack_slice]
@@ -740,8 +740,8 @@ class FIRKStep(ODEImplicitStep):
                 stage_driver_stack = cuda.local.array(
                     stage_driver_stack_local_size, precision
                 )
-                for _i in range(stage_driver_stack_local_size):
-                    stage_driver_stack[_i] = numba_precision(0.0)
+                # for _i in range(stage_driver_stack_local_size):
+                #     stage_driver_stack[_i] = numba_precision(0.0)
             # ----------------------------------------------------------- #
 
 
