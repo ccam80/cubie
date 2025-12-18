@@ -14,9 +14,9 @@ from cubie.outputhandling import summary_metrics
 
 
 @pytest.fixture(scope="function")
-def empty_metrics():
+def empty_metrics(precision):
     """Create an empty summarymetrics instance for testing."""
-    return SummaryMetrics()
+    return SummaryMetrics(precision=precision)
 
 
 @pytest.fixture(scope="function")
@@ -43,9 +43,10 @@ def mock_functions():
 
 
 @pytest.fixture(scope="function")
-def mock_metric_settings(request):
+def mock_metric_settings(request, precision):
     """Create mock settings for testing."""
-    defaults = {"buffer_size": 5, "output_size": 3, "name": "mock_metric"}
+    defaults = {"buffer_size": 5, "output_size": 3, "name": "mock_metric",
+                "precision": precision}
     if hasattr(request, "param"):
         defaults.update(request.param)
 
@@ -58,10 +59,12 @@ class ConcreteMetric(SummaryMetric):
                  output_size,
                  update_device_func,
                  save_device_func,
+                 precision,
                  name):
         super().__init__(buffer_size=buffer_size,
                          output_size=output_size,
-                         name=name)
+                         name=name,
+                         precision=precision)
         self.update_func = update_device_func
         self.save_func = save_device_func
 
@@ -70,7 +73,7 @@ class ConcreteMetric(SummaryMetric):
 
 
 @pytest.fixture(scope="function")
-def mock_metric(mock_functions, mock_metric_settings):
+def mock_metric(mock_functions, mock_metric_settings, precision):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
     name = mock_metric_settings["name"]
@@ -79,6 +82,7 @@ def mock_metric(mock_functions, mock_metric_settings):
 
     return ConcreteMetric(
         name=name,
+        precision=precision,
         buffer_size=buffer_size,
         output_size=output_size,
         update_device_func=update_func,
@@ -87,7 +91,7 @@ def mock_metric(mock_functions, mock_metric_settings):
 
 
 @pytest.fixture(scope="function")
-def mock_parametrized_metric(mock_functions, mock_metric_settings):
+def mock_parametrized_metric(mock_functions, mock_metric_settings, precision):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
     name = "parameterised"
@@ -100,6 +104,7 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
 
     return ConcreteMetric(
         name=name,
+        precision=precision,
         buffer_size=buffer_size,
         output_size=output_size,
         update_device_func=update_func,
@@ -129,12 +134,13 @@ def test_register_metrics_success(
 
 
 def test_register_metric_duplicate_name_raises_error(
-    empty_metrics, mock_functions
+    empty_metrics, mock_functions, precision
 ):
     """Test that registering a metric with duplicate name raises ValueError."""
     update, save = mock_functions
     metric1 = ConcreteMetric(
         name="duplicate",
+        precision=precision,
         buffer_size=5,
         output_size=3,
         save_device_func=save,
@@ -142,6 +148,7 @@ def test_register_metric_duplicate_name_raises_error(
     )
     metric2 = ConcreteMetric(
         name="duplicate",
+        precision=precision,
         buffer_size=10,
         output_size=6,
         save_device_func=save,
@@ -391,7 +398,7 @@ def test_update_functions_returns_correct_tuple(mock_metrics, mock_functions):
     assert functions_tuple[1] is update_func
 
 
-def test_complex_parameter_scenarios(mock_metrics, mock_functions):
+def test_complex_parameter_scenarios(mock_metrics, mock_functions, precision):
     """Test complex scenarios with multiple parametrized metrics."""
     # Create and register the complex metric with parametrized buffer_size
     update_func, save_func = mock_functions
@@ -403,6 +410,7 @@ def test_complex_parameter_scenarios(mock_metrics, mock_functions):
 
     complex_metric = ConcreteMetric(
         name="complex",
+        precision=precision,
         buffer_size=complex_buffer_size,
         output_size=5,
         update_device_func=update_func,

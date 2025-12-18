@@ -252,6 +252,7 @@ def test_time_driver_array_matches_function(
     output_functions_function = OutputFunctions(
         function_system.sizes.states,
         function_system.sizes.observables,
+        precision,
         solver_settings["output_types"],
         solver_settings["saved_state_indices"],
         solver_settings["saved_observable_indices"],

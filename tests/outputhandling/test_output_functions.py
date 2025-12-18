@@ -36,11 +36,12 @@ def output_test_settings_overrides(request):
 
 
 @pytest.fixture(scope="session")
-def output_functions(output_test_settings):
+def output_functions(output_test_settings, precision):
     """outputhandling object under test"""
     return OutputFunctions(
         output_test_settings["num_states"],
         output_test_settings["num_observables"],
+        precision,
         output_test_settings["output_types"],
         output_test_settings["saved_state_indices"],
         output_test_settings["saved_observable_indices"],
@@ -95,7 +96,7 @@ def test_save_time(output_functions, output_test_settings):
     ],
     indirect=["output_test_settings_overrides"],
 )
-def test_output_functions_build(output_test_settings, fails):
+def test_output_functions_build(output_test_settings, precision, fails):
     """Test happy path and failure cases for instantiating and building outputfunctions Builds a new object instead
     of using fixtures to capture errors in instantiation."""
     if fails:
@@ -103,6 +104,7 @@ def test_output_functions_build(output_test_settings, fails):
             OutputFunctions(
                 output_test_settings["num_states"],
                 output_test_settings["num_observables"],
+                precision,
                 output_test_settings["output_types"],
                 output_test_settings["saved_state_indices"],
                 output_test_settings["saved_observable_indices"],
@@ -112,6 +114,7 @@ def test_output_functions_build(output_test_settings, fails):
         output_functions = OutputFunctions(
             output_test_settings["num_states"],
             output_test_settings["num_observables"],
+            precision,
             output_test_settings["output_types"],
             output_test_settings["saved_state_indices"],
             output_test_settings["saved_observable_indices"],

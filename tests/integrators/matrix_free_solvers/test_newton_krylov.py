@@ -42,6 +42,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         residual_function=residual,
         linear_solver=linear_solver,
         n=n,
+        precision=precision,
         tolerance=1e-6,
         max_iters=16,
     )
@@ -307,6 +308,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     solver = newton_krylov_solver_factory(
         residual_function=residual,
         linear_solver=linear_solver,
+        precision=precision,
         n=n,
         tolerance=1e-8,
         max_iters=4,
