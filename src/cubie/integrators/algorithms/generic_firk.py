@@ -45,12 +45,11 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverBufferSettings,
     linear_solver_factory,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonBufferSettings,
     newton_krylov_solver_factory,
 )
 
@@ -158,20 +157,17 @@ class FIRKBufferSettings(BufferSettings):
     stage_state_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
-    newton_buffer_settings: Optional[NewtonBufferSettings] = attrs.field(
-        default=None,
-    )
+    # Solver scratch size computed from all_stages_n (delta + residual buffers)
+    _solver_shared_elements: Optional[int] = attrs.field(default=None)
 
     def __attrs_post_init__(self):
-        """Set default newton_buffer_settings if not provided."""
-        if self.newton_buffer_settings is None:
+        """Compute default solver_shared_elements if not provided."""
+        if self._solver_shared_elements is None:
             all_stages_n = self.stage_count * self.n
-            linear_settings = LinearSolverBufferSettings(n=all_stages_n)
-            newton_settings = NewtonBufferSettings(
-                n=all_stages_n,
-                linear_solver_buffer_settings=linear_settings,
+            # Default: 2 * all_stages_n for newton delta + residual in shared
+            object.__setattr__(
+                self, '_solver_shared_elements', 2 * all_stages_n
             )
-            object.__setattr__(self, 'newton_buffer_settings', newton_settings)
 
     @property
     def use_shared_stage_increment(self) -> bool:
@@ -197,9 +193,9 @@ class FIRKBufferSettings(BufferSettings):
     def solver_scratch_elements(self) -> int:
         """Return solver scratch elements (includes linear solver).
 
-        Returns newton_buffer_settings.shared_memory_elements.
+        Returns the cached solver shared elements value.
         """
-        return self.newton_buffer_settings.shared_memory_elements
+        return self._solver_shared_elements
 
     @property
     def stage_driver_stack_elements(self) -> int:
@@ -382,16 +378,6 @@ class FIRKStepConfig(ImplicitStepConfig):
 
         return self.stage_count * self.n
 
-    @property
-    def newton_buffer_settings(self) -> NewtonBufferSettings:
-        """Return newton_buffer_settings from buffer_settings."""
-        return self.buffer_settings.newton_buffer_settings
-
-    @property
-    def linear_solver_buffer_settings(self) -> LinearSolverBufferSettings:
-        """Return linear_solver_buffer_settings from newton_buffer_settings."""
-        return self.buffer_settings.newton_buffer_settings.linear_solver_buffer_settings
-
 
 class FIRKStep(ODEImplicitStep):
     """Fully implicit Runge--Kutta step with an embedded error estimate."""
@@ -486,19 +472,12 @@ class FIRKStep(ODEImplicitStep):
         # Create solver buffer settings for accurate memory accounting.
         # FIRK solves all stages as a coupled system; linear solver uses
         # all_stages_n = stage_count * n for the full system dimension.
-        all_stages_n = tableau.stage_count * n
-        linear_buffer_settings = LinearSolverBufferSettings(n=all_stages_n)
-        newton_buffer_settings = NewtonBufferSettings(
-            n=all_stages_n,
-            linear_solver_buffer_settings=linear_buffer_settings,
-        )
 
         # Create buffer_settings - only pass locations if explicitly provided
         buffer_kwargs = {
             'n': n,
             'stage_count': tableau.stage_count,
             'n_drivers': n_drivers,
-            'newton_buffer_settings': newton_buffer_settings,
         }
         if stage_increment_location is not None:
             buffer_kwargs['stage_increment_location'] = stage_increment_location
@@ -589,17 +568,15 @@ class FIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        newton_buffer_settings = config.newton_buffer_settings
-        linear_buffer_settings = config.linear_solver_buffer_settings
-
         linear_solver = linear_solver_factory(
             operator,
             n=all_stages_n,
+            factory=self,
             preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            buffer_settings=linear_buffer_settings,
+            precision=precision,
         )
 
         newton_tolerance = config.newton_tolerance
@@ -611,12 +588,12 @@ class FIRKStep(ODEImplicitStep):
             residual_function=residual,
             linear_solver=linear_solver,
             n=all_stages_n,
+            factory=self,
             tolerance=newton_tolerance,
             max_iters=max_newton_iters,
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
             precision=precision,
-            buffer_settings=newton_buffer_settings,
         )
         return nonlinear_solver
 

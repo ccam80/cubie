@@ -34,6 +34,7 @@ from attrs import validators
 from numba import cuda, int32, int32
 
 from cubie._utils import PrecisionDType, getype_validator
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,

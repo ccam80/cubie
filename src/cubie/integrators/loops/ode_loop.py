@@ -16,6 +16,7 @@ import numpy as np
 from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values

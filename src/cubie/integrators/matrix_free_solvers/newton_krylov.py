@@ -7,173 +7,27 @@ Newton iterations suitable for CUDA device execution.
 
 from typing import Callable, Optional
 
-import attrs
-from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
-from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType, getype_validator
+from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverBufferSettings, LocalSizes, SliceIndices
-)
-
-
-@attrs.define
-class NewtonLocalSizes(LocalSizes):
-    """Local array sizes for Newton solver buffers."""
-
-    delta: int = attrs.field(validator=getype_validator(int, 0))
-    residual: int = attrs.field(validator=getype_validator(int, 0))
-    residual_temp: int = attrs.field(validator=getype_validator(int, 0))
-    stage_base_bt: int = attrs.field(validator=getype_validator(int, 0))
-    krylov_iters: int = attrs.field(validator=getype_validator(int, 0))
-
-
-@attrs.define
-class NewtonSliceIndices(SliceIndices):
-    """Slice container for Newton solver shared memory layouts."""
-
-    delta: slice = attrs.field()
-    residual: slice = attrs.field()
-    residual_temp: slice = attrs.field()
-    stage_base_bt: slice = attrs.field()
-    local_end: int = attrs.field()
-    lin_solver_start: int = attrs.field()
-
-
-@attrs.define
-class NewtonBufferSettings:
-    """Configuration for Newton solver buffer sizes and locations."""
-
-    n: int = attrs.field(validator=getype_validator(int, 1))
-    delta_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
-    )
-    residual_location: str = attrs.field(
-        default='shared', validator=validators.in_(["local", "shared"])
-    )
-    residual_temp_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    stage_base_bt_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
-        attrs.field(default=None)
-    )
-
-    @property
-    def use_shared_delta(self) -> bool:
-        """Return True if delta buffer uses shared memory."""
-        return self.delta_location == 'shared'
-
-    @property
-    def use_shared_residual(self) -> bool:
-        """Return True if residual buffer uses shared memory."""
-        return self.residual_location == 'shared'
-
-    @property
-    def use_shared_residual_temp(self) -> bool:
-        """Return True if residual_temp buffer uses shared memory."""
-        return self.residual_temp_location == 'shared'
-
-    @property
-    def use_shared_stage_base_bt(self) -> bool:
-        """Return True if stage_base_bt buffer uses shared memory."""
-        return self.stage_base_bt_location == 'shared'
-
-    @property
-    def shared_memory_elements(self) -> int:
-        """Return total shared memory elements required."""
-        total = 0
-        if self.use_shared_delta:
-            total += self.n
-        if self.use_shared_residual:
-            total += self.n
-        if self.use_shared_residual_temp:
-            total += self.n
-        if self.use_shared_stage_base_bt:
-            total += self.n
-        if self.linear_solver_buffer_settings is not None:
-            total += self.linear_solver_buffer_settings.shared_memory_elements
-        return total
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return total local memory elements required."""
-        total = 0
-        if not self.use_shared_delta:
-            total += self.n
-        if not self.use_shared_residual:
-            total += self.n
-        if not self.use_shared_residual_temp:
-            total += self.n
-        if not self.use_shared_stage_base_bt:
-            total += self.n
-        total += 1  # krylov_iters
-        if self.linear_solver_buffer_settings is not None:
-            total += self.linear_solver_buffer_settings.local_memory_elements
-        return total
-
-    @property
-    def local_sizes(self) -> NewtonLocalSizes:
-        """Return NewtonLocalSizes instance with buffer sizes."""
-        return NewtonLocalSizes(
-            delta=self.n,
-            residual=self.n,
-            residual_temp=self.n,
-            stage_base_bt=self.n,
-            krylov_iters=1,
-        )
-
-    @property
-    def shared_indices(self) -> NewtonSliceIndices:
-        """Return NewtonSliceIndices instance with shared memory layout."""
-        ptr = 0
-        if self.use_shared_delta:
-            delta_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            delta_slice = slice(0, 0)
-
-        if self.use_shared_residual:
-            residual_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            residual_slice = slice(0, 0)
-
-        if self.use_shared_residual_temp:
-            residual_temp_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            residual_temp_slice = slice(0, 0)
-
-        if self.use_shared_stage_base_bt:
-            stage_base_bt_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            stage_base_bt_slice = slice(0, 0)
-
-        return NewtonSliceIndices(
-            delta=delta_slice,
-            residual=residual_slice,
-            residual_temp=residual_temp_slice,
-            stage_base_bt=stage_base_bt_slice,
-            local_end=ptr,
-            lin_solver_start=ptr,
-        )
 
 
 def newton_krylov_solver_factory(
     residual_function: Callable,
     linear_solver: Callable,
     n: int,
+    factory: object,
     tolerance: float,
     max_iters: int,
     damping: float = 0.5,
     max_backtracks: int = 8,
     precision: PrecisionDType = np.float32,
-    buffer_settings: Optional[NewtonBufferSettings] = None,
+    delta_location: str = 'shared',
+    residual_location: str = 'shared',
+    residual_temp_location: str = 'local',
+    stage_base_bt_location: str = 'local',
 ) -> Callable:
     """Create a damped Newton--Krylov solver device function.
 
@@ -187,6 +41,8 @@ def newton_krylov_solver_factory(
         Matrix-free linear solver created by :func:`linear_solver_factory`.
     n
         Size of the flattened residual and state vectors.
+    factory
+        Owning factory instance for buffer registration.
     tolerance
         Residual norm threshold for convergence.
     max_iters
@@ -197,10 +53,14 @@ def newton_krylov_solver_factory(
         Maximum number of damping attempts per Newton step.
     precision
         Floating-point precision used when compiling the device function.
-    buffer_settings
-        Optional buffer settings controlling memory allocation. When provided,
-        the solver uses selective allocation between shared and local memory.
-        When None (default), all buffers use shared memory.
+    delta_location
+        Memory location for delta buffer: 'local' or 'shared'.
+    residual_location
+        Memory location for residual buffer: 'local' or 'shared'.
+    residual_temp_location
+        Memory location for residual_temp buffer: 'local' or 'shared'.
+    stage_base_bt_location
+        Memory location for stage_base_bt buffer: 'local' or 'shared'.
 
     Returns
     -------
@@ -226,26 +86,31 @@ def newton_krylov_solver_factory(
     if precision_dtype not in ALLOWED_PRECISIONS:
         raise ValueError("precision must be float16, float32, or float64.")
 
-    # Default buffer settings - shared delta/residual (current behavior)
-    if buffer_settings is None:
-        buffer_settings = NewtonBufferSettings(n=n)
+    # Register buffers with central registry
+    buffer_registry.register(
+        'newton_delta', factory, n, delta_location, precision=precision
+    )
+    buffer_registry.register(
+        'newton_residual', factory, n, residual_location, precision=precision
+    )
+    buffer_registry.register(
+        'newton_residual_temp', factory, n, residual_temp_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'newton_stage_base_bt', factory, n, stage_base_bt_location,
+        precision=precision
+    )
 
-    # Extract compile-time flags
-    delta_shared = buffer_settings.use_shared_delta
-    residual_shared = buffer_settings.use_shared_residual
-    shared_indices = buffer_settings.shared_indices
-    delta_slice = shared_indices.delta
-    residual_slice = shared_indices.residual
-    lin_solver_start = shared_indices.lin_solver_start
-    local_sizes = buffer_settings.local_sizes
-    delta_local_size = local_sizes.nonzero('delta')
-    residual_local_size = local_sizes.nonzero('residual')
-    residual_temp_shared = buffer_settings.use_shared_residual_temp
-    residual_temp_slice = shared_indices.residual_temp
-    residual_temp_local_size = local_sizes.nonzero('residual_temp')
-    stage_base_bt_shared = buffer_settings.use_shared_stage_base_bt
-    stage_base_bt_slice = shared_indices.stage_base_bt
-    stage_base_bt_local_size = local_sizes.nonzero('stage_base_bt')
+    # Get allocators from registry
+    alloc_delta = buffer_registry.get_allocator('newton_delta', factory)
+    alloc_residual = buffer_registry.get_allocator('newton_residual', factory)
+    alloc_residual_temp = buffer_registry.get_allocator(
+        'newton_residual_temp', factory
+    )
+    alloc_stage_base_bt = buffer_registry.get_allocator(
+        'newton_stage_base_bt', factory
+    )
 
     numba_precision = from_dtype(precision_dtype)
     tol_squared = numba_precision(tolerance * tolerance)
@@ -299,27 +164,15 @@ def newton_krylov_solver_factory(
             Status word with convergence information and iteration count.
         """
 
-        # Selective allocation based on buffer_settings
-        if delta_shared:
-            delta = shared_scratch[delta_slice]
-        else:
-            delta = cuda.local.array(delta_local_size, numba_precision)
-            for _i in range(delta_local_size):
-                delta[_i] = typed_zero
+        # Allocate buffers from registry
+        delta = alloc_delta(shared_scratch, shared_scratch)
+        residual = alloc_residual(shared_scratch, shared_scratch)
+        residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
 
-        if residual_shared:
-            residual = shared_scratch[residual_slice]
-        else:
-            residual = cuda.local.array(residual_local_size, numba_precision)
-            for _i in range(residual_local_size):
-                residual[_i] = typed_zero
-
-        if residual_temp_shared:
-            residual_temp = shared_scratch[residual_temp_slice]
-        else:
-            residual_temp = cuda.local.array(
-                residual_temp_local_size, numba_precision
-            )
+        # Initialize local arrays
+        for _i in range(n_val):
+            delta[_i] = typed_zero
+            residual[_i] = typed_zero
 
         residual_function(
             stage_increment,
@@ -357,7 +210,9 @@ def newton_krylov_solver_factory(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
-            lin_shared = shared_scratch[lin_solver_start:]
+            # Linear solver uses remaining shared space after Newton buffers
+            lin_start = buffer_registry.shared_buffer_size(factory)
+            lin_shared = shared_scratch[lin_start:]
             krylov_iters_local[0] = int32(0)
             lin_status = linear_solver(
                 stage_increment,
@@ -380,11 +235,7 @@ def newton_krylov_solver_factory(
             )
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
-            if stage_base_bt_shared:
-                stage_base_bt = shared_scratch[stage_base_bt_slice]
-            else:
-                stage_base_bt = cuda.local.array(stage_base_bt_local_size,
-                                                 numba_precision)
+            stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
             for i in range(n_val):
                 stage_base_bt[i] = stage_increment[i]
             found_step = False

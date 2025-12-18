@@ -51,10 +51,8 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     RosenbrockTableau,
 )
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverBufferSettings,
-)
 
 
 class LocalSizes:
@@ -140,8 +138,6 @@ class RosenbrockBufferSettings(BufferSettings):
         Memory location for stage store buffer: 'local' or 'shared'.
     cached_auxiliaries_location : str
         Memory location for cached auxiliaries: 'local' or 'shared'.
-    linear_solver_buffer_settings : LinearSolverBufferSettings
-        Buffer settings for the linear solver (for memory accounting).
 
     Notes
     -----
@@ -165,17 +161,6 @@ class RosenbrockBufferSettings(BufferSettings):
     cached_auxiliaries_location: str = attrs.field(
         default='local', validator=validators.in_(["local", "shared"])
     )
-    linear_solver_buffer_settings: Optional[LinearSolverBufferSettings] = (
-        attrs.field(default=None)
-    )
-
-    def __attrs_post_init__(self):
-        """Set default linear_solver_buffer_settings if not provided."""
-        if self.linear_solver_buffer_settings is None:
-            object.__setattr__(
-                self, 'linear_solver_buffer_settings',
-                LinearSolverBufferSettings(n=self.n)
-            )
 
     @property
     def use_shared_stage_rhs(self) -> bool:
@@ -201,8 +186,8 @@ class RosenbrockBufferSettings(BufferSettings):
     def shared_memory_elements(self) -> int:
         """Return total shared memory elements required.
 
-        Includes stage_rhs, stage_store, cached_auxiliaries,
-        and linear solver buffers if configured for shared memory.
+        Includes stage_rhs, stage_store, and cached_auxiliaries
+        if configured for shared memory.
         """
         total = 0
         if self.use_shared_stage_rhs:
@@ -211,16 +196,13 @@ class RosenbrockBufferSettings(BufferSettings):
             total += self.stage_store_elements
         if self.use_shared_cached_auxiliaries:
             total += self.cached_auxiliary_count
-        if self.linear_solver_buffer_settings is not None:
-            total += self.linear_solver_buffer_settings.shared_memory_elements
         return total
 
     @property
     def local_memory_elements(self) -> int:
         """Return total local memory elements required.
 
-        Includes buffers configured with location='local' and
-        linear solver local buffers.
+        Includes buffers configured with location='local'.
         """
         total = 0
         if not self.use_shared_stage_rhs:
@@ -229,8 +211,6 @@ class RosenbrockBufferSettings(BufferSettings):
             total += self.stage_store_elements
         if not self.use_shared_cached_auxiliaries:
             total += self.cached_auxiliary_count
-        if self.linear_solver_buffer_settings is not None:
-            total += self.linear_solver_buffer_settings.local_memory_elements
         return total
 
     @property
@@ -288,15 +268,8 @@ class RosenbrockBufferSettings(BufferSettings):
         else:
             cached_auxiliaries_slice = slice(0, 0)
 
-        if (self.linear_solver_buffer_settings is not None and
-                self.linear_solver_buffer_settings.shared_memory_elements > 0):
-            lin_solver_shared = (
-                self.linear_solver_buffer_settings.shared_memory_elements
-            )
-            linear_solver_slice = slice(ptr, ptr + lin_solver_shared)
-            ptr += lin_solver_shared
-        else:
-            linear_solver_slice = slice(0, 0)
+        # Linear solver shared memory is managed by buffer_registry
+        linear_solver_slice = slice(0, 0)
 
         return RosenbrockSliceIndices(
             stage_rhs=stage_rhs_slice,
@@ -556,17 +529,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_buffer_settings = (
-            config.buffer_settings.linear_solver_buffer_settings
-        )
         linear_solver = linear_solver_cached_factory(
             linear_operator,
             n=n,
+            factory=self,
             preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            buffer_settings=linear_buffer_settings,
+            precision=precision,
         )
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
