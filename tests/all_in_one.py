@@ -44,12 +44,12 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 
 script_start = perf_counter()
 #
-# algorithm_type = 'dirk'
-# algorithm_tableau_name ='l_stable_sdirk_4'
+algorithm_type = 'dirk'
+algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-algorithm_type = 'firk'
-algorithm_tableau_name = 'radau'
+# algorithm_type = 'firk'
+# algorithm_tableau_name = 'radau'
 # algorithm_type = 'rosenbrock'
 # algorithm_tableau_name = 'ode23s'
 

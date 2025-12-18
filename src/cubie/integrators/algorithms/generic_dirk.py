@@ -813,16 +813,16 @@ class DIRKStep(ODEImplicitStep):
             else:
                 stage_increment = cuda.local.array(stage_increment_local_size,
                                                    precision)
-                for _i in range(int32(stage_increment_local_size)):
-                    stage_increment[_i] = numba_precision(0.0)
+                # for _i in range(int32(stage_increment_local_size)):
+                #     stage_increment[_i] = numba_precision(0.0)
 
             if accumulator_shared:
                 stage_accumulator = shared[accumulator_slice]
             else:
                 stage_accumulator = cuda.local.array(accumulator_local_size,
                                                      precision)
-                for _i in range(int32(accumulator_local_size)):
-                    stage_accumulator[_i] = numba_precision(0.0)
+                # for _i in range(int32(accumulator_local_size)):
+                #     stage_accumulator[_i] = numba_precision(0.0)
 
             # solver_scratch always from shared memory
             solver_scratch = shared[solver_scratch_slice]
@@ -837,8 +837,8 @@ class DIRKStep(ODEImplicitStep):
             else:
                 # Separate local allocation
                 stage_base = cuda.local.array(stage_base_local_size, precision)
-                for _i in range(int32(stage_base_local_size)):
-                    stage_base[_i] = numba_precision(0.0)
+                # for _i in range(int32(stage_base_local_size)):
+                #     stage_base[_i] = numba_precision(0.0)
 
             # --------------------------------------------------------------- #
 
