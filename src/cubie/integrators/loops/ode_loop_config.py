@@ -5,7 +5,7 @@ compile-critical metadata such as precision, save cadence, and device
 callbacks. They centralise validation so that loop factories receive
 consistent, ready-to-compile settings.
 """
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Callable, Optional
 
 from attrs import define, field, validators
 import numba
@@ -23,12 +23,6 @@ from cubie._utils import (
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
-
-if TYPE_CHECKING:
-    from cubie.integrators.loops.ode_loop import (
-        LoopBufferSettings,
-        LoopSliceIndices,
-    )
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
@@ -143,8 +137,22 @@ class ODELoopConfig:
 
     Attributes
     ----------
-    buffer_settings
-        Configuration for loop buffer sizes and memory locations.
+    n_states
+        Number of state variables.
+    n_parameters
+        Number of parameters.
+    n_drivers
+        Number of driver variables.
+    n_observables
+        Number of observable variables.
+    n_error
+        Number of error elements (typically equals n_states for adaptive).
+    n_counters
+        Number of counter elements.
+    state_summary_buffer_height
+        Height of state summary buffer.
+    observable_summary_buffer_height
+        Height of observable summary buffer.
     controller_local_len
         Number of persistent local memory elements for the controller.
     algorithm_local_len
@@ -181,8 +189,18 @@ class ODELoopConfig:
         Whether the loop operates with an adaptive controller.
     """
 
-    buffer_settings: "LoopBufferSettings" = field(
-        validator=validators.instance_of(object)
+    # Size parameters (previously from buffer_settings)
+    n_states: int = field(default=0, validator=getype_validator(int, 0))
+    n_parameters: int = field(default=0, validator=getype_validator(int, 0))
+    n_drivers: int = field(default=0, validator=getype_validator(int, 0))
+    n_observables: int = field(default=0, validator=getype_validator(int, 0))
+    n_error: int = field(default=0, validator=getype_validator(int, 0))
+    n_counters: int = field(default=0, validator=getype_validator(int, 0))
+    state_summary_buffer_height: int = field(
+        default=0, validator=getype_validator(int, 0)
+    )
+    observable_summary_buffer_height: int = field(
+        default=0, validator=getype_validator(int, 0)
     )
     controller_local_len: int = field(
         default=0,
@@ -255,11 +273,6 @@ class ODELoopConfig:
             validator=validators.optional(validators.instance_of(bool)))
 
     @property
-    def shared_buffer_indices(self) -> "LoopSliceIndices":
-        """Return shared memory indices from buffer_settings."""
-        return self.buffer_settings.shared_indices
-
-    @property
     def local_indices(self) -> LoopLocalIndices:
         """Return local memory indices computed from size hints."""
         return LoopLocalIndices.from_sizes(
@@ -306,13 +319,6 @@ class ODELoopConfig:
     def dt_max(self) -> float:
         """Return the maximum allowable timestep."""
         return self.precision(self._dt_max)
-
-    @property
-    def loop_shared_elements(self) -> int:
-        """Return the loop's shared-memory contribution."""
-
-        shared_end = self.shared_buffer_indices.local_end
-        return shared_end
 
     @property
     def loop_local_elements(self) -> int:

@@ -439,6 +439,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         # Stage store size for initialization
         stage_store_elements = tableau.stage_count * config.n
 
+        # Compile-time flag for stage_store memory location
+        stage_store_shared = config.stage_store_location == 'shared'
+
         # no cover: start
         @cuda.jit(
             # (
@@ -818,22 +821,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        return self.compile_settings.buffer_settings.shared_memory_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return self.compile_settings.buffer_settings.local_memory_elements
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required.
-
-        Returns n when stage_store is local (to cache final stage increment
-        for use as initial guess in next step). When stage_store is shared,
-        returns 0 as the increment persists in shared memory.
-        """
-        return self.compile_settings.buffer_settings.persistent_local_elements
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def is_implicit(self) -> bool:

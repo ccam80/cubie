@@ -1,27 +1,28 @@
-"""DEPRECATED: Buffer settings base classes are now defined locally in each module.
+"""DEPRECATED: Buffer settings functionality has been replaced by buffer_registry.
 
-This module is maintained for backwards compatibility only. The base classes
-LocalSizes, SliceIndices, and BufferSettings have been moved to local
-definitions in the modules that use them.
+The old BufferSettings, LocalSizes, and SliceIndices classes are no longer
+used. The buffer_registry module provides centralized buffer management for
+all CUDA factories.
 
-For new code, import directly from:
-- cubie.integrators.algorithms.generic_dirk (DIRKBufferSettings, etc.)
-- cubie.integrators.algorithms.generic_erk (ERKBufferSettings, etc.)
-- cubie.integrators.algorithms.generic_firk (FIRKBufferSettings, etc.)
-- cubie.integrators.algorithms.generic_rosenbrock_w (RosenbrockBufferSettings)
-- cubie.integrators.loops.ode_loop (LoopBufferSettings)
-- cubie.integrators.matrix_free_solvers.linear_solver (LinearSolverBufferSettings)
-- cubie.integrators.matrix_free_solvers.newton_krylov (NewtonBufferSettings)
+For new code, use the buffer_registry API:
+- cubie.buffer_registry.buffer_registry.register()
+- cubie.buffer_registry.buffer_registry.get_allocator()
+- cubie.buffer_registry.buffer_registry.shared_buffer_size()
+- cubie.buffer_registry.buffer_registry.local_buffer_size()
+- cubie.buffer_registry.buffer_registry.persistent_local_buffer_size()
 
-The buffer_registry module provides a central registry for all buffer
-management. See cubie.buffer_registry for the new API.
+The base classes are kept for backwards compatibility with any external code
+that may have subclassed them.
 """
 
 from abc import ABC, abstractmethod
 
 
 class LocalSizes:
-    """Base class for local array sizes with nonzero guarantees."""
+    """Base class for local array sizes with nonzero guarantees.
+    
+    DEPRECATED: Use buffer_registry.get_allocator() instead.
+    """
 
     def nonzero(self, attr_name: str) -> int:
         """Return max(value, 1) for cuda.local.array compatibility."""
@@ -29,12 +30,18 @@ class LocalSizes:
 
 
 class SliceIndices:
-    """Base class for shared memory slice indices."""
+    """Base class for shared memory slice indices.
+    
+    DEPRECATED: Use buffer_registry.get_allocator() instead.
+    """
     pass
 
 
 class BufferSettings(ABC):
-    """Abstract base class for buffer memory configuration."""
+    """Abstract base class for buffer memory configuration.
+    
+    DEPRECATED: Use buffer_registry API instead.
+    """
 
     @property
     @abstractmethod

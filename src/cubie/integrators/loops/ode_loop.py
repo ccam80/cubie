@@ -1,12 +1,9 @@
 """Outer integration loops for running CUDA-based ODE solvers.
 
 The :class:`IVPLoop` orchestrates an integration by coordinating device step
-functions, output collectors, and adaptive controllers. The loop owns buffer
-layout metadata and feeds the appropriate slices into each device call so that
-compiled kernels only need to focus on algorithmic updates.
-
-Buffer settings classes for memory allocation configuration are also defined
-here, providing selective allocation between shared and local memory.
+functions, output collectors, and adaptive controllers. The loop uses the
+central buffer registry for memory allocation and provides slices into each
+device call so that compiled kernels only focus on algorithmic updates.
 """
 from typing import Callable, Optional, Set
 
@@ -23,609 +20,6 @@ from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
-
-
-class LocalSizes:
-    """Base class for local sizes - provides nonzero helper."""
-
-    def nonzero(self, attr_name: str) -> int:
-        """Return max(value, 1) for cuda.local.array compatibility."""
-        return max(getattr(self, attr_name), 1)
-
-
-class SliceIndices:
-    """Base class for slice indices."""
-    pass
-
-
-class BufferSettings:
-    """Base class for buffer settings."""
-    pass
-
-
-@attrs.define
-class LoopLocalSizes(LocalSizes):
-    """Local array sizes for loop buffers with nonzero guarantees.
-
-    Attributes
-    ----------
-    state : int
-        State buffer size.
-    proposed_state : int
-        Proposed state buffer size.
-    parameters : int
-        Parameters buffer size.
-    drivers : int
-        Drivers buffer size.
-    proposed_drivers : int
-        Proposed drivers buffer size.
-    observables : int
-        Observables buffer size.
-    proposed_observables : int
-        Proposed observables buffer size.
-    error : int
-        Error buffer size.
-    counters : int
-        Counters buffer size.
-    state_summary : int
-        State summary buffer size.
-    observable_summary : int
-        Observable summary buffer size.
-    """
-
-    state: int = attrs.field(validator=getype_validator(int, 0))
-    proposed_state: int = attrs.field(validator=getype_validator(int, 0))
-    parameters: int = attrs.field(validator=getype_validator(int, 0))
-    drivers: int = attrs.field(validator=getype_validator(int, 0))
-    proposed_drivers: int = attrs.field(validator=getype_validator(int, 0))
-    observables: int = attrs.field(validator=getype_validator(int, 0))
-    proposed_observables: int = attrs.field(validator=getype_validator(int, 0))
-    error: int = attrs.field(validator=getype_validator(int, 0))
-    counters: int = attrs.field(validator=getype_validator(int, 0))
-    state_summary: int = attrs.field(validator=getype_validator(int, 0))
-    observable_summary: int = attrs.field(validator=getype_validator(int, 0))
-
-
-@attrs.define
-class LoopSliceIndices(SliceIndices):
-    """Slice container for shared memory buffer layouts.
-
-    Attributes
-    ----------
-    state : slice
-        Slice covering the primary state buffer (empty if local).
-    proposed_state : slice
-        Slice covering the proposed state buffer.
-    observables : slice
-        Slice covering observable work buffers.
-    proposed_observables : slice
-        Slice covering the proposed observable buffer.
-    parameters : slice
-        Slice covering parameter storage.
-    drivers : slice
-        Slice covering driver storage.
-    proposed_drivers : slice
-        Slice covering the proposed driver storage.
-    state_summaries : slice
-        Slice covering aggregated state summaries.
-    observable_summaries : slice
-        Slice covering aggregated observable summaries.
-    error : slice
-        Slice covering the shared error buffer.
-    counters : slice
-        Slice covering the iteration counters buffer.
-    local_end : int
-        Offset of the end of loop-managed shared memory.
-    scratch : slice
-        Slice covering any remaining shared-memory scratch space.
-    all : slice
-        Slice that spans the full shared-memory buffer.
-    """
-
-    state: slice = attrs.field()
-    proposed_state: slice = attrs.field()
-    observables: slice = attrs.field()
-    proposed_observables: slice = attrs.field()
-    parameters: slice = attrs.field()
-    drivers: slice = attrs.field()
-    proposed_drivers: slice = attrs.field()
-    state_summaries: slice = attrs.field()
-    observable_summaries: slice = attrs.field()
-    error: slice = attrs.field()
-    counters: slice = attrs.field()
-    local_end: int = attrs.field()
-    scratch: slice = attrs.field()
-    all: slice = attrs.field()
-
-    @property
-    def loop_shared_elements(self) -> int:
-        """Return the number of shared memory elements used by loop."""
-        return self.local_end
-
-    @property
-    def n_states(self) -> int:
-        """Return the number of states (from state slice width)."""
-        return self.state.stop - self.state.start
-
-    @property
-    def n_parameters(self) -> int:
-        """Return the number of parameters (from parameters slice width)."""
-        return self.parameters.stop - self.parameters.start
-
-    @property
-    def n_drivers(self) -> int:
-        """Return the number of drivers (from drivers slice width)."""
-        return self.drivers.stop - self.drivers.start
-
-    @property
-    def n_observables(self) -> int:
-        """Return the number of observables (from observables slice width)."""
-        return self.observables.stop - self.observables.start
-
-    @property
-    def n_counters(self) -> int:
-        """Return the number of counter elements (from counters slice)."""
-        return self.counters.stop - self.counters.start
-
-
-@attrs.define
-class LoopBufferSettings(BufferSettings):
-    """Configuration for loop buffer sizes and memory locations.
-
-    Each buffer has a size attribute (number of elements) and a location
-    attribute ('local' or 'shared'). The class provides computed properties
-    for boolean flags, shared memory indices, and total memory requirements.
-
-    Attributes
-    ----------
-    n_states : int
-        Number of state variables.
-    n_parameters : int
-        Number of parameters.
-    n_drivers : int
-        Number of driver variables.
-    n_observables : int
-        Number of observable variables.
-    state_summary_buffer_height : int
-        Height of state summary buffer (0 if disabled).
-    observable_summary_buffer_height : int
-        Height of observable summary buffer (0 if disabled).
-    n_counters : int
-        Number of counter elements (typically 4 when enabled, 0 when disabled).
-    n_error : int
-        Number of error elements (typically equals n_states for adaptive).
-    state_buffer_location : str
-        Memory location for state buffer: 'local' or 'shared'.
-    state_proposal_location : str
-        Memory location for proposed state buffer.
-    parameters_location : str
-        Memory location for parameters buffer.
-    drivers_location : str
-        Memory location for drivers buffer.
-    drivers_proposal_location : str
-        Memory location for proposed drivers buffer.
-    observables_location : str
-        Memory location for observables buffer.
-    observables_proposal_location : str
-        Memory location for proposed observables buffer.
-    error_location : str
-        Memory location for error buffer.
-    counters_location : str
-        Memory location for counters buffer.
-    state_summary_location : str
-        Memory location for state summary buffer.
-    observable_summary_location : str
-        Memory location for observable summary buffer.
-    scratch_location : str
-        Memory location for algorithm scratch buffer.
-    """
-
-    # Size attributes
-    n_states: int = attrs.field(validator=getype_validator(int, 0))
-    n_parameters: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    n_drivers: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    n_observables: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    state_summary_buffer_height: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    observable_summary_buffer_height: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    n_counters: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    n_error: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-
-    # Location attributes with defaults matching all_in_one.py
-    state_buffer_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    state_proposal_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    parameters_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    drivers_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    drivers_proposal_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    observables_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    observables_proposal_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    error_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    counters_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    state_summary_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    observable_summary_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    scratch_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-
-    # Boolean properties for compile-time flags
-    @property
-    def use_shared_state(self) -> bool:
-        """Return True if state buffer uses shared memory."""
-        return self.state_buffer_location == 'shared'
-
-    @property
-    def use_shared_state_proposal(self) -> bool:
-        """Return True if proposed state buffer uses shared memory."""
-        return self.state_proposal_location == 'shared'
-
-    @property
-    def use_shared_parameters(self) -> bool:
-        """Return True if parameters buffer uses shared memory."""
-        return self.parameters_location == 'shared'
-
-    @property
-    def use_shared_drivers(self) -> bool:
-        """Return True if drivers buffer uses shared memory."""
-        return self.drivers_location == 'shared'
-
-    @property
-    def use_shared_drivers_proposal(self) -> bool:
-        """Return True if proposed drivers buffer uses shared memory."""
-        return self.drivers_proposal_location == 'shared'
-
-    @property
-    def use_shared_observables(self) -> bool:
-        """Return True if observables buffer uses shared memory."""
-        return self.observables_location == 'shared'
-
-    @property
-    def use_shared_observables_proposal(self) -> bool:
-        """Return True if proposed observables buffer uses shared memory."""
-        return self.observables_proposal_location == 'shared'
-
-    @property
-    def use_shared_error(self) -> bool:
-        """Return True if error buffer uses shared memory."""
-        return self.error_location == 'shared'
-
-    @property
-    def use_shared_counters(self) -> bool:
-        """Return True if counters buffer uses shared memory."""
-        return self.counters_location == 'shared'
-
-    @property
-    def use_shared_state_summary(self) -> bool:
-        """Return True if state summary buffer uses shared memory."""
-        return self.state_summary_location == 'shared'
-
-    @property
-    def use_shared_observable_summary(self) -> bool:
-        """Return True if observable summary buffer uses shared memory."""
-        return self.observable_summary_location == 'shared'
-
-    @property
-    def use_shared_scratch(self) -> bool:
-        """Return True if scratch buffer uses shared memory."""
-        return self.scratch_location == 'shared'
-
-    # Computed size properties (return at least 1 for local arrays)
-    @property
-    def state_buffer_size(self) -> int:
-        """Return state buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_states)
-
-    @property
-    def proposed_state_size(self) -> int:
-        """Return proposed state buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_states)
-
-    @property
-    def parameters_size(self) -> int:
-        """Return parameters buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_parameters)
-
-    @property
-    def drivers_size(self) -> int:
-        """Return drivers buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_drivers)
-
-    @property
-    def proposed_drivers_size(self) -> int:
-        """Return proposed drivers buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_drivers)
-
-    @property
-    def observables_size(self) -> int:
-        """Return observables buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_observables)
-
-    @property
-    def proposed_observables_size(self) -> int:
-        """Return proposed observables buffer size, minimum 1."""
-        return max(1, self.n_observables)
-
-    @property
-    def error_size(self) -> int:
-        """Return error buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_error)
-
-    @property
-    def counters_size(self) -> int:
-        """Return counters buffer size, minimum 1 for local arrays."""
-        return max(1, self.n_counters)
-
-    @property
-    def proposed_counters_size(self) -> int:
-        """Return proposed counters buffer size (2 if active, else 1)."""
-        return 2
-
-    @property
-    def state_summary_size(self) -> int:
-        """Return state summary buffer size, minimum 1 for local arrays."""
-        return max(1, self.state_summary_buffer_height)
-
-    @property
-    def observable_summary_size(self) -> int:
-        """Return observable summary buffer size, minimum 1."""
-        return max(1, self.observable_summary_buffer_height)
-
-    @property
-    def shared_memory_elements(self) -> int:
-        """Return total shared memory elements required by loop buffers.
-
-        Only buffers configured with location='shared' contribute to
-        this total.
-        """
-        total = 0
-        if self.use_shared_state:
-            total += self.n_states
-        if self.use_shared_state_proposal:
-            total += self.n_states
-        if self.use_shared_parameters:
-            total += self.n_parameters
-        if self.use_shared_drivers:
-            total += self.n_drivers
-        if self.use_shared_drivers_proposal:
-            total += self.n_drivers
-        if self.use_shared_observables:
-            total += self.n_observables
-        if self.use_shared_observables_proposal:
-            total += self.n_observables
-        if self.use_shared_error:
-            total += self.n_error
-        if self.use_shared_counters:
-            total += self.n_counters
-        if self.use_shared_state_summary:
-            total += self.state_summary_buffer_height
-        if self.use_shared_observable_summary:
-            total += self.observable_summary_buffer_height
-        return total
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return total local memory elements required by loop buffers.
-
-        Only buffers configured with location='local' contribute to
-        this total.
-        """
-        total = 2 # proposed_counters is always local
-        if not self.use_shared_state:
-            total += self.state_buffer_size
-        if not self.use_shared_state_proposal:
-            total += self.proposed_state_size
-        if not self.use_shared_parameters:
-            total += self.parameters_size
-        if not self.use_shared_drivers:
-            total += self.drivers_size
-        if not self.use_shared_drivers_proposal:
-            total += self.proposed_drivers_size
-        if not self.use_shared_observables:
-            total += self.observables_size
-        if not self.use_shared_observables_proposal:
-            total += self.proposed_observables_size
-        if not self.use_shared_error:
-            total += self.error_size
-        if not self.use_shared_counters:
-            total += self.counters_size
-        if not self.use_shared_state_summary:
-            total += self.state_summary_size
-        if not self.use_shared_observable_summary:
-            total += self.observable_summary_size
-        return total
-
-    @property
-    def total_shared_elements(self) -> int:
-        """Alias for shared_memory_elements for naming consistency."""
-        return self.shared_memory_elements
-
-    @property
-    def total_local_elements(self) -> int:
-        """Alias for local_memory_elements for naming consistency."""
-        return self.local_memory_elements
-
-    def calculate_shared_indices(self) -> "LoopSliceIndices":
-        """Generate shared memory index slices based on location settings.
-
-        Only buffers with location='shared' receive non-empty slices.
-        Local buffers get zero-length slices (slice(0, 0)).
-
-        The order matches the original LoopSharedIndices.from_sizes layout:
-        state, proposed_state, observables, proposed_observables, parameters,
-        drivers, proposed_drivers, state_summaries, observable_summaries,
-        error, counters, proposed_counters.
-
-        Returns
-        -------
-        LoopSliceIndices
-            Object containing slice objects for each buffer.
-        """
-        ptr = 0
-
-        # State buffer
-        if self.use_shared_state:
-            state_slice = slice(ptr, ptr + self.n_states)
-            ptr += self.n_states
-        else:
-            state_slice = slice(0, 0)
-
-        # Proposed state buffer
-        if self.use_shared_state_proposal:
-            proposed_state_slice = slice(ptr, ptr + self.n_states)
-            ptr += self.n_states
-        else:
-            proposed_state_slice = slice(0, 0)
-
-        # Observables buffer (order matches from_sizes)
-        if self.use_shared_observables:
-            observables_slice = slice(ptr, ptr + self.n_observables)
-            ptr += self.n_observables
-        else:
-            observables_slice = slice(0, 0)
-
-        # Proposed observables buffer
-        if self.use_shared_observables_proposal:
-            proposed_observables_slice = slice(ptr, ptr + self.n_observables)
-            ptr += self.n_observables
-        else:
-            proposed_observables_slice = slice(0, 0)
-
-        # Parameters buffer
-        if self.use_shared_parameters:
-            parameters_slice = slice(ptr, ptr + self.n_parameters)
-            ptr += self.n_parameters
-        else:
-            parameters_slice = slice(0, 0)
-
-        # Drivers buffer
-        if self.use_shared_drivers:
-            drivers_slice = slice(ptr, ptr + self.n_drivers)
-            ptr += self.n_drivers
-        else:
-            drivers_slice = slice(0, 0)
-
-        # Proposed drivers buffer
-        if self.use_shared_drivers_proposal:
-            proposed_drivers_slice = slice(ptr, ptr + self.n_drivers)
-            ptr += self.n_drivers
-        else:
-            proposed_drivers_slice = slice(0, 0)
-
-        # State summary buffer
-        if self.use_shared_state_summary:
-            state_summaries_slice = slice(
-                ptr, ptr + self.state_summary_buffer_height
-            )
-            ptr += self.state_summary_buffer_height
-        else:
-            state_summaries_slice = slice(0, 0)
-
-        # Observable summary buffer
-        if self.use_shared_observable_summary:
-            observable_summaries_slice = slice(
-                ptr, ptr + self.observable_summary_buffer_height
-            )
-            ptr += self.observable_summary_buffer_height
-        else:
-            observable_summaries_slice = slice(0, 0)
-
-        # Error buffer
-        if self.use_shared_error:
-            error_slice = slice(ptr, ptr + self.n_error)
-            ptr += self.n_error
-        else:
-            error_slice = slice(0, 0)
-
-        # Counters buffer
-        if self.use_shared_counters:
-            counters_slice = slice(ptr, ptr + self.n_counters)
-            ptr += self.n_counters
-        else:
-            counters_slice = slice(0, 0)
-
-        local_end = ptr
-        scratch_slice = slice(ptr, None)
-
-        return LoopSliceIndices(
-            state=state_slice,
-            proposed_state=proposed_state_slice,
-            observables=observables_slice,
-            proposed_observables=proposed_observables_slice,
-            parameters=parameters_slice,
-            drivers=drivers_slice,
-            proposed_drivers=proposed_drivers_slice,
-            state_summaries=state_summaries_slice,
-            observable_summaries=observable_summaries_slice,
-            error=error_slice,
-            counters=counters_slice,
-            local_end=local_end,
-            scratch=scratch_slice,
-            all=slice(None),
-        )
-
-    @property
-    def local_sizes(self) -> LoopLocalSizes:
-        """Return LoopLocalSizes instance with buffer sizes.
-
-        The returned object provides nonzero sizes suitable for
-        cuda.local.array allocation.
-        """
-        return LoopLocalSizes(
-            state=self.n_states,
-            proposed_state=self.n_states,
-            parameters=self.n_parameters,
-            drivers=self.n_drivers,
-            proposed_drivers=self.n_drivers,
-            observables=self.n_observables,
-            proposed_observables=self.n_observables,
-            error=self.n_error,
-            counters=self.n_counters,
-            state_summary=self.state_summary_buffer_height,
-            observable_summary=self.observable_summary_buffer_height,
-        )
-
-    @property
-    def shared_indices(self) -> LoopSliceIndices:
-        """Return LoopSliceIndices instance with shared memory layout.
-
-        The returned object contains slices for each buffer's region
-        in shared memory. Local buffers receive empty slices.
-        """
-        return self.calculate_shared_indices()
 
 
 @attrs.define
@@ -651,24 +45,6 @@ ALL_LOOP_SETTINGS = {
     "is_adaptive",
 }
 
-# Buffer location parameters that can be specified at Solver level.
-# These parameters control whether specific buffers are allocated in
-# shared or local memory within CUDA device functions.
-ALL_BUFFER_LOCATION_PARAMETERS = {
-    "state_buffer_location",
-    "state_proposal_location",
-    "parameters_location",
-    "drivers_location",
-    "drivers_proposal_location",
-    "observables_location",
-    "observables_proposal_location",
-    "error_location",
-    "counters_location",
-    "state_summary_location",
-    "observable_summary_location",
-    "scratch_location",
-}
-
 
 class IVPLoop(CUDAFactory):
     """Factory for CUDA device loops that advance an IVP integration.
@@ -677,10 +53,46 @@ class IVPLoop(CUDAFactory):
     ----------
     precision
         Precision used for state and observable updates.
-    buffer_settings
-        Configuration for loop buffer sizes and memory locations.
+    n_states
+        Number of state variables.
     compile_flags
         Output configuration that drives save and summary behaviour.
+    n_parameters
+        Number of parameters.
+    n_drivers
+        Number of driver variables.
+    n_observables
+        Number of observable variables.
+    n_error
+        Number of error elements (typically equals n_states for adaptive).
+    n_counters
+        Number of counter elements.
+    state_summary_buffer_height
+        Height of state summary buffer.
+    observable_summary_buffer_height
+        Height of observable summary buffer.
+    state_location
+        Memory location for state buffer: 'local' or 'shared'.
+    state_proposal_location
+        Memory location for proposed state buffer.
+    parameters_location
+        Memory location for parameters buffer.
+    drivers_location
+        Memory location for drivers buffer.
+    drivers_proposal_location
+        Memory location for proposed drivers buffer.
+    observables_location
+        Memory location for observables buffer.
+    observables_proposal_location
+        Memory location for proposed observables buffer.
+    error_location
+        Memory location for error buffer.
+    counters_location
+        Memory location for counters buffer.
+    state_summary_location
+        Memory location for state summary buffer.
+    observable_summary_location
+        Memory location for observable summary buffer.
     controller_local_len
         Number of persistent local memory elements for the controller.
     algorithm_local_len
@@ -718,8 +130,26 @@ class IVPLoop(CUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        buffer_settings: LoopBufferSettings,
+        n_states: int,
         compile_flags: OutputCompileFlags,
+        n_parameters: int = 0,
+        n_drivers: int = 0,
+        n_observables: int = 0,
+        n_error: int = 0,
+        n_counters: int = 0,
+        state_summary_buffer_height: int = 0,
+        observable_summary_buffer_height: int = 0,
+        state_location: str = 'local',
+        state_proposal_location: str = 'local',
+        parameters_location: str = 'local',
+        drivers_location: str = 'local',
+        drivers_proposal_location: str = 'local',
+        observables_location: str = 'local',
+        observables_proposal_location: str = 'local',
+        error_location: str = 'local',
+        counters_location: str = 'local',
+        state_summary_location: str = 'local',
+        observable_summary_location: str = 'local',
         controller_local_len: int = 0,
         algorithm_local_len: int = 0,
         dt_save: float = 0.1,
@@ -738,8 +168,63 @@ class IVPLoop(CUDAFactory):
     ) -> None:
         super().__init__()
 
+        # Register all loop buffers with central registry
+        buffer_registry.clear_factory(self)
+
+        buffer_registry.register(
+            'loop_state', self, n_states, state_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'loop_proposed_state', self, n_states,
+            state_proposal_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_parameters', self, n_parameters,
+            parameters_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_drivers', self, n_drivers, drivers_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'loop_proposed_drivers', self, n_drivers,
+            drivers_proposal_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_observables', self, n_observables,
+            observables_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_proposed_observables', self, n_observables,
+            observables_proposal_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_error', self, n_error, error_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'loop_counters', self, n_counters, counters_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'loop_state_summary', self, state_summary_buffer_height,
+            state_summary_location, precision=precision
+        )
+        buffer_registry.register(
+            'loop_observable_summary', self, observable_summary_buffer_height,
+            observable_summary_location, precision=precision
+        )
+
         config = ODELoopConfig(
-            buffer_settings=buffer_settings,
+            n_states=n_states,
+            n_parameters=n_parameters,
+            n_drivers=n_drivers,
+            n_observables=n_observables,
+            n_error=n_error,
+            n_counters=n_counters,
+            state_summary_buffer_height=state_summary_buffer_height,
+            observable_summary_buffer_height=observable_summary_buffer_height,
             controller_local_len=controller_local_len,
             algorithm_local_len=algorithm_local_len,
             save_state_fn=save_state_func,
@@ -806,23 +291,31 @@ class IVPLoop(CUDAFactory):
         summarise = summarise_obs_bool or summarise_state_bool
         save_counters_bool = flags.save_counters
 
-        # Indices into shared memory for work buffers
-        shared_indices = config.shared_buffer_indices
-        local_indices = config.local_indices
-        
-        state_shared_ind = shared_indices.state
-        obs_shared_ind = shared_indices.observables
-        obs_prop_shared_ind = shared_indices.proposed_observables
-        state_prop_shared_ind = shared_indices.proposed_state
-        state_summ_shared_ind = shared_indices.state_summaries
-        params_shared_ind = shared_indices.parameters
-        obs_summ_shared_ind = shared_indices.observable_summaries
-        drivers_shared_ind = shared_indices.drivers
-        drivers_prop_shared_ind = shared_indices.proposed_drivers
-        error_shared_ind = shared_indices.error
-        counters_shared_ind = shared_indices.counters
-        remaining_scratch_ind = shared_indices.scratch
+        # Get allocators from buffer registry
+        alloc_state = buffer_registry.get_allocator('loop_state', self)
+        alloc_proposed_state = buffer_registry.get_allocator(
+            'loop_proposed_state', self
+        )
+        alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
+        alloc_drivers = buffer_registry.get_allocator('loop_drivers', self)
+        alloc_proposed_drivers = buffer_registry.get_allocator(
+            'loop_proposed_drivers', self
+        )
+        alloc_observables = buffer_registry.get_allocator('loop_observables', self)
+        alloc_proposed_observables = buffer_registry.get_allocator(
+            'loop_proposed_observables', self
+        )
+        alloc_error = buffer_registry.get_allocator('loop_error', self)
+        alloc_counters = buffer_registry.get_allocator('loop_counters', self)
+        alloc_state_summary = buffer_registry.get_allocator(
+            'loop_state_summary', self
+        )
+        alloc_observable_summary = buffer_registry.get_allocator(
+            'loop_observable_summary', self
+        )
 
+        # Local memory indices for non-allocated persistent local storage
+        local_indices = config.local_indices
         dt_slice = local_indices.dt
         accept_slice = local_indices.accept
         controller_slice = local_indices.controller
@@ -836,51 +329,17 @@ class IVPLoop(CUDAFactory):
         # included in loop logic
         save_last = False
 
-        buffer_settings = config.buffer_settings
-
-        # Loop sizes - computed from slice dimensions
-        n_states = int32(buffer_settings.n_states)
-        n_parameters = int32(buffer_settings.n_parameters)
-        n_observables = int32(buffer_settings.n_observables)
-        n_drivers = int32(buffer_settings.n_drivers)
-        n_counters = int32(buffer_settings.n_counters)
+        # Loop sizes from config (sizes also used for iteration bounds)
+        n_states = int32(config.n_states)
+        n_parameters = int32(config.n_parameters)
+        n_observables = int32(config.n_observables)
+        n_drivers = int32(config.n_drivers)
+        n_counters = int32(config.n_counters)
         
         fixed_mode = not config.is_adaptive
 
-        # Buffer settings from compile_settings for selective shared/local.
-
-        # Unpack boolean flags as compile-time constants
-        state_shared = buffer_settings.use_shared_state
-        state_proposal_shared = buffer_settings.use_shared_state_proposal
-        parameters_shared = buffer_settings.use_shared_parameters
-        drivers_shared = buffer_settings.use_shared_drivers
-        drivers_proposal_shared = buffer_settings.use_shared_drivers_proposal
-        observables_shared = buffer_settings.use_shared_observables
-        observables_proposal_shared = (
-            buffer_settings.use_shared_observables_proposal
-        )
-        error_shared = buffer_settings.use_shared_error
-        counters_shared = buffer_settings.use_shared_counters
-        state_summary_shared = buffer_settings.use_shared_state_summary
-        observable_summary_shared = buffer_settings.use_shared_observable_summary
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        state_local_size = local_sizes.nonzero('state')
-        proposed_state_local_size = local_sizes.nonzero('proposed_state')
-        parameters_local_size = local_sizes.nonzero('parameters')
-        drivers_local_size = local_sizes.nonzero('drivers')
-        proposed_drivers_local_size = local_sizes.nonzero('proposed_drivers')
-        observables_local_size = local_sizes.nonzero('observables')
-        proposed_observables_local_size = local_sizes.nonzero(
-            'proposed_observables'
-        )
-        error_local_size = local_sizes.nonzero('error')
-        counters_local_size = local_sizes.nonzero('counters')
-        state_summary_local_size = local_sizes.nonzero('state_summary')
-        observable_summary_local_size = local_sizes.nonzero(
-            'observable_summary'
-        )
+        # Remaining scratch starts after all loop buffers
+        remaining_scratch_start = buffer_registry.shared_buffer_size(self)
 
 
         @cuda.jit(
@@ -967,102 +426,33 @@ class IVPLoop(CUDAFactory):
             stagnant_counts = int32(0)
 
             # ----------------------------------------------------------- #
-            # Selective allocation from local or shared memory
+            # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
-            if state_shared:
-                state_buffer = shared_scratch[state_shared_ind]
-            else:
-                state_buffer = cuda.local.array(state_local_size, precision)
-                for _i in range(state_local_size):
-                    state_buffer[_i] = precision(0.0)
+            state_buffer = alloc_state(shared_scratch, persistent_local)
+            state_proposal_buffer = alloc_proposed_state(
+                shared_scratch, persistent_local
+            )
+            observables_buffer = alloc_observables(
+                shared_scratch, persistent_local
+            )
+            observables_proposal_buffer = alloc_proposed_observables(
+                shared_scratch, persistent_local
+            )
+            parameters_buffer = alloc_parameters(shared_scratch, persistent_local)
+            drivers_buffer = alloc_drivers(shared_scratch, persistent_local)
+            drivers_proposal_buffer = alloc_proposed_drivers(
+                shared_scratch, persistent_local
+            )
+            state_summary_buffer = alloc_state_summary(
+                shared_scratch, persistent_local
+            )
+            observable_summary_buffer = alloc_observable_summary(
+                shared_scratch, persistent_local
+            )
+            counters_since_save = alloc_counters(shared_scratch, persistent_local)
+            error = alloc_error(shared_scratch, persistent_local)
 
-            if state_proposal_shared:
-                state_proposal_buffer = shared_scratch[state_prop_shared_ind]
-            else:
-                state_proposal_buffer = cuda.local.array(
-                    proposed_state_local_size, precision
-                )
-                for _i in range(proposed_state_local_size):
-                    state_proposal_buffer[_i] = precision(0.0)
-
-            if observables_shared:
-                observables_buffer = shared_scratch[obs_shared_ind]
-            else:
-                observables_buffer = cuda.local.array(
-                    observables_local_size, precision
-                )
-                for _i in range(observables_local_size):
-                    observables_buffer[_i] = precision(0.0)
-
-            if observables_proposal_shared:
-                observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
-            else:
-                observables_proposal_buffer = cuda.local.array(
-                    proposed_observables_local_size, precision
-                )
-                for _i in range(proposed_observables_local_size):
-                    observables_proposal_buffer[_i] = precision(0.0)
-
-            if parameters_shared:
-                parameters_buffer = shared_scratch[params_shared_ind]
-            else:
-                parameters_buffer = cuda.local.array(
-                    parameters_local_size, precision
-                )
-                for _i in range(parameters_local_size):
-                    parameters_buffer[_i] = precision(0.0)
-
-            if drivers_shared:
-                drivers_buffer = shared_scratch[drivers_shared_ind]
-            else:
-                drivers_buffer = cuda.local.array(drivers_local_size, precision)
-                for _i in range(drivers_local_size):
-                    drivers_buffer[_i] = precision(0.0)
-
-            if drivers_proposal_shared:
-                drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
-            else:
-                drivers_proposal_buffer = cuda.local.array(
-                    proposed_drivers_local_size, precision
-                )
-                for _i in range(proposed_drivers_local_size):
-                    drivers_proposal_buffer[_i] = precision(0.0)
-
-            if state_summary_shared:
-                state_summary_buffer = shared_scratch[state_summ_shared_ind]
-            else:
-                state_summary_buffer = cuda.local.array(
-                    state_summary_local_size, precision
-                )
-                for _i in range(state_summary_local_size):
-                    state_summary_buffer[_i] = precision(0.0)
-
-            if observable_summary_shared:
-                observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
-            else:
-                observable_summary_buffer = cuda.local.array(
-                    observable_summary_local_size, precision
-                )
-                for _i in range(observable_summary_local_size):
-                    observable_summary_buffer[_i] = precision(0.0)
-
-            if counters_shared:
-                counters_since_save = shared_scratch[counters_shared_ind]
-            else:
-                counters_since_save = cuda.local.array(
-                    counters_local_size, simsafe_int32
-                )
-                for _i in range(counters_local_size):
-                    counters_since_save[_i] = simsafe_int32(0)
-
-            if error_shared:
-                error = shared_scratch[error_shared_ind]
-            else:
-                error = cuda.local.array(error_local_size, precision)
-                for _i in range(error_local_size):
-                    error[_i] = precision(0.0)
-
-            remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
+            remaining_shared_scratch = shared_scratch[remaining_scratch_start:]
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
@@ -1362,18 +752,6 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def shared_buffer_indices(self) -> LoopSliceIndices:
-        """Return the shared buffer index layout."""
-
-        return self.compile_settings.shared_buffer_indices
-
-    @property
-    def buffer_indices(self) -> LoopSliceIndices:
-        """Return the shared buffer index layout."""
-
-        return self.shared_buffer_indices
-
-    @property
     def local_indices(self) -> LoopLocalIndices:
         """Return persistent local-memory indices."""
 
@@ -1382,7 +760,7 @@ class IVPLoop(CUDAFactory):
     @property
     def shared_memory_elements(self) -> int:
         """Return the loop's shared-memory requirement."""
-        return self.compile_settings.loop_shared_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     def local_memory_elements(self) -> int:

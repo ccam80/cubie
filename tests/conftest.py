@@ -16,9 +16,9 @@ from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
-from cubie.integrators.loops.ode_loop import (
-    ALL_LOOP_SETTINGS,
-    LoopBufferSettings,
+from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
+from cubie.integrators.SingleIntegratorRunCore import (
+    ALL_BUFFER_LOCATION_PARAMETERS
 )
 
 from cubie.integrators.step_control.base_step_controller import (

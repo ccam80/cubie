@@ -1,63 +1,40 @@
-"""Tests for BufferSettings infrastructure and buffer_registry migration."""
+"""Tests for BufferSettings infrastructure migration status.
+
+Note: The BufferSettings classes have been replaced by the buffer_registry API.
+These tests verify the deprecated base classes still exist for backwards
+compatibility, but the concrete subclasses (LinearSolverBufferSettings, etc.)
+have been removed.
+"""
 import pytest
 
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverBufferSettings,
-    LinearSolverLocalSizes,
-    LinearSolverSliceIndices,
+from cubie.BufferSettings import (
+    BufferSettings,
     LocalSizes,
     SliceIndices,
 )
 
 
-class TestLocalSizes:
-    """Tests for LocalSizes base class."""
-
-    def test_nonzero_returns_value_when_positive(self):
-        """nonzero() should return actual value when positive."""
-        sizes = LinearSolverLocalSizes(preconditioned_vec=10, temp=5)
-        assert sizes.nonzero('preconditioned_vec') == 10
-        assert sizes.nonzero('temp') == 5
-
-    def test_nonzero_returns_one_when_zero(self):
-        """nonzero() should return 1 for zero-sized attributes.
-
-        This ensures cuda.local.array always gets valid size >= 1.
-        """
-        sizes = LinearSolverLocalSizes(preconditioned_vec=0, temp=0)
-        assert sizes.nonzero('preconditioned_vec') == 1
-        assert sizes.nonzero('temp') == 1
-
-
-class TestSliceIndices:
-    """Tests for SliceIndices base class.
-
-    SliceIndices is abstract, tested via concrete subclasses.
+class TestDeprecatedBaseClasses:
+    """Tests for deprecated base classes in BufferSettings module.
+    
+    These base classes are kept for backwards compatibility with any external
+    code that may have subclassed them. The concrete implementations have been
+    migrated to use buffer_registry.
     """
 
-    def test_slice_indices_subclass_instantiation(self):
-        """Concrete subclasses should instantiate properly."""
-        indices = LinearSolverSliceIndices(
-            preconditioned_vec=slice(0, 10),
-            temp=slice(10, 20),
-            local_end=20,
-        )
-        assert indices.preconditioned_vec == slice(0, 10)
-        assert indices.temp == slice(10, 20)
-        assert indices.local_end == 20
+    def test_local_sizes_base_class_exists(self):
+        """LocalSizes base class should still be importable."""
+        sizes = LocalSizes()
+        # Should have nonzero method
+        assert hasattr(sizes, 'nonzero')
 
+    def test_slice_indices_base_class_exists(self):
+        """SliceIndices base class should still be importable."""
+        indices = SliceIndices()
+        assert indices is not None
 
-class TestBufferSettingsAbstract:
-    """Tests for BufferSettings abstract base class.
-
-    BufferSettings is abstract and tested via concrete subclasses.
-    """
-
-    def test_buffer_settings_subclass_has_required_properties(self):
-        """Concrete subclasses should implement abstract properties."""
-        settings = LinearSolverBufferSettings(n=10)
-        # All these should be implemented
-        assert isinstance(settings.shared_memory_elements, int)
-        assert isinstance(settings.local_memory_elements, int)
-        assert settings.local_sizes is not None
-        assert settings.shared_indices is not None
+    def test_buffer_settings_is_abstract(self):
+        """BufferSettings base class should be abstract."""
+        # BufferSettings has abstract methods, cannot instantiate directly
+        with pytest.raises(TypeError):
+            BufferSettings()

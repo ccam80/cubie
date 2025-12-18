@@ -169,24 +169,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.dt_summarise
 
     @property
-    def shared_buffer_indices(self) -> Any:
-        """Return the shared buffer index layout."""
-
-        return self._loop.shared_buffer_indices
-
-    @property
-    def buffer_indices(self) -> Any:
-        """Return shared buffer indices."""
-
-        return self._loop.buffer_indices
-
-    @property
-    def local_indices(self) -> Any:
-        """Return loop local-memory indices."""
-
-        return self._loop.local_indices
-
-    @property
     def shared_memory_elements_loop(self) -> int:
         """Return the loop contribution to shared memory."""
 

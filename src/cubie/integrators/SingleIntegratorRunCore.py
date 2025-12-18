@@ -20,12 +20,27 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType, unpack_dict_values
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
-from cubie.integrators.loops.ode_loop import (
-    IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
-)
+from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
+
+# Buffer location parameters that can be specified at Solver level.
+# These parameters control whether specific buffers are allocated in
+# shared or local memory within CUDA device functions.
+ALL_BUFFER_LOCATION_PARAMETERS = {
+    "state_location",
+    "state_proposal_location",
+    "parameters_location",
+    "drivers_location",
+    "drivers_proposal_location",
+    "observables_location",
+    "observables_proposal_location",
+    "error_location",
+    "counters_location",
+    "state_summary_location",
+    "observable_summary_location",
+}
 
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
@@ -331,35 +346,33 @@ class SingleIntegratorRunCore(CUDAFactory):
         """
         n_counters = 4 if compile_flags.save_counters else 0
         
-        # Extract buffer location kwargs from loop_settings to pass to
-        # LoopBufferSettings. Only pass locations explicitly provided by user.
+        # Extract buffer location kwargs from loop_settings
         buffer_location_kwargs = {
             key: loop_settings[key]
             for key in ALL_BUFFER_LOCATION_PARAMETERS
             if key in loop_settings
         }
-        buffer_settings = LoopBufferSettings(
+
+        loop_kwargs = dict(loop_settings)
+        # Remove buffer location kwargs from loop_settings (we'll pass them separately)
+        for key in ALL_BUFFER_LOCATION_PARAMETERS:
+            loop_kwargs.pop(key, None)
+
+        # Build the loop with individual parameters (new API)
+        loop_kwargs.update(
+            precision=precision,
             n_states=n_states,
+            compile_flags=compile_flags,
             n_parameters=n_parameters,
             n_drivers=n_drivers,
             n_observables=n_observables,
-            state_summary_buffer_height=state_summaries_buffer_height,
-            observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            **buffer_location_kwargs,
-        )
-
-        loop_kwargs = dict(loop_settings)
-        # Remove buffer location kwargs - they're now in buffer_settings
-        for key in ALL_BUFFER_LOCATION_PARAMETERS:
-            loop_kwargs.pop(key, None)
-        loop_kwargs.update(
-            precision=precision,
-            buffer_settings=buffer_settings,
-            compile_flags=compile_flags,
+            state_summary_buffer_height=state_summaries_buffer_height,
+            observable_summary_buffer_height=observable_summaries_buffer_height,
             controller_local_len=controller_local_elements,
             algorithm_local_len=algorithm_local_elements,
+            **buffer_location_kwargs,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
