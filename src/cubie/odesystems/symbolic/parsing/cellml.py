@@ -104,7 +104,7 @@ def _sanitize_symbol_name(name: str) -> str:
 
 def load_cellml_model(
     path: str,
-    precision: PrecisionDType,
+    precision: PrecisionDType = np.float32,
     name: Optional[str] = None,
     parameters: Optional[List[str]] = None,
     observables: Optional[List[str]] = None,

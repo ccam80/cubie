@@ -50,16 +50,15 @@ class MetricConfig:
         Numerical precision for metric calculations. Defaults to
         np.float32.
     """
-    
+    _precision: PrecisionDType = attrs.field(
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     _dt_save: float = attrs.field(
         default=0.01,
         validator=val.optional(gttype_validator(float, 0.0))
     )
-    _precision: PrecisionDType = attrs.field(
-        default=np.float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
     
     @property
     def dt_save(self) -> float:
@@ -92,7 +91,7 @@ def register_metric(registry: "SummaryMetrics") -> Callable:
     """
 
     def decorator(cls):
-        instance = cls()
+        instance = cls(registry.precision)
         registry.register_metric(instance)
         return cls
 
@@ -254,7 +253,7 @@ class SummaryMetrics:
     Methods only report information for metrics explicitly requested so the
     caller can compile device functions tailored to the active configuration.
     """
-
+    precision: PrecisionDType = attrs.field()
     _names: list[str] = attrs.field(
         validator=attrs.validators.instance_of(list), factory=list, init=False
     )
@@ -281,6 +280,7 @@ class SummaryMetrics:
         factory=dict,
         init=False,
     )
+
 
     def __attrs_post_init__(self) -> None:
         """Reset the parsed parameter cache and define combined metrics."""
@@ -317,6 +317,8 @@ class SummaryMetrics:
         Propagates updates to all registered metric objects.
         Each metric invalidates its cache if values change.
         """
+        if "precision" in kwargs:
+            self.precision = kwargs["precision"]
         for metric in self._metric_objects.values():
             metric.update(**kwargs)
 

@@ -20,6 +20,7 @@ from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.update_summaries import update_summary_factory
+from cubie._utils import PrecisionDType
 
 
 # Define the complete set of recognised configuration keys so callers can
@@ -98,7 +99,7 @@ class OutputFunctions(CUDAFactory):
         self,
         max_states: int,
         max_observables: int,
-        precision: Optional[np.dtype],
+        precision: PrecisionDType,
         output_types: list[str] = None,
         saved_state_indices: Union[Sequence[int], ArrayLike] = None,
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
@@ -110,9 +111,6 @@ class OutputFunctions(CUDAFactory):
 
         if output_types is None:
             output_types = ["state"]
-
-        if precision is None:
-            precision = np.float32
 
         # Create and setup output configuration as compile settings
         config = OutputConfig.from_loop_settings(

@@ -111,10 +111,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._system = system
         system_sizes = system.sizes
         n = system_sizes.states
-
+        _ = output_settings.pop("precision")
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
+            precision=precision,
             **output_settings,
         )
 
@@ -189,19 +190,19 @@ class SingleIntegratorRunCore(CUDAFactory):
     @property
     def device_function(self):
         """Return the compiled CUDA solver kernel.
-        
+
         Returns
         -------
         callable
             Compiled CUDA device function.
         """
-        return self.get_cached_output('single_integrator_function')
+        return self.get_cached_output("single_integrator_function")
 
     def check_compatibility(
         self,
-        precision: PrecisionDType,
         algorithm_name: str = None,
         controller_name: str = None,
+        precision: PrecisionDType = None,
     ) -> None:
         """Validate algorithm and controller compatibility.
 

@@ -27,10 +27,11 @@ class NegativePeaks(SummaryMetric):
     occur in valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the NegativePeaks summary metric."""
         super().__init__(
             name="negative_peaks",
+            precision=precision,
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
             unit_modification="s",

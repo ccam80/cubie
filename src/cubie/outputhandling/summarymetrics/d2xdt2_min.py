@@ -30,10 +30,11 @@ class D2xdt2Min(SummaryMetric):
     scaled by dt_save² in the save function.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the D2xdt2Min summary metric."""
         super().__init__(
             name="d2xdt2_min",
+            precision=precision,
             buffer_size=3,
             output_size=1,
             unit_modification="[unit]*s^-2",

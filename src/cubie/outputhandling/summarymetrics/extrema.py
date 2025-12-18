@@ -26,10 +26,11 @@ class Extrema(SummaryMetric):
     Outputs two values in the same order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Extrema summary metric."""
         super().__init__(
             name="extrema",
+            precision=precision,
             buffer_size=2,
             output_size=2,
             unit_modification="[unit]",

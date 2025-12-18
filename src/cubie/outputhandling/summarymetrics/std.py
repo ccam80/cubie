@@ -29,10 +29,11 @@ class Std(SummaryMetric):
     stable shifted-data algorithm to avoid catastrophic cancellation.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Std summary metric with fixed buffer sizes."""
         super().__init__(
             name="std",
+            precision=precision,
             buffer_size=3,
             output_size=1,
             unit_modification="[unit]",

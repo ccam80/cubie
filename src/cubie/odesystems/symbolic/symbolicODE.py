@@ -47,7 +47,7 @@ from cubie.time_logger import _default_timelogger
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
-    precision: PrecisionDType,
+    precision: PrecisionDType = np.float32,
     states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,

@@ -10,29 +10,32 @@ from cubie.batchsolving import summary_metrics
 
 
 @pytest.fixture
-def basic_config():
+def basic_config(precision):
     """Basic OutputConfig with minimal parameters."""
     return OutputConfig(
-        max_states=10, max_observables=5, output_types=("state", "observables")
+        max_states=10, max_observables=5, precision=precision, output_types=[
+        "state", "observables"]
     )
 
 
 @pytest.fixture
-def config_with_summaries():
+def config_with_summaries(precision):
     """OutputConfig with summary metrics enabled."""
     return OutputConfig(
         max_states=10,
         max_observables=5,
-        output_types=("state", "observables", "time", "mean", "max"),
+        precision=precision,
+        output_types=["state", "observables", "time", "mean", "max"],
     )
 
 
 @pytest.fixture
-def full_config():
+def full_config(precision):
     """Fully specified OutputConfig."""
     return OutputConfig(
         max_states=20,
         max_observables=10,
+        precision=precision,
         saved_state_indices=[0, 1, 2],
         saved_observable_indices=[0, 1],
         summarised_state_indices=[0, 1],
@@ -44,7 +47,7 @@ def full_config():
 class TestInitialization:
     """Test initialization and validation of OutputConfig."""
 
-    def test_minimal_initialization(self, basic_config):
+    def test_minimal_initialization(self, basic_config, precision):
         """Test minimal valid initialization with defaults."""
         config = basic_config
         assert config.max_states == 10
@@ -78,18 +81,20 @@ class TestInitialization:
             config.saved_observable_indices, np.array([0, 1], dtype=np.int_)
         )
 
-    def test_no_output_raises_error(self):
+    def test_no_output_raises_error(self, precision):
         """Test that requesting no output raises an error."""
         with pytest.raises(
             ValueError, match="At least one output type must be enabled"
         ):
-            OutputConfig(max_states=10, max_observables=5, output_types=[])
+            OutputConfig(max_states=10, max_observables=5,
+                         precision=precision, output_types=[])
 
-    def test_out_of_bounds_indices_raise_error(self):
+    def test_out_of_bounds_indices_raise_error(self, precision):
         """Test that out of bounds indices raise ValueError."""
         with pytest.raises(ValueError, match="Indices must be in the range"):
             OutputConfig(
                 max_states=3,
+                precision=precision,
                 max_observables=5,
                 saved_state_indices=[
                     0,
@@ -102,18 +107,20 @@ class TestInitialization:
             OutputConfig(
                 max_states=5,
                 max_observables=2,
+                precision=precision,
                 saved_observable_indices=[
                     0,
                     2,
                 ],  # 2 is out of bounds for max_observables=2
             )
 
-    def test_duplicate_indices_raise_error(self):
+    def test_duplicate_indices_raise_error(self, precision):
         """Test that duplicate indices raise ValueError."""
         with pytest.raises(ValueError, match="Duplicate indices found"):
             OutputConfig(
                 max_states=5,
                 max_observables=5,
+                precision=precision,
                 saved_state_indices=[0, 1, 1],  # 1 is duplicated
             )
 
@@ -164,11 +171,12 @@ class TestProperties:
             config.summarised_observable_indices, np.array([1], dtype=np.int_)
         )
 
-    def test_array_conversion(self):
+    def test_array_conversion(self, precision):
         """Test that indices are properly converted to numpy arrays."""
         config = OutputConfig(
             max_states=10,
             max_observables=5,
+            precision=precision,
             saved_state_indices=[0, 1, 2],
             saved_observable_indices=[0, 1],
             output_types=["state", "observables"],
@@ -178,11 +186,12 @@ class TestProperties:
         assert config.saved_state_indices.dtype == np.int_
         assert config.saved_observable_indices.dtype == np.int_
 
-    def test_none_indices_conversion(self):
+    def test_none_indices_conversion(self, precision):
         """Test that empty indices lists are converted to full range arrays."""
         config = OutputConfig(
             max_states=3,
             max_observables=2,
+            precision=precision,
             output_types=["state", "observables"],
         )
         np.testing.assert_array_equal(
@@ -196,11 +205,12 @@ class TestProperties:
 class TestFlagBehavior:
     """Test how flags interact with indices."""
 
-    def test_flag_affects_returned_indices(self):
+    def test_flag_affects_returned_indices(self, precision):
         """Test that flag state affects which indices are returned."""
         config = OutputConfig(
             max_states=5,
             max_observables=3,
+            precision=precision,
             saved_state_indices=[0, 1, 2],
             saved_observable_indices=[0, 1],
             output_types=["state", "observables"],
@@ -223,11 +233,12 @@ class TestFlagBehavior:
             config.saved_state_indices, np.array([0, 1, 2], dtype=np.int_)
         )
 
-    def test_indices_emptied_if_no_output(self):
+    def test_indices_emptied_if_no_output(self, precision):
         """Test that indices are empty when corresponding output is disabled."""
         config = OutputConfig(
             max_states=3,
             max_observables=2,
+            precision=precision,
             saved_state_indices=[0, 1, 2],
             saved_observable_indices=[0, 1],
             output_types=["time"],
@@ -237,11 +248,12 @@ class TestFlagBehavior:
             config.saved_observable_indices, np.array([])
         )
 
-    def test_summarised_indices_emptied_if_no_summaries(self):
+    def test_summarised_indices_emptied_if_no_summaries(self, precision):
         """Test that summarised indices are empty when summaries disabled."""
         config = OutputConfig(
             max_states=3,
             max_observables=2,
+            precision=precision,
             summarised_state_indices=[0, 1, 2],
             summarised_observable_indices=[0, 1],
             output_types=["state", "observables"],
@@ -257,32 +269,35 @@ class TestFlagBehavior:
 class TestSummaryMetrics:
     """Test summary metrics functionality."""
 
-    def test_valid_summary_types(self):
+    def test_valid_summary_types(self, precision):
         """Test that valid summary types are accepted."""
         for summary_type in summary_metrics.implemented_metrics:
             config = OutputConfig(
                 max_states=10,
                 max_observables=5,
+                precision=precision,
                 output_types=[
                     summary_type,
                 ],
             )
             assert summary_type in config.summary_types
 
-    def test_multiple_summary_types(self):
+    def test_multiple_summary_types(self, precision):
         """Test multiple summary types."""
         config = OutputConfig(
             max_states=10,
             max_observables=5,
+            precision=precision,
             output_types=["mean", "max", "rms"],
         )
         assert config.summary_types == ("mean", "max", "rms")
 
-    def test_empty_summary_types(self):
+    def test_empty_summary_types(self, precision):
         """Test empty summary types."""
         config = OutputConfig(
             max_states=10,
             max_observables=5,
+            precision=precision,
             output_types=["state", "observables"],
         )
         assert len(config.summary_types) == 0
@@ -361,12 +376,13 @@ class TestUpdateMethods:
 class TestFromLoopSettings:
     """Test the from_loop_settings factory method."""
 
-    def test_basic_creation(self):
+    def test_basic_creation(self, precision):
         """Test basic creation with defaults."""
         config = OutputConfig.from_loop_settings(
             output_types=["state", "observables"],
             max_states=10,
             max_observables=5,
+            precision=precision,
         )
 
         assert config.save_state is True
@@ -374,11 +390,12 @@ class TestFromLoopSettings:
         assert config.n_saved_states == 10
         assert config.n_saved_observables == 5
 
-    def test_with_specified_indices(self):
+    def test_with_specified_indices(self, precision):
         """Test creation with specified indices."""
         config = OutputConfig.from_loop_settings(
             output_types=["state"],
             saved_state_indices=[1, 3],
+            precision=precision,
             max_states=10,
             max_observables=5,
         )
@@ -389,7 +406,7 @@ class TestFromLoopSettings:
             config.saved_state_indices, np.array([1, 3], dtype=np.int_)
         )
 
-    def test_with_summary_metrics(self):
+    def test_with_summary_metrics(self, precision):
         """Test creation with summary metrics."""
         config = OutputConfig.from_loop_settings(
             output_types=["mean", "max", "state"],
@@ -397,6 +414,7 @@ class TestFromLoopSettings:
             summarised_state_indices=[1],
             max_states=10,
             max_observables=5,
+            precision=precision,
         )
 
         assert config.save_state is True
@@ -406,17 +424,18 @@ class TestFromLoopSettings:
             config.summarised_state_indices, np.array([1], dtype=np.int_)
         )
 
-    def test_with_parametrized_metrics(self):
+    def test_with_parametrized_metrics(self, precision):
         """Test creation with parametrized metrics."""
         config = OutputConfig.from_loop_settings(
             output_types=["peaks[3]", "state"],
             max_states=10,
             max_observables=5,
+            precision=precision,
         )
 
         assert "peaks[3]" in config.summary_types
 
-    def test_summarised_indices_default_to_saved(self):
+    def test_summarised_indices_default_to_saved(self, precision):
         """Test that summarised indices default to saved indices."""
         config = OutputConfig.from_loop_settings(
             output_types=["mean"],
@@ -424,6 +443,7 @@ class TestFromLoopSettings:
             saved_observable_indices=np.array([0], dtype=np.int_),
             max_states=10,
             max_observables=5,
+            precision=precision,
         )
         np.testing.assert_array_equal(
             config.summarised_state_indices, np.array([0, 1])
@@ -432,12 +452,13 @@ class TestFromLoopSettings:
             config.summarised_observable_indices, np.array([0])
         )
 
-    def test_mixed_output_types(self):
+    def test_mixed_output_types(self, precision):
         """Test mixed output types."""
         config = OutputConfig.from_loop_settings(
             output_types=["state", "mean", "peaks[3]", "observables"],
             max_states=10,
             max_observables=5,
+            precision=precision,
         )
         assert config.save_state is True
         assert config.save_observables is True

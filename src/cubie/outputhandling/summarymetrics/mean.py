@@ -26,10 +26,11 @@ class Mean(SummaryMetric):
     are saved.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Mean summary metric with fixed buffer sizes."""
         super().__init__(
             name="mean",
+            precision = precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",

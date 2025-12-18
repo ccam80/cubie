@@ -67,7 +67,7 @@ class BaseODE(CUDAFactory):
 
     def __init__(
         self,
-        precision: PrecisionDType,
+        precision: PrecisionDType = np.float32,
         initial_values: Optional[Dict[str, float]] = None,
         parameters: Optional[Dict[str, float]] = None,
         constants: Optional[Dict[str, float]] = None,
@@ -106,6 +106,11 @@ class BaseODE(CUDAFactory):
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
+
+        Notes
+        -----
+        'Precision' is the root for all other precisions in the package. If
+        left unset, it will make everything float32.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
