@@ -37,6 +37,18 @@ from cubie.outputhandling.output_functions import (
 )
 from cubie.time_logger import _default_timelogger
 
+# Register module-level events
+_default_timelogger.register_event(
+    "solve_ivp",
+    "runtime",
+    "Wall-clock time for solve_ivp()"
+)
+_default_timelogger.register_event(
+    "solver_solve",
+    "runtime",
+    "Wall-clock time for Solver.solve()"
+)
+
 
 def solve_ivp(
     system: BaseODE,
@@ -107,6 +119,10 @@ def solve_ivp(
         time_logging_level=time_logging_level,
         **kwargs,
     )
+
+    # Start wall-clock timing
+    _default_timelogger.start_event("solve_ivp")
+
     results = solver.solve(
         y0,
         parameters,
@@ -118,6 +134,10 @@ def solve_ivp(
         nan_error_trajectories=nan_error_trajectories,
         **kwargs,
     )
+
+    # Stop wall-clock timing (summary printed by Solver.solve)
+    _default_timelogger.stop_event("solve_ivp")
+
     return results
 
 
@@ -494,6 +514,9 @@ class Solver:
         if kwargs:
             self.update(kwargs, silent=True)
 
+        # Start wall-clock timing for solve
+        _default_timelogger.start_event("solver_solve")
+
         # Classify inputs to determine processing path
         input_type = self._classify_inputs(initial_values, parameters)
 
@@ -533,51 +556,16 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
+
+        # Stop wall-clock timing and print all timing summaries
+        # (CUDA events retrieved automatically by print_summary)
+        _default_timelogger.stop_event("solver_solve")
+        _default_timelogger.print_summary()
+
         return SolveResult.from_solver(
             self,
             results_type=results_type,
             nan_error_trajectories=nan_error_trajectories
-        )
-
-    def build_grid(
-        self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        grid_type: str = "verbatim",
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Build parameter and state grids for external use.
-
-        Parameters
-        ----------
-        initial_values
-            Initial state values as dictionaries mapping state names
-            to value sequences, or arrays in (n_states, n_runs) format.
-        parameters
-            Parameter values as dictionaries mapping parameter names
-            to value sequences, or arrays in (n_params, n_runs) format.
-        grid_type
-            Strategy for constructing the grid. ``"combinatorial"``
-            produces all combinations while ``"verbatim"`` preserves
-            column-wise pairings. Default is ``"verbatim"``.
-
-        Returns
-        -------
-        Tuple[np.ndarray, np.ndarray]
-            Tuple of (initial_values, parameters) arrays in
-            (n_vars, n_runs) format with system precision dtype.
-            These arrays can be passed directly to :meth:`solve`
-            for fast-path execution.
-
-        Examples
-        --------
-        >>> inits, params = solver.build_grid(
-        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
-        ...     grid_type="combinatorial"
-        ... )
-        >>> result = solver.solve(inits, params)  # Uses fast path
-        """
-        return self.grid_builder(
-            states=initial_values, params=parameters, kind=grid_type
         )
 
     def build_grid(
