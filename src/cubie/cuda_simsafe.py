@@ -328,4 +328,5 @@ __all__ = [
     "is_cudasim_enabled",
     "set_cuda_memory_manager",
     "selp"
+    "stwt"
 ]

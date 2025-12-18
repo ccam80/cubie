@@ -16,7 +16,6 @@ def inst_linear_solver_factory(
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-
 ) -> Callable:
     """Create an instrumented steepest-descent or minimal-residual solver."""
 
@@ -314,8 +313,8 @@ def inst_newton_krylov_solver_factory(
     linear_solver: Callable,
     n: int,
     tolerance: float,
-    max_iters: int,    precision: PrecisionDType,
-
+    max_iters: int,
+    precision: PrecisionDType,
     damping: float = 0.5,
     max_backtracks: int = 8,
 ) -> Callable:
