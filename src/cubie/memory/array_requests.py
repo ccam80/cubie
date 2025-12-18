@@ -56,18 +56,14 @@ class ArrayRequest:
     * For 3D arrays, ``("time", "variable", "run")`` is selected.
     * For 2D arrays, ``("variable", "run")`` is selected.
     """
-
+    dtype = attrs.field(
+        validator=val.in_([np.float64, np.float32, np.int32]),
+    )
     shape: tuple[int, ...] = attrs.field(
         default=(1, 1, 1),
         validator=val.deep_iterable(
             val.instance_of(int), val.instance_of(tuple)
         ),
-    )
-    # the np.float64 object being passed around is a "getset_descriptor",
-    # not a dtype, and a type hint here just adds confusion or shows warnings.
-    dtype = attrs.field(
-        default=np.float64,
-        validator=val.in_([np.float64, np.float32, np.int32]),
     )
     memory: str = attrs.field(
         default="device",

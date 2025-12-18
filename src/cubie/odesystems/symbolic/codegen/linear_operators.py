@@ -765,6 +765,7 @@ N_STAGE_OPERATOR_TEMPLATE = (
     '    """\n'
     "{const_lines}"
     "    gamma = precision(gamma)\n"
+    "    beta = precision(beta)\n"
     "{metadata_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"

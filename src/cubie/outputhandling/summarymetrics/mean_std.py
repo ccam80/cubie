@@ -31,10 +31,11 @@ class MeanStd(SummaryMetric):
     The output array contains [mean, std] in that order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the MeanStd composite metric."""
         super().__init__(
             name="mean_std",
+            precision=precision,
             buffer_size=3,
             output_size=2,
             unit_modification="[unit]",

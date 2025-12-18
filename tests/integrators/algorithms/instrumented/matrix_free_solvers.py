@@ -11,11 +11,11 @@ from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
 def inst_linear_solver_factory(
     operator_apply: Callable,
     n: int,
+    precision: PrecisionDType,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
 ) -> Callable:
     """Create an instrumented steepest-descent or minimal-residual solver."""
 
@@ -154,11 +154,11 @@ def inst_linear_solver_factory(
 def inst_linear_solver_cached_factory(
     operator_apply: Callable,
     n: int,
+    precision: PrecisionDType,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
 ) -> Callable:
     """Create a cached instrumented steepest-descent or MR solver."""
 
@@ -314,9 +314,9 @@ def inst_newton_krylov_solver_factory(
     n: int,
     tolerance: float,
     max_iters: int,
+    precision: PrecisionDType,
     damping: float = 0.5,
     max_backtracks: int = 8,
-    precision: PrecisionDType = np.float32,
 ) -> Callable:
     """Create an instrumented damped Newton--Krylov solver."""
     n_arraysize = int(n)

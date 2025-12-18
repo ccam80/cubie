@@ -16,7 +16,6 @@ from numpy import array_equal
 from numpy.typing import NDArray
 
 from cubie._utils import (
-    gttype_validator,
     opt_gttype_validator,
     PrecisionDType,
     precision_converter,
@@ -139,7 +138,10 @@ class OutputConfig:
     post-initialisation hook applies default indices, validates bounds, and
     ensures at least one output path is active.
     """
-
+    _precision: PrecisionDType = attrs.field(
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     # System dimensions, used to validate indices
     _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
     _max_observables: int = attrs.field(
@@ -181,11 +183,7 @@ class OutputConfig:
         default=0.01,
         validator=opt_gttype_validator(float, 0.0)
     )
-    _precision: PrecisionDType = attrs.field(
-        default=np.float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
 
     def __attrs_post_init__(self) -> None:
         """Perform post-initialisation validation and setup.
@@ -879,6 +877,7 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
+        precision: PrecisionDType,
         saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
@@ -886,7 +885,6 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
-        precision: Optional[np.dtype] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -940,9 +938,6 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-
-        if precision is None:
-            precision = np.float32
 
         return cls(
             max_states=max_states,

@@ -26,10 +26,11 @@ class MaxMagnitude(SummaryMetric):
     resets to ``0.0`` after each save.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the MaxMagnitude summary metric."""
         super().__init__(
             name="max_magnitude",
+            precision=precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",

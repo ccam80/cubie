@@ -235,6 +235,13 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     def syncwarp(mask):
         pass
 
+    @cuda.jit(
+            device=True,
+            inline=True,
+    )
+    def stwt(array, index, value):
+        array[index] = value
+
 else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
@@ -276,6 +283,14 @@ else:  # pragma: no cover - relies on GPU runtime
     def syncwarp(mask):
         return cuda.syncwarp(mask)
 
+    @cuda.jit(
+            device=True,
+            inline=True,
+            **compile_kwargs,
+    )
+    def stwt(array, index, value):
+        cuda.stwt(array, index, value)
+
 
 def is_cudasim_enabled() -> bool:
     """Return ``True`` when running under the CUDA simulator."""
@@ -312,5 +327,6 @@ __all__ = [
     "is_cuda_array",
     "is_cudasim_enabled",
     "set_cuda_memory_manager",
-    "selp"
+    "selp",
+    "stwt"
 ]

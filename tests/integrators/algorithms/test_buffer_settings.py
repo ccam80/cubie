@@ -1,6 +1,6 @@
 """Tests for buffer settings - DEPRECATED.
 
-The BufferSettings classes (ERKBufferSettings, DIRKBufferSettings, 
+The BufferSettings classes (ERKBufferSettings, DIRKBufferSettings,
 FIRKBufferSettings, RosenbrockBufferSettings, NewtonBufferSettings,
 LinearSolverBufferSettings) have been removed as part of the buffer_registry
 migration.

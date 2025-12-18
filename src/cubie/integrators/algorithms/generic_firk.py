@@ -341,6 +341,7 @@ class FIRKStep(ODEImplicitStep):
         linear_solver = linear_solver_factory(
             operator,
             n=all_stages_n,
+            precision=precision,
             factory=self,
             preconditioner=preconditioner,
             correction_type=correction_type,

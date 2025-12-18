@@ -187,6 +187,12 @@ class TestSolveResultInstantiation:
         assert "summaries_array" in result
         assert "time_domain_legend" in result
         assert "summaries_legend" in result
+        assert "iteration_counters" in result
+        if solver_with_arrays.kernel.iteration_counters is not None:
+            assert np.array_equal(
+                result["iteration_counters"],
+                solver_with_arrays.kernel.iteration_counters,
+            )
         assert isinstance(result["time_domain_array"], np.ndarray)
 
 
@@ -201,6 +207,12 @@ class TestSolveResultInstantiation:
         assert isinstance(result, dict)
         assert "mean" in result
         assert "time_domain_array" in result
+        assert "iteration_counters" in result
+        if solver_with_arrays.kernel.iteration_counters is not None:
+            assert np.array_equal(
+                result["iteration_counters"],
+                solver_with_arrays.kernel.iteration_counters,
+            )
         # Check that summary types are separated
         for (
             summary_type
@@ -283,12 +295,19 @@ class TestSolveResultProperties:
         assert "summaries_array" in numpy_dict
         assert "time_domain_legend" in numpy_dict
         assert "summaries_legend" in numpy_dict
-
+        assert "iteration_counters" in numpy_dict
         # Verify arrays are copies
         assert np.array_equal(
             numpy_dict["time_domain_array"], result.time_domain_array
         )
         assert numpy_dict["time_domain_array"] is not result.time_domain_array
+        if result.iteration_counters is not None:
+            assert np.array_equal(
+                numpy_dict["iteration_counters"], result.iteration_counters
+            )
+            assert (
+                numpy_dict["iteration_counters"] is not result.iteration_counters
+            )
 
     def test_per_summary_arrays_property(self, solver_with_arrays):
         """Test per_summary_arrays property splits summaries correctly."""

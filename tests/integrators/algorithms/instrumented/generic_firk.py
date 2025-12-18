@@ -6,6 +6,7 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
+from cubie.cuda_simsafe import compile_kwargs
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -224,6 +225,7 @@ class FIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            precision=precision,
         )
 
         newton_tolerance = config.newton_tolerance
@@ -342,6 +344,7 @@ class FIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **compile_kwargs,
         )
         def step(
             state,

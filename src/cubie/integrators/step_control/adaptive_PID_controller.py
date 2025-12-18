@@ -210,6 +210,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         typed_zero = precision(0.0)
         min_gain = precision(min_gain)
         max_gain = precision(max_gain)
+        dt_min = precision(dt_min)
+        dt_max = precision(dt_max)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (

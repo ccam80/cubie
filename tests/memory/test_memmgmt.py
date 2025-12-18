@@ -977,14 +977,16 @@ class TestMemoryManager:
         indirect=["fixed_mem_override"],
     )
     def test_allocate_queue_multiple_instances_instance_limit(
-        self, mgr, limit_type, chunk_axis
+        self, mgr, limit_type, chunk_axis, precision
     ):
         """Test allocate_queue with multiple instances using instance limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
         callbacks_called = {
-            "inst1": {"flag": False, "response": ArrayRequest()},
-            "inst2": {"flag": False, "response": ArrayRequest()},
+            "inst1": {"flag": False, "response": ArrayRequest(
+                    dtype=precision)},
+            "inst2": {"flag": False, "response": ArrayRequest(
+                    dtype=precision)},
         }
 
         def hook1(response):

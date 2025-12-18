@@ -30,10 +30,11 @@ class D2xdt2Extrema(SummaryMetric):
     maximum second derivative followed by minimum second derivative.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the D2xdt2Extrema summary metric."""
         super().__init__(
             name="d2xdt2_extrema",
+            precision=precision,
             buffer_size=4,
             output_size=2,
             unit_modification="[unit]*s^-2",

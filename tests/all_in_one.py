@@ -44,12 +44,12 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 
 script_start = perf_counter()
 #
-# algorithm_type = 'dirk'
-# algorithm_tableau_name ='l_stable_sdirk_4'
+algorithm_type = 'dirk'
+algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
-algorithm_type = 'firk'
-algorithm_tableau_name = 'radau'
+# algorithm_type = 'firk'
+# algorithm_tableau_name = 'radau'
 # algorithm_type = 'rosenbrock'
 # algorithm_tableau_name = 'ode23s'
 
@@ -65,7 +65,7 @@ precision = np.float32
 # System Definition (Lorenz system)
 # -------------------------------------------------------------------------
 # Lorenz system constants
-constants = {'sigma': 10.0, 'beta': 8.0 / 3.0}
+constants = {'sigma_': 10.0, 'beta_': 8.0 / 3.0}
 
 # System dimensions
 n_states = 3
@@ -412,35 +412,182 @@ def get_strides(
 # AUTO-GENERATED DEVICE FUNCTION FACTORIES
 # =========================================================================
 
-def dxdt_factory(constants, prec):
+
+# AUTO-GENERATED DXDT FACTORY
+def dxdt_factory(constants, precision):
     """Auto-generated dxdt factory."""
-    sigma = prec(constants['sigma'])
-    beta = prec(constants['beta'])
-    numba_prec = numba_from_dtype(prec)
+    sigma_ = precision(constants["sigma_"])
+    beta_ = precision(constants["beta_"])
 
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec[::1], numba_prec),
-              device=True, inline=True, **compile_kwargs)
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision),
+        device=True,
+        inline=True,
+    )
     def dxdt(state, parameters, drivers, observables, out, t):
-        out[2] = -beta * state[2] + state[0] * state[1]
+        out[2] = -beta_ * state[2] + state[0] * state[1]
         _cse0 = -state[1]
-        out[0] = sigma * (-_cse0 - state[0])
         out[1] = _cse0 + state[0] * (parameters[0] - state[2])
+        out[0] = sigma_ * (-_cse0 - state[0])
+
     return dxdt
 
 
-def observables_factory(constants, prec):
+# AUTO-GENERATED OBSERVABLES FACTORY
+def observables_factory(constants, precision):
     """Auto-generated observables factory."""
-    numba_prec = numba_from_dtype(prec)
-
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec),
-              device=True, inline=True, **compile_kwargs)
+            # (precision[::1],
+            #  precision[::1],
+            #  precision[::1],
+            #  precision[::1],
+            #  precision),
+            device=True,
+            inline=True)
     def get_observables(state, parameters, drivers, observables, t):
         pass
+
     return get_observables
+# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY
+def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
+    """Auto-generated Neumann preconditioner.
+    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
+    Neumann series. Returns device function:
+      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
+    where `jvp` is a caller-provided scratch buffer for J*v.
+    """
+    n = int32(3)
+    gamma = precision(gamma)
+    beta = precision(beta)
+    order = int32(order)
+    beta_inv = precision(1.0 / beta)
+    h_eff_factor = precision(gamma * beta_inv)
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def preconditioner(
+        state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp
+    ):
+        # Horner form: S[m] = v + T S[m-1], T = ((gamma*a_ij)/beta) * h * J
+        # Accumulator lives in `out`. Uses caller-provided `jvp` for JVP.
+        for i in range(n):
+            out[i] = v[i]
+        h_eff = h * h_eff_factor * a_ij
+        for _ in range(order):
+            j_00 = -sigma_
+            j_01 = sigma_
+            j_10 = -a_ij*state[2] + parameters[0] - base_state[2]
+            j_11 = precision(-1)
+            j_12 = -a_ij*state[0] - base_state[0]
+            j_20 = a_ij*state[1] + base_state[1]
+            j_21 = a_ij*state[0] + base_state[0]
+            j_22 = -beta_
+            jvp[0] = j_00*out[0] + j_01*out[1]
+            jvp[1] = j_10*out[0] + j_11*out[1] + j_12*out[2]
+            jvp[2] = j_20*out[0] + j_21*out[1] + j_22*out[2]
+            for i in range(n):
+                out[i] = v[i] + h_eff * jvp[i]
+        for i in range(n):
+            out[i] = beta_inv * out[i]
+    return preconditioner
+
+# AUTO-GENERATED NONLINEAR RESIDUAL FACTORY
+def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated nonlinear residual for implicit updates.
+    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).
+    Order is ignored, included for compatibility with preconditioner API.
+    """
+    beta = precision(beta)
+    gamma = precision(gamma)
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
+        _cse0 = a_ij*u[1]
+        _cse1 = a_ij*u[0] + base_state[0]
+        _cse2 = a_ij*u[2] + base_state[2]
+        _cse4 = precision(1.00000)*beta
+        _cse5 = gamma*h
+        _cse3 = _cse0 + base_state[1]
+        dx_0 = sigma_*(_cse0 - _cse1 + base_state[1])
+        dx_2 = _cse1*_cse3 - _cse2*beta_
+        dx_1 = _cse1*(-_cse2 + parameters[0]) - _cse3
+        out[0] = _cse4*u[0] - _cse5*dx_0
+        out[2] = _cse4*u[2] - _cse5*dx_2
+        out[1] = _cse4*u[1] - _cse5*dx_1
+    return residual
+
+# AUTO-GENERATED LINEAR OPERATOR FACTORY
+def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated linear operator.
+    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
+    Returns device function:
+      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)
+    argument 'order' is ignored, included for compatibility with
+    preconditioner API.
+    """
+    beta = precision(beta)
+    gamma = precision(gamma)
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):
+        m_00 = precision(1.00000)
+        m_11 = precision(1.00000)
+        m_22 = precision(1.00000)
+        j_00 = -sigma_
+        j_01 = sigma_
+        j_10 = -a_ij*state[2] + parameters[0] - base_state[2]
+        j_11 = precision(-1)
+        j_12 = -a_ij*state[0] - base_state[0]
+        j_20 = a_ij*state[1] + base_state[1]
+        j_21 = a_ij*state[0] + base_state[0]
+        j_22 = -beta_
+        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1]) + beta*m_00*v[0]
+        out[1] = -a_ij*gamma*h*(j_10*v[0] + j_11*v[1] + j_12*v[2]) + beta*m_11*v[1]
+        out[2] = -a_ij*gamma*h*(j_20*v[0] + j_21*v[1] + j_22*v[2]) + beta*m_22*v[2]
+    return operator_apply
+
 
 # AUTO-GENERATED N-STAGE RESIDUAL FACTORY
 def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
@@ -448,10 +595,10 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
     Handles 3 stages with ``s * n`` unknowns.
     Order is ignored, included for compatibility with preconditioner API.
     """
-    # beta = precision(beta)
+    beta = precision(beta)
     gamma = precision(gamma)
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -489,26 +636,26 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
         _cse13 = a_1_0*u[0] + a_1_1*u[3] + a_1_2*u[6] + base_state[0]
         _cse16 = a_2_0*u[1]
         _cse17 = a_2_1*u[4]
-        _cse20 = a_2_0*u[2] + a_2_1*u[5] + a_2_2*u[8] + base_state[2]
         _cse19 = a_2_0*u[0] + a_2_1*u[3] + a_2_2*u[6] + base_state[0]
         _cse18 = a_2_2*u[7]
+        _cse20 = a_2_0*u[2] + a_2_1*u[5] + a_2_2*u[8] + base_state[2]
+        dx_0_0 = sigma_*(-_cse0 + _cse1 + _cse2 + _cse3 - _cse4)
         _cse7 = _cse1 + _cse2 + _cse3 + base_state[1]
-        dx_0_0 = sigma*(-_cse0 + _cse1 + _cse2 + _cse3 - _cse4)
         _cse15 = _cse10 + _cse11 + _cse12 + base_state[1]
-        dx_1_0 = sigma*(-_cse0 + _cse10 + _cse11 + _cse12 - _cse13)
+        dx_1_0 = sigma_*(-_cse0 + _cse10 + _cse11 + _cse12 - _cse13)
+        dx_2_0 = sigma_*(-_cse0 + _cse16 + _cse17 + _cse18 - _cse19)
         _cse21 = _cse16 + _cse17 + _cse18 + base_state[1]
-        dx_2_0 = sigma*(-_cse0 + _cse16 + _cse17 + _cse18 - _cse19)
-        dx_0_2 = _cse4*_cse7 - _cse6*beta
-        dx_0_1 = _cse4*(-_cse5 - _cse6) - _cse7
         out[0] = _cse8*u[0] - _cse9*dx_0_0
+        dx_0_1 = _cse4*(-_cse5 - _cse6) - _cse7
+        dx_0_2 = _cse4*_cse7 - _cse6*beta_
         dx_1_1 = _cse13*(-_cse14 - _cse5) - _cse15
-        dx_1_2 = _cse13*_cse15 - _cse14*beta
+        dx_1_2 = _cse13*_cse15 - _cse14*beta_
         out[3] = _cse8*u[3] - _cse9*dx_1_0
-        dx_2_2 = _cse19*_cse21 - _cse20*beta
-        dx_2_1 = _cse19*(-_cse20 - _cse5) - _cse21
         out[6] = _cse8*u[6] - _cse9*dx_2_0
-        out[2] = _cse8*u[2] - _cse9*dx_0_2
+        dx_2_2 = _cse19*_cse21 - _cse20*beta_
+        dx_2_1 = _cse19*(-_cse20 - _cse5) - _cse21
         out[1] = _cse8*u[1] - _cse9*dx_0_1
+        out[2] = _cse8*u[2] - _cse9*dx_0_2
         out[4] = _cse8*u[4] - _cse9*dx_1_1
         out[5] = _cse8*u[5] - _cse9*dx_1_2
         out[8] = _cse8*u[8] - _cse9*dx_2_2
@@ -521,11 +668,10 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
     Handles 3 stages with ``s * n`` unknowns.
     Order is ignored, included for compatibility with preconditioner API.
     """
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     gamma = precision(gamma)
-    # TODO Clarify in codegen whether gamma, sigma,
-    #  beta should be passed to factory or as constants.
+    beta = precision(beta)
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -548,15 +694,15 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
         a_2_0 = precision(0.376403062700467)
         a_2_1 = precision(0.512485826188422)
         a_2_2 = precision(0.111111111111111)
-        j_01_0 = sigma
+        j_01_0 = sigma_
         j_11_0 = precision(-1)
-        j_01_1 = sigma
+        j_01_1 = sigma_
         j_11_1 = precision(-1)
-        j_01_2 = sigma
+        j_01_2 = sigma_
         j_11_2 = precision(-1)
         _cse5 = -parameters[0]
-        _cse9 = -sigma
-        _cse10 = -beta
+        _cse9 = -sigma_
+        _cse10 = -beta_
         _cse11 = precision(1.00000)*beta
         _cse12 = gamma*h
         _cse1 = a_0_0*state[1]
@@ -571,27 +717,27 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
         _cse15 = a_1_2*state[7]
         _cse20 = a_2_0*state[1]
         _cse21 = a_2_1*state[4]
-        _cse23 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
         _cse22 = a_2_2*state[7]
         _cse24 = a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2]
+        _cse23 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
         j_00_2 = _cse9
         j_00_0 = _cse9
         j_00_1 = _cse9
+        j_22_2 = _cse10
         j_22_0 = _cse10
         j_22_1 = _cse10
-        j_22_2 = _cse10
         _cse7 = -_cse5 - _cse6
-        j_21_0 = _cse4
         j_12_0 = -_cse4
+        j_21_0 = _cse4
         _cse8 = _cse1 + _cse2 + _cse3 + base_state[1]
         _cse18 = -_cse17 - _cse5
         j_21_1 = _cse16
         j_12_1 = -_cse16
         _cse19 = _cse13 + _cse14 + _cse15 + base_state[1]
-        j_12_2 = -_cse23
-        j_21_2 = _cse23
         _cse26 = _cse20 + _cse21 + _cse22 + base_state[1]
         _cse25 = -_cse24 - _cse5
+        j_12_2 = -_cse23
+        j_21_2 = _cse23
         jvp_2_0 = j_00_2*v[0] + j_01_2*v[1]
         jvp_0_0 = j_00_0*v[0] + j_01_0*v[1]
         jvp_1_0 = j_00_1*v[0] + j_01_1*v[1]
@@ -627,8 +773,8 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
     Returns device function:
       preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
     """
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     total_n = int32(9)
     gamma = precision(gamma)
     beta = precision(beta)
@@ -663,15 +809,15 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             a_2_0 = precision(0.376403062700467)
             a_2_1 = precision(0.512485826188422)
             a_2_2 = precision(0.111111111111111)
-            j_01_0 = sigma
+            j_01_0 = sigma_
             j_11_0 = precision(-1)
-            j_01_1 = sigma
+            j_01_1 = sigma_
             j_11_1 = precision(-1)
-            j_01_2 = sigma
+            j_01_2 = sigma_
             j_11_2 = precision(-1)
             _cse5 = -parameters[0]
-            _cse9 = -sigma
-            _cse10 = -beta
+            _cse9 = -sigma_
+            _cse10 = -beta_
             _cse1 = a_0_0*state[1]
             _cse2 = a_0_1*state[4]
             _cse6 = a_0_0*state[2] + a_0_1*state[5] + a_0_2*state[8] + base_state[2]
@@ -679,32 +825,32 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             _cse3 = a_0_2*state[7]
             _cse11 = a_1_0*state[1]
             _cse12 = a_1_1*state[4]
-            _cse14 = a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0]
             _cse15 = a_1_0*state[2] + a_1_1*state[5] + a_1_2*state[8] + base_state[2]
+            _cse14 = a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0]
             _cse13 = a_1_2*state[7]
             _cse18 = a_2_0*state[1]
             _cse19 = a_2_1*state[4]
-            _cse20 = a_2_2*state[7]
             _cse21 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
             _cse22 = a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2]
+            _cse20 = a_2_2*state[7]
             j_00_2 = _cse9
             j_00_0 = _cse9
             j_00_1 = _cse9
+            j_22_2 = _cse10
             j_22_0 = _cse10
             j_22_1 = _cse10
-            j_22_2 = _cse10
             _cse7 = -_cse5 - _cse6
-            j_21_0 = _cse4
             j_12_0 = -_cse4
+            j_21_0 = _cse4
             _cse8 = _cse1 + _cse2 + _cse3 + base_state[1]
+            _cse16 = -_cse15 - _cse5
             j_21_1 = _cse14
             j_12_1 = -_cse14
-            _cse16 = -_cse15 - _cse5
             _cse17 = _cse11 + _cse12 + _cse13 + base_state[1]
-            _cse24 = _cse18 + _cse19 + _cse20 + base_state[1]
             j_12_2 = -_cse21
             j_21_2 = _cse21
             _cse23 = -_cse22 - _cse5
+            _cse24 = _cse18 + _cse19 + _cse20 + base_state[1]
             jvp_2_0 = j_00_2*v[0] + j_01_2*v[1]
             jvp_0_0 = j_00_0*v[0] + j_01_0*v[1]
             jvp_1_0 = j_00_1*v[0] + j_01_1*v[1]
@@ -712,8 +858,8 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             j_20_0 = _cse8
             j_10_1 = _cse16
             j_20_1 = _cse17
-            j_20_2 = _cse24
             j_10_2 = _cse23
+            j_20_2 = _cse24
             jvp[6] = jvp_2_0
             jvp[0] = jvp_0_0
             jvp[3] = jvp_1_0
@@ -721,21 +867,19 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             jvp_0_2 = j_20_0*v[0] + j_21_0*v[1] + j_22_0*v[2]
             jvp_1_1 = j_10_1*v[0] + j_11_1*v[1] + j_12_1*v[2]
             jvp_1_2 = j_20_1*v[0] + j_21_1*v[1] + j_22_1*v[2]
-            jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
             jvp_2_1 = j_10_2*v[0] + j_11_2*v[1] + j_12_2*v[2]
+            jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
             jvp[1] = jvp_0_1
             jvp[2] = jvp_0_2
             jvp[4] = jvp_1_1
             jvp[5] = jvp_1_2
-            jvp[8] = jvp_2_2
             jvp[7] = jvp_2_1
+            jvp[8] = jvp_2_2
             for i in range(total_n):
                 out[i] = v[i] + h_eff * jvp[i]
         for i in range(total_n):
             out[i] = beta_inv * out[i]
     return preconditioner
-
-# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
     """Cached Neumann preconditioner using stored auxiliaries.
     Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
@@ -750,8 +894,8 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
     beta = precision(beta)
     beta_inv = precision(1.0 / beta)
     h_eff_factor = precision(gamma * beta_inv)
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -773,14 +917,14 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
             out[i] = v[i]
         h_eff = h * h_eff_factor * a_ij
         for _ in range(order):
-            j_00 = -sigma
-            j_01 = sigma
+            j_00 = -sigma_
+            j_01 = sigma_
             j_10 = parameters[0] - state[2]
             j_11 = precision(-1)
             j_12 = -state[0]
             j_20 = state[1]
             j_21 = state[0]
-            j_22 = -beta
+            j_22 = -beta_
             jvp[0] = j_00*out[0] + j_01*out[1]
             jvp[1] = j_10*out[0] + j_11*out[1] + j_12*out[2]
             jvp[2] = j_20*out[0] + j_21*out[1] + j_22*out[2]
@@ -804,8 +948,8 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
     """
     beta = precision(beta)
     gamma = precision(gamma)
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -825,14 +969,14 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
         m_00 = precision(1.00000)
         m_11 = precision(1.00000)
         m_22 = precision(1.00000)
-        j_00 = -sigma
-        j_01 = sigma
+        j_00 = -sigma_
+        j_01 = sigma_
         j_10 = parameters[0] - state[2]
         j_11 = precision(-1)
         j_12 = -state[0]
         j_20 = state[1]
         j_21 = state[0]
-        j_22 = -beta
+        j_22 = -beta_
         out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1]) + beta*m_00*v[0]
         out[1] = -a_ij*gamma*h*(j_10*v[0] + j_11*v[1] + j_12*v[2]) + beta*m_11*v[1]
         out[2] = -a_ij*gamma*h*(j_20*v[0] + j_21*v[1] + j_22*v[2]) + beta*m_22*v[2]
@@ -843,8 +987,8 @@ def prepare_jac(constants, precision):
     """Auto-generated Jacobian auxiliary preparation.
     Populates cached_aux with intermediate Jacobian values.
     """
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -860,8 +1004,8 @@ def prepare_jac(constants, precision):
 # AUTO-GENERATED TIME-DERIVATIVE FACTORY
 def time_derivative_rhs(constants, precision):
     """Auto-generated time-derivative factory."""
-    sigma = precision(constants['sigma'])
-    beta = precision(constants['beta'])
+    sigma_ = precision(constants['sigma_'])
+    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -883,7 +1027,6 @@ def time_derivative_rhs(constants, precision):
         out[2] = time_dz
 
     return time_derivative_rhs
-
 # =========================================================================
 # DRIVER INTERPOLATION INLINE DEVICE FUNCTIONS
 # =========================================================================
@@ -1188,19 +1331,33 @@ def linear_solver_inline_factory(
     max_iters = int32(max_iters)
     sd_flag = True if correction_type == "steepest_descent" else False
     mr_flag = True if correction_type == "minimal_residual" else False
-
+    preconditioned=True
     @cuda.jit(
         # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
         #  numba_prec[::1], numba_prec, numba_prec, numba_prec,
         #  numba_prec[::1], numba_prec[::1], int32[::1]),
-        device=True, inline=True, **compile_kwargs)
-    def linear_solver(state, parameters, drivers, base_state, t, h, a_ij,
-                      rhs, x, krylov_iters_out):
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def linear_solver(
+        state,
+        parameters,
+        drivers,
+        base_state,
+        t,
+        h,
+        a_ij,
+        rhs,
+        x,
+        krylov_iters_out,
+    ):
         preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
         temp = cuda.local.array(n_arraysize, numba_prec)
 
-        operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
-                       x, temp)
+        operator_apply(
+            state, parameters, drivers, base_state, t, h, a_ij, x, temp
+        )
         acc = typed_zero
         for i in range(n_val):
             residual_value = rhs[i] - temp[i]
@@ -1215,18 +1372,22 @@ def linear_solver_inline_factory(
                 break
 
             iter_count += int32(1)
-            preconditioner(
-                state,
-                parameters,
-                drivers,
-                base_state,
-                t,
-                h,
-                a_ij,
-                rhs,
-                preconditioned_vec,
-                temp,
-            )
+            if preconditioned:
+                preconditioner(
+                    state,
+                    parameters,
+                    drivers,
+                    base_state,
+                    t,
+                    h,
+                    a_ij,
+                    rhs,
+                    preconditioned_vec,
+                    temp,
+                )
+            else:
+                for i in range(n_val):
+                    preconditioned_vec[i] = rhs[i]
 
             operator_apply(
                 state,
@@ -1252,22 +1413,31 @@ def linear_solver_inline_factory(
                     numerator += ti * rhs[i]
                     denominator += ti * ti
 
-            alpha = selp(denominator != typed_zero,
-                         numerator / denominator, typed_zero)
-            alpha_effective = selp(converged, numba_prec(0.0), alpha)
+            if denominator != typed_zero:
+                alpha = numerator / denominator
+            else:
+                alpha = typed_zero
 
             acc = typed_zero
-            for i in range(n_val):
-                x[i] += alpha_effective * preconditioned_vec[i]
-                rhs[i] -= alpha_effective * temp[i]
-                residual_value = rhs[i]
-                acc += residual_value * residual_value
+            if not converged:
+                for i in range(n_val):
+                    x[i] += alpha * preconditioned_vec[i]
+                    rhs[i] -= alpha * temp[i]
+                    residual_value = rhs[i]
+                    acc += residual_value * residual_value
+            else:
+                for i in range(n_val):
+                    residual_value = rhs[i]
+                    acc += residual_value * residual_value
+
             converged = converged or (acc <= tol_squared)
 
         # Single exit point - status based on converged flag
         final_status = selp(converged, int32(0), int32(4))
         krylov_iters_out[0] = iter_count
-        return int32(final_status)
+        return final_status
+
+        # no cover: end
     return linear_solver
 
 
@@ -1432,8 +1602,10 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         shared_scratch,
         counters,
     ):
-        delta = shared_scratch[:n]
-        residual = shared_scratch[n : int32(2 * n)]
+        delta = cuda.local.array(n_arraysize, numba_prec)
+        residual_temp = cuda.local.array(n_arraysize, numba_prec)
+        residual = cuda.local.array(n_arraysize, numba_prec)
+        stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
 
         residual_fn(
             stage_increment,
@@ -1497,8 +1669,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
-            #TODO: Add this to buffersettings
-            stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
 
@@ -1514,7 +1684,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                     for i in range(n):
                         stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
 
-                    residual_temp = cuda.local.array(n_arraysize, numba_prec)
+                    # residual_temp = cuda.local.array(n_arraysize, numba_prec)
                     residual_fn(
                             stage_increment,
                             parameters,
@@ -4054,17 +4224,16 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             ncnt_nonzero, simsafe_int32
         )
 
-
-    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-    dt = persistent_local[local_dt_slice]
-    accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
-
     if use_shared_loop_error:
         error = shared_scratch[error_start:error_end]
     else:
         error = cuda.local.array(n_arraysize, numba_precision)
         for _i in range(n_arraysize):
             error[_i] = precision(0.0)
+
+    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+    dt = persistent_local[local_dt_slice]
+    accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
 
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
@@ -4287,7 +4456,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         save_idx,
                     )
 
-                    if (save_idx + int32(1)) % saves_per_summary == int32(0):
+                    if (save_idx % saves_per_summary == int32(0)):
                         save_summaries_inline(
                             state_summary_buffer,
                             observable_summary_buffer,

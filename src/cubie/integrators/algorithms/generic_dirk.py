@@ -342,6 +342,7 @@ class DIRKStep(ODEImplicitStep):
         linear_solver = linear_solver_factory(
             operator,
             n=n,
+            precision=precision,
             factory=self,
             preconditioner=preconditioner,
             correction_type=correction_type,
@@ -543,6 +544,7 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
+            # TODO: Obvious AI error
             # stage_rhs is used during Newton iterations and overwritten.
             # slice from solver_scratch (size 2n always provides space)
             stage_rhs = solver_scratch[:n]

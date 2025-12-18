@@ -11,7 +11,8 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
+from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, \
+    compile_kwargs
 
 
 def newton_krylov_solver_factory(
@@ -21,11 +22,11 @@ def newton_krylov_solver_factory(
     factory: object,
     tolerance: float,
     max_iters: int,
+    precision: PrecisionDType,
     damping: float = 0.5,
     max_backtracks: int = 8,
-    precision: PrecisionDType = np.float32,
-    delta_location: str = 'shared',
-    residual_location: str = 'shared',
+    delta_location: str = 'local',
+    residual_location: str = 'local',
     residual_temp_location: str = 'local',
     stage_base_bt_location: str = 'local',
 ) -> Callable:
@@ -119,10 +120,22 @@ def newton_krylov_solver_factory(
     typed_damping = numba_precision(damping)
     n_val = int32(n)
     max_iters = int32(max_iters)
-    max_backtracks = int32(max_backtracks)
+    max_backtracks = int32(max_backtracks+1)
     # no cover: start
 
-    @cuda.jit(device=True, inline=True)
+    @cuda.jit(
+            # [(precision[::1],
+            #   precision[::1],
+            #   precision[::1],
+            #   precision,
+            #   precision,
+            #   precision,
+            #   precision[::1],
+            #   precision[::1],
+            #   int32[::1])],
+            device=True,
+            inline=True,
+            **compile_kwargs)
     def newton_krylov_solver(
         stage_increment,
         parameters,
@@ -168,6 +181,7 @@ def newton_krylov_solver_factory(
         delta = alloc_delta(shared_scratch, shared_scratch)
         residual = alloc_residual(shared_scratch, shared_scratch)
         residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
+        stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
 
         # Initialize local arrays
         for _i in range(n_val):
@@ -210,6 +224,7 @@ def newton_krylov_solver_factory(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
+            # TODO: AI Error
             # Linear solver uses remaining shared space after Newton buffers
             lin_start = buffer_registry.shared_buffer_size(factory)
             lin_shared = shared_scratch[lin_start:]
@@ -235,7 +250,6 @@ def newton_krylov_solver_factory(
             )
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
             for i in range(n_val):
                 stage_base_bt[i] = stage_increment[i]
             found_step = False

@@ -67,12 +67,13 @@ def test_neumann_preconditioner(
 
 
 @pytest.fixture(scope="function")
-def solver_device(request, placeholder_operator):
+def solver_device(request, placeholder_operator, precision):
     """Return solver device for the requested correction type."""
 
     return linear_solver_factory(
         placeholder_operator,
         3,
+        precision=precision,
         correction_type=request.param,
         tolerance=1e-12,
         max_iters=32,
@@ -139,6 +140,7 @@ def test_linear_solver_symbolic(
     solver = linear_solver_factory(
         operator,
         n,
+        precision=precision,
         preconditioner=precond,
         correction_type=correction_type,
         tolerance=1e-8,
@@ -174,6 +176,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     solver = linear_solver_factory(
         zero_operator,
         n,
+        precision=precision,
         correction_type="minimal_residual",
         tolerance=1e-20,
         max_iters=16,

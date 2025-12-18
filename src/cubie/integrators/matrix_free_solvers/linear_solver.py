@@ -20,11 +20,11 @@ def linear_solver_factory(
     operator_apply: Callable,
     n: int,
     factory: object,
+    precision: PrecisionDType,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
     preconditioned_vec_location: str = 'local',
     temp_location: str = 'local',
 ) -> Callable:
@@ -71,13 +71,13 @@ def linear_solver_factory(
     to provide the residual and correction vectors.
     """
 
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = correction_type == "steepest_descent"
+    mr_flag = correction_type == "minimal_residual"
     if correction_type not in ("steepest_descent", "minimal_residual"):
         raise ValueError(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
-    preconditioned = 1 if preconditioner is not None else 0
+    preconditioned = preconditioner is not None
     n_val = int32(n)
     max_iters = int32(max_iters)
     precision_numba = from_dtype(precision)
@@ -166,7 +166,9 @@ def linear_solver_factory(
         preconditioned_vec = alloc_precond(shared, shared)
         temp = alloc_temp(shared, shared)
 
-        operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
+        operator_apply(
+            state, parameters, drivers, base_state, t, h, a_ij, x, temp
+        )
         acc = typed_zero
         for i in range(n_val):
             residual_value = rhs[i] - temp[i]
@@ -222,19 +224,23 @@ def linear_solver_factory(
                     numerator += ti * rhs[i]
                     denominator += ti * ti
 
-            alpha = selp(
-                denominator != typed_zero,
-                numerator / denominator,
-                typed_zero,
-            )
-            alpha_effective = selp(converged, precision_numba(0.0), alpha)
+            if denominator != typed_zero:
+                alpha = numerator / denominator
+            else:
+                alpha = typed_zero
 
             acc = typed_zero
-            for i in range(n_val):
-                x[i] += alpha_effective * preconditioned_vec[i]
-                rhs[i] -= alpha_effective * temp[i]
-                residual_value = rhs[i]
-                acc += residual_value * residual_value
+            if not converged:
+                for i in range(n_val):
+                    x[i] += alpha * preconditioned_vec[i]
+                    rhs[i] -= alpha * temp[i]
+                    residual_value = rhs[i]
+                    acc += residual_value * residual_value
+            else:
+                for i in range(n_val):
+                    residual_value = rhs[i]
+                    acc += residual_value * residual_value
+
             converged = converged or (acc <= tol_squared)
 
         # Single exit point - status based on converged flag
@@ -242,19 +248,19 @@ def linear_solver_factory(
         krylov_iters_out[0] = iter_count
         return final_status
 
-    # no cover: end
+        # no cover: end
     return linear_solver
 
 
 def linear_solver_cached_factory(
     operator_apply: Callable,
     n: int,
+    precision: PrecisionDType,
     factory: object,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
     preconditioned_vec_location: str = 'local',
     temp_location: str = 'local',
 ) -> Callable:
@@ -291,13 +297,13 @@ def linear_solver_cached_factory(
         CUDA device function that runs the linear solver with cached aux.
     """
 
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    sd_flag = correction_type == "steepest_descent"
+    mr_flag = correction_type == "minimal_residual"
     if correction_type not in ("steepest_descent", "minimal_residual"):
         raise ValueError(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
-    preconditioned = 1 if preconditioner is not None else 0
+    preconditioned = preconditioner is not None
     n_val = int32(n)
     max_iters = int32(max_iters)
 

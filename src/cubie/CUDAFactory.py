@@ -48,7 +48,7 @@ class CUDAFunctionCache:
                                              description)
 
 def _create_placeholder_args(
-    device_function: Any, precision: type = np.float32
+    device_function: Any, precision: type
 ) -> tuple: # pragma: no cover
     """Create minimal placeholder arguments for device function.
     

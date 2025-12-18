@@ -341,7 +341,6 @@ class BaseStepConfig(ABC):
     """
 
     precision: PrecisionDType = attrs.field(
-        default=np.float32,
         converter=precision_converter,
         validator=precision_validator,
     )
