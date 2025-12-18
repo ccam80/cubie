@@ -817,6 +817,7 @@ def memory_settings(solver_settings):
 
 @pytest.fixture(scope="session")
 def output_functions(output_settings, system, precision):
+    output_settings.pop("precision", None)
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,

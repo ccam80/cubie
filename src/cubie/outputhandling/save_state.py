@@ -10,7 +10,7 @@ from typing import Callable, Sequence, Union
 from numba import cuda, int32
 from numpy.typing import ArrayLike
 
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, stwt
 
 
 def save_state_factory(
@@ -112,21 +112,21 @@ def save_state_factory(
         # no cover: start
         if save_state:
             for k in range(nstates):
-                cuda.stwt(output_states_slice,
+                stwt(output_states_slice,
                           k,
                           current_state[saved_state_indices[k]]
                 )
         if save_time:
             # Append time at the end of the state output
-            cuda.stwt(output_states_slice, nstates, current_step)
+            stwt(output_states_slice, nstates, current_step)
         if save_observables:
             for m in range(nobs):
-                cuda.stwt(output_observables_slice, m,
+                stwt(output_observables_slice, m,
                           current_observables[saved_observable_indices[m]]
                 )
         if save_counters:
             for i in range(ncounters):
-                cuda.stwt(output_counters_slice,i, current_counters[i])
+                stwt(output_counters_slice,i, current_counters[i])
         # no cover: stop
 
     return save_state_func

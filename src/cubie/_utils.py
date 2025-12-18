@@ -17,7 +17,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float64,
 )
 from attrs import fields, has, validators, Attribute
-from cubie.cuda_simsafe import compile_kwargs, is_devfunc, selp
+from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -297,9 +297,7 @@ def clamp_factory(precision):
         **compile_kwargs,
     )
     def clamp(value, minimum, maximum):
-        clamped_high = selp(value > maximum, maximum, value)
-        clamped = selp(clamped_high < minimum, minimum, clamped_high)
-        return clamped
+        return max(minimum, min(value, maximum))
 
     return clamp
 
