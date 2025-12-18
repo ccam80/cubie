@@ -15,10 +15,11 @@ from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
+    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics)
+@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
 class Std(SummaryMetric):
     """Summary metric that calculates the standard deviation of a variable.
 

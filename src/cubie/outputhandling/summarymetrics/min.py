@@ -14,10 +14,11 @@ from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
     MetricFuncCache,
+    DEFAULT_METRIC_PRECISION,
 )
 
 
-@register_metric(summary_metrics)
+@register_metric(summary_metrics, precision=DEFAULT_METRIC_PRECISION)
 class Min(SummaryMetric):
     """Summary metric that tracks the minimum value of a variable.
 

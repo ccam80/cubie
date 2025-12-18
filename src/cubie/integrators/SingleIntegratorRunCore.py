@@ -205,7 +205,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm_name: str = None,
         controller_name: str = None,
         *,
-        precision: Optional[PrecisionDType],
+        precision: PrecisionDType,
     ) -> None:
         """Validate algorithm and controller compatibility.
 
@@ -226,9 +226,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         controller_name : str, optional
             Name of the controller being used. If not provided, retrieved from
             compile_settings.
-        precision : PrecisionDType, optional
-            Numerical precision for the controller. Pass ``None`` to retrieve
-            the system precision.
+        precision : PrecisionDType
+            Numerical precision for the controller.
 
         Notes
         -----
@@ -253,9 +252,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 algorithm_name = self.compile_settings.algorithm
             if controller_name is None:
                 controller_name = self.compile_settings.step_controller
-            if precision is None:
-                precision = self._system.precision
-            
             warnings.warn(
                 f"Adaptive step controller '{controller_name}' cannot be "
                 f"used with fixed-step algorithm '{algorithm_name}'. "

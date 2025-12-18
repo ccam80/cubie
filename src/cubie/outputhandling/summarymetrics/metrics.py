@@ -21,6 +21,8 @@ from cubie._utils import (
 )
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 
+DEFAULT_METRIC_PRECISION: PrecisionDType = np.float32
+
 
 @attrs.define
 class MetricFuncCache(CUDAFunctionCache):
@@ -72,7 +74,9 @@ class MetricConfig:
         return self._precision
 
 
-def register_metric(registry: "SummaryMetrics") -> Callable:
+def register_metric(
+    registry: "SummaryMetrics", precision: PrecisionDType
+) -> Callable:
     """Create a decorator that registers a metric on instantiation.
 
     Parameters
@@ -92,7 +96,7 @@ def register_metric(registry: "SummaryMetrics") -> Callable:
     """
 
     def decorator(cls):
-        instance = cls(precision=np.float32)
+        instance = cls(precision=precision)
         registry.register_metric(instance)
         return cls
 

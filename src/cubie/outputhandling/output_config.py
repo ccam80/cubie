@@ -887,7 +887,7 @@ class OutputConfig:
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
         *,
-        precision: Optional[np.dtype],
+        precision: PrecisionDType,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.

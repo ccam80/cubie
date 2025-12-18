@@ -14,6 +14,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.output_config import OutputCompileFlags, OutputConfig
 from cubie.outputhandling.output_sizes import OutputArrayHeights
 from cubie.outputhandling.save_state import save_state_factory
@@ -84,7 +85,8 @@ class OutputFunctions(CUDAFactory):
     dt_save
         Time interval for save operations. Defaults to None.
     precision
-        Numerical precision for output calculations.
+        Numerical precision for output calculations. Must be provided
+        explicitly.
 
     Notes
     -----
@@ -105,15 +107,12 @@ class OutputFunctions(CUDAFactory):
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
         dt_save: Optional[float] = None,
         *,
-        precision: Optional[np.dtype],
+        precision: PrecisionDType,
     ):
         super().__init__()
 
         if output_types is None:
             output_types = ["state"]
-
-        if precision is None:
-            precision = np.float32
 
         # Create and setup output configuration as compile settings
         config = OutputConfig.from_loop_settings(
