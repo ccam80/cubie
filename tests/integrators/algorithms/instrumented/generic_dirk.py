@@ -3,18 +3,15 @@
 from typing import Callable, Optional
 
 import attrs
-from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
-)
-from cubie.integrators.algorithms.generic_dirk import (
-    DIRKBufferSettings,
 )
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
@@ -58,12 +55,9 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
-    buffer_settings: Optional[DIRKBufferSettings] = attrs.field(
-        default=None,
-        validator=validators.optional(
-            validators.instance_of(DIRKBufferSettings)
-        ),
-    )
+    stage_increment_location: str = attrs.field(default='local')
+    stage_base_location: str = attrs.field(default='local')
+    accumulator_location: str = attrs.field(default='local')
 
 
 class DIRKStep(ODEImplicitStep):
@@ -87,15 +81,67 @@ class DIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
+        stage_increment_location: Optional[str] = None,
+        stage_base_location: Optional[str] = None,
+        accumulator_location: Optional[str] = None,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        # Create buffer_settings
-        buffer_settings = DIRKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+
+        # Determine locations (use defaults if not specified)
+        inc_loc = stage_increment_location if stage_increment_location else 'local'
+        base_loc = stage_base_location if stage_base_location else 'local'
+        acc_loc = accumulator_location if accumulator_location else 'local'
+
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+        multistage = tableau.stage_count > 1
+
+        # Register algorithm buffers
+        buffer_registry.register(
+            'dirk_stage_increment', self, n, inc_loc, precision=precision
         )
+        buffer_registry.register(
+            'dirk_accumulator', self, accumulator_length, acc_loc,
+            precision=precision
+        )
+
+        # stage_base aliasing: can alias accumulator when both are shared
+        # and method has multiple stages
+        stage_base_aliases_acc = (
+            multistage and acc_loc == 'shared' and base_loc == 'shared'
+        )
+        if stage_base_aliases_acc:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, 'shared',
+                aliases='dirk_accumulator', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, base_loc, precision=precision
+            )
+
+        # solver_scratch is always shared (Newton delta + residual)
+        solver_shared_size = 2 * n
+        buffer_registry.register(
+            'dirk_solver_scratch', self, solver_shared_size, 'shared',
+            precision=precision
+        )
+
+        # FSAL caches alias solver_scratch
+        buffer_registry.register(
+            'dirk_rhs_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+        buffer_registry.register(
+            'dirk_increment_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -116,7 +162,9 @@ class DIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
-            "buffer_settings": buffer_settings,
+            "stage_increment_location": inc_loc,
+            "stage_base_location": base_loc,
+            "accumulator_location": acc_loc,
         }
 
         config = DIRKStepConfig(**config_kwargs)
@@ -244,29 +292,29 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Buffer settings from compile_settings for selective shared/local
-        buffer_settings = config.buffer_settings
+        # Get allocators from buffer registry
+        alloc_stage_increment = buffer_registry.get_allocator(
+            'dirk_stage_increment', self
+        )
+        alloc_accumulator = buffer_registry.get_allocator(
+            'dirk_accumulator', self
+        )
+        alloc_stage_base = buffer_registry.get_allocator(
+            'dirk_stage_base', self
+        )
+        alloc_solver_scratch = buffer_registry.get_allocator(
+            'dirk_solver_scratch', self
+        )
+        alloc_rhs_cache = buffer_registry.get_allocator(
+            'dirk_rhs_cache', self
+        )
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'dirk_increment_cache', self
+        )
 
-        # Unpack boolean flags as compile-time constants
-        stage_increment_shared = buffer_settings.use_shared_stage_increment
-        stage_base_shared = buffer_settings.use_shared_stage_base
-        accumulator_shared = buffer_settings.use_shared_accumulator
-        stage_base_aliases = buffer_settings.stage_base_aliases_accumulator
-        has_rhs_in_scratch = buffer_settings.solver_scratch_has_rhs_space
-        has_increment_in_scratch = buffer_settings.solver_scratch_has_increment_space
-
-        # Unpack slice indices for shared memory layout
-        shared_indices = buffer_settings.shared_indices
-        stage_increment_slice = shared_indices.stage_increment
-        stage_base_slice = shared_indices.stage_base
-        accumulator_slice = shared_indices.accumulator
-        solver_scratch_slice = shared_indices.solver_scratch
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        stage_increment_local_size = local_sizes.nonzero('stage_increment')
-        stage_base_local_size = local_sizes.nonzero('stage_base')
-        accumulator_local_size = local_sizes.nonzero('accumulator')
+        # FSAL scratch allocation flags (solver_scratch >= 2n always)
+        has_rhs_in_scratch = True
+        has_increment_in_scratch = True
 
         # no cover: start
         @cuda.jit(
@@ -384,40 +432,17 @@ class DIRKStep(ODEImplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            if stage_increment_shared:
-                stage_increment = shared[stage_increment_slice]
-            else:
-                stage_increment = cuda.local.array(stage_increment_local_size,
-                                                   precision)
-                for _i in range(stage_increment_local_size):
-                    stage_increment[_i] = numba_precision(0.0)
+            stage_increment = alloc_stage_increment(shared, persistent_local)
+            stage_accumulator = alloc_accumulator(shared, persistent_local)
+            stage_base = alloc_stage_base(shared, persistent_local)
+            solver_scratch = alloc_solver_scratch(shared, persistent_local)
 
-            if accumulator_shared:
-                stage_accumulator = shared[accumulator_slice]
-            else:
-                stage_accumulator = cuda.local.array(accumulator_local_size,
-                                                     precision)
-                for _i in range(accumulator_local_size):
-                    stage_accumulator[_i] = numba_precision(0.0)
-
-            # solver_scratch always from shared memory
-            solver_scratch = shared[solver_scratch_slice]
-
-            # Check aliasing eligibility based on BOTH parent and child locations
-            if stage_base_aliases:
-                # Both accumulator and stage_base are shared; alias first slice
-                stage_base = stage_accumulator[:n]
-            elif multistage and not accumulator_shared and not stage_base_shared:
-                # Both local; can alias local accumulator
-                stage_base = stage_accumulator[:n]
-            elif stage_base_shared:
-                # Separate shared allocation (accumulator local or single-stage)
-                stage_base = shared[stage_base_slice]
-            else:
-                # Separate local allocation
-                stage_base = cuda.local.array(stage_base_local_size, precision)
-                for _i in range(stage_base_local_size):
-                    stage_base[_i] = numba_precision(0.0)
+            # Initialize local arrays
+            for _i in range(n):
+                stage_increment[_i] = typed_zero
+                stage_base[_i] = typed_zero
+            for _i in range(accumulator_length):
+                stage_accumulator[_i] = typed_zero
 
             # --------------------------------------------------------------- #
             # Instrumentation local buffers
@@ -428,28 +453,13 @@ class DIRKStep(ODEImplicitStep):
             end_time = current_time + dt_scalar
 
             # stage_rhs is used during Newton iterations and overwritten.
-            # When solver_scratch has at least n elements, slice from it.
-            # This also enables rhs_cache to alias stage_rhs for FSAL.
-            if has_rhs_in_scratch:
-                stage_rhs = solver_scratch[:n]
-            else:
-                stage_rhs = cuda.local.array(n, precision)
+            # slice from solver_scratch (size 2n always provides space)
+            stage_rhs = solver_scratch[:n]
 
             # increment_cache and rhs_cache persist between steps for FSAL.
-            # Allocation depends on solver_scratch size:
-            # - >= 2n: both caches in solver_scratch, rhs_cache aliases stage_rhs
-            # - >= n: increment_cache in persistent_local, rhs_cache aliases
-            #         stage_rhs (which is in shared solver_scratch)
-            # - < n: both caches in persistent_local
-            if has_increment_in_scratch:
-                increment_cache = solver_scratch[n:int32(2)*n]
-                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
-            elif has_rhs_in_scratch:
-                increment_cache = persistent_local[:n]
-                rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
-            else:
-                increment_cache = persistent_local[:n]
-                rhs_cache = persistent_local[n:int32(2)*n]
+            # Both fit in solver_scratch (size 2n)
+            increment_cache = solver_scratch[n:int32(2)*n]
+            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
 
             for idx in range(n):
                 if has_error and accumulates_error:
@@ -774,23 +784,17 @@ class DIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        return self.compile_settings.buffer_settings.shared_memory_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return self.compile_settings.buffer_settings.local_memory_elements
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required.
-
-        Returns n for increment_cache when solver_scratch uses local memory.
-        When solver_scratch is shared, increment_cache aliases it and no
-        persistent local is needed.
-        """
-        buffer_settings = self.compile_settings.buffer_settings
-        return buffer_settings.persistent_local_elements
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def is_implicit(self) -> bool:

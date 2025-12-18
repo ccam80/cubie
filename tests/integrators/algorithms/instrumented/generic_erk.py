@@ -3,17 +3,14 @@
 from typing import Callable, Optional
 
 import attrs
-from attrs import validators
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
-)
-from cubie.integrators.algorithms.generic_erk import (
-    ERKBufferSettings,
 )
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
@@ -52,12 +49,8 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    buffer_settings: Optional[ERKBufferSettings] = attrs.field(
-        default=None,
-        validator=validators.optional(
-            validators.instance_of(ERKBufferSettings)
-        ),
-    )
+    stage_rhs_location: str = attrs.field(default='local')
+    stage_accumulator_location: str = attrs.field(default='local')
 
     @property
     def first_same_as_last(self) -> bool:
@@ -78,6 +71,8 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
+        stage_rhs_location: Optional[str] = None,
+        stage_accumulator_location: Optional[str] = None,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
 
@@ -88,11 +83,44 @@ class ERKStep(ODEExplicitStep):
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
         """
 
-        # Create buffer_settings
-        buffer_settings = ERKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+
+        # Determine locations (use defaults if not specified)
+        rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
+        acc_loc = stage_accumulator_location if stage_accumulator_location else 'local'
+
+        # Register algorithm buffers
+        buffer_registry.register(
+            'erk_stage_rhs', self, n, rhs_loc, precision=precision
         )
+        buffer_registry.register(
+            'erk_stage_accumulator', self, accumulator_length, acc_loc,
+            precision=precision
+        )
+
+        # stage_cache aliasing logic for FSAL optimization
+        use_shared_rhs = rhs_loc == 'shared'
+        use_shared_acc = acc_loc == 'shared'
+        if use_shared_rhs:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'shared',
+                aliases='erk_stage_rhs', precision=precision
+            )
+        elif use_shared_acc:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'shared',
+                aliases='erk_stage_accumulator', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'local',
+                persistent=True, precision=precision
+            )
+
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -102,7 +130,8 @@ class ERKStep(ODEExplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "tableau": tableau,
-            "buffer_settings": buffer_settings,
+            "stage_rhs_location": rhs_loc,
+            "stage_accumulator_location": acc_loc,
         }
         config = ERKStepConfig(**config_kwargs)
         
@@ -163,24 +192,14 @@ class ERKStep(ODEExplicitStep):
             b_hat_row = int32(b_hat_row)
 
         # Buffer settings from compile_settings for selective shared/local
-        buffer_settings = config.buffer_settings
-
-        # Unpack boolean flags as compile-time constants
-        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
-        stage_accumulator_shared = buffer_settings.use_shared_stage_accumulator
-        stage_cache_shared = buffer_settings.use_shared_stage_cache
-
-        # Unpack slice indices for shared memory layout
-        shared_indices = buffer_settings.shared_indices
-        stage_rhs_slice = shared_indices.stage_rhs
-        stage_accumulator_slice = shared_indices.stage_accumulator
-        stage_cache_slice = shared_indices.stage_cache
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
-        stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
-        stage_cache_local_size = local_sizes.nonzero('stage_cache')
+        # Get allocators from buffer registry
+        alloc_stage_rhs = buffer_registry.get_allocator('erk_stage_rhs', self)
+        alloc_stage_accumulator = buffer_registry.get_allocator(
+            'erk_stage_accumulator', self
+        )
+        alloc_stage_cache = buffer_registry.get_allocator(
+            'erk_stage_cache', self
+        )
 
         # no cover: start
         @cuda.jit(
@@ -290,30 +309,17 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            if stage_rhs_shared:
-                stage_rhs = shared[stage_rhs_slice]
-            else:
-                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
-                for _i in range(stage_rhs_local_size):
-                    stage_rhs[_i] = typed_zero
-
-            if stage_accumulator_shared:
-                stage_accumulator = shared[stage_accumulator_slice]
-            else:
-                stage_accumulator = cuda.local.array(
-                    stage_accumulator_local_size, precision
-                )
-                for _i in range(stage_accumulator_local_size):
-                    stage_accumulator[_i] = typed_zero
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
+            stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
 
             if multistage:
-                # stage_cache persists between steps for FSAL optimization.
-                # When shared, slice from shared memory; when local, use
-                # persistent_local to maintain state between step invocations.
-                if stage_cache_shared:
-                    stage_cache = shared[stage_cache_slice]
-                else:
-                    stage_cache = persistent_local[:stage_cache_local_size]
+                stage_cache = alloc_stage_cache(shared, persistent_local)
+
+            # Initialize arrays
+            for _i in range(n):
+                stage_rhs[_i] = typed_zero
+            for _i in range(accumulator_length):
+                stage_accumulator[_i] = typed_zero
             # ----------------------------------------------------------- #
 
             observable_count = proposed_observables.shape[0]
@@ -533,22 +539,17 @@ class ERKStep(ODEExplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        return self.compile_settings.buffer_settings.shared_memory_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return self.compile_settings.n
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required.
-
-        Returns n for stage_cache when neither stage_rhs nor stage_accumulator
-        uses shared memory. When either is shared, stage_cache aliases it.
-        """
-        buffer_settings = self.compile_settings.buffer_settings
-        return buffer_settings.persistent_local_elements
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def order(self) -> int:

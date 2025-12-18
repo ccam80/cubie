@@ -3,17 +3,14 @@
 from typing import Callable, Optional
 
 import attrs
-from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
-)
-from cubie.integrators.algorithms.generic_firk import (
-    FIRKBufferSettings,
 )
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
@@ -58,12 +55,9 @@ class FIRKStepConfig(ImplicitStepConfig):
     tableau: FIRKTableau = attrs.field(
         default=DEFAULT_FIRK_TABLEAU,
     )
-    buffer_settings: Optional[FIRKBufferSettings] = attrs.field(
-        default=None,
-        validator=validators.optional(
-            validators.instance_of(FIRKBufferSettings)
-        ),
-    )
+    stage_increment_location: str = attrs.field(default='local')
+    stage_driver_stack_location: str = attrs.field(default='local')
+    stage_state_location: str = attrs.field(default='local')
 
     @property
     def stage_count(self) -> int:
@@ -99,16 +93,46 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
+        stage_increment_location: Optional[str] = None,
+        stage_driver_stack_location: Optional[str] = None,
+        stage_state_location: Optional[str] = None,
     ) -> None:
         """Initialise the FIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        # Create buffer_settings
-        buffer_settings = FIRKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-            n_drivers=n_drivers,
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+
+        # Determine locations (use defaults if not specified)
+        inc_loc = stage_increment_location if stage_increment_location else 'local'
+        drv_loc = stage_driver_stack_location if stage_driver_stack_location else 'local'
+        state_loc = stage_state_location if stage_state_location else 'local'
+
+        # Calculate buffer sizes
+        all_stages_n = tableau.stage_count * n
+        stage_driver_stack_elements = tableau.stage_count * n_drivers
+
+        # solver_scratch is always shared (Newton delta + residual)
+        solver_shared_size = 2 * all_stages_n
+        buffer_registry.register(
+            'firk_solver_scratch', self, solver_shared_size, 'shared',
+            precision=precision
         )
+
+        # Register algorithm buffers
+        buffer_registry.register(
+            'firk_stage_increment', self, all_stages_n, inc_loc,
+            precision=precision
+        )
+        buffer_registry.register(
+            'firk_stage_driver_stack', self, stage_driver_stack_elements,
+            drv_loc, precision=precision
+        )
+        buffer_registry.register(
+            'firk_stage_state', self, n, state_loc, precision=precision
+        )
+
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -129,9 +153,11 @@ class FIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
-            "buffer_settings": buffer_settings,
+            "stage_increment_location": inc_loc,
+            "stage_driver_stack_location": drv_loc,
+            "stage_state_location": state_loc,
         }
-        
+
         config = FIRKStepConfig(**config_kwargs)
         
         if tableau.has_error_estimate:
@@ -265,26 +291,19 @@ class FIRKStep(ODEImplicitStep):
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
-        # Buffer settings from compile_settings for selective shared/local
-        buffer_settings = config.buffer_settings
-
-        # Unpack boolean flags as compile-time constants
-        stage_increment_shared = buffer_settings.use_shared_stage_increment
-        stage_driver_stack_shared = buffer_settings.use_shared_stage_driver_stack
-        stage_state_shared = buffer_settings.use_shared_stage_state
-
-        # Unpack slice indices for shared memory layout
-        shared_indices = buffer_settings.shared_indices
-        solver_scratch_slice = shared_indices.solver_scratch
-        stage_increment_slice = shared_indices.stage_increment
-        stage_driver_stack_slice = shared_indices.stage_driver_stack
-        stage_state_slice = shared_indices.stage_state
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        stage_increment_local_size = local_sizes.nonzero('stage_increment')
-        stage_driver_stack_local_size = local_sizes.nonzero('stage_driver_stack')
-        stage_state_local_size = local_sizes.nonzero('stage_state')
+        # Get allocators from buffer registry
+        alloc_solver_scratch = buffer_registry.get_allocator(
+            'firk_solver_scratch', self
+        )
+        alloc_stage_increment = buffer_registry.get_allocator(
+            'firk_stage_increment', self
+        )
+        alloc_stage_driver_stack = buffer_registry.get_allocator(
+            'firk_stage_driver_stack', self
+        )
+        alloc_stage_state = buffer_registry.get_allocator(
+            'firk_stage_state', self
+        )
         # no cover: start
         @cuda.jit(
             # (
@@ -363,33 +382,18 @@ class FIRKStep(ODEImplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            if stage_state_shared:
-                stage_state = shared[stage_state_slice]
-            else:
-                stage_state = cuda.local.array(stage_state_local_size,
-                                               precision)
-                for _i in range(stage_state_local_size):
-                    stage_state[_i] = numba_precision(0.0)
+            stage_state = alloc_stage_state(shared, persistent_local)
+            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            stage_increment = alloc_stage_increment(shared, persistent_local)
+            stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
-            # solver_scratch always from shared memory
-            solver_scratch = shared[solver_scratch_slice]
-
-            if stage_increment_shared:
-                stage_increment = shared[stage_increment_slice]
-            else:
-                stage_increment = cuda.local.array(stage_increment_local_size,
-                                                   precision)
-                for _i in range(stage_increment_local_size):
-                    stage_increment[_i] = numba_precision(0.0)
-
-            if stage_driver_stack_shared:
-                stage_driver_stack = shared[stage_driver_stack_slice]
-            else:
-                stage_driver_stack = cuda.local.array(
-                    stage_driver_stack_local_size, precision
-                )
-                for _i in range(stage_driver_stack_local_size):
-                    stage_driver_stack[_i] = numba_precision(0.0)
+            # Initialize local arrays
+            for _i in range(n):
+                stage_state[_i] = typed_zero
+            for _i in range(all_stages_n):
+                stage_increment[_i] = typed_zero
+            for _i in range(stage_count * n_drivers):
+                stage_driver_stack[_i] = typed_zero
             # ----------------------------------------------------------- #
 
             observable_count = proposed_observables.shape[0]
@@ -397,7 +401,6 @@ class FIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
             status_code = int32(0)
-            # stage_rhs_flat = solver_scratch[:all_stages_n]
 
             for idx in range(n):
                 if accumulates_output:
@@ -549,18 +552,17 @@ class FIRKStep(ODEImplicitStep):
     @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
-        return self.compile_settings.buffer_settings.shared_memory_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return self.compile_settings.buffer_settings.local_memory_elements
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
-
-        return 0
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def stage_count(self) -> int:
