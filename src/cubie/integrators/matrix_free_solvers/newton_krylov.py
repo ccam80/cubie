@@ -405,7 +405,11 @@ def newton_krylov_solver_factory(
             residual_temp = cuda.local.array(
                 residual_temp_local_size, precision
             )
-
+        if stage_base_bt_shared:
+            stage_base_bt = shared_scratch[stage_base_bt_slice]
+        else:
+            stage_base_bt = cuda.local.array(stage_base_bt_local_size,
+                                             precision)
         residual_function(
             stage_increment,
             parameters,
@@ -470,11 +474,7 @@ def newton_krylov_solver_factory(
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
-            if stage_base_bt_shared:
-                stage_base_bt = shared_scratch[stage_base_bt_slice]
-            else:
-                stage_base_bt = cuda.local.array(stage_base_bt_local_size,
-                                                 precision)
+
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
             found_step = False

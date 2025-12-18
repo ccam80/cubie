@@ -948,6 +948,8 @@ class IVPLoop(CUDAFactory):
 
             stagnant_counts = int32(0)
 
+            shared_scratch[:] = precision(0.0)
+
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #

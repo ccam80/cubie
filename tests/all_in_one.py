@@ -1602,8 +1602,10 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         shared_scratch,
         counters,
     ):
-        delta = shared_scratch[:n]
-        residual = shared_scratch[n : int32(2 * n)]
+        delta = cuda.local.array(n_arraysize, numba_prec)
+        residual_temp = cuda.local.array(n_arraysize, numba_prec)
+        residual = cuda.local.array(n_arraysize, numba_prec)
+        stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
 
         residual_fn(
             stage_increment,
@@ -1667,7 +1669,6 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
             # Backtracking loop
-            stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
             for i in range(n):
                 stage_base_bt[i] = stage_increment[i]
 
@@ -1683,7 +1684,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                     for i in range(n):
                         stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
 
-                    residual_temp = cuda.local.array(n_arraysize, numba_prec)
+                    # residual_temp = cuda.local.array(n_arraysize, numba_prec)
                     residual_fn(
                             stage_increment,
                             parameters,
@@ -4223,17 +4224,16 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             ncnt_nonzero, simsafe_int32
         )
 
-
-    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-    dt = persistent_local[local_dt_slice]
-    accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
-
     if use_shared_loop_error:
         error = shared_scratch[error_start:error_end]
     else:
         error = cuda.local.array(n_arraysize, numba_precision)
         for _i in range(n_arraysize):
             error[_i] = precision(0.0)
+
+    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+    dt = persistent_local[local_dt_slice]
+    accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
 
     controller_temp = persistent_local[local_controller_slice]
     step_persistent_local = persistent_local[local_step_slice]
@@ -4456,7 +4456,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                         save_idx,
                     )
 
-                    if (save_idx + int32(1)) % saves_per_summary == int32(0):
+                    if (save_idx % saves_per_summary == int32(0)):
                         save_summaries_inline(
                             state_summary_buffer,
                             observable_summary_buffer,
