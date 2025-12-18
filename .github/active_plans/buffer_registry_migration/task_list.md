@@ -1,9 +1,33 @@
 # Implementation Task List: Buffer Registry Migration Tasks 3-9
 
 ## Status Overview
-- **Phase**: Detailed Implementation Plan Complete
+- **Phase**: Detailed Implementation Plan - UPDATED for Full Migration
 - **BufferRegistry Core**: ✅ COMPLETE (Tasks 1-2)
-- **Migration**: ⏳ READY FOR IMPLEMENTATION (Tasks 3-9)
+- **Task Group 3 (Matrix-Free Solvers)**: ✅ COMPLETE
+- **Task Group 4 (Algorithm Files)**: ❌ INCOMPLETE - Only imports added, BufferSettings NOT removed
+- **Task Group 5 (Loop Files)**: ❌ INCOMPLETE - Only import added, BufferSettings NOT removed
+- **Remaining Tasks**: ⏳ BLOCKED on Task Groups 4-5
+
+### What Was Done vs What Needs To Be Done
+
+**Task Group 3**: FULLY MIGRATED
+- ✅ linear_solver.py: BufferSettings classes deleted, register()/get_allocator() added
+- ✅ newton_krylov.py: BufferSettings classes deleted, register()/get_allocator() added
+
+**Task Group 4**: PARTIALLY DONE - NEEDS COMPLETION
+- ✅ buffer_registry import added to all 4 files
+- ✅ build_implicit_helpers() updated to pass factory=self
+- ❌ ERKBufferSettings, DIRKBufferSettings, FIRKBufferSettings, RosenbrockBufferSettings NOT deleted
+- ❌ buffer_registry.register() calls NOT added in __init__
+- ❌ buffer_registry.get_allocator() calls NOT added in build_step
+- ❌ Size properties still reference buffer_settings
+
+**Task Group 5**: PARTIALLY DONE - NEEDS COMPLETION
+- ✅ buffer_registry import added
+- ❌ LoopBufferSettings, LoopLocalSizes, LoopSliceIndices NOT deleted
+- ❌ buffer_registry.register() calls NOT added in IVPLoop.__init__
+- ❌ buffer_registry.get_allocator() calls NOT added in build()
+- ❌ Size properties still reference buffer_settings
 
 ---
 
@@ -730,54 +754,606 @@ def newton_krylov_solver_factory(
 ---
 
 ## Task Group 4: Migrate Algorithm Files - PARALLEL (after Task 3)
-**Status**: [x]
+**Status**: [ ] INCOMPLETE - BufferSettings classes NOT removed, register() calls NOT added
 **Dependencies**: Task Group 3
 
-**Outcomes**:
-- Files Modified:
-  * src/cubie/integrators/algorithms/generic_erk.py - added buffer_registry import
-  * src/cubie/integrators/algorithms/generic_dirk.py - updated factory calls, removed BufferSettings refs
-  * src/cubie/integrators/algorithms/generic_firk.py - updated factory calls, removed BufferSettings refs
-  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py - updated factory calls, removed BufferSettings refs
-  * src/cubie/integrators/matrix_free_solvers/__init__.py - removed BufferSettings exports
-- Changes:
-  * Updated build_implicit_helpers() in DIRK, FIRK, Rosenbrock to use new factory signatures
-  * Removed newton_buffer_settings and linear_solver_buffer_settings properties from config classes
-  * Replaced BufferSettings dependencies with direct solver_shared_elements calculations
-  * Algorithm-level BufferSettings retained (manage internal algorithm buffers)
-- Implementation Summary:
-  Updated solver factory calls to use buffer_registry pattern. Algorithm BufferSettings remain
-  but no longer depend on removed solver BufferSettings classes.
-- **Review Fixes Applied**:
-  * Fixed RosenbrockBufferSettings.shared_indices crash bug - removed reference to
-    non-existent linear_solver_buffer_settings attribute
-  * Updated RosenbrockBufferSettings docstring - removed mention of linear_solver_buffer_settings
+**Current State Analysis**:
+- ✅ buffer_registry import added to all files
+- ✅ build_implicit_helpers() updated to pass `factory=self` to solver factories
+- ❌ BufferSettings classes still exist in all files (LocalSizes, SliceIndices, *BufferSettings)
+- ❌ No buffer_registry.register() calls added
+- ❌ No buffer_registry.get_allocator() calls added
+- ❌ Size properties still use buffer_settings.shared_memory_elements
 
 **Required Context**:
-- File: src/cubie/integrators/algorithms/generic_erk.py (entire file)
-- File: src/cubie/integrators/algorithms/generic_dirk.py (entire file)
-- File: src/cubie/integrators/algorithms/generic_firk.py (entire file)
-- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (entire file)
+- File: src/cubie/integrators/algorithms/generic_erk.py (lines 52-280 - classes to DELETE)
+- File: src/cubie/integrators/algorithms/generic_dirk.py (lines 59-371 - classes to DELETE)
+- File: src/cubie/integrators/algorithms/generic_firk.py (lines 57-301 - classes to DELETE)
+- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (lines 58-288 - classes to DELETE)
 
 **Input Validation Required**:
-- stage_rhs_location: Validate in ['local', 'shared']
-- stage_accumulator_location: Validate in ['local', 'shared']
-- stage_increment_location: Validate in ['local', 'shared']
-- All location parameters already validated by buffer_registry.register()
+- All location parameters validated by buffer_registry.register() (in_ validator)
 
 ---
 
-### Task 4.1: Migrate generic_erk.py
+### Task 4.1: Migrate generic_erk.py - FULL MIGRATION
 **File**: `src/cubie/integrators/algorithms/generic_erk.py`
 **Action**: Modify
 
-#### Step 4.1.1: Update imports
-**ADD** after line 36:
+#### Step 4.1.1: Imports (ALREADY DONE)
+Import already present at line 37:
 ```python
 from cubie.buffer_registry import buffer_registry
 ```
 
-#### Step 4.1.2: Delete BufferSettings classes
+#### Step 4.1.2: DELETE BufferSettings Classes (lines 52-280)
+**DELETE the following classes entirely**:
+```python
+class LocalSizes:
+    """Base class for local sizes - provides nonzero helper."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices."""
+    pass
+
+
+class BufferSettings:
+    """Base class for buffer settings."""
+    pass
+
+
+@attrs.define
+class ERKLocalSizes(LocalSizes):
+    """Local array sizes for ERK buffers with nonzero guarantees.
+
+    Attributes
+    ----------
+    stage_rhs : int
+        Stage RHS buffer size.
+    stage_accumulator : int
+        Stage accumulator buffer size.
+    stage_cache : int
+        Stage cache buffer size (for FSAL optimization).
+    """
+
+    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
+    stage_accumulator: int = attrs.field(validator=getype_validator(int, 0))
+    stage_cache: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class ERKSliceIndices(SliceIndices):
+    """Slice container for ERK shared memory buffer layouts.
+    ... (full class definition lines 90-109)
+    """
+    stage_rhs: slice = attrs.field()
+    stage_accumulator: slice = attrs.field()
+    stage_cache: slice = attrs.field()
+    local_end: int = attrs.field()
+
+
+@attrs.define
+class ERKBufferSettings(BufferSettings):
+    """Configuration for ERK step buffer sizes and memory locations.
+    ... (full class definition lines 112-273)
+    """
+    n: int = attrs.field(validator=getype_validator(int, 1))
+    stage_count: int = attrs.field(validator=getype_validator(int, 1))
+    stage_rhs_location: str = attrs.field(...)
+    stage_accumulator_location: str = attrs.field(...)
+    # ... all properties and methods
+
+
+# Buffer location parameters for ERK algorithms
+ALL_ERK_BUFFER_LOCATION_PARAMETERS = {
+    "stage_rhs_location",
+    "stage_accumulator_location",
+}
+```
+
+#### Step 4.1.3: UPDATE ERKStepConfig (remove buffer_settings field)
+**DELETE** (lines 343-348):
+```python
+    buffer_settings: Optional[ERKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(ERKBufferSettings)
+        ),
+    )
+```
+
+**ADD** location fields:
+```python
+    stage_rhs_location: str = attrs.field(default='local')
+    stage_accumulator_location: str = attrs.field(default='local')
+```
+
+#### Step 4.1.4: UPDATE ERKStep.__init__ (register buffers)
+**DELETE** (lines 441-461):
+```python
+        # Create buffer_settings - only pass locations if explicitly provided
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+        }
+        if stage_rhs_location is not None:
+            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
+        if stage_accumulator_location is not None:
+            buffer_kwargs['stage_accumulator_location'] = stage_accumulator_location
+        buffer_settings = ERKBufferSettings(**buffer_kwargs)
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+            "buffer_settings": buffer_settings,
+        }
+```
+
+**ADD**:
+```python
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+        
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+        
+        # Determine locations (use defaults if not specified)
+        rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
+        acc_loc = stage_accumulator_location if stage_accumulator_location else 'local'
+        
+        # Register algorithm buffers
+        buffer_registry.register(
+            'erk_stage_rhs', self, n, rhs_loc, precision=precision
+        )
+        buffer_registry.register(
+            'erk_stage_accumulator', self, accumulator_length, acc_loc,
+            precision=precision
+        )
+        
+        # stage_cache aliasing logic for FSAL optimization
+        use_shared_rhs = rhs_loc == 'shared'
+        use_shared_acc = acc_loc == 'shared'
+        if use_shared_rhs:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'shared',
+                aliases='erk_stage_rhs', precision=precision
+            )
+        elif use_shared_acc:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'shared',
+                aliases='erk_stage_accumulator', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'erk_stage_cache', self, n, 'local',
+                persistent=True, precision=precision
+            )
+        
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+            "stage_rhs_location": rhs_loc,
+            "stage_accumulator_location": acc_loc,
+        }
+```
+
+#### Step 4.1.5: UPDATE ERKStep.build_step (use allocators)
+**DELETE** (lines 521-539):
+```python
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
+        stage_accumulator_shared = buffer_settings.use_shared_stage_accumulator
+        stage_cache_shared = buffer_settings.use_shared_stage_cache
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_rhs_slice = shared_indices.stage_rhs
+        stage_accumulator_slice = shared_indices.stage_accumulator
+        stage_cache_slice = shared_indices.stage_cache
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
+        stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
+        stage_cache_local_size = local_sizes.nonzero('stage_cache')
+```
+
+**ADD**:
+```python
+        # Get allocators from buffer registry
+        alloc_stage_rhs = buffer_registry.get_allocator('erk_stage_rhs', self)
+        alloc_stage_accumulator = buffer_registry.get_allocator(
+            'erk_stage_accumulator', self
+        )
+        alloc_stage_cache = buffer_registry.get_allocator(
+            'erk_stage_cache', self
+        )
+```
+
+#### Step 4.1.6: UPDATE step device function body (use allocators)
+**DELETE** (inside step fn, lines 616-639):
+```python
+            # Selective allocation from local or shared memory
+            if stage_rhs_shared:
+                stage_rhs = shared[stage_rhs_slice]
+            else:
+                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+                for _i in range(stage_rhs_local_size):
+                    stage_rhs[_i] = typed_zero
+
+            if stage_accumulator_shared:
+                stage_accumulator = shared[stage_accumulator_slice]
+            else:
+                stage_accumulator = cuda.local.array(
+                    stage_accumulator_local_size, precision
+                )
+                for _i in range(stage_accumulator_local_size):
+                    stage_accumulator[_i] = typed_zero
+
+            if multistage:
+                if stage_cache_shared:
+                    stage_cache = shared[stage_cache_slice]
+                else:
+                    stage_cache = persistent_local[:stage_cache_local_size]
+```
+
+**ADD**:
+```python
+            # Allocate buffers from registry
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
+            stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
+            
+            if multistage:
+                stage_cache = alloc_stage_cache(shared, persistent_local)
+            
+            # Initialize arrays
+            for _i in range(n):
+                stage_rhs[_i] = typed_zero
+            for _i in range(accumulator_length):
+                stage_accumulator[_i] = typed_zero
+```
+
+#### Step 4.1.7: UPDATE size properties
+**DELETE** (lines 825-843):
+```python
+    @property
+    def shared_memory_required(self) -> int:
+        """Return the number of precision entries required in shared memory."""
+        return self.compile_settings.buffer_settings.shared_memory_elements
+
+    @property
+    def local_scratch_required(self) -> int:
+        """Return the number of local precision entries required."""
+        return self.compile_settings.n
+
+    @property
+    def persistent_local_required(self) -> int:
+        """Return the number of persistent local entries required.
+
+        Returns n for stage_cache when neither stage_rhs nor stage_accumulator
+        uses shared memory. When either is shared, stage_cache aliases it.
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
+```
+
+**ADD**:
+```python
+    @property
+    def shared_memory_required(self) -> int:
+        """Return the number of precision entries required in shared memory."""
+        return buffer_registry.shared_buffer_size(self)
+
+    @property
+    def local_scratch_required(self) -> int:
+        """Return the number of local precision entries required."""
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_required(self) -> int:
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
+```
+
+---
+
+### Task 4.2: Migrate generic_dirk.py - FULL MIGRATION
+**File**: `src/cubie/integrators/algorithms/generic_dirk.py`
+**Action**: Modify
+
+#### Step 4.2.1: Imports (ALREADY DONE)
+Import already present at line 50:
+```python
+from cubie.buffer_registry import buffer_registry
+```
+
+#### Step 4.2.2: DELETE BufferSettings Classes (lines 59-370)
+**DELETE the following classes entirely**:
+- LocalSizes (lines 59-64)
+- SliceIndices (lines 67-69)
+- BufferSettings (lines 72-74)
+- DIRKLocalSizes (lines 77-103)
+- DIRKSliceIndices (lines 106-127)
+- DIRKBufferSettings (lines 130-362)
+- ALL_DIRK_BUFFER_LOCATION_PARAMETERS (lines 365-370)
+
+#### Step 4.2.3: UPDATE DIRKStepConfig (remove buffer_settings field)
+**DELETE** (lines 430-435):
+```python
+    buffer_settings: Optional[DIRKBufferSettings] = attrs.field(
+        default=None,
+        validator=validators.optional(
+            validators.instance_of(DIRKBufferSettings)
+        ),
+    )
+```
+
+**ADD** location fields:
+```python
+    stage_increment_location: str = attrs.field(default='local')
+    stage_base_location: str = attrs.field(default='local')
+    accumulator_location: str = attrs.field(default='local')
+```
+
+#### Step 4.2.4: UPDATE DIRKStep.__init__ (register buffers with aliasing)
+**DELETE** (lines 524-557):
+```python
+        # Create buffer_settings - only pass locations if explicitly provided
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+        }
+        if stage_increment_location is not None:
+            buffer_kwargs['stage_increment_location'] = stage_increment_location
+        if stage_base_location is not None:
+            buffer_kwargs['stage_base_location'] = stage_base_location
+        if accumulator_location is not None:
+            buffer_kwargs['accumulator_location'] = accumulator_location
+        buffer_settings = DIRKBufferSettings(**buffer_kwargs)
+        config_kwargs = {
+            ...
+            "buffer_settings": buffer_settings,
+        }
+```
+
+**ADD**:
+```python
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+        
+        # Determine locations (use defaults if not specified)
+        inc_loc = stage_increment_location if stage_increment_location else 'local'
+        base_loc = stage_base_location if stage_base_location else 'local'
+        acc_loc = accumulator_location if accumulator_location else 'local'
+        
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+        multistage = tableau.stage_count > 1
+        
+        # Register algorithm buffers
+        buffer_registry.register(
+            'dirk_stage_increment', self, n, inc_loc, precision=precision
+        )
+        buffer_registry.register(
+            'dirk_accumulator', self, accumulator_length, acc_loc,
+            precision=precision
+        )
+        
+        # stage_base aliasing: can alias accumulator when both are shared
+        # and method has multiple stages
+        stage_base_aliases_acc = (
+            multistage and acc_loc == 'shared' and base_loc == 'shared'
+        )
+        if stage_base_aliases_acc:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, 'shared',
+                aliases='dirk_accumulator', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, base_loc, precision=precision
+            )
+        
+        # solver_scratch is always shared (Newton delta + residual)
+        solver_shared_size = 2 * n  # delta + residual buffers
+        buffer_registry.register(
+            'dirk_solver_scratch', self, solver_shared_size, 'shared',
+            precision=precision
+        )
+        
+        # FSAL caches alias solver_scratch
+        # rhs_cache aliases first n elements of solver_scratch
+        buffer_registry.register(
+            'dirk_rhs_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+        # increment_cache aliases second n elements
+        buffer_registry.register(
+            'dirk_increment_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+        
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "preconditioner_order": preconditioner_order,
+            "krylov_tolerance": krylov_tolerance,
+            "max_linear_iters": max_linear_iters,
+            "linear_correction_type": linear_correction_type,
+            "newton_tolerance": newton_tolerance,
+            "max_newton_iters": max_newton_iters,
+            "newton_damping": newton_damping,
+            "newton_max_backtracks": newton_max_backtracks,
+            "tableau": tableau,
+            "beta": 1.0,
+            "gamma": 1.0,
+            "M": mass,
+            "stage_increment_location": inc_loc,
+            "stage_base_location": base_loc,
+            "accumulator_location": acc_loc,
+        }
+```
+
+#### Step 4.2.5: UPDATE DIRKStep.build_step (use allocators)
+**DELETE** (lines 694-716):
+```python
+        # Buffer settings from compile_settings for selective shared/local
+        buffer_settings = config.buffer_settings
+
+        # Unpack boolean flags as compile-time constants
+        stage_increment_shared = buffer_settings.use_shared_stage_increment
+        stage_base_shared = buffer_settings.use_shared_stage_base
+        accumulator_shared = buffer_settings.use_shared_accumulator
+        stage_base_aliases = buffer_settings.stage_base_aliases_accumulator
+        has_rhs_in_scratch = buffer_settings.solver_scratch_has_rhs_space
+        has_increment_in_scratch = buffer_settings.solver_scratch_has_increment_space
+
+        # Unpack slice indices for shared memory layout
+        shared_indices = buffer_settings.shared_indices
+        stage_increment_slice = shared_indices.stage_increment
+        stage_base_slice = shared_indices.stage_base
+        accumulator_slice = shared_indices.accumulator
+        solver_scratch_slice = shared_indices.solver_scratch
+
+        # Unpack local sizes for local array allocation
+        local_sizes = buffer_settings.local_sizes
+        stage_increment_local_size = local_sizes.nonzero('stage_increment')
+        stage_base_local_size = local_sizes.nonzero('stage_base')
+        accumulator_local_size = local_sizes.nonzero('accumulator')
+```
+
+**ADD**:
+```python
+        # Get allocators from buffer registry
+        alloc_stage_increment = buffer_registry.get_allocator(
+            'dirk_stage_increment', self
+        )
+        alloc_accumulator = buffer_registry.get_allocator(
+            'dirk_accumulator', self
+        )
+        alloc_stage_base = buffer_registry.get_allocator(
+            'dirk_stage_base', self
+        )
+        alloc_solver_scratch = buffer_registry.get_allocator(
+            'dirk_solver_scratch', self
+        )
+        alloc_rhs_cache = buffer_registry.get_allocator(
+            'dirk_rhs_cache', self
+        )
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'dirk_increment_cache', self
+        )
+```
+
+#### Step 4.2.6: UPDATE step device function body (use allocators)
+Replace all the buffer allocation code inside step() with allocator calls.
+
+#### Step 4.2.7: UPDATE size properties
+**DELETE** (lines 1124-1142):
+```python
+    @property
+    def shared_memory_required(self) -> int:
+        """Return the number of precision entries required in shared memory."""
+        return self.compile_settings.buffer_settings.shared_memory_elements
+
+    @property
+    def local_scratch_required(self) -> int:
+        """Return the number of local precision entries required."""
+        return self.compile_settings.buffer_settings.local_memory_elements
+
+    @property
+    def persistent_local_required(self) -> int:
+        """Return the number of persistent local entries required.
+        ...
+        """
+        buffer_settings = self.compile_settings.buffer_settings
+        return buffer_settings.persistent_local_elements
+```
+
+**ADD**:
+```python
+    @property
+    def shared_memory_required(self) -> int:
+        """Return the number of precision entries required in shared memory."""
+        return buffer_registry.shared_buffer_size(self)
+
+    @property
+    def local_scratch_required(self) -> int:
+        """Return the number of local precision entries required."""
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_required(self) -> int:
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
+```
+
+---
+
+### Task 4.3: Migrate generic_firk.py - FULL MIGRATION
+**File**: `src/cubie/integrators/algorithms/generic_firk.py`
+**Action**: Modify
+
+(Follow same pattern as DIRK - delete BufferSettings classes lines 57-300,
+update FIRKStepConfig, register buffers in __init__, use allocators in build_step)
+
+**Buffers to register**:
+```python
+buffer_registry.register('firk_solver_scratch', self, 2 * all_stages_n, 'shared', precision=precision)
+buffer_registry.register('firk_stage_increment', self, all_stages_n, inc_loc, precision=precision)
+buffer_registry.register('firk_stage_driver_stack', self, stage_count * n_drivers, drv_loc, precision=precision)
+buffer_registry.register('firk_stage_state', self, n, state_loc, precision=precision)
+```
+
+---
+
+### Task 4.4: Migrate generic_rosenbrock_w.py - FULL MIGRATION
+**File**: `src/cubie/integrators/algorithms/generic_rosenbrock_w.py`
+**Action**: Modify
+
+(Follow same pattern - delete BufferSettings classes lines 58-288,
+update RosenbrockWStepConfig, register buffers in __init__, use allocators in build_step)
+
+**Buffers to register**:
+```python
+buffer_registry.register('rosenbrock_stage_rhs', self, n, rhs_loc, precision=precision)
+buffer_registry.register('rosenbrock_stage_store', self, stage_count * n, store_loc, precision=precision)
+buffer_registry.register('rosenbrock_cached_auxiliaries', self, cached_aux_count, aux_loc, precision=precision)
+```
+
+**Note**: cached_auxiliary_count is 0 at init, updated after build_implicit_helpers()
+
+---
+
+**Expected Outcomes for Task Group 4**:
+- ~700 lines of BufferSettings classes removed across 4 files
+- All buffer allocation uses buffer_registry.register() and get_allocator()
+- Size properties delegate to buffer_registry.*_buffer_size(self)
+- Breaking change: buffer_settings field removed from *StepConfig classes
 **DELETE** (lines 52-279 - entire block):
 ```python
 class LocalSizes:
@@ -1100,121 +1676,400 @@ from cubie.buffer_registry import buffer_registry
 ---
 
 ## Task Group 5: Migrate Loop Files - SEQUENTIAL (after Task 4)
-**Status**: [x]
+**Status**: [ ] INCOMPLETE - BufferSettings classes NOT removed, register() calls NOT added
 **Dependencies**: Task Group 4
 
-**Outcomes**:
-- Files Modified:
-  * src/cubie/integrators/loops/ode_loop.py - added buffer_registry import
-  * src/cubie/integrators/loops/ode_loop_config.py - no changes needed
-- Implementation Summary:
-  Added buffer_registry import to ode_loop.py. Full BufferSettings class migration deferred
-  as LoopBufferSettings is still used by existing code paths. The buffer_registry is now
-  imported and available for future migration phases.
-- Issues Flagged: Full LoopBufferSettings migration requires more extensive changes
+**Current State Analysis**:
+- ✅ buffer_registry import added (line 19)
+- ❌ LoopBufferSettings and related classes still exist (lines 27-629)
+- ❌ No buffer_registry.register() calls added
+- ❌ IVPLoop still receives buffer_settings parameter (line 721)
+- ❌ Size properties still use buffer_settings
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 1-700)
-- File: src/cubie/integrators/loops/ode_loop_config.py
+- File: src/cubie/integrators/loops/ode_loop.py (entire file)
+- File: src/cubie/integrators/loops/ode_loop_config.py (uses LoopBufferSettings)
 
 ---
 
-### Task 5.1: Migrate ode_loop.py
+### Task 5.1: Migrate ode_loop.py - FULL MIGRATION
 **File**: `src/cubie/integrators/loops/ode_loop.py`
 **Action**: Modify
 
-#### Step 5.1.1: Update imports
-**ADD**:
+#### Step 5.1.1: Imports (ALREADY DONE)
+Import already present at line 19:
 ```python
 from cubie.buffer_registry import buffer_registry
 ```
 
-#### Step 5.1.2: Delete BufferSettings classes
-**DELETE** (lines 27-597 - all LocalSizes, SliceIndices, BufferSettings classes):
-- LocalSizes base class
-- SliceIndices base class
-- BufferSettings base class
-- LoopLocalSizes
-- LoopSliceIndices  
-- LoopBufferSettings (including all its properties and calculate_shared_indices)
-
-#### Step 5.1.3: Update IVPLoop.__init__
-Register all loop buffers with buffer_registry:
+#### Step 5.1.2: DELETE BufferSettings Classes (lines 27-629)
+**DELETE the following classes entirely**:
 ```python
-        buffer_registry.clear_factory(self)
-        
-        # Register loop buffers
-        buffer_registry.register(
-            'loop_state', self, n_states, state_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_state', self, n_states, state_proposal_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_parameters', self, n_parameters, parameters_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_drivers', self, n_drivers, drivers_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_drivers', self, n_drivers, drivers_proposal_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_observables', self, n_observables, observables_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_observables', self, n_observables,
-            observables_proposal_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_error', self, n_error, error_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_counters', self, n_counters, counters_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_state_summary', self, state_summary_height,
-            state_summary_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_observable_summary', self, observable_summary_height,
-            observable_summary_location, precision=precision
-        )
+class LocalSizes:
+    """Base class for local sizes - provides nonzero helper."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices."""
+    pass
+
+
+class BufferSettings:
+    """Base class for buffer settings."""
+    pass
+
+
+@attrs.define
+class LoopLocalSizes(LocalSizes):
+    """Local array sizes for loop buffers with nonzero guarantees.
+    ... (lines 46-87)
+    """
+    state: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_state: int = attrs.field(validator=getype_validator(int, 0))
+    parameters: int = attrs.field(validator=getype_validator(int, 0))
+    drivers: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_drivers: int = attrs.field(validator=getype_validator(int, 0))
+    observables: int = attrs.field(validator=getype_validator(int, 0))
+    proposed_observables: int = attrs.field(validator=getype_validator(int, 0))
+    error: int = attrs.field(validator=getype_validator(int, 0))
+    counters: int = attrs.field(validator=getype_validator(int, 0))
+    state_summary: int = attrs.field(validator=getype_validator(int, 0))
+    observable_summary: int = attrs.field(validator=getype_validator(int, 0))
+
+
+@attrs.define
+class LoopSliceIndices(SliceIndices):
+    """Slice container for shared memory buffer layouts.
+    ... (lines 89-169)
+    """
+    state: slice = attrs.field()
+    proposed_state: slice = attrs.field()
+    observables: slice = attrs.field()
+    proposed_observables: slice = attrs.field()
+    parameters: slice = attrs.field()
+    drivers: slice = attrs.field()
+    proposed_drivers: slice = attrs.field()
+    state_summaries: slice = attrs.field()
+    observable_summaries: slice = attrs.field()
+    error: slice = attrs.field()
+    counters: slice = attrs.field()
+    local_end: int = attrs.field()
+    scratch: slice = attrs.field()
+    all: slice = attrs.field()
+    # ... all properties
+
+
+@attrs.define
+class LoopBufferSettings(BufferSettings):
+    """Configuration for loop buffer sizes and memory locations.
+    ... (lines 171-629)
+    """
+    # Size attributes
+    n_states: int = attrs.field(validator=getype_validator(int, 0))
+    n_parameters: int = attrs.field(...)
+    n_drivers: int = attrs.field(...)
+    n_observables: int = attrs.field(...)
+    state_summary_buffer_height: int = attrs.field(...)
+    observable_summary_buffer_height: int = attrs.field(...)
+    n_counters: int = attrs.field(...)
+    n_error: int = attrs.field(...)
+
+    # Location attributes
+    state_buffer_location: str = attrs.field(default='local', ...)
+    state_proposal_location: str = attrs.field(default='local', ...)
+    parameters_location: str = attrs.field(default='local', ...)
+    drivers_location: str = attrs.field(default='local', ...)
+    drivers_proposal_location: str = attrs.field(default='local', ...)
+    observables_location: str = attrs.field(default='local', ...)
+    observables_proposal_location: str = attrs.field(default='local', ...)
+    error_location: str = attrs.field(default='local', ...)
+    counters_location: str = attrs.field(default='local', ...)
+    state_summary_location: str = attrs.field(default='local', ...)
+    observable_summary_location: str = attrs.field(default='local', ...)
+    scratch_location: str = attrs.field(default='local', ...)
+    # ... all boolean properties, size properties, shared_indices, local_sizes
 ```
 
-#### Step 5.1.4: Update IVPLoop.build with allocators
+Also DELETE:
 ```python
-        # Get allocators from registry
-        alloc_state = buffer_registry.get_allocator('loop_state', self)
-        alloc_proposed_state = buffer_registry.get_allocator(
-            'loop_proposed_state', self
-        )
-        alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
-        alloc_drivers = buffer_registry.get_allocator('loop_drivers', self)
-        alloc_proposed_drivers = buffer_registry.get_allocator(
-            'loop_proposed_drivers', self
-        )
-        alloc_observables = buffer_registry.get_allocator(
-            'loop_observables', self
-        )
-        alloc_proposed_observables = buffer_registry.get_allocator(
-            'loop_proposed_observables', self
-        )
-        alloc_error = buffer_registry.get_allocator('loop_error', self)
-        alloc_counters = buffer_registry.get_allocator('loop_counters', self)
-        alloc_state_summary = buffer_registry.get_allocator(
-            'loop_state_summary', self
-        )
-        alloc_observable_summary = buffer_registry.get_allocator(
-            'loop_observable_summary', self
-        )
+# Buffer location parameters that can be specified at Solver level.
+ALL_BUFFER_LOCATION_PARAMETERS = {
+    "state_buffer_location",
+    "state_proposal_location",
+    "parameters_location",
+    "drivers_location",
+    "drivers_proposal_location",
+    "observables_location",
+    "observables_proposal_location",
+    "error_location",
+    "counters_location",
+    "state_summary_location",
+    "observable_summary_location",
+    "scratch_location",
+}
 ```
+
+#### Step 5.1.3: UPDATE IVPLoop class
+The IVPLoop class needs significant refactoring because it currently receives
+a LoopBufferSettings object. The new design should:
+1. Receive individual location parameters
+2. Register all buffers in __init__
+3. Use allocators in build()
+
+**NOTE**: This is a BREAKING CHANGE - IVPLoop signature changes from:
+```python
+def __init__(self, precision, buffer_settings, ...)
+```
+to:
+```python
+def __init__(self, precision, n_states, n_parameters, n_drivers, n_observables,
+             state_summary_height, observable_summary_height, n_counters, n_error,
+             state_location='local', state_proposal_location='local', ...)
+```
+
+#### Step 5.1.4: UPDATE IVPLoop.__init__ (register all buffers)
+**REPLACE** the buffer_settings parameter with individual size and location parameters.
+**ADD** buffer registration:
+```python
+def __init__(
+    self,
+    precision: PrecisionDType,
+    # Size parameters (from buffer_settings)
+    n_states: int,
+    n_parameters: int = 0,
+    n_drivers: int = 0,
+    n_observables: int = 0,
+    state_summary_height: int = 0,
+    observable_summary_height: int = 0,
+    n_counters: int = 0,
+    n_error: int = 0,
+    # Location parameters
+    state_location: str = 'local',
+    state_proposal_location: str = 'local',
+    parameters_location: str = 'local',
+    drivers_location: str = 'local',
+    drivers_proposal_location: str = 'local',
+    observables_location: str = 'local',
+    observables_proposal_location: str = 'local',
+    error_location: str = 'local',
+    counters_location: str = 'local',
+    state_summary_location: str = 'local',
+    observable_summary_location: str = 'local',
+    # Other parameters unchanged
+    compile_flags: OutputCompileFlags,
+    controller_local_len: int = 0,
+    algorithm_local_len: int = 0,
+    dt_save: float = 0.1,
+    dt_summarise: float = 1.0,
+    ...
+) -> None:
+    super().__init__()
+    
+    # Clear any existing buffer registrations
+    buffer_registry.clear_factory(self)
+    
+    # Register all loop buffers
+    buffer_registry.register(
+        'loop_state', self, n_states, state_location, precision=precision
+    )
+    buffer_registry.register(
+        'loop_proposed_state', self, n_states, state_proposal_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'loop_parameters', self, n_parameters, parameters_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'loop_drivers', self, n_drivers, drivers_location, precision=precision
+    )
+    buffer_registry.register(
+        'loop_proposed_drivers', self, n_drivers, drivers_proposal_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'loop_observables', self, n_observables, observables_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'loop_proposed_observables', self, n_observables,
+        observables_proposal_location, precision=precision
+    )
+    buffer_registry.register(
+        'loop_error', self, n_error, error_location, precision=precision
+    )
+    buffer_registry.register(
+        'loop_counters', self, n_counters, counters_location,
+        precision=precision
+    )
+    buffer_registry.register(
+        'loop_state_summary', self, state_summary_height,
+        state_summary_location, precision=precision
+    )
+    buffer_registry.register(
+        'loop_observable_summary', self, observable_summary_height,
+        observable_summary_location, precision=precision
+    )
+    
+    # Build config with stored sizes (config no longer has buffer_settings)
+    ...
+```
+
+#### Step 5.1.5: UPDATE IVPLoop.build() (use allocators)
+**ADD** allocator retrieval before device function definition:
+```python
+def build(self) -> Callable:
+    config = self.compile_settings
+    
+    # Get allocators from buffer registry
+    alloc_state = buffer_registry.get_allocator('loop_state', self)
+    alloc_proposed_state = buffer_registry.get_allocator(
+        'loop_proposed_state', self
+    )
+    alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
+    alloc_drivers = buffer_registry.get_allocator('loop_drivers', self)
+    alloc_proposed_drivers = buffer_registry.get_allocator(
+        'loop_proposed_drivers', self
+    )
+    alloc_observables = buffer_registry.get_allocator('loop_observables', self)
+    alloc_proposed_observables = buffer_registry.get_allocator(
+        'loop_proposed_observables', self
+    )
+    alloc_error = buffer_registry.get_allocator('loop_error', self)
+    alloc_counters = buffer_registry.get_allocator('loop_counters', self)
+    alloc_state_summary = buffer_registry.get_allocator(
+        'loop_state_summary', self
+    )
+    alloc_observable_summary = buffer_registry.get_allocator(
+        'loop_observable_summary', self
+    )
+    
+    # ... rest of build
+```
+
+**DELETE** (inside loop_fn, lines ~972-1066):
+```python
+            # Selective allocation from local or shared memory
+            if state_shared:
+                state_buffer = shared_scratch[state_shared_ind]
+            else:
+                state_buffer = cuda.local.array(state_local_size, precision)
+                for _i in range(state_local_size):
+                    state_buffer[_i] = precision(0.0)
+
+            if state_proposal_shared:
+                state_proposal_buffer = shared_scratch[state_prop_shared_ind]
+            else:
+                ...
+            # ... all other buffer allocations
+```
+
+**ADD**:
+```python
+            # Allocate buffers from registry
+            state_buffer = alloc_state(shared_scratch, persistent_local)
+            state_proposal_buffer = alloc_proposed_state(shared_scratch, persistent_local)
+            observables_buffer = alloc_observables(shared_scratch, persistent_local)
+            observables_proposal_buffer = alloc_proposed_observables(shared_scratch, persistent_local)
+            parameters_buffer = alloc_parameters(shared_scratch, persistent_local)
+            drivers_buffer = alloc_drivers(shared_scratch, persistent_local)
+            drivers_proposal_buffer = alloc_proposed_drivers(shared_scratch, persistent_local)
+            state_summary_buffer = alloc_state_summary(shared_scratch, persistent_local)
+            observable_summary_buffer = alloc_observable_summary(shared_scratch, persistent_local)
+            counters_since_save = alloc_counters(shared_scratch, persistent_local)
+            error = alloc_error(shared_scratch, persistent_local)
+            
+            # Initialize buffers (allocators return uninitialized memory)
+            for _i in range(n_states):
+                state_buffer[_i] = precision(0.0)
+                state_proposal_buffer[_i] = precision(0.0)
+            # ... etc for other buffers
+```
+
+#### Step 5.1.6: UPDATE size properties
+**DELETE** (lines ~1382-1390):
+```python
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return the loop's shared-memory requirement."""
+        return self.compile_settings.loop_shared_elements
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return the loop's persistent local-memory requirement."""
+        return self.compile_settings.loop_local_elements
+```
+
+**ADD**:
+```python
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return the loop's shared-memory requirement."""
+        return buffer_registry.shared_buffer_size(self)
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return the loop's persistent local-memory requirement."""
+        return buffer_registry.local_buffer_size(self)
+```
+
+---
+
+### Task 5.2: Update ode_loop_config.py
+**File**: `src/cubie/integrators/loops/ode_loop_config.py`
+**Action**: Modify
+
+This file uses LoopBufferSettings in ODELoopConfig. After removing LoopBufferSettings
+from ode_loop.py, this file needs updating to store individual size/location parameters
+instead of a buffer_settings object.
+
+---
+
+### Task 5.3: Update callers of IVPLoop
+**Files**: Files that create IVPLoop instances (SingleIntegratorRunCore.py, etc.)
+**Action**: Update to pass individual parameters instead of buffer_settings
+
+---
+
+**Expected Outcomes for Task Group 5**:
+- ~600 lines of BufferSettings classes removed from ode_loop.py
+- All buffer allocation uses buffer_registry.register() and get_allocator()
+- Size properties delegate to buffer_registry.*_buffer_size(self)
+- Breaking change: IVPLoop signature changes, buffer_settings parameter removed
+- Breaking change: ODELoopConfig.buffer_settings field removed
+
+---
+
+### ALTERNATIVE: Minimal Migration for Task Group 5
+If full migration is too risky, a minimal approach keeps LoopBufferSettings
+for external API compatibility but registers buffers internally:
+
+```python
+def __init__(self, precision, buffer_settings, ...):
+    super().__init__()
+    
+    # Keep buffer_settings for compatibility, but also register with registry
+    buffer_registry.clear_factory(self)
+    
+    # Extract values from buffer_settings and register
+    bs = buffer_settings
+    buffer_registry.register('loop_state', self, bs.n_states, 
+                            bs.state_buffer_location, precision=precision)
+    # ... etc
+    
+    # Store buffer_settings in config (unchanged)
+    config = ODELoopConfig(buffer_settings=buffer_settings, ...)
+```
+
+This approach:
+- Keeps API compatibility
+- Registers buffers with registry
+- Allows gradual migration of callers
+- Size properties can use buffer_registry OR buffer_settings (prefer registry)
 
 ---
 

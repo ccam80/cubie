@@ -55,237 +55,7 @@ from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 
-class LocalSizes:
-    """Base class for local sizes - provides nonzero helper."""
 
-    def nonzero(self, attr_name: str) -> int:
-        """Return max(value, 1) for cuda.local.array compatibility."""
-        return max(getattr(self, attr_name), 1)
-
-
-class SliceIndices:
-    """Base class for slice indices."""
-    pass
-
-
-class BufferSettings:
-    """Base class for buffer settings."""
-    pass
-
-
-@attrs.define
-class RosenbrockLocalSizes(LocalSizes):
-    """Local array sizes for Rosenbrock buffers with nonzero guarantees.
-
-    Attributes
-    ----------
-    stage_rhs : int
-        Stage RHS buffer size.
-    stage_store : int
-        Stage store buffer size.
-    cached_auxiliaries : int
-        Cached auxiliaries buffer size.
-    """
-
-    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
-    stage_store: int = attrs.field(validator=getype_validator(int, 0))
-    cached_auxiliaries: int = attrs.field(validator=getype_validator(int, 0))
-
-
-@attrs.define
-class RosenbrockSliceIndices(SliceIndices):
-    """Slice container for Rosenbrock shared memory buffer layouts.
-
-    Attributes
-    ----------
-    stage_rhs : slice
-        Slice covering the stage RHS buffer (empty if local).
-    stage_store : slice
-        Slice covering the stage store buffer.
-    cached_auxiliaries : slice
-        Slice covering the cached auxiliaries buffer.
-    linear_solver : slice
-        Slice covering the linear solver's shared memory region.
-    local_end : int
-        Offset of the end of algorithm-managed shared memory.
-    """
-
-    stage_rhs: slice = attrs.field()
-    stage_store: slice = attrs.field()
-    cached_auxiliaries: slice = attrs.field()
-    linear_solver: slice = attrs.field()
-    local_end: int = attrs.field()
-
-
-@attrs.define
-class RosenbrockBufferSettings(BufferSettings):
-    """Configuration for Rosenbrock step buffer sizes and memory locations.
-
-    Controls memory locations for stage_rhs, stage_store, and
-    cached_auxiliaries buffers used during Rosenbrock integration steps.
-
-    Attributes
-    ----------
-    n : int
-        Number of state variables.
-    stage_count : int
-        Number of RK stages.
-    cached_auxiliary_count : int
-        Number of cached auxiliary entries for Jacobian helpers.
-    stage_rhs_location : str
-        Memory location for stage RHS buffer: 'local' or 'shared'.
-    stage_store_location : str
-        Memory location for stage store buffer: 'local' or 'shared'.
-    cached_auxiliaries_location : str
-        Memory location for cached auxiliaries: 'local' or 'shared'.
-
-    Notes
-    -----
-    The cached_auxiliary_count is initially 0 and is updated after
-    build_implicit_helpers() is called on GenericRosenbrockWStep.
-    Memory calculations requiring the final count should access
-    buffer_settings after the step has been built.
-    """
-
-    n: int = attrs.field(validator=getype_validator(int, 1))
-    stage_count: int = attrs.field(validator=getype_validator(int, 1))
-    cached_auxiliary_count: int = attrs.field(
-        default=0, validator=getype_validator(int, 0)
-    )
-    stage_rhs_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    stage_store_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    cached_auxiliaries_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-
-    @property
-    def use_shared_stage_rhs(self) -> bool:
-        """Return True if stage_rhs buffer uses shared memory."""
-        return self.stage_rhs_location == 'shared'
-
-    @property
-    def use_shared_stage_store(self) -> bool:
-        """Return True if stage_store buffer uses shared memory."""
-        return self.stage_store_location == 'shared'
-
-    @property
-    def use_shared_cached_auxiliaries(self) -> bool:
-        """Return True if cached_auxiliaries buffer uses shared memory."""
-        return self.cached_auxiliaries_location == 'shared'
-
-    @property
-    def stage_store_elements(self) -> int:
-        """Return stage store elements (stage_count * n)."""
-        return self.stage_count * self.n
-
-    @property
-    def shared_memory_elements(self) -> int:
-        """Return total shared memory elements required.
-
-        Includes stage_rhs, stage_store, and cached_auxiliaries
-        if configured for shared memory.
-        """
-        total = 0
-        if self.use_shared_stage_rhs:
-            total += self.n
-        if self.use_shared_stage_store:
-            total += self.stage_store_elements
-        if self.use_shared_cached_auxiliaries:
-            total += self.cached_auxiliary_count
-        return total
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return total local memory elements required.
-
-        Includes buffers configured with location='local'.
-        """
-        total = 0
-        if not self.use_shared_stage_rhs:
-            total += self.n
-        if not self.use_shared_stage_store:
-            total += self.stage_store_elements
-        if not self.use_shared_cached_auxiliaries:
-            total += self.cached_auxiliary_count
-        return total
-
-    @property
-    def persistent_local_elements(self) -> int:
-        """Return persistent local elements for cached stage increment.
-
-        When stage_store is shared, the final stage increment persists
-        between steps for use as the initial guess. When stage_store is
-        local, a persistent_local buffer of size n is needed to cache
-        the final stage increment.
-        """
-        if self.use_shared_stage_store:
-            return 0
-        return self.n
-
-    @property
-    def local_sizes(self) -> RosenbrockLocalSizes:
-        """Return RosenbrockLocalSizes instance with buffer sizes.
-
-        The returned object provides nonzero sizes suitable for
-        cuda.local.array allocation.
-        """
-        return RosenbrockLocalSizes(
-            stage_rhs=self.n,
-            stage_store=self.stage_store_elements,
-            cached_auxiliaries=self.cached_auxiliary_count,
-        )
-
-    @property
-    def shared_indices(self) -> RosenbrockSliceIndices:
-        """Return RosenbrockSliceIndices instance with shared memory layout.
-
-        The returned object contains slices for each buffer's region
-        in shared memory. Local buffers receive empty slices.
-        """
-        ptr = 0
-
-        if self.use_shared_stage_rhs:
-            stage_rhs_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            stage_rhs_slice = slice(0, 0)
-
-        if self.use_shared_stage_store:
-            stage_store_slice = slice(ptr, ptr + self.stage_store_elements)
-            ptr += self.stage_store_elements
-        else:
-            stage_store_slice = slice(0, 0)
-
-        if self.use_shared_cached_auxiliaries:
-            cached_auxiliaries_slice = slice(
-                ptr, ptr + self.cached_auxiliary_count
-            )
-            ptr += self.cached_auxiliary_count
-        else:
-            cached_auxiliaries_slice = slice(0, 0)
-
-        # Linear solver shared memory is managed by buffer_registry
-        linear_solver_slice = slice(0, 0)
-
-        return RosenbrockSliceIndices(
-            stage_rhs=stage_rhs_slice,
-            stage_store=stage_store_slice,
-            cached_auxiliaries=cached_auxiliaries_slice,
-            linear_solver=linear_solver_slice,
-            local_end=ptr,
-        )
-
-
-# Buffer location parameters for Rosenbrock algorithms
-ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS = {
-    "stage_rhs_location",
-    "stage_store_location",
-    "cached_auxiliaries_location",
-}
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -348,12 +118,9 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
     tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
     time_derivative_fn: Optional[Callable] = attrs.field(default=None)
     driver_del_t: Optional[Callable] = attrs.field(default=None)
-    buffer_settings: Optional[RosenbrockBufferSettings] = attrs.field(
-        default=None,
-        validator=validators.optional(
-            validators.instance_of(RosenbrockBufferSettings)
-        ),
-    )
+    stage_rhs_location: str = attrs.field(default='local')
+    stage_store_location: str = attrs.field(default='local')
+    cached_auxiliaries_location: str = attrs.field(default='local')
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -436,21 +203,46 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        # Create buffer_settings - only pass locations if explicitly provided
-        # cached_auxiliary_count is 0 at init; updated when helpers are built
-        buffer_kwargs = {
-            'n': n,
-            'stage_count': tableau.stage_count,
-            'cached_auxiliary_count': 0,
-        }
-        if stage_rhs_location is not None:
-            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
-        if stage_store_location is not None:
-            buffer_kwargs['stage_store_location'] = stage_store_location
-        if cached_auxiliaries_location is not None:
-            buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
 
-        buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
+        # Clear any existing buffer registrations
+        buffer_registry.clear_factory(self)
+
+        # Determine locations (use defaults if not specified)
+        rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
+        store_loc = stage_store_location if stage_store_location else 'local'
+        aux_loc = cached_auxiliaries_location if cached_auxiliaries_location else 'local'
+
+        # Calculate buffer sizes
+        stage_store_elements = tableau.stage_count * n
+        # cached_auxiliary_count starts at 0; updated in build_implicit_helpers
+
+        # Register algorithm buffers
+        buffer_registry.register(
+            'rosenbrock_stage_rhs', self, n, rhs_loc, precision=precision
+        )
+        buffer_registry.register(
+            'rosenbrock_stage_store', self, stage_store_elements, store_loc,
+            precision=precision
+        )
+        # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
+        buffer_registry.register(
+            'rosenbrock_cached_auxiliaries', self, 0, aux_loc,
+            precision=precision
+        )
+
+        # stage_cache: persistent when stage_store is local
+        if store_loc == 'local':
+            buffer_registry.register(
+                'rosenbrock_stage_cache', self, n, 'local',
+                persistent=True, precision=precision
+            )
+        else:
+            # Aliases stage_store when shared
+            buffer_registry.register(
+                'rosenbrock_stage_cache', self, n, 'shared',
+                aliases='rosenbrock_stage_store', precision=precision
+            )
+
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -467,7 +259,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": tableau_value.gamma,
             "M": mass,
-            "buffer_settings": buffer_settings,
+            "stage_rhs_location": rhs_loc,
+            "stage_store_location": store_loc,
+            "cached_auxiliaries_location": aux_loc,
         }
 
         config = RosenbrockWStepConfig(**config_kwargs)
@@ -522,8 +316,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
         self._cached_auxiliary_count = get_fn("cached_aux_count")
-        self.compile_settings.buffer_settings.cached_auxiliary_count = (
-            self._cached_auxiliary_count
+        # Update buffer registry with the actual cached_auxiliary_count
+        buffer_registry.update_buffer(
+            'rosenbrock_cached_auxiliaries', self,
+            size=self._cached_auxiliary_count
         )
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
@@ -626,25 +422,22 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        # Buffer settings from compile_settings for selective shared/local
-        buffer_settings = config.buffer_settings
+        # Get allocators from buffer registry
+        alloc_stage_rhs = buffer_registry.get_allocator(
+            'rosenbrock_stage_rhs', self
+        )
+        alloc_stage_store = buffer_registry.get_allocator(
+            'rosenbrock_stage_store', self
+        )
+        alloc_cached_auxiliaries = buffer_registry.get_allocator(
+            'rosenbrock_cached_auxiliaries', self
+        )
+        alloc_stage_cache = buffer_registry.get_allocator(
+            'rosenbrock_stage_cache', self
+        )
 
-        # Unpack boolean flags as compile-time constants
-        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
-        stage_store_shared = buffer_settings.use_shared_stage_store
-        cached_auxiliaries_shared = buffer_settings.use_shared_cached_auxiliaries
-
-        # Unpack slice indices for shared memory layout
-        shared_indices = buffer_settings.shared_indices
-        stage_rhs_slice = shared_indices.stage_rhs
-        stage_store_slice = shared_indices.stage_store
-        cached_auxiliaries_slice = shared_indices.cached_auxiliaries
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
-        stage_store_local_size = local_sizes.nonzero('stage_store')
-        cached_auxiliaries_local_size = local_sizes.nonzero('cached_auxiliaries')
+        # Stage store size for initialization
+        stage_store_elements = tableau.stage_count * config.n
 
         # no cover: start
         @cuda.jit(
@@ -705,22 +498,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            if stage_rhs_shared:
-                stage_rhs = shared[stage_rhs_slice]
-            else:
-                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
+            stage_store = alloc_stage_store(shared, persistent_local)
+            cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
 
-            if stage_store_shared:
-                stage_store = shared[stage_store_slice]
-            else:
-                stage_store = cuda.local.array(stage_store_local_size, precision)
-
-            if cached_auxiliaries_shared:
-                cached_auxiliaries = shared[cached_auxiliaries_slice]
-            else:
-                cached_auxiliaries = cuda.local.array(
-                    cached_auxiliaries_local_size, precision
-                )
+            # Initialize arrays
+            for _i in range(n):
+                stage_rhs[_i] = typed_zero
+            for _i in range(stage_store_elements):
+                stage_store[_i] = typed_zero
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
