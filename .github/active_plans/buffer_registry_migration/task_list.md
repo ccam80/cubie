@@ -6,6 +6,7 @@
 - **Task Group 3 (Matrix-Free Solvers)**: ✅ COMPLETE
 - **Task Group 4 (Algorithm Files)**: ✅ COMPLETE - BufferSettings removed, register()/get_allocator() added
 - **Task Group 5 (Loop Files)**: ✅ COMPLETE - FULL migration performed, all BufferSettings classes deleted
+- **Task Group 6 (Cleanup)**: ✅ COMPLETE - Import cleanup completed
 - **Remaining Tasks**: ✅ Migration complete
 
 ### What Was Done
@@ -34,6 +35,14 @@
 - ✅ SingleIntegratorRunCore.instantiate_loop() updated to use new API
 - ✅ Removed shared_buffer_indices and buffer_indices properties
 - ✅ Updated loops/__init__.py to only export IVPLoop
+
+**Task Group 6 (Cleanup)**: COMPLETE
+- ✅ algorithms/__init__.py: Removed BufferSettings imports and exports
+- ✅ algorithms/__init__.py: Removed ALL_*_BUFFER_LOCATION_PARAMETERS constants
+- ✅ algorithms/__init__.py: Removed ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS constant
+- ✅ solver.py: Removed imports of ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS and ALL_BUFFER_LOCATION_PARAMETERS
+- ✅ solver.py: Removed buffer location kwargs merging code
+- ✅ tests/integrators/algorithms/test_buffer_settings.py: Updated to skip deprecated tests
 
 ---
 

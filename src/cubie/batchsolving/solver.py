@@ -21,12 +21,8 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
-from cubie.integrators.algorithms import (
-    ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS,
-)
 from cubie.integrators.loops.ode_loop import (
     ALL_LOOP_SETTINGS,
-    ALL_BUFFER_LOCATION_PARAMETERS,
 )
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -222,23 +218,13 @@ class Solver:
         algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
             kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
             user_settings=algorithm_settings)
-        # Filter algorithm buffer location parameters into algorithm_settings
-        algo_buffer_settings, algo_buffer_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS,
-            user_settings=algorithm_settings)
-        algorithm_settings = algo_buffer_settings
         algorithm_settings["algorithm"] = algorithm
         loop_settings, loop_recognized = merge_kwargs_into_settings(
             kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
             user_settings=loop_settings)
-        buffer_location_settings, buffer_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_BUFFER_LOCATION_PARAMETERS,
-            user_settings=loop_settings)
-        loop_settings = buffer_location_settings
         recognized_kwargs = (step_recognized | algorithm_recognized
                              | output_recognized | memory_recognized
-                             | loop_recognized | buffer_recognized
-                             | algo_buffer_recognized)
+                             | loop_recognized)
 
         self.kernel = BatchSolverKernel(
             system,
