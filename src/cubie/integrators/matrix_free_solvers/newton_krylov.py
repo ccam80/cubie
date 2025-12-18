@@ -12,30 +12,15 @@ from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType, getype_validator
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverBufferSettings
+    LinearSolverBufferSettings, LocalSizes, SliceIndices
 )
 
 
 @attrs.define
 class NewtonLocalSizes(LocalSizes):
-    """Local array sizes for Newton solver buffers.
-
-    Attributes
-    ----------
-    delta : int
-        Newton direction buffer size (n elements).
-    residual : int
-        Residual buffer size (n elements).
-    residual_temp : int
-        Temporary residual buffer size (n elements, always local).
-    stage_base_bt : int
-        Backtracking state backup buffer size (n elements).
-    krylov_iters : int
-        Krylov iteration counter (1 element, always local).
-    """
+    """Local array sizes for Newton solver buffers."""
 
     delta: int = attrs.field(validator=getype_validator(int, 0))
     residual: int = attrs.field(validator=getype_validator(int, 0))
@@ -46,23 +31,7 @@ class NewtonLocalSizes(LocalSizes):
 
 @attrs.define
 class NewtonSliceIndices(SliceIndices):
-    """Slice container for Newton solver shared memory layouts.
-
-    Attributes
-    ----------
-    delta : slice
-        Slice covering the delta buffer (empty if local).
-    residual : slice
-        Slice covering the residual buffer (empty if local).
-    residual_temp : slice
-        Slice covering the residual_temp buffer (empty if local).
-    stage_base_bt : slice
-        Slice covering the backtracking state backup buffer (empty if local).
-    local_end : int
-        Offset of the end of Newton-managed shared memory.
-    lin_solver_start : int
-        Start offset for linear solver shared memory.
-    """
+    """Slice container for Newton solver shared memory layouts."""
 
     delta: slice = attrs.field()
     residual: slice = attrs.field()
@@ -73,28 +42,8 @@ class NewtonSliceIndices(SliceIndices):
 
 
 @attrs.define
-class NewtonBufferSettings(BufferSettings):
-    """Configuration for Newton solver buffer sizes and locations.
-
-    Controls memory locations for delta, residual, residual_temp, and
-    stage_base_bt buffers used during Newton-Krylov iteration.
-    krylov_iters is always local.
-
-    Attributes
-    ----------
-    n : int
-        Number of state variables.
-    delta_location : str
-        Memory location for delta buffer: 'local' or 'shared'.
-    residual_location : str
-        Memory location for residual buffer: 'local' or 'shared'.
-    residual_temp_location : str
-        Memory location for residual_temp buffer: 'local' or 'shared'.
-    stage_base_bt_location : str
-        Memory location for backtracking state backup: 'local' or 'shared'.
-    linear_solver_buffer_settings : LinearSolverBufferSettings
-        Buffer settings for the nested linear solver.
-    """
+class NewtonBufferSettings:
+    """Configuration for Newton solver buffer sizes and locations."""
 
     n: int = attrs.field(validator=getype_validator(int, 1))
     delta_location: str = attrs.field(
@@ -145,7 +94,6 @@ class NewtonBufferSettings(BufferSettings):
             total += self.n
         if self.use_shared_stage_base_bt:
             total += self.n
-        # Add linear solver shared memory
         if self.linear_solver_buffer_settings is not None:
             total += self.linear_solver_buffer_settings.shared_memory_elements
         return total
@@ -158,13 +106,11 @@ class NewtonBufferSettings(BufferSettings):
             total += self.n
         if not self.use_shared_residual:
             total += self.n
-        # residual_temp conditional on location
         if not self.use_shared_residual_temp:
             total += self.n
         if not self.use_shared_stage_base_bt:
             total += self.n
-        total += 1       # krylov_iters (int32, but counted as 1 element)
-        # Add linear solver local memory
+        total += 1  # krylov_iters
         if self.linear_solver_buffer_settings is not None:
             total += self.linear_solver_buffer_settings.local_memory_elements
         return total
@@ -301,29 +247,17 @@ def newton_krylov_solver_factory(
     stage_base_bt_slice = shared_indices.stage_base_bt
     stage_base_bt_local_size = local_sizes.nonzero('stage_base_bt')
 
-    precision = from_dtype(precision_dtype)
-    tol_squared = precision(tolerance * tolerance)
-    typed_zero = precision(0.0)
-    typed_one = precision(1.0)
-    typed_damping = precision(damping)
-    n_arraysize = int(n)
-    n = int32(n)
+    numba_precision = from_dtype(precision_dtype)
+    tol_squared = numba_precision(tolerance * tolerance)
+    typed_zero = numba_precision(0.0)
+    typed_one = numba_precision(1.0)
+    typed_damping = numba_precision(damping)
+    n_val = int32(n)
     max_iters = int32(max_iters)
     max_backtracks = int32(max_backtracks)
     # no cover: start
 
-    @cuda.jit(
-            # [(precision[::1],
-            #   precision[::1],
-            #   precision[::1],
-            #   precision,
-            #   precision,
-            #   precision,
-            #   precision[::1],
-            #   precision[::1],
-            #   int32[::1])],
-            device=True,
-            inline=True)
+    @cuda.jit(device=True, inline=True)
     def newton_krylov_solver(
         stage_increment,
         parameters,
@@ -355,45 +289,28 @@ def newton_krylov_solver_factory(
             Reference state used when evaluating the residual.
         shared_scratch
             Shared scratch buffer providing Newton direction, residual,
-            and linear solver storage. The first ``n`` entries store the
-            Newton direction, the next ``n`` entries store the residual,
-            and remaining entries are available for the linear solver.
+            and linear solver storage.
         counters
-            Size (2,) int32 array for iteration counters. Index 0 receives
-            Newton iteration count, index 1 receives cumulative Krylov
-            iteration count.
+            Size (2,) int32 array for iteration counters.
 
         Returns
         -------
         int
             Status word with convergence information and iteration count.
-
-        Notes
-        -----
-        Scratch space requirements total two vectors of length ``n`` drawn
-        from ``shared_scratch`` plus any additional space needed by the
-        linear solver. No need to zero scratch space before passing - it's
-        write-first in this function.
-        ``delta`` is reset to zero before the first linear solve so it can be
-        reused as the Newton direction buffer. The linear solver is invoked
-        on the Jacobian system ``J * delta = rhs`` with ``rhs`` stored in
-        ``residual``. Operators and residuals compute the evaluation state
-        ``base_state + a_ij * stage_increment`` inline. The tentative state
-        updates are reverted if no acceptable backtracking step is found.
         """
 
         # Selective allocation based on buffer_settings
         if delta_shared:
             delta = shared_scratch[delta_slice]
         else:
-            delta = cuda.local.array(delta_local_size, precision)
+            delta = cuda.local.array(delta_local_size, numba_precision)
             for _i in range(delta_local_size):
                 delta[_i] = typed_zero
 
         if residual_shared:
             residual = shared_scratch[residual_slice]
         else:
-            residual = cuda.local.array(residual_local_size, precision)
+            residual = cuda.local.array(residual_local_size, numba_precision)
             for _i in range(residual_local_size):
                 residual[_i] = typed_zero
 
@@ -401,7 +318,7 @@ def newton_krylov_solver_factory(
             residual_temp = shared_scratch[residual_temp_slice]
         else:
             residual_temp = cuda.local.array(
-                residual_temp_local_size, precision
+                residual_temp_local_size, numba_precision
             )
 
         residual_function(
@@ -415,18 +332,16 @@ def newton_krylov_solver_factory(
             residual,
         )
         norm2_prev = typed_zero
-        for i in range(n):
+        for i in range(n_val):
             residual_value = residual[i]
             residual[i] = -residual_value
             delta[i] = typed_zero
             norm2_prev += residual_value * residual_value
 
-        # Boolean control flags replace status-code-based loop control
         converged = norm2_prev <= tol_squared
         has_error = False
         final_status = int32(0)
 
-        # Local array for linear solver iteration count output
         krylov_iters_local = cuda.local.array(1, int32)
 
         iters_count = int32(0)
@@ -437,13 +352,11 @@ def newton_krylov_solver_factory(
             if all_sync(mask, done):
                 break
 
-            # Predicated iteration count update
             active = not done
             iters_count = selp(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
-            # Linear solver shared memory starts after newton's scratch
             lin_shared = shared_scratch[lin_solver_start:]
             krylov_iters_local[0] = int32(0)
             lin_status = linear_solver(
@@ -467,13 +380,12 @@ def newton_krylov_solver_factory(
             )
             total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
 
-            # Backtracking loop
             if stage_base_bt_shared:
                 stage_base_bt = shared_scratch[stage_base_bt_slice]
             else:
                 stage_base_bt = cuda.local.array(stage_base_bt_local_size,
-                                                 precision)
-            for i in range(n):
+                                                 numba_precision)
+            for i in range(n_val):
                 stage_base_bt[i] = stage_increment[i]
             found_step = False
             alpha = typed_one
@@ -484,7 +396,7 @@ def newton_krylov_solver_factory(
                     break
 
                 if active_bt:
-                    for i in range(n):
+                    for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
 
                     residual_function(
@@ -499,46 +411,40 @@ def newton_krylov_solver_factory(
                     )
 
                     norm2_new = typed_zero
-                    for i in range(n):
+                    for i in range(n_val):
                         residual_value = residual_temp[i]
                         norm2_new += residual_value * residual_value
 
-                    # Check convergence
                     if norm2_new <= tol_squared:
                         converged = True
                         found_step = True
 
                     if norm2_new < norm2_prev:
-                        for i in range(n):
+                        for i in range(n_val):
                             residual[i] = -residual_temp[i]
                         norm2_prev = norm2_new
                         found_step = True
 
                 alpha *= typed_damping
 
-            # Backtrack failure handling
             backtrack_failed = active and (not found_step) and (not converged)
             has_error = has_error or backtrack_failed
             final_status = selp(
                 backtrack_failed, int32(final_status | int32(1)), final_status
             )
 
-            # Revert state if backtrack failed
             if backtrack_failed:
-                for i in range(n):
+                for i in range(n_val):
                     stage_increment[i] = stage_base_bt[i]
 
-        # Max iterations exceeded without convergence
         max_iters_exceeded = (not converged) and (not has_error)
         final_status = selp(
             max_iters_exceeded, int32(final_status | int32(2)), final_status
         )
 
-        # Write iteration counts to counters array
         counters[0] = iters_count
         counters[1] = total_krylov_iters
 
-        # Return status without encoding iterations (breaking change per plan)
         return final_status
 
     # no cover: end

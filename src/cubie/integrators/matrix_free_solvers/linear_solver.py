@@ -4,9 +4,6 @@ This module builds CUDA device functions that implement steepest-descent or
 minimal-residual iterations without forming Jacobian matrices explicitly.
 The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
-
-Buffer settings classes for memory allocation configuration are also defined
-here, providing selective allocation between shared and local memory.
 """
 
 from typing import Callable, Optional
@@ -16,22 +13,27 @@ from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import getype_validator, PrecisionDType
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+
+
+# Backward-compatible classes for algorithm files that still use old API
+class LocalSizes:
+    """Base class for local sizes - backward compatibility."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices - backward compatibility."""
+    pass
 
 
 @attrs.define
 class LinearSolverLocalSizes(LocalSizes):
-    """Local array sizes for linear solver buffers with nonzero guarantees.
-
-    Attributes
-    ----------
-    preconditioned_vec : int
-        Preconditioned vector buffer size.
-    temp : int
-        Temporary vector buffer size.
-    """
+    """Local array sizes for linear solver buffers with nonzero guarantees."""
 
     preconditioned_vec: int = attrs.field(validator=getype_validator(int, 0))
     temp: int = attrs.field(validator=getype_validator(int, 0))
@@ -39,17 +41,7 @@ class LinearSolverLocalSizes(LocalSizes):
 
 @attrs.define
 class LinearSolverSliceIndices(SliceIndices):
-    """Slice container for linear solver shared memory buffer layouts.
-
-    Attributes
-    ----------
-    preconditioned_vec : slice
-        Slice covering the preconditioned vector buffer (empty if local).
-    temp : slice
-        Slice covering the temporary vector buffer.
-    local_end : int
-        Offset of the end of solver-managed shared memory.
-    """
+    """Slice container for linear solver shared memory buffer layouts."""
 
     preconditioned_vec: slice = attrs.field()
     temp: slice = attrs.field()
@@ -57,21 +49,8 @@ class LinearSolverSliceIndices(SliceIndices):
 
 
 @attrs.define
-class LinearSolverBufferSettings(BufferSettings):
-    """Configuration for linear solver buffer sizes and memory locations.
-
-    Controls whether preconditioned_vec and temp buffers use shared or
-    local memory during Krylov iteration.
-
-    Attributes
-    ----------
-    n : int
-        Number of state variables (length of vectors).
-    preconditioned_vec_location : str
-        Memory location for preconditioned vector: 'local' or 'shared'.
-    temp_location : str
-        Memory location for temporary vector: 'local' or 'shared'.
-    """
+class LinearSolverBufferSettings:
+    """Configuration for linear solver buffer sizes and memory locations."""
 
     n: int = attrs.field(validator=getype_validator(int, 1))
     preconditioned_vec_location: str = attrs.field(
@@ -113,11 +92,7 @@ class LinearSolverBufferSettings(BufferSettings):
 
     @property
     def local_sizes(self) -> LinearSolverLocalSizes:
-        """Return LinearSolverLocalSizes instance with buffer sizes.
-
-        The returned object provides nonzero sizes suitable for
-        cuda.local.array allocation.
-        """
+        """Return LinearSolverLocalSizes instance with buffer sizes."""
         return LinearSolverLocalSizes(
             preconditioned_vec=self.n,
             temp=self.n,
@@ -125,11 +100,7 @@ class LinearSolverBufferSettings(BufferSettings):
 
     @property
     def shared_indices(self) -> LinearSolverSliceIndices:
-        """Return LinearSolverSliceIndices instance with shared memory layout.
-
-        The returned object contains slices for each buffer's region
-        in shared memory. Local buffers receive empty slices.
-        """
+        """Return LinearSolverSliceIndices instance with shared memory layout."""
         ptr = 0
 
         if self.use_shared_preconditioned_vec:
@@ -191,9 +162,7 @@ def linear_solver_factory(
     -------
     Callable
         CUDA device function returning ``0`` on convergence and ``4`` when the
-        iteration limit is reached. When buffer_settings specifies shared
-        memory, the function signature includes a shared memory array
-        parameter.
+        iteration limit is reached.
 
     Notes
     -----
@@ -213,9 +182,9 @@ def linear_solver_factory(
     preconditioned = 1 if preconditioner is not None else 0
     n_val = int32(n)
     max_iters = int32(max_iters)
-    precision = from_dtype(precision)
-    typed_zero = precision(0.0)
-    tol_squared = precision(tolerance * tolerance)
+    precision_numba = from_dtype(precision)
+    typed_zero = precision_numba(0.0)
+    tol_squared = precision_numba(tolerance * tolerance)
 
     # Extract buffer settings as compile-time constants
     if buffer_settings is None:
@@ -237,20 +206,6 @@ def linear_solver_factory(
 
     # no cover: start
     @cuda.jit(
-        # [
-        #     (precision[::1],
-        #      precision[::1],
-        #      precision[::1],
-        #      precision[::1],
-        #      precision,
-        #      precision,
-        #      precision,
-        #      precision[::1],
-        #      precision[::1],
-        #      precision[::1],
-        #      int32[::1],
-        #     )
-        # ],
         device=True,
         inline=True,
         **compile_kwargs,
@@ -317,12 +272,12 @@ def linear_solver_factory(
             preconditioned_vec = shared[precond_vec_slice]
         else:
             preconditioned_vec = cuda.local.array(precond_vec_local_size,
-                                                  precision)
+                                                  precision_numba)
 
         if temp_shared:
             temp = shared[temp_slice]
         else:
-            temp = cuda.local.array(temp_local_size, precision)
+            temp = cuda.local.array(temp_local_size, precision_numba)
 
         operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
         acc = typed_zero
@@ -385,7 +340,7 @@ def linear_solver_factory(
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = selp(converged, precision(0.0), alpha)
+            alpha_effective = selp(converged, precision_numba(0.0), alpha)
 
             acc = typed_zero
             for i in range(n_val):

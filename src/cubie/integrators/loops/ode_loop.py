@@ -19,10 +19,27 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
+
+
+class LocalSizes:
+    """Base class for local sizes - provides nonzero helper."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices."""
+    pass
+
+
+class BufferSettings:
+    """Base class for buffer settings."""
+    pass
 
 
 @attrs.define

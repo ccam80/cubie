@@ -39,7 +39,6 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, getype_validator
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -56,6 +55,24 @@ from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolverBufferSettings,
 )
+
+
+class LocalSizes:
+    """Base class for local sizes - provides nonzero helper."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices."""
+    pass
+
+
+class BufferSettings:
+    """Base class for buffer settings."""
+    pass
 
 
 @attrs.define

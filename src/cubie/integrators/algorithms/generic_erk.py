@@ -34,7 +34,6 @@ from attrs import validators
 from numba import cuda, int32, int32
 
 from cubie._utils import PrecisionDType, getype_validator
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -48,6 +47,24 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERKTableau,
 )
+
+
+class LocalSizes:
+    """Base class for local sizes - provides nonzero helper."""
+
+    def nonzero(self, attr_name: str) -> int:
+        """Return max(value, 1) for cuda.local.array compatibility."""
+        return max(getattr(self, attr_name), 1)
+
+
+class SliceIndices:
+    """Base class for slice indices."""
+    pass
+
+
+class BufferSettings:
+    """Base class for buffer settings."""
+    pass
 
 
 @attrs.define

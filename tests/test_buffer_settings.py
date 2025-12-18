@@ -1,10 +1,12 @@
-"""Tests for base BufferSettings infrastructure."""
+"""Tests for BufferSettings infrastructure and buffer_registry migration."""
 import pytest
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolverBufferSettings,
     LinearSolverLocalSizes,
     LinearSolverSliceIndices,
+    LocalSizes,
+    SliceIndices,
 )
 
 
