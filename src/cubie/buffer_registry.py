@@ -16,7 +16,7 @@ from attrs import validators
 import numpy as np
 from numba import cuda
 
-from cubie._utils import getype_validator, ALLOWED_PRECISIONS, precision_validator
+from cubie._utils import getype_validator, precision_validator
 from cubie.cuda_simsafe import compile_kwargs
 
 
@@ -540,7 +540,8 @@ class BufferRegistry:
         local_size = context._local_sizes.get(name, 1)
         precision = entry.precision
 
-        @cuda.jit(device=True, inline=True, ForceInline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True,
+                  **compile_kwargs)
         def allocate_buffer(shared_parent, persistent_parent):
             """Allocate buffer from appropriate memory region."""
             if _shared:

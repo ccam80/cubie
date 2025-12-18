@@ -234,7 +234,7 @@ class DIRKStep(ODEImplicitStep):
         )
         if stage_base_aliases_acc:
             buffer_registry.register(
-                'dirk_stage_base', self, n, 'shared',
+                'dirk_stage_base', self, n, 'local',
                 aliases='dirk_accumulator', precision=precision
             )
         else:
@@ -245,19 +245,19 @@ class DIRKStep(ODEImplicitStep):
         # solver_scratch is always shared (Newton delta + residual)
         solver_shared_size = 2 * n
         buffer_registry.register(
-            'dirk_solver_scratch', self, solver_shared_size, 'shared',
+            'dirk_solver_scratch', self, solver_shared_size, 'local',
             precision=precision
         )
 
         # FSAL caches alias solver_scratch
         # rhs_cache aliases first n elements of solver_scratch
         buffer_registry.register(
-            'dirk_rhs_cache', self, n, 'shared',
+            'dirk_rhs_cache', self, n, 'local',
             aliases='dirk_solver_scratch', precision=precision
         )
         # increment_cache aliases second n elements
         buffer_registry.register(
-            'dirk_increment_cache', self, n, 'shared',
+            'dirk_increment_cache', self, n, 'local',
             aliases='dirk_solver_scratch', precision=precision
         )
 
@@ -348,7 +348,6 @@ class DIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            precision=precision,
         )
 
         newton_tolerance = config.newton_tolerance

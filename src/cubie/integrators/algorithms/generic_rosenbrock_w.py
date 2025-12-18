@@ -34,11 +34,10 @@ https://doi.org/10.1023/A:1021900219772
 from typing import Callable, Optional, Tuple
 
 import attrs
-from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
-from cubie._utils import PrecisionDType, getype_validator
+from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -334,7 +333,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            precision=precision,
         )
 
         time_derivative_rhs = get_fn("time_derivative_rhs")

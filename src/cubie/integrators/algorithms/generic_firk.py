@@ -347,7 +347,6 @@ class FIRKStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            precision=precision,
         )
 
         newton_tolerance = config.newton_tolerance

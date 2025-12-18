@@ -99,11 +99,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.2)
+duration = precision(0.1)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.2)
+dt_save = precision(0.1)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -1192,8 +1192,8 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     beta_inv = prec(1.0 / beta)
     gamma = prec(gamma)
     h_eff_factor = prec(gamma * beta_inv)
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
@@ -1227,8 +1227,8 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
 
 def stage_residual_factory(constants, prec, beta, gamma, order):
     """Auto-generated nonlinear residual for implicit updates."""
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
@@ -1254,8 +1254,8 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
 
 def linear_operator_factory(constants, prec, beta, gamma, order):
     """Auto-generated linear operator."""
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     gamma = prec(gamma)
     numba_prec = numba_from_dtype(prec)
 

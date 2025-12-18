@@ -477,21 +477,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         
         # Build buffer settings, preserving existing locations unless updated.
         n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
-        buffer_settings = LoopBufferSettings(
-            n_states=system_sizes.states,
-            n_parameters=system_sizes.parameters,
-            n_drivers=system_sizes.drivers,
-            n_observables=system_sizes.observables,
-            state_summary_buffer_height=self._output_functions
-                .state_summaries_buffer_height,
-            observable_summary_buffer_height=self._output_functions
-                .observable_summaries_buffer_height,
-            n_error=self.n_error,
-            n_counters=n_counters,
-        )
+       # TODO: Buffersettings object was still in here - this will need
+        #  updated to use the registry.
 
         updates_dict.update({
-            'buffer_settings': buffer_settings,
             'controller_local_len': self._step_controller.local_memory_elements,
             'algorithm_local_len': self._algo_step.persistent_local_required,
         })
