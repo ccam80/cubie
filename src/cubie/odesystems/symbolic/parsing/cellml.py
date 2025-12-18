@@ -104,7 +104,7 @@ def _sanitize_symbol_name(name: str) -> str:
 
 def load_cellml_model(
     path: str,
-    precision: PrecisionDType = np.float32,
+    precision: PrecisionDType,
     name: Optional[str] = None,
     parameters: Optional[List[str]] = None,
     observables: Optional[List[str]] = None,
@@ -120,9 +120,8 @@ def load_cellml_model(
     path : str
         Filesystem path to the CellML source file. Must have .cellml
         extension and be a valid CellML 1.0 or 1.1 model file.
-    precision : numpy dtype, optional
+    precision : numpy dtype
         Target floating-point precision for compiled kernels.
-        Default is np.float32.
     name : str, optional
         Identifier for the generated system. If None, uses the
         filename without extension.

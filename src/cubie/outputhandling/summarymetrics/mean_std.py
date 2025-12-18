@@ -10,6 +10,7 @@ both metrics are needed.
 from numba import cuda
 from math import sqrt
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -31,13 +32,14 @@ class MeanStd(SummaryMetric):
     The output array contains [mean, std] in that order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the MeanStd composite metric."""
         super().__init__(
             name="mean_std",
             buffer_size=3,
             output_size=2,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

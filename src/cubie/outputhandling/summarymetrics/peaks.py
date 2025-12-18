@@ -8,6 +8,7 @@ of local maxima (peaks) in variable values during integration.
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -27,13 +28,14 @@ class Peaks(SummaryMetric):
     valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the Peaks summary metric with parameterised sizes."""
         super().__init__(
             name="peaks",
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
             unit_modification="s",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

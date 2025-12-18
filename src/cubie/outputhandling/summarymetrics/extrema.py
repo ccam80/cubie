@@ -8,6 +8,7 @@ minimum values encountered during integration for each variable.
 
 from numba import cuda
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -26,13 +27,14 @@ class Extrema(SummaryMetric):
     Outputs two values in the same order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the Extrema summary metric."""
         super().__init__(
             name="extrema",
             buffer_size=2,
             output_size=2,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

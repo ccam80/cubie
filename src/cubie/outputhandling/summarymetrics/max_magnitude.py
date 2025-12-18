@@ -8,6 +8,7 @@ encountered during integration for each variable.
 from numba import cuda
 from math import fabs
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -26,13 +27,14 @@ class MaxMagnitude(SummaryMetric):
     resets to ``0.0`` after each save.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the MaxMagnitude summary metric."""
         super().__init__(
             name="max_magnitude",
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

@@ -92,7 +92,7 @@ def register_metric(registry: "SummaryMetrics") -> Callable:
     """
 
     def decorator(cls):
-        instance = cls()
+        instance = cls(precision=np.float32)
         registry.register_metric(instance)
         return cls
 
@@ -120,7 +120,7 @@ class SummaryMetric(CUDAFactory):
     dt_save
         save interval. Defaults to 0.01.
     precision
-        Numerical precision for metric calculations. Defaults to np.float32.
+        Numerical precision for metric calculations.
 
     Notes
     -----
@@ -138,7 +138,8 @@ class SummaryMetric(CUDAFactory):
         name: str,
         unit_modification: str = "[unit]",
         dt_save: float = 0.01,
-        precision: PrecisionDType = np.float32,
+        *,
+        precision: PrecisionDType,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -159,7 +160,6 @@ class SummaryMetric(CUDAFactory):
             float. Time interval for save operations. Defaults to 0.01.
         precision
             PrecisionDType. Numerical precision for metric calculations.
-            Defaults to np.float32.
         """
 
         super().__init__()

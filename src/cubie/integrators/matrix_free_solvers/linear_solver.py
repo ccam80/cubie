@@ -418,7 +418,8 @@ def linear_solver_cached_factory(
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
+    *,
+    precision: PrecisionDType,
     buffer_settings: Optional[LinearSolverBufferSettings] = None,
 ) -> Callable:
     """Create a CUDA linear solver that forwards cached auxiliaries.

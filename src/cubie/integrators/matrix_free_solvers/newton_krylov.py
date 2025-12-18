@@ -227,7 +227,8 @@ def newton_krylov_solver_factory(
     max_iters: int,
     damping: float = 0.5,
     max_backtracks: int = 8,
-    precision: PrecisionDType = np.float32,
+    *,
+    precision: PrecisionDType,
     buffer_settings: Optional[NewtonBufferSettings] = None,
 ) -> Callable:
     """Create a damped Newton--Krylov solver device function.

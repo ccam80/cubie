@@ -9,6 +9,7 @@ for each variable using central finite differences.
 
 from numba import cuda
 
+from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -30,13 +31,14 @@ class D2xdt2Min(SummaryMetric):
     scaled by dt_save² in the save function.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the D2xdt2Min summary metric."""
         super().__init__(
             name="d2xdt2_min",
             buffer_size=3,
             output_size=1,
             unit_modification="[unit]*s^-2",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

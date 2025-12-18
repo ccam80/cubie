@@ -11,6 +11,7 @@ from numba import cuda
 from cubie.cuda_simsafe import compile_kwargs
 from math import sqrt
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -32,13 +33,14 @@ class MeanStdRms(SummaryMetric):
     The output array contains [mean, std, rms] in that order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the MeanStdRms composite metric."""
         super().__init__(
             name="mean_std_rms",
             buffer_size=3,
             output_size=3,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

@@ -817,10 +817,13 @@ def memory_settings(solver_settings):
 
 @pytest.fixture(scope="session")
 def output_functions(output_settings, system):
+    settings = output_settings.copy()
+    precision = settings.pop("precision", system.precision)
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
-        **output_settings,
+        precision=precision,
+        **settings,
     )
     return outputfunctions
 
@@ -829,10 +832,13 @@ def output_functions(output_settings, system):
 def output_functions_mutable(output_settings, system):
     """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
 
+    settings = output_settings.copy()
+    precision = settings.pop("precision", system.precision)
     return OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
-        **output_settings,
+        precision=precision,
+        **settings,
     )
 
 

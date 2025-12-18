@@ -44,6 +44,7 @@ def output_functions(output_test_settings):
         output_test_settings["output_types"],
         output_test_settings["saved_state_indices"],
         output_test_settings["saved_observable_indices"],
+        precision=output_test_settings["precision"],
     )
 
 
@@ -106,6 +107,7 @@ def test_output_functions_build(output_test_settings, fails):
                 output_test_settings["output_types"],
                 output_test_settings["saved_state_indices"],
                 output_test_settings["saved_observable_indices"],
+                precision=output_test_settings["precision"],
             )
 
     else:
@@ -115,6 +117,7 @@ def test_output_functions_build(output_test_settings, fails):
             output_test_settings["output_types"],
             output_test_settings["saved_state_indices"],
             output_test_settings["saved_observable_indices"],
+            precision=output_test_settings["precision"],
         )
         save_state = output_functions.save_state_func
         update_summaries = output_functions.update_summaries_func

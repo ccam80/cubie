@@ -44,6 +44,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         n=n,
         tolerance=1e-6,
         max_iters=16,
+        precision=precision,
     )
 
     scratch_len = 2 * n
@@ -310,6 +311,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         n=n,
         tolerance=1e-8,
         max_iters=4,
+        precision=precision,
     )
 
     scratch_len = 3 * n

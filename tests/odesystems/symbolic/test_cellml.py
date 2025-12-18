@@ -24,16 +24,19 @@ def cellml_overrides(request):
 @pytest.fixture(scope="session")
 def cellml_import_settings(cellml_overrides):
     """Return path to basic ODE CellML model."""
-    defaults = {}
+    defaults = {"precision": np.float32}
     defaults.update(cellml_overrides)
     return defaults
 
 @pytest.fixture(scope="session")
 def basic_model(cellml_fixtures_dir, cellml_import_settings):
     """Return imported basic ODE CellML model."""
+    settings = cellml_import_settings.copy()
+    precision = settings.pop("precision")
     ode_system = load_cellml_model(
-            str(cellml_fixtures_dir/"basic_ode.cellml"),
-            **cellml_import_settings
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        precision=precision,
+        **settings,
     )
     return ode_system
 
@@ -42,9 +45,12 @@ def basic_model(cellml_fixtures_dir, cellml_import_settings):
 def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
     """Return imported Beeler-Reuter CellML model."""
     br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    settings = cellml_import_settings.copy()
+    precision = settings.pop("precision")
     ode_system = load_cellml_model(
-            str(br_path),
-            **cellml_import_settings
+        str(br_path),
+        precision=precision,
+        **settings,
     )
     return ode_system
 
@@ -86,13 +92,13 @@ def test_algebraic_equations_as_observables(beeler_reuter_model, cellml_override
 def test_invalid_path_type():
     """Verify TypeError raised for non-string path."""
     with pytest.raises(TypeError, match="path must be a string"):
-        load_cellml_model(123)
+        load_cellml_model(123, precision=np.float32)
 
 
 def test_nonexistent_file():
     """Verify FileNotFoundError raised for missing file."""
     with pytest.raises(FileNotFoundError, match="CellML file not found"):
-        load_cellml_model("/nonexistent/path/model.cellml")
+        load_cellml_model("/nonexistent/path/model.cellml", precision=np.float32)
 
 
 def test_invalid_extension():
@@ -107,7 +113,7 @@ def test_invalid_extension():
     
     try:
         with pytest.raises(ValueError, match="must have .cellml extension"):
-            load_cellml_model(temp_path)
+            load_cellml_model(temp_path, precision=np.float32)
     finally:
         os.unlink(temp_path)
 
@@ -341,7 +347,8 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
     try:
         # Load a model
         ode_system = load_cellml_model(
-            str(cellml_fixtures_dir / "basic_ode.cellml")
+            str(cellml_fixtures_dir / "basic_ode.cellml"),
+            precision=np.float32,
         )
 
         # Verify model loaded successfully
@@ -419,7 +426,8 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
     try:
         # Load a model
         ode_system = load_cellml_model(
-            str(cellml_fixtures_dir / "basic_ode.cellml")
+            str(cellml_fixtures_dir / "basic_ode.cellml"),
+            precision=np.float32,
         )
 
         # Verify model loaded successfully
@@ -503,5 +511,3 @@ def test_user_equation_literals_wrapped():
     )
     assert isinstance(result_64, SolveResult)
     # The fact that both ran successfully proves precision wrapping works
-
-

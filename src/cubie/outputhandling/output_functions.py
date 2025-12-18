@@ -84,7 +84,7 @@ class OutputFunctions(CUDAFactory):
     dt_save
         Time interval for save operations. Defaults to None.
     precision
-        Numerical precision for output calculations. Defaults to np.float32.
+        Numerical precision for output calculations.
 
     Notes
     -----
@@ -104,7 +104,8 @@ class OutputFunctions(CUDAFactory):
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
         dt_save: Optional[float] = None,
-        precision: Optional[np.dtype] = None,
+        *,
+        precision: Optional[np.dtype],
     ):
         super().__init__()
 

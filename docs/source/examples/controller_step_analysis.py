@@ -317,6 +317,7 @@ def create_output_functions(
         solver_settings["saved_observable_indices"],
         solver_settings["summarised_state_indices"],
         solver_settings["summarised_observable_indices"],
+        precision=solver_settings.get("precision", np.float32),
     )
 
 

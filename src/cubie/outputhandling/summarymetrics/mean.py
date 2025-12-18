@@ -7,6 +7,7 @@ of values encountered during integration for each variable.
 
 from numba import cuda
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -26,13 +27,14 @@ class Mean(SummaryMetric):
     are saved.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the Mean summary metric with fixed buffer sizes."""
         super().__init__(
             name="mean",
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:

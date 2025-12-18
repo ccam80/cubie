@@ -257,6 +257,7 @@ def test_time_driver_array_matches_function(
         solver_settings["saved_observable_indices"],
         solver_settings["summarised_state_indices"],
         solver_settings["summarised_observable_indices"],
+        precision=precision,
     )
 
     # Build SingleIntegratorRun instances for each system

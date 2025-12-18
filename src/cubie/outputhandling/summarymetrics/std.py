@@ -9,6 +9,7 @@ from numba import cuda
 from cubie.cuda_simsafe import compile_kwargs
 from math import sqrt
 
+from cubie._utils import PrecisionDType
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -29,13 +30,14 @@ class Std(SummaryMetric):
     stable shifted-data algorithm to avoid catastrophic cancellation.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision: PrecisionDType) -> None:
         """Initialise the Std summary metric with fixed buffer sizes."""
         super().__init__(
             name="std",
             buffer_size=3,
             output_size=1,
             unit_modification="[unit]",
+            precision=precision,
         )
 
     def build(self) -> MetricFuncCache:
