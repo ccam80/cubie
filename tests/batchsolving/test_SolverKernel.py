@@ -2,10 +2,9 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from _utils import assert_integration_outputs, LoopRunResult, LONG_RUN_PARAMS
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import assert_integration_outputs, LoopRunResult
-from tests._utils import LONG_RUN_PARAMS
 
 
 def test_kernel_builds(solverkernel):
@@ -198,7 +197,6 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
     }
     freshsolver = BatchSolverKernel(
         system,
-        precision=precision,
         step_control_settings=updated_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,

@@ -111,7 +111,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._system = system
         system_sizes = system.sizes
         n = system_sizes.states
-        _ = output_settings.pop("precision")
+
+        # Outputsettings may/may not include precision, so we pop it here to
+        # ensure that it gets passed a precision matching system's
+        _ = output_settings.pop("precision", None)
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
