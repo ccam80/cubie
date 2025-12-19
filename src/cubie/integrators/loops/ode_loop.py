@@ -213,6 +213,12 @@ class IVPLoop(CUDAFactory):
             'observable_summary', self, observable_summary_buffer_height,
             observable_summary_location, precision=precision
         )
+        buffer_registry.register(
+                'dt', self, 1, 'local', precision=precision
+        )
+        buffer_registry.register(
+                'accept_step', self, 1, 'local', precision=precision
+        )
 
         config = ODELoopConfig(
             n_states=n_states,
@@ -299,33 +305,23 @@ class IVPLoop(CUDAFactory):
         save_counters_bool = flags.save_counters
 
         # Get allocators from buffer registry
-        alloc_state = buffer_registry.get_allocator('loop_state', self)
-        alloc_proposed_state = buffer_registry.get_allocator(
-            'loop_proposed_state', self
-        )
-        alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
-        alloc_drivers = buffer_registry.get_allocator('drivers', self)
-        alloc_proposed_drivers = buffer_registry.get_allocator(
-            'loop_proposed_drivers', self
-        )
-        alloc_observables = buffer_registry.get_allocator('observables', self)
-        alloc_proposed_observables = buffer_registry.get_allocator(
-            'proposed_observables', self
-        )
-        alloc_error = buffer_registry.get_allocator('error', self)
-        alloc_counters = buffer_registry.get_allocator('loop_counters', self)
-        alloc_state_summary = buffer_registry.get_allocator(
-            'state_summary', self
-        )
-        alloc_observable_summary = buffer_registry.get_allocator(
-            'observable_summary', self
-        )
-        alloc_algo_shared = buffer_registry.get_allocator(
-            'algorithm_shared', self
-        )
-        alloc_algo_persistent = buffer_registry.get_allocator(
-            'algorithm_persistent', self
-        )
+        getalloc = buffer_registry.get_allocator
+        alloc_state = getalloc('loop_state', self)
+        alloc_proposed_state = getalloc('loop_proposed_state', self)
+        alloc_parameters = getalloc('loop_parameters', self)
+        alloc_drivers = getalloc('drivers', self)
+        alloc_proposed_drivers =getalloc('proposed_drivers', self)
+        alloc_observables = getalloc('observables', self)
+        alloc_proposed_observables = getalloc('proposed_observables', self)
+        alloc_error = getalloc('error', self)
+        alloc_counters = getalloc('loop_counters', self)
+        alloc_state_summary = getalloc('state_summary', self)
+        alloc_observable_summary = getalloc('observable_summary', self)
+        alloc_algo_shared = getalloc('algorithm_shared', self)
+        alloc_algo_persistent = getalloc('algorithm_persistent', self)
+        alloc_controller_persistent = getalloc('controller_persistent', self)
+        alloc_dt = getalloc('dt', self)
+        alloc_accept_step = getalloc('accept_step', self)
 
         # Local memory indices for non-allocated persistent local storage
         local_indices = config.local_indices
@@ -465,15 +461,14 @@ class IVPLoop(CUDAFactory):
             error = alloc_error(shared_scratch, persistent_local)
 
             # Allocate child buffers for algorithm step
-            remaining_shared_scratch = alloc_algo_shared(shared_scratch, persistent_local)
+            algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
             algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
+            controller_temp = alloc_controller_persistent(shared_scratch, persistent_local)
+            dt = alloc_dt(shared_scratch, persistent_local)
+            accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-            dt = persistent_local[dt_slice]
-            accept_step = persistent_local[accept_slice].view(simsafe_int32)
-            controller_temp = persistent_local[controller_slice]
-
             first_step_flag = True
             prev_step_accepted_flag = True
 
@@ -588,7 +583,7 @@ class IVPLoop(CUDAFactory):
                             t_prec,
                             first_step_flag,
                             prev_step_accepted_flag,
-                            remaining_shared_scratch,
+                            algo_shared,
                             algo_persistent,
                             proposed_counters,
                         )
