@@ -253,12 +253,8 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * n_drivers
 
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * all_stages_n
-        buffer_registry.register(
-            'firk_solver_scratch', self, solver_shared_size, 'shared',
-            precision=precision
-        )
+        # Child allocators for Newton solver (replaces manual solver_scratch)
+        # No explicit registration needed - get_child_allocators handles it
 
         # Register algorithm buffers using config values
         buffer_registry.register(
@@ -397,9 +393,6 @@ class FIRKStep(ODEImplicitStep):
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         # Get allocators from buffer registry
-        alloc_solver_scratch = buffer_registry.get_allocator(
-            'firk_solver_scratch', self
-        )
         alloc_stage_increment = buffer_registry.get_allocator(
             'firk_stage_increment', self
         )
@@ -408,6 +401,11 @@ class FIRKStep(ODEImplicitStep):
         )
         alloc_stage_state = buffer_registry.get_allocator(
             'firk_stage_state', self
+        )
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, nonlinear_solver)
         )
         # no cover: start
         @cuda.jit(
@@ -455,7 +453,8 @@ class FIRKStep(ODEImplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_state = alloc_stage_state(shared, persistent_local)
-            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
@@ -501,7 +500,8 @@ class FIRKStep(ODEImplicitStep):
                 dt_scalar,
                 typed_zero,
                 state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
             )
             status_code = int32(status_code | solver_status)
