@@ -590,8 +590,8 @@ class BufferRegistry:
 
         recognized, changed = self._groups[parent].update_buffer(name,
                                                                  **kwargs)
-
         return recognized, changed
+
     def clear_layout(self, parent: object) -> None:
         """Invalidate cached slices for a parent.
 
@@ -671,7 +671,7 @@ class BufferRegistry:
             if not key.endswith('_location'):
                 continue
 
-            buffer_name = key[:-9]  # Remove '_location' suffix
+            buffer_name = key.rstrip("_location")
 
             if value not in ('shared', 'local'):
                 raise ValueError(
@@ -679,11 +679,13 @@ class BufferRegistry:
                     f"'{buffer_name}'. Must be 'shared' or 'local'."
                 )
 
-            buffer_recognized, _ = self.update_buffer(
+            buffer_recognized, buffer_changed = self.update_buffer(
                 buffer_name, parent, location=value
             )
             if buffer_recognized:
                 recognized.add(key)
+            if buffer_changed:
+                self.clear_layout(parent)
 
         return recognized
 

@@ -357,13 +357,15 @@ class NewtonKrylov(CUDAFactory):
             int
                 Status word with convergence information and iteration count.
             """
-            
+
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
             residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
             stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
-            
+            lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
+            lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
+
             # Initialize local arrays
             for _i in range(n_val):
                 delta[_i] = typed_zero
@@ -404,10 +406,7 @@ class NewtonKrylov(CUDAFactory):
                 iters_count = selp(
                     active, int32(iters_count + int32(1)), iters_count
                 )
-                
-                # Allocate child buffers for linear solver
-                lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
-                lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
+
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
                     stage_increment,
@@ -524,7 +523,6 @@ class NewtonKrylov(CUDAFactory):
         the LinearSolver instance reference hasn't changed, because
         the LinearSolver's internal state may have changed.
         """
-        # Update buffer_registry for location changes
         buffer_registry.update(self, updates_dict=updates_dict, silent=True, **kwargs)
         
         return self.update_compile_settings(

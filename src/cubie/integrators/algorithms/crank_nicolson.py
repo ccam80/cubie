@@ -2,10 +2,11 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -154,9 +155,9 @@ class CrankNicolsonStep(ODEImplicitStep):
         n = int32(n)
 
         # Get child allocators for Newton solver
-        nonlinear_solver = solver_fn
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, nonlinear_solver, name='cn_solver_scratch')
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver_scratch')
         )
 
         @cuda.jit(
@@ -326,30 +327,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         """Return ``False`` because Crank–Nicolson is a single-stage method."""
 
         return False
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Crank–Nicolson does not reserve extra shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Crank–Nicolson does not require persistent local storage."""
-
-        return 0
 
     @property
     def is_adaptive(self) -> bool:

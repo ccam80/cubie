@@ -620,35 +620,22 @@ class BaseAlgorithmStep(CUDAFactory):
         """
 
         return self.compile_settings.can_reuse_accepted_start
+
     @property
     def shared_memory_required(self) -> int:
         """Return the precision-entry count of shared memory required."""
-
         return buffer_registry.shared_buffer_size(self)
 
     @property
-    @abstractmethod
     def local_scratch_required(self) -> int:
         """Return the precision-entry count of local scratch required."""
-        raise NotImplementedError
+        raise buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
         """Return the persistent local precision-entry requirement."""
 
         return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
-    @abstractmethod
-    def algorithm_shared_elements(self) -> int:
-        """Return shared-memory elements required by the algorithm itself."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def algorithm_local_elements(self) -> int:
-        """Return persistent local elements required by the algorithm."""
-        raise NotImplementedError
 
     @property
     @abstractmethod
@@ -666,10 +653,6 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the cached device function that advances the solution."""
         return self.get_cached_output("step")
 
-    @property
-    def nonlinear_solver_function(self) -> Callable:
-        """Return the cached nonlinear solver helper."""
-        return self.get_cached_output("nonlinear_solver")
 
     @property
     def settings_dict(self) -> Dict[str, object]:

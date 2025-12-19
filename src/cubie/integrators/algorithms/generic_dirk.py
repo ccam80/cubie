@@ -47,12 +47,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylov,
-)
 
 
 
@@ -238,6 +232,11 @@ class DIRKStep(ODEImplicitStep):
         accumulator_length = max(tableau.stage_count - 1, 0) * n
         multistage = tableau.stage_count > 1
 
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver')
+        )
+
         # Register algorithm buffers using config values
         buffer_registry.register(
             'dirk_stage_increment', self, n, config.stage_increment_location,
@@ -268,12 +267,22 @@ class DIRKStep(ODEImplicitStep):
 
         # FSAL caches for first-same-as-last optimization
         buffer_registry.register(
-            'dirk_rhs_cache', self, n, 'local',
-            persistent=True, precision=precision
+                'dirk_rhs_cache',
+                self,
+                n,
+                'local',
+                aliases='solver_shared',
+                persistent=True,
+                precision=precision
         )
         buffer_registry.register(
-            'dirk_increment_cache', self, n, 'local',
-            persistent=True, precision=precision
+            'dirk_increment_cache',
+            self,
+            n,
+            'local',
+            aliases='solver_shared',
+            persistent=True,
+            precision=precision
         )
         buffer_registry.register(
             'dirk_stage_rhs', self, n, 'local',
@@ -424,7 +433,8 @@ class DIRKStep(ODEImplicitStep):
         
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, nonlinear_solver, name='dirk_solver_scratch')
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver')
         )
 
         # no cover: start

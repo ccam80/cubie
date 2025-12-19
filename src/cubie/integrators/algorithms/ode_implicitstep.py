@@ -7,14 +7,12 @@ import attrs
 import numpy as np
 import sympy as sp
 
-from cubie._utils import inrangetype_validator, gttype_validator
+from cubie._utils import inrangetype_validator
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
-    LinearSolverConfig,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
-    NewtonKrylovConfig,
 )
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
@@ -244,18 +242,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         # Return device function
         return self._newton_solver.device_function
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Implicit base class does not reserve extra shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Implicit base class does not reserve persistent locals."""
-
-        return 0
 
     @property
     def is_implicit(self) -> bool:
