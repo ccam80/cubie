@@ -4,10 +4,12 @@ from numba import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    linear_solver_factory,
+    LinearSolver,
+    LinearSolverConfig,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    newton_krylov_solver_factory,
+    NewtonKrylov,
+    NewtonKrylovConfig,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
@@ -34,18 +36,26 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 
     residual, operator, base_state = placeholder_system
     n = 1
-    linear_solver = linear_solver_factory(
-        operator, n, tolerance=1e-8, max_iters=32,
+    
+    linear_config = LinearSolverConfig(
         precision=precision,
-    )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
         n=n,
+        operator_apply=operator,
+        tolerance=1e-8,
+        max_iters=32,
+    )
+    linear_solver_instance = LinearSolver(linear_config)
+    
+    newton_config = NewtonKrylovConfig(
         precision=precision,
+        n=n,
+        residual_function=residual,
+        linear_solver=linear_solver_instance,
         tolerance=1e-6,
         max_iters=16,
     )
+    newton_instance = NewtonKrylov(newton_config)
+    solver = newton_instance.device_function
 
     scratch_len = 2 * n
 
@@ -113,23 +123,28 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     precond = (
         None if precond_order == 0 else system_setup["preconditioner"](precond_order)
     )
-    linear_solver = linear_solver_factory(
-        operator,
-        n,
+    
+    linear_config = LinearSolverConfig(
+        precision=precision,
+        n=n,
+        operator_apply=operator,
         preconditioner=precond,
         correction_type="minimal_residual",
         tolerance=1e-8,
         max_iters=1000,
-        precision=precision,
     )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual_func,
-        linear_solver=linear_solver,
+    linear_solver_instance = LinearSolver(linear_config)
+    
+    newton_config = NewtonKrylovConfig(
+        precision=precision,
         n=n,
+        residual_function=residual_func,
+        linear_solver=linear_solver_instance,
         tolerance=1e-8,
         max_iters=1000,
-        precision=precision,
     )
+    newton_instance = NewtonKrylov(newton_config)
+    solver = newton_instance.device_function
 
     scratch_len = 2 * n
 
@@ -186,17 +201,25 @@ def test_newton_krylov_failure(precision):
         out[0] = vec[0]
 
     n = 1
-    linear_solver = linear_solver_factory(operator, n,
-                                          precision=precision,
-                                          tolerance=1e-12, max_iters=8)
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
+    linear_config = LinearSolverConfig(
         precision=precision,
-        linear_solver=linear_solver,
         n=n,
+        operator_apply=operator,
+        tolerance=1e-12,
+        max_iters=8,
+    )
+    linear_solver_instance = LinearSolver(linear_config)
+    
+    newton_config = NewtonKrylovConfig(
+        precision=precision,
+        n=n,
+        residual_function=residual,
+        linear_solver=linear_solver_instance,
         tolerance=1e-8,
         max_iters=2,
     )
+    newton_instance = NewtonKrylov(newton_config)
+    solver = newton_instance.device_function
 
     scratch_len = 3 * n
 
@@ -237,18 +260,26 @@ def test_newton_krylov_max_newton_iters_exceeded(
 
     residual, operator, base_state = placeholder_system
     n = 1
-    linear_solver = linear_solver_factory(
-        operator, n, precision=precision, tolerance=1e-8, max_iters=32
-    )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    
+    linear_config = LinearSolverConfig(
         precision=precision,
-
         n=n,
+        operator_apply=operator,
+        tolerance=1e-8,
+        max_iters=32,
+    )
+    linear_solver_instance = LinearSolver(linear_config)
+    
+    newton_config = NewtonKrylovConfig(
+        precision=precision,
+        n=n,
+        residual_function=residual,
+        linear_solver=linear_solver_instance,
         tolerance=1e-6,
         max_iters=0,  # force no Newton iterations
     )
+    newton_instance = NewtonKrylov(newton_config)
+    solver = newton_instance.device_function
 
     scratch_len = 3 * n
 
@@ -297,22 +328,26 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 
     # Inner linear solver will return MAX_LINEAR_ITERATIONS_EXCEEDED
     n = 1
-    linear_solver = linear_solver_factory(
-        zero_operator,
-        n,
+    linear_config = LinearSolverConfig(
         precision=precision,
+        n=n,
+        operator_apply=zero_operator,
         correction_type="minimal_residual",
         tolerance=1e-20,
         max_iters=8,
     )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    linear_solver_instance = LinearSolver(linear_config)
+    
+    newton_config = NewtonKrylovConfig(
         precision=precision,
         n=n,
+        residual_function=residual,
+        linear_solver=linear_solver_instance,
         tolerance=1e-8,
         max_iters=4,
     )
+    newton_instance = NewtonKrylov(newton_config)
+    solver = newton_instance.device_function
 
     scratch_len = 3 * n
 

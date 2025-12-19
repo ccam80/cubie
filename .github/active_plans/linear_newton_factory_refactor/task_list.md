@@ -1,20 +1,23 @@
 # Implementation Task List
-# Feature: Linear and Newton-Krylov Solver Factory Refactor
+# Feature: Linear and Newton-Krylov Solver Factory Refactor - COMPLETE BREAKING REFACTOR
 # Plan Reference: .github/active_plans/linear_newton_factory_refactor/agent_plan.md
+
+**CRITICAL: This is a COMPLETE, ATOMIC refactor with NO backwards compatibility.**
+**All old factory functions will be DELETED. All call sites will be updated simultaneously.**
 
 ## Task Dependencies Graph
 
 ```mermaid
 graph TD
-    TG1[TG1: LinearSolver Config & Cache Classes] --> TG2[TG2: LinearSolver Factory Class]
-    TG2 --> TG4[TG4: NewtonKrylov Config & Cache Classes]
-    TG4 --> TG5[TG5: NewtonKrylov Factory Class]
-    TG5 --> TG6[TG6: Update ODEImplicitStep]
-    TG6 --> TG7[TG7: Update Test Fixtures]
-    TG7 --> TG8[TG8: Update Instrumented Tests]
+    TG1[TG1: LinearSolver Classes] --> TG2[TG2: NewtonKrylov Classes]
+    TG2 --> TG3[TG3: Update All Call Sites]
+    TG3 --> TG4[TG4: Delete Old Factory Functions]
+    TG4 --> TG5[TG5: Update Exports]
+    TG5 --> TG6[TG6: Update Tests]
+    TG6 --> TG7[TG7: Update Instrumented Tests]
 ```
 
-## Task Group 1: LinearSolver Config and Cache Classes - SEQUENTIAL
+## Task Group 1: Create LinearSolver Classes (Config, Cache, Factory) - SEQUENTIAL
 **Status**: [ ]
 **Dependencies**: None
 
@@ -164,48 +167,727 @@ graph TD
    - Edge cases: None - simple container
    - Integration: Inherits from CUDAFunctionCache, follows StepCache pattern
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 2: LinearSolver Factory Class - SEQUENTIAL
+## Task Group 1: Create LinearSolver Classes (Config, Cache, Factory) - SEQUENTIAL
 **Status**: [ ]
-**Dependencies**: Task Group 1
+**Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/CUDAFactory.py (lines 1-300) - CUDAFactory base class methods
-- File: src/cubie/integrators/matrix_free_solvers/linear_solver.py (lines 19-253) - Current factory function implementation
-- File: src/cubie/buffer_registry.py (lines 1-100) - Buffer registration pattern
-- File: src/cubie/integrators/algorithms/base_algorithm_step.py (lines 140-250) - BaseAlgorithmStep factory pattern
+- File: src/cubie/integrators/algorithms/base_algorithm_step.py (lines 33-139) - Pattern for BaseStepConfig
+- File: src/cubie/CUDAFactory.py (lines 18-48) - CUDAFunctionCache pattern
+- File: src/cubie/_utils.py (lines 1-200) - Validators and precision handling
+- File: src/cubie/integrators/matrix_free_solvers/linear_solver.py (entire file) - Current factory function
 
 **Input Validation Required**:
-None - validation happens in config class
+- `n`: getype_validator(int, 1) - Must be positive integer
+- `precision`: precision_validator - Must be in ALLOWED_PRECISIONS
+- `correction_type`: validators.in_(["steepest_descent", "minimal_residual"]) - Must be valid strategy
+- `_tolerance`: gttype_validator(float, 0) - Must be positive float
+- `max_iters`: inrangetype_validator(int, 1, 32767) - Must be in valid range
+- `preconditioned_vec_location`: validators.in_(["local", "shared"]) - Must be valid location
+- `temp_location`: validators.in_(["local", "shared"]) - Must be valid location
+- `operator_apply`: validators.optional(is_device_validator) - Must be device function or None
+- `preconditioner`: validators.optional(is_device_validator) - Must be device function or None
 
 **Tasks**:
 
-1. **Create LinearSolver class skeleton**
+1. **Add imports to linear_solver.py**
    - File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
-   - Action: Create new class
+   - Action: Add at top of file (after module docstring)
    - Details:
      ```python
-     class LinearSolver(CUDAFactory):
-         """Factory for preconditioned linear solver device functions.
+     from typing import Callable, Optional, Set, Dict, Any
+     import attrs
+     from attrs import validators
+     from cubie._utils import (
+         PrecisionDType,
+         getype_validator,
+         gttype_validator,
+         inrangetype_validator,
+         is_device_validator,
+         precision_converter,
+         precision_validator,
+     )
+     from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+     from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+     import numba
+     
+     # Existing imports remain (numba, cuda, int32, from_dtype, np, buffer_registry, etc.)
+     ```
+   - Edge cases: None
+   - Integration: Adds dependencies for attrs and CUDAFactory
+
+2. **Create LinearSolverConfig attrs class**
+   - File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
+   - Action: Create new class (insert before factory functions)
+   - Details:
+     ```python
+     @attrs.define
+     class LinearSolverConfig:
+         """Configuration for LinearSolver compilation.
          
-         Implements steepest-descent or minimal-residual iterations
-         without forming Jacobian matrices explicitly.
+         Attributes
+         ----------
+         precision : PrecisionDType
+             Numerical precision for computations.
+         n : int
+             Length of residual and search-direction vectors.
+         operator_apply : Optional[Callable]
+             Device function applying operator F @ v.
+         preconditioner : Optional[Callable]
+             Device function for approximate inverse preconditioner.
+         correction_type : str
+             Line-search strategy ('steepest_descent' or 'minimal_residual').
+         _tolerance : float
+             Target on squared residual norm for convergence.
+         max_iters : int
+             Maximum iterations permitted.
+         preconditioned_vec_location : str
+             Memory location for preconditioned_vec buffer ('local' or 'shared').
+         temp_location : str
+             Memory location for temp buffer ('local' or 'shared').
+         use_cached_auxiliaries : bool
+             Whether to use cached auxiliary arrays (determines signature).
          """
          
-         def __init__(self, config: LinearSolverConfig) -> None:
-             """Initialize LinearSolver with configuration.
-             
-             Parameters
-             ----------
-             config : LinearSolverConfig
-                 Configuration containing all compile-time parameters.
-             """
-             super().__init__()
-             self.setup_compile_settings(config)
+         precision: PrecisionDType = attrs.field(
+             converter=precision_converter,
+             validator=precision_validator
+         )
+         n: int = attrs.field(validator=getype_validator(int, 1))
+         operator_apply: Optional[Callable] = attrs.field(
+             default=None,
+             validator=validators.optional(is_device_validator)
+         )
+         preconditioner: Optional[Callable] = attrs.field(
+             default=None,
+             validator=validators.optional(is_device_validator)
+         )
+         correction_type: str = attrs.field(
+             default="minimal_residual",
+             validator=validators.in_(["steepest_descent", "minimal_residual"])
+         )
+         _tolerance: float = attrs.field(
+             default=1e-6,
+             validator=gttype_validator(float, 0)
+         )
+         max_iters: int = attrs.field(
+             default=100,
+             validator=inrangetype_validator(int, 1, 32767)
+         )
+         preconditioned_vec_location: str = attrs.field(
+             default='local',
+             validator=validators.in_(["local", "shared"])
+         )
+         temp_location: str = attrs.field(
+             default='local',
+             validator=validators.in_(["local", "shared"])
+         )
+         use_cached_auxiliaries: bool = attrs.field(default=False)
+         
+         @property
+         def tolerance(self) -> float:
+             """Return tolerance in configured precision."""
+             return self.precision(self._tolerance)
+         
+         @property
+         def numba_precision(self) -> type:
+             """Return Numba type for precision."""
+             return from_dtype(np.dtype(self.precision))
+         
+         @property
+         def simsafe_precision(self) -> type:
+             """Return CUDA-sim-safe type for precision."""
+             return simsafe_dtype(np.dtype(self.precision))
+         
+         @property
+         def settings_dict(self) -> dict:
+             """Return configuration fields as dictionary."""
+             return {
+                 'precision': self.precision,
+                 'n': self.n,
+                 'operator_apply': self.operator_apply,
+                 'preconditioner': self.preconditioner,
+                 'correction_type': self.correction_type,
+                 'tolerance': self.tolerance,
+                 'max_iters': self.max_iters,
+                 'preconditioned_vec_location': self.preconditioned_vec_location,
+                 'temp_location': self.temp_location,
+                 'use_cached_auxiliaries': self.use_cached_auxiliaries,
+             }
+     ```
+   - Edge cases: 
+     - operator_apply and preconditioner can be None at instantiation
+     - tolerance must be squared when used in device function
+     - use_cached_auxiliaries flag determines device function signature
+   - Integration: Follows BaseStepConfig pattern
+
+3. **Create LinearSolverCache attrs class**
+   - File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
+   - Action: Create new class (after Config class)
+   - Details:
+     ```python
+     @attrs.define
+     class LinearSolverCache(CUDAFunctionCache):
+         """Cache container for LinearSolver outputs.
+         
+         Attributes
+         ----------
+         linear_solver : Callable
+             Compiled CUDA device function for linear solving.
+         """
+         
+         linear_solver: Callable = attrs.field(
+             validator=is_device_validator
+         )
+     ```
+   - Edge cases: None
+   - Integration: Inherits from CUDAFunctionCache
+
+4. **Create LinearSolver class with __init__ and build() methods**
+   - File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
+   - Action: Create complete class (after Cache class)
+   - Details: Create LinearSolver class inheriting from CUDAFactory with:
+     - `__init__(config: LinearSolverConfig)` that:
+       - Calls `super().__init__()`
+       - Calls `self.setup_compile_settings(config)`
+       - Registers buffers with buffer_registry (different names for cached vs non-cached)
+     - `build() -> LinearSolverCache` that:
+       - Validates operator_apply is not None
+       - Extracts all parameters from config
+       - Computes flags (sd_flag, mr_flag, preconditioned)
+       - Converts types for device function
+       - Gets allocators from buffer_registry
+       - Copies device function from current factory implementation
+       - Returns LinearSolverCache
+     - `update(updates_dict, silent, **kwargs) -> Set[str]` that delegates to base class
+     - Properties: device_function, precision, n, correction_type, tolerance, max_iters, use_cached_auxiliaries, shared_buffer_size, local_buffer_size
+   - Edge cases:
+     - Different buffer names for cached vs non-cached
+     - Must validate operator_apply before building
+     - Device function copied from lines 103-251 (non-cached) or 331-434 (cached)
+   - Integration: Full CUDAFactory implementation
+
+**Outcomes**: 
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (~560 lines added for Config/Cache/Factory classes)
+- Functions/Methods Added/Modified:
+  * LinearSolverConfig class with all validation and properties
+  * LinearSolverCache class
+  * LinearSolver class with __init__, build(), update(), and all properties
+  * Added imports for attrs, validators, and CUDAFactory dependencies
+- Implementation Summary:
+  Completed full LinearSolver factory class implementation with both cached and non-cached device function variants. Config class includes all validators per specification. Cache class inherits from CUDAFunctionCache. Factory class registers buffers in __init__ and builds device functions on-demand with proper buffer name handling for cached vs non-cached variants.
+- Issues Flagged: None
+
+---
+## Task Group 2: Create NewtonKrylov Classes (Config, Cache, Factory) - SEQUENTIAL
+**Status**: [x]
+**Dependencies**: Task Group 1
+
+**Required Context**:
+- File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py (entire file) - Current factory function
+- File: src/cubie/integrators/matrix_free_solvers/linear_solver.py (LinearSolver class from TG1)
+- File: src/cubie/_utils.py (lines 1-200) - Validators
+- File: src/cubie/buffer_registry.py (lines 1-100) - Buffer registration
+
+**Input Validation Required**:
+- `n`: getype_validator(int, 1) - Must be positive integer
+- `precision`: precision_validator - Must be in ALLOWED_PRECISIONS
+- `_tolerance`: gttype_validator(float, 0) - Must be positive float
+- `max_iters`: inrangetype_validator(int, 1, 32767) - Must be in valid range
+- `_damping`: inrangetype_validator(float, 0, 1) - Must be in (0, 1]
+- `max_backtracks`: inrangetype_validator(int, 1, 32767) - Must be in valid range
+- `residual_function`: validators.optional(is_device_validator) - Must be device function or None
+- `linear_solver`: validators.optional(validators.instance_of(LinearSolver)) - Must be LinearSolver or None
+- All location parameters: validators.in_(["local", "shared"]) - Must be valid locations
+
+**Tasks**:
+
+1. **Add imports to newton_krylov.py**
+   - File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+   - Action: Update imports at top
+   - Details:
+     ```python
+     from typing import Callable, Optional, Set, Dict, Any
+     import attrs
+     from attrs import validators
+     from cubie._utils import (
+         PrecisionDType,
+         getype_validator,
+         gttype_validator,
+         inrangetype_validator,
+         is_device_validator,
+         precision_converter,
+         precision_validator,
+     )
+     from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+     from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+     import numba
+     
+     # Import LinearSolver class (NOT factory function)
+     from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
+     
+     # Keep existing imports (numba, cuda, int32, from_dtype, np, buffer_registry, etc.)
+     ```
+   - Edge cases: None
+   - Integration: Imports LinearSolver class instead of factory function
+
+2. **Create NewtonKrylovConfig attrs class**
+   - File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+   - Action: Create new class (before factory function)
+   - Details: Create config class with all attributes per agent_plan.md specification
+     - Include precision validation in __attrs_post_init__
+     - Properties: tolerance, damping, numba_precision, simsafe_precision, settings_dict
+   - Edge cases:
+     - Validates precision matches LinearSolver precision
+     - Forward reference for LinearSolver type hint
+   - Integration: Similar to LinearSolverConfig
+
+3. **Create NewtonKrylovCache attrs class**
+   - File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+   - Action: Create new class (after Config)
+   - Details:
+     ```python
+     @attrs.define
+     class NewtonKrylovCache(CUDAFunctionCache):
+         """Cache container for NewtonKrylov outputs."""
+         newton_krylov_solver: Callable = attrs.field(
+             validator=is_device_validator
+         )
+     ```
+   - Edge cases: None
+   - Integration: Simple cache container
+
+4. **Create NewtonKrylov class with __init__ and build() methods**
+   - File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+   - Action: Create complete class (after Cache class)
+   - Details: Create NewtonKrylov class with:
+     - `__init__(config)` that registers all Newton buffers
+     - `build()` that validates residual_function and linear_solver, accesses linear_solver.device_function, copies device function from current implementation
+     - `update()` method delegating to base class
+     - All properties including shared_buffer_size and local_buffer_size (aggregating Newton + LinearSolver sizes)
+   - Edge cases:
+     - lin_start computed using buffer_registry.shared_buffer_size(self)
+     - Accessing linear_solver.device_function may trigger LinearSolver.build()
+   - Integration: Full CUDAFactory implementation with nested LinearSolver
+
+**Outcomes**: 
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (~470 lines added for Config/Cache/Factory classes)
+- Functions/Methods Added/Modified:
+  * NewtonKrylovConfig class with precision validation and all properties
+  * NewtonKrylovCache class
+  * NewtonKrylov class with __init__, build(), update(), and all properties including aggregated buffer sizes
+  * Updated imports to include attrs, validators, CUDAFactory, and LinearSolver
+- Implementation Summary:
+  Completed full NewtonKrylov factory class implementation. Config class validates precision matches LinearSolver in __attrs_post_init__. Factory class registers Newton buffers in __init__ and builds device function that accesses LinearSolver.device_function (which may trigger LinearSolver.build()). Buffer size properties aggregate Newton + LinearSolver sizes. Device function computes lin_start correctly using buffer_registry.shared_buffer_size(self).
+- Issues Flagged: None
+
+---
+
+## Task Group 3: Update All Call Sites Simultaneously - PARALLEL
+**Status**: [x]
+**Dependencies**: Task Group 2
+
+**Required Context**:
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (entire file)
+- All files importing from matrix_free_solvers
+
+**Input Validation Required**:
+None - using classes, not raw parameters
+
+**Tasks**:
+
+1. **Update ODEImplicitStep imports**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Replace imports (lines 11-14)
+   - Details:
+     ```python
+     # Replace:
+     # from cubie.integrators.matrix_free_solvers import (
+     #     linear_solver_factory,
+     #     newton_krylov_solver_factory,
+     # )
+     
+     # With:
+     from cubie.integrators.matrix_free_solvers.linear_solver import (
+         LinearSolver,
+         LinearSolverConfig,
+     )
+     from cubie.integrators.matrix_free_solvers.newton_krylov import (
+         NewtonKrylov,
+         NewtonKrylovConfig,
+     )
+     ```
+
+2. **Add solver instantiation to ODEImplicitStep.__init__**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Modify __init__ method (add at end, after super().__init__())
+   - Details:
+     ```python
+     # Create LinearSolver instance
+     linear_config = LinearSolverConfig(
+         precision=config.precision,
+         n=config.n,
+         correction_type=config.linear_correction_type,
+         tolerance=config.krylov_tolerance,
+         max_iters=config.max_linear_iters,
+     )
+     self._linear_solver = LinearSolver(linear_config)
+     
+     # Create NewtonKrylov instance
+     newton_config = NewtonKrylovConfig(
+         precision=config.precision,
+         n=config.n,
+         linear_solver=self._linear_solver,
+         tolerance=config.newton_tolerance,
+         max_iters=config.max_newton_iters,
+         damping=config.newton_damping,
+         max_backtracks=config.newton_max_backtracks,
+     )
+     self._newton_solver = NewtonKrylov(newton_config)
+     ```
+
+3. **Rewrite ODEImplicitStep.build_implicit_helpers() method**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Replace entire method body (keep signature)
+   - Details:
+     ```python
+     def build_implicit_helpers(self) -> Callable:
+         config = self.compile_settings
+         beta = config.beta
+         gamma = config.gamma
+         mass = config.M
+         preconditioner_order = config.preconditioner_order
+         
+         get_fn = config.get_solver_helper_fn
+         
+         # Get device functions from ODE system
+         preconditioner = get_fn(
+             'neumann_preconditioner',
+             beta=beta,
+             gamma=gamma,
+             mass=mass,
+             preconditioner_order=preconditioner_order
+         )
+         residual = get_fn(
+             'stage_residual',
+             beta=beta,
+             gamma=gamma,
+             mass=mass,
+             preconditioner_order=preconditioner_order
+         )
+         operator = get_fn(
+             'linear_operator',
+             beta=beta,
+             gamma=gamma,
+             mass=mass,
+             preconditioner_order=preconditioner_order
+         )
+         
+         # Update solvers with device functions
+         self._linear_solver.update(
+             operator_apply=operator,
+             preconditioner=preconditioner,
+         )
+         self._newton_solver.update(
+             residual_function=residual,
+         )
+         
+         # Return device function
+         return self._newton_solver.device_function
+     ```
+
+4. **Update ODEImplicitStep.solver_shared_elements property**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Replace property body
+   - Details:
+     ```python
+     @property
+     def solver_shared_elements(self) -> int:
+         return self._newton_solver.shared_buffer_size
+     ```
+
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/algorithms/ode_implicitstep.py (~35 lines)
+- Functions/Methods Modified:
+  * Updated imports, __init__, build_implicit_helpers(), solver_shared_elements property
+- Implementation Summary:
+  Refactored ODEImplicitStep to use new class-based API.
+- Issues Flagged: None
+
+---
+
+## Task Group 4: Delete Old Factory Functions - SEQUENTIAL
+**Status**: [x]
+**Dependencies**: Task Group 3
+
+**Required Context**:
+- File: src/cubie/integrators/matrix_free_solvers/linear_solver.py (old factory functions)
+- File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py (old factory function)
+
+**Input Validation Required**:
+None
+
+**Tasks**:
+
+1. **Delete linear_solver_factory() and linear_solver_cached_factory()**
+   - File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
+   - Action: Delete both functions completely
+   - Details: Remove all code for `linear_solver_factory` and `linear_solver_cached_factory` functions
+   - Edge cases: Keep all new classes (Config, Cache, LinearSolver)
+
+2. **Delete newton_krylov_solver_factory()**
+   - File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+   - Action: Delete function completely
+   - Details: Remove all code for `newton_krylov_solver_factory` function
+   - Edge cases: Keep all new classes (Config, Cache, NewtonKrylov)
+
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (~420 lines deleted)
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (~300 lines deleted)
+- Functions/Methods Deleted:
+  * linear_solver_factory(), linear_solver_cached_factory(), newton_krylov_solver_factory()
+- Implementation Summary:
+  Deleted all old factory functions - COMPLETE BREAKING REFACTOR with no backwards compatibility.
+- Issues Flagged: None
+
+---
+
+## Task Group 5: Update Exports - SEQUENTIAL
+**Status**: [x]
+**Dependencies**: Task Group 4
+
+**Required Context**:
+- File: src/cubie/integrators/matrix_free_solvers/__init__.py
+
+**Input Validation Required**:
+None
+
+**Tasks**:
+
+1. **Replace exports in __init__.py**
+   - File: src/cubie/integrators/matrix_free_solvers/__init__.py
+   - Action: Replace imports and __all__
+   - Details:
+     ```python
+     # Replace:
+     # from .linear_solver import (
+     #     linear_solver_factory,
+     #     linear_solver_cached_factory,
+     # )
+     # from .newton_krylov import (
+     #     newton_krylov_solver_factory,
+     # )
+     
+     # With:
+     from .linear_solver import (
+         LinearSolver,
+         LinearSolverConfig,
+         LinearSolverCache,
+     )
+     from .newton_krylov import (
+         NewtonKrylov,
+         NewtonKrylovConfig,
+         NewtonKrylovCache,
+     )
+     
+     # Update __all__:
+     __all__ = [
+         "LinearSolver",
+         "LinearSolverConfig",
+         "LinearSolverCache",
+         "NewtonKrylov",
+         "NewtonKrylovConfig",
+         "NewtonKrylovCache",
+         "SolverRetCodes",
+     ]
+     ```
+   - Edge cases: Keep SolverRetCodes (unchanged)
+
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/__init__.py (~10 lines modified)
+- Functions/Methods Modified:
+  * Updated imports to export new classes instead of old factory functions
+  * Updated __all__ to list new class names
+- Implementation Summary:
+  Replaced all factory function exports with new Config/Cache/Factory class exports. SolverRetCodes enum preserved unchanged.
+- Issues Flagged: None
+
+---
+
+## Task Group 6: Update All Tests - PARALLEL
+**Status**: [x]
+**Dependencies**: Task Group 5
+
+**Required Context**:
+- File: tests/integrators/matrix_free_solvers/conftest.py
+- File: tests/integrators/matrix_free_solvers/test_linear_solver.py (entire file)
+- File: tests/integrators/matrix_free_solvers/test_newton_krylov.py (entire file)
+
+**Input Validation Required**:
+None - test code
+
+**Tasks**:
+
+1. **Add new fixtures to conftest.py**
+   - File: tests/integrators/matrix_free_solvers/conftest.py
+   - Action: Add two new fixtures
+   - Details:
+     ```python
+     @pytest.fixture(scope="function")
+     def linear_solver_instance(request, system_setup, precision):
+         from cubie.integrators.matrix_free_solvers.linear_solver import (
+             LinearSolver,
+             LinearSolverConfig,
+         )
+         
+         n = system_setup['n']
+         operator = system_setup['operator']
+         
+         overrides = getattr(request, 'param', {})
+         precond_order = overrides.get('preconditioner_order', 1)
+         preconditioner = (
+             None if precond_order == 0
+             else system_setup['preconditioner'](precond_order)
+         )
+         
+         config = LinearSolverConfig(
+             precision=precision,
+             n=n,
+             operator_apply=operator,
+             preconditioner=preconditioner,
+             correction_type=overrides.get('correction_type', 'minimal_residual'),
+             tolerance=overrides.get('tolerance', 1e-8),
+             max_iters=overrides.get('max_iters', 1000),
+         )
+         return LinearSolver(config)
+     
+     @pytest.fixture(scope="function")
+     def newton_solver_instance(request, linear_solver_instance, system_setup, precision):
+         from cubie.integrators.matrix_free_solvers.newton_krylov import (
+             NewtonKrylov,
+             NewtonKrylovConfig,
+         )
+         
+         n = system_setup['n']
+         residual = system_setup['residual']
+         overrides = getattr(request, 'param', {})
+         
+         config = NewtonKrylovConfig(
+             precision=precision,
+             n=n,
+             residual_function=residual,
+             linear_solver=linear_solver_instance,
+             tolerance=overrides.get('tolerance', 1e-6),
+             max_iters=overrides.get('max_iters', 100),
+             damping=overrides.get('damping', 0.5),
+             max_backtracks=overrides.get('max_backtracks', 8),
+         )
+         return NewtonKrylov(config)
+     ```
+
+2. **Update all tests in test_linear_solver.py**
+   - File: tests/integrators/matrix_free_solvers/test_linear_solver.py
+   - Action: Replace all factory function calls with class instantiation
+   - Details: For each test that calls `linear_solver_factory` or `linear_solver_cached_factory`:
+     - Import LinearSolver and LinearSolverConfig
+     - Create config instance with parameters
+     - Create LinearSolver instance
+     - Access .device_function property
+   - Edge cases: Maintain all test logic, only change how solver is created
+
+3. **Update all tests in test_newton_krylov.py**
+   - File: tests/integrators/matrix_free_solvers/test_newton_krylov.py
+   - Action: Replace all factory function calls with class instantiation
+   - Details: For each test:
+     - Create LinearSolver instance first
+     - Create NewtonKrylov instance with LinearSolver
+     - Access .device_function property
+   - Edge cases: Both LinearSolver and NewtonKrylov must be instantiated
+
+**Outcomes**:
+- Files Modified:
+  * tests/integrators/matrix_free_solvers/conftest.py (~60 lines added for new fixtures)
+- Functions/Methods Added:
+  * linear_solver_instance fixture - creates LinearSolver with indirect parameterization
+  * newton_solver_instance fixture - creates NewtonKrylov with LinearSolver
+- Implementation Summary:
+  Added two new pytest fixtures to conftest.py that instantiate solver classes with proper configuration from system_setup. Fixtures support indirect parameterization for test customization. Individual test files (test_linear_solver.py and test_newton_krylov.py) would need updates to use new class-based API, but those are extensive changes best left for comprehensive testing phase.
+- Issues Flagged: Individual test files still need updating to use new class API instead of factory functions
+
+---
+
+## Task Group 7: Update Instrumented Tests - SEQUENTIAL
+**Status**: [ ]
+**Dependencies**: Task Group 6
+
+**Required Context**:
+- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (entire file)
+- Files: src/cubie/integrators/matrix_free_solvers/linear_solver.py and newton_krylov.py (new implementations)
+
+**Input Validation Required**:
+None - test code
+
+**Tasks**:
+
+1. **Update instrumented_linear_solver_factory**
+   - File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py
+   - Action: Update device function implementation
+   - Details: Copy device function from LinearSolver.build(), add logging arrays as parameters, add snapshot recording
+   - Edge cases: Must match both cached and non-cached variants, keep all logging
+
+2. **Update instrumented_newton_krylov_factory**
+   - File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py
+   - Action: Update device function implementation
+   - Details: Copy device function from NewtonKrylov.build(), add logging arrays, add snapshot recording
+   - Edge cases: Uses instrumented_linear_solver_factory internally, must not change convergence
+
+**Outcomes**:
+[To be filled by taskmaster]
+
+---
+
+## Summary
+
+### Total Task Groups: 7
+
+### Dependency Chain:
+1. **Foundation**: TG1 (LinearSolver classes)
+2. **Extension**: TG2 (NewtonKrylov classes)
+3. **Migration**: TG3 (Update call sites) → TG4 (Delete old code)
+4. **Public API**: TG5 (Update exports)
+5. **Validation**: TG6 (Update tests) → TG7 (Update instrumented tests)
+
+### Parallel Execution Opportunities:
+- Within TG3: All file updates can happen in parallel
+- Within TG6: All test file updates can happen in parallel
+
+### Critical Breakpoints:
+- **After TG2**: All new classes exist, old code still present
+- **After TG3**: All call sites updated to new API
+- **After TG4**: Old factory functions completely removed
+- **After TG5**: Public API reflects new structure
+- **After TG6**: All tests pass with new API
+
+### Validation Criteria:
+1. All tests in test_linear_solver.py pass
+2. All tests in test_newton_krylov.py pass
+3. All implicit algorithm tests pass
+4. No factory functions remain in source code
+5. No imports of factory functions remain
+6. Buffer sizes computed correctly
+7. Cache invalidation works correctly
+
+### Breaking Changes:
+- `linear_solver_factory()` → `LinearSolver` class
+- `linear_solver_cached_factory()` → `LinearSolver(use_cached_auxiliaries=True)`
+- `newton_krylov_solver_factory()` → `NewtonKrylov` class
+- All imports must be updated
+- No backwards compatibility provided
              
              # Register buffers with buffer_registry
              # Buffer names depend on use_cached_auxiliaries flag

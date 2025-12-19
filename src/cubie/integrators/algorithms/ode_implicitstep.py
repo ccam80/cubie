@@ -8,9 +8,13 @@ import numpy as np
 import sympy as sp
 
 from cubie._utils import inrangetype_validator, gttype_validator
-from cubie.integrators.matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolver,
+    LinearSolverConfig,
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonKrylov,
+    NewtonKrylovConfig,
 )
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
@@ -156,6 +160,28 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
 
         super().__init__(config, _controller_defaults)
+        
+        # Create LinearSolver instance
+        linear_config = LinearSolverConfig(
+            precision=config.precision,
+            n=config.n,
+            correction_type=config.linear_correction_type,
+            tolerance=config.krylov_tolerance,
+            max_iters=config.max_linear_iters,
+        )
+        self._linear_solver = LinearSolver(linear_config)
+        
+        # Create NewtonKrylov instance
+        newton_config = NewtonKrylovConfig(
+            precision=config.precision,
+            n=config.n,
+            linear_solver=self._linear_solver,
+            tolerance=config.newton_tolerance,
+            max_iters=config.max_newton_iters,
+            damping=config.newton_damping,
+            max_backtracks=config.newton_max_backtracks,
+        )
+        self._newton_solver = NewtonKrylov(newton_config)
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -238,17 +264,17 @@ class ODEImplicitStep(BaseAlgorithmStep):
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        n = config.n
 
         get_fn = config.get_solver_helper_fn
     
+        # Get device functions from ODE system
         preconditioner = get_fn(
-                    'neumann_preconditioner',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order
-            )
+            'neumann_preconditioner',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
+        )
         residual = get_fn(
             'stage_residual',
             beta=beta,
@@ -257,46 +283,30 @@ class ODEImplicitStep(BaseAlgorithmStep):
             preconditioner_order=preconditioner_order
         )
         operator = get_fn(
-                'linear_operator',
-                beta=beta,
-                gamma=gamma,
-                mass=mass,
-                preconditioner_order=preconditioner_order)
-
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver = linear_solver_factory(operator,
-                                              n=n,
-                                              precision=self.precision,
-                                              preconditioner=preconditioner,
-                                              correction_type=correction_type,
-                                              tolerance=krylov_tolerance,
-                                              max_iters=max_linear_iters)
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        nonlinear_solver = newton_krylov_solver_factory(
-            residual_function=residual,
-            linear_solver=linear_solver,
-            n=n,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
-            precision=self.precision,
+            'linear_operator',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
         )
-        return nonlinear_solver
+        
+        # Update solvers with device functions
+        self._linear_solver.update(
+            operator_apply=operator,
+            preconditioner=preconditioner,
+        )
+        self._newton_solver.update(
+            residual_function=residual,
+        )
+        
+        # Return device function
+        return self._newton_solver.device_function
 
     @property
     def solver_shared_elements(self) -> int:
         """Return shared scratch dedicated to the Newton--Krylov solver."""
 
-        return self.compile_settings.n * 2
+        return self._newton_solver.shared_buffer_size
 
     @property
     def solver_local_elements(self) -> int:
