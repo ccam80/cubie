@@ -300,12 +300,12 @@ class BufferGroup:
             parent_entry = self.entries[entry.aliases]
 
             if parent_entry.is_shared:
-                # Parent is shared - check if space available
+                # Parent is shared - check if space available AND buffer is shared
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
-                if entry.size <= available:
-                    # Alias fits within parent
+                if entry.is_shared and entry.size <= available:
+                    # Alias fits within parent and buffer is shared
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
@@ -313,7 +313,7 @@ class BufferGroup:
                         consumed + entry.size
                     )
                 elif entry.is_shared:
-                    # Parent too small, allocate new shared space
+                    # Parent too small or buffer not shared, allocate new shared space
                     layout[name] = slice(offset, offset + entry.size)
                     offset += entry.size
                 # else: not shared, will be handled by persistent/local
@@ -383,14 +383,27 @@ class BufferGroup:
     def build_local_sizes(self) -> Dict[str, int]:
         """Compute sizes for local (non-persistent) buffers.
 
+        Only allocates local memory for buffers that are not already
+        allocated in shared or persistent memory via aliasing.
+
         Returns
         -------
         Dict[str, int]
             Mapping of buffer names to local array sizes.
         """
+        # Ensure shared and persistent layouts are computed first
+        if self._shared_layout is None:
+            self._shared_layout = self.build_shared_layout()
+        if self._persistent_layout is None:
+            self._persistent_layout = self.build_persistent_layout()
+
         sizes = {}
         for name, entry in self.entries.items():
             if entry.is_local:
+                # Check if this buffer was already allocated via aliasing
+                if name in self._shared_layout or name in self._persistent_layout:
+                    # Already allocated elsewhere, skip local allocation
+                    continue
                 # cuda.local.array requires size >= 1
                 sizes[name] = max(entry.size, 1)
         return sizes
