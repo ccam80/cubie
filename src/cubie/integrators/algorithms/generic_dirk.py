@@ -243,7 +243,7 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
         buffer_registry.register(
-            'dirk_accumulator', self, accumulator_length,
+            'accumulator', self, accumulator_length,
             config.accumulator_location, precision=precision
         )
 
@@ -256,18 +256,18 @@ class DIRKStep(ODEImplicitStep):
         )
         if stage_base_aliases_acc:
             buffer_registry.register(
-                'dirk_stage_base', self, n, 'local',
-                aliases='dirk_accumulator', precision=precision
+                'stage_base', self, n, 'local',
+                aliases='accumulator', precision=precision
             )
         else:
             buffer_registry.register(
-                'dirk_stage_base', self, n, config.stage_base_location,
+                'stage_base', self, n, config.stage_base_location,
                 precision=precision
             )
 
         # FSAL caches for first-same-as-last optimization
         buffer_registry.register(
-                'dirk_rhs_cache',
+                'rhs_cache',
                 self,
                 n,
                 'local',
@@ -276,7 +276,7 @@ class DIRKStep(ODEImplicitStep):
                 precision=precision
         )
         buffer_registry.register(
-            'dirk_increment_cache',
+            'increment_cache',
             self,
             n,
             'local',
@@ -285,7 +285,7 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
         buffer_registry.register(
-            'dirk_stage_rhs', self, n, 'local',
+            'stage_rhs', self, n, 'local',
             precision=precision
         )
 
@@ -416,19 +416,19 @@ class DIRKStep(ODEImplicitStep):
             'dirk_stage_increment', self
         )
         alloc_accumulator = buffer_registry.get_allocator(
-            'dirk_accumulator', self
+            'accumulator', self
         )
         alloc_stage_base = buffer_registry.get_allocator(
-            'dirk_stage_base', self
+            'stage_base', self
         )
         alloc_rhs_cache = buffer_registry.get_allocator(
-            'dirk_rhs_cache', self
+            'rhs_cache', self
         )
         alloc_increment_cache = buffer_registry.get_allocator(
-            'dirk_increment_cache', self
+            'increment_cache', self
         )
         alloc_stage_rhs = buffer_registry.get_allocator(
-            'dirk_stage_rhs', self
+            'stage_rhs', self
         )
         
         # Get child allocators for Newton solver

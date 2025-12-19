@@ -249,15 +249,15 @@ class FIRKStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'firk_stage_increment', self, all_stages_n,
+            'stage_increment', self, all_stages_n,
             config.stage_increment_location, precision=precision
         )
         buffer_registry.register(
-            'firk_stage_driver_stack', self, stage_driver_stack_elements,
+            'stage_driver_stack', self, stage_driver_stack_elements,
             config.stage_driver_stack_location, precision=precision
         )
         buffer_registry.register(
-            'firk_stage_state', self, n, config.stage_state_location,
+            'stage_state', self, n, config.stage_state_location,
             precision=precision
         )
 
@@ -385,13 +385,13 @@ class FIRKStep(ODEImplicitStep):
 
         # Get allocators from buffer registry
         alloc_stage_increment = buffer_registry.get_allocator(
-            'firk_stage_increment', self
+            'stage_increment', self
         )
         alloc_stage_driver_stack = buffer_registry.get_allocator(
-            'firk_stage_driver_stack', self
+            'stage_driver_stack', self
         )
         alloc_stage_state = buffer_registry.get_allocator(
-            'firk_stage_state', self
+            'stage_state', self
         )
         
         # Get child allocators for Newton solver

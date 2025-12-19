@@ -150,9 +150,6 @@ class IVPLoop(CUDAFactory):
         counters_location: str = 'local',
         state_summary_location: str = 'local',
         observable_summary_location: str = 'local',
-        controller_local_len: int = 0,
-        algorithm_local_len: int = 0,
-        algorithm_shared_len: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         dt0: Optional[float] = None,
@@ -185,7 +182,7 @@ class IVPLoop(CUDAFactory):
             parameters_location, precision=precision
         )
         buffer_registry.register(
-            'loop_drivers', self, n_drivers, drivers_location,
+            'drivers', self, n_drivers, drivers_location,
             precision=precision
         )
         buffer_registry.register(
@@ -193,15 +190,15 @@ class IVPLoop(CUDAFactory):
             drivers_proposal_location, precision=precision
         )
         buffer_registry.register(
-            'loop_observables', self, n_observables,
+            'observables', self, n_observables,
             observables_location, precision=precision
         )
         buffer_registry.register(
-            'loop_proposed_observables', self, n_observables,
+            'proposed_observables', self, n_observables,
             observables_proposal_location, precision=precision
         )
         buffer_registry.register(
-            'loop_error', self, n_error, error_location,
+            'error', self, n_error, error_location,
             precision=precision
         )
         buffer_registry.register(
@@ -209,22 +206,12 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'loop_state_summary', self, state_summary_buffer_height,
+            'state_summary', self, state_summary_buffer_height,
             state_summary_location, precision=precision
         )
         buffer_registry.register(
-            'loop_observable_summary', self, observable_summary_buffer_height,
+            'observable_summary', self, observable_summary_buffer_height,
             observable_summary_location, precision=precision
-        )
-
-        # Register algorithm step child buffers
-        buffer_registry.register(
-            'loop_algorithm_shared', self, algorithm_shared_len,
-            'shared', precision=precision
-        )
-        buffer_registry.register(
-            'loop_algorithm_persistent', self, algorithm_local_len,
-            'local', persistent=True, precision=precision
         )
 
         config = ODELoopConfig(
@@ -236,8 +223,6 @@ class IVPLoop(CUDAFactory):
             n_counters=n_counters,
             state_summary_buffer_height=state_summary_buffer_height,
             observable_summary_buffer_height=observable_summary_buffer_height,
-            controller_local_len=controller_local_len,
-            algorithm_local_len=algorithm_local_len,
             state_location=state_location,
             proposed_state_location=state_proposal_location,
             parameters_location=parameters_location,
@@ -319,27 +304,27 @@ class IVPLoop(CUDAFactory):
             'loop_proposed_state', self
         )
         alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
-        alloc_drivers = buffer_registry.get_allocator('loop_drivers', self)
+        alloc_drivers = buffer_registry.get_allocator('drivers', self)
         alloc_proposed_drivers = buffer_registry.get_allocator(
             'loop_proposed_drivers', self
         )
-        alloc_observables = buffer_registry.get_allocator('loop_observables', self)
+        alloc_observables = buffer_registry.get_allocator('observables', self)
         alloc_proposed_observables = buffer_registry.get_allocator(
-            'loop_proposed_observables', self
+            'proposed_observables', self
         )
-        alloc_error = buffer_registry.get_allocator('loop_error', self)
+        alloc_error = buffer_registry.get_allocator('error', self)
         alloc_counters = buffer_registry.get_allocator('loop_counters', self)
         alloc_state_summary = buffer_registry.get_allocator(
-            'loop_state_summary', self
+            'state_summary', self
         )
         alloc_observable_summary = buffer_registry.get_allocator(
-            'loop_observable_summary', self
+            'observable_summary', self
         )
         alloc_algo_shared = buffer_registry.get_allocator(
-            'loop_algorithm_shared', self
+            'algorithm_shared', self
         )
         alloc_algo_persistent = buffer_registry.get_allocator(
-            'loop_algorithm_persistent', self
+            'algorithm_persistent', self
         )
 
         # Local memory indices for non-allocated persistent local storage
