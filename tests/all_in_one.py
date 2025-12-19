@@ -33,6 +33,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROSENBROCK_TABLEAUS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.outputhandling.summarymetrics import summary_metrics
 
 # =========================================================================
 # CONFIGURATION
@@ -272,7 +273,6 @@ rtol = np.full(n_states, rtol_value, dtype=precision)
 n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
 
 # Compile-time derived flags
-summarise = summarise_obs_bool or summarise_state_bool
 fixed_mode = controller_type == 'fixed'
 dt0 = dt if fixed_mode else np.sqrt(dt_min * dt_max)
 
@@ -406,7 +406,6 @@ def get_strides(
 
 # AUTO-GENERATED DXDT FACTORY
 def dxdt_factory(constants, precision):
-    """Auto-generated dxdt factory."""
     sigma_ = precision(constants["sigma_"])
     beta_ = precision(constants["beta_"])
 
@@ -431,7 +430,6 @@ def dxdt_factory(constants, precision):
 
 # AUTO-GENERATED OBSERVABLES FACTORY
 def observables_factory(constants, precision):
-    """Auto-generated observables factory."""
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -448,12 +446,6 @@ def observables_factory(constants, precision):
     return get_observables
 # AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Auto-generated Neumann preconditioner.
-    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
-    Neumann series. Returns device function:
-      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
-    where `jvp` is a caller-provided scratch buffer for J*v.
-    """
     n = int32(3)
     gamma = precision(gamma)
     beta = precision(beta)
@@ -503,10 +495,6 @@ def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
 
 # AUTO-GENERATED NONLINEAR RESIDUAL FACTORY
 def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated nonlinear residual for implicit updates.
-    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -539,13 +527,6 @@ def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED LINEAR OPERATOR FACTORY
 def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated linear operator.
-    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
-    Returns device function:
-      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)
-    argument 'order' is ignored, included for compatibility with
-    preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -582,10 +563,6 @@ def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED N-STAGE RESIDUAL FACTORY
 def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated FIRK residual for flattened stage increments.
-    Handles 3 stages with ``s * n`` unknowns.
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -655,10 +632,6 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY
 def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated FIRK linear operator for flattened stages.
-    Handles 3 stages with ``s * n`` unknowns.
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     gamma = precision(gamma)
@@ -757,13 +730,6 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
 
 # AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY
 def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Auto-generated FIRK Neumann preconditioner.
-    Handles 3 stages with ``s * n`` unknowns.
-    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using
-    a truncated Neumann series applied to flattened stages.
-    Returns device function:
-      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     total_n = int32(9)
@@ -872,13 +838,6 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             out[i] = beta_inv * out[i]
     return preconditioner
 def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Cached Neumann preconditioner using stored auxiliaries.
-    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
-    Neumann series with cached auxiliaries. Returns device function:
-      preconditioner(
-          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp
-      )
-    """
     n = int32(3)
     order = int32(order)
     gamma = precision(gamma)
@@ -927,16 +886,6 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
 
 # AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY
 def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated cached linear operator.
-    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
-    using cached auxiliary intermediates.
-    Returns device function:
-      operator_apply(
-          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out
-      )
-    argument 'order' is ignored, included for compatibility with
-    preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -975,9 +924,6 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
 
 # AUTO-GENERATED JACOBIAN PREPARATION FACTORY
 def prepare_jac(constants, precision):
-    """Auto-generated Jacobian auxiliary preparation.
-    Populates cached_aux with intermediate Jacobian values.
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -994,7 +940,6 @@ def prepare_jac(constants, precision):
 
 # AUTO-GENERATED TIME-DERIVATIVE FACTORY
 def time_derivative_rhs(constants, precision):
-    """Auto-generated time-derivative factory."""
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -1023,23 +968,6 @@ def time_derivative_rhs(constants, precision):
 # =========================================================================
 
 def driver_function_inline_factory(interpolator):
-    """Create inline evaluation function from ArrayInterpolator.
-
-    Takes an ArrayInterpolator instance and creates an inline CUDA device
-    function that evaluates driver polynomials at a given time. This is the
-    critical device code for CUDA profiling tool alignment.
-
-    Parameters
-    ----------
-    interpolator : ArrayInterpolator
-        Configured ArrayInterpolator instance with computed coefficients.
-
-    Returns
-    -------
-    callable
-        Inline CUDA device function with signature:
-        driver_function(time, coefficients, out)
-    """
     prec = interpolator.precision
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
@@ -1060,17 +988,6 @@ def driver_function_inline_factory(interpolator):
         **compile_kwargs
     )
     def driver_function(time, coefficients, out):
-        """Evaluate all driver polynomials at time on the device.
-
-        Parameters
-        ----------
-        time : float
-            Query time for evaluation.
-        coefficients : device array
-            Segment-major coefficients with shape (segments, drivers, order+1).
-        out : device array
-            Output array to populate with evaluated driver values.
-        """
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
@@ -1097,23 +1014,6 @@ def driver_function_inline_factory(interpolator):
 
 
 def driver_derivative_inline_factory(interpolator):
-    """Create inline derivative function from ArrayInterpolator.
-
-    Takes an ArrayInterpolator instance and creates an inline CUDA device
-    function that evaluates driver time derivatives at a given time. This is
-    critical device code for CUDA profiling tool alignment.
-
-    Parameters
-    ----------
-    interpolator : ArrayInterpolator
-        Configured ArrayInterpolator instance with computed coefficients.
-
-    Returns
-    -------
-    callable
-        Inline CUDA device function with signature:
-        driver_derivative(time, coefficients, out)
-    """
     prec = interpolator.precision
     if interpolator.num_inputs <= 0:
         return None
@@ -1136,17 +1036,6 @@ def driver_derivative_inline_factory(interpolator):
         **compile_kwargs
     )
     def driver_derivative(time, coefficients, out):
-        """Evaluate time derivative of each driver polynomial.
-
-        Parameters
-        ----------
-        time : float
-            Query time for evaluation.
-        coefficients : device array
-            Segment-major coefficients with shape (segments, drivers, order+1).
-        out : device array
-            Output array to populate with evaluated driver derivatives.
-        """
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
@@ -1177,7 +1066,6 @@ def driver_derivative_inline_factory(interpolator):
 
 
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
-    """Auto-generated Neumann preconditioner."""
     n = int32(3)
     order = int32(order)
     beta_inv = prec(1.0 / beta)
@@ -1217,7 +1105,6 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
 
 
 def stage_residual_factory(constants, prec, beta, gamma, order):
-    """Auto-generated nonlinear residual for implicit updates."""
     sigma = prec(constants['sigma_'])
     beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
@@ -1244,7 +1131,6 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
 
 
 def linear_operator_factory(constants, prec, beta, gamma, order):
-    """Auto-generated linear operator."""
     sigma = prec(constants['sigma_'])
     beta_const = prec(constants['beta_'])
     gamma = prec(gamma)
@@ -3367,219 +3253,6 @@ def save_state_inline(current_state, current_observables, current_counters,
 # =========================================================================
 # SUMMARY METRICS REGISTRY SIMULATION
 # =========================================================================
-
-# List of all implemented summary metrics (matches package registry)
-implemented_metrics = [
-    "mean", "max", "min", "rms", "std",
-    "mean_std", "mean_std_rms", "std_rms",
-    "extrema", "peaks", "negative_peaks", "max_magnitude",
-    "dxdt_max", "dxdt_min", "dxdt_extrema",
-    "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
-]
-
-# Buffer sizes per metric (number of slots needed per variable)
-METRIC_BUFFER_SIZES = {
-    "mean": 1,
-    "max": 1,
-    "min": 1,
-    "rms": 1,
-    "std": 3,
-    "mean_std": 3,
-    "mean_std_rms": 3,
-    "std_rms": 3,
-    "extrema": 2,
-    "peaks": 3,  # Base size, increases with customisable_variable
-    "negative_peaks": 3,  # Base size, increases with customisable_variable
-    "max_magnitude": 1,
-    "dxdt_max": 2,
-    "dxdt_min": 2,
-    "dxdt_extrema": 3,
-    "d2xdt2_max": 3,
-    "d2xdt2_min": 3,
-    "d2xdt2_extrema": 4,
-}
-
-# Output sizes per metric (number of values written per variable)
-METRIC_OUTPUT_SIZES = {
-    "mean": 1,
-    "max": 1,
-    "min": 1,
-    "rms": 1,
-    "std": 1,
-    "mean_std": 2,
-    "mean_std_rms": 3,
-    "std_rms": 2,
-    "extrema": 2,
-    "peaks": 0,  # Base size, increases with customisable_variable
-    "negative_peaks": 0,  # Base size, increases with customisable_variable
-    "max_magnitude": 1,
-    "dxdt_max": 1,
-    "dxdt_min": 1,
-    "dxdt_extrema": 2,
-    "d2xdt2_max": 1,
-    "d2xdt2_min": 1,
-    "d2xdt2_extrema": 2,
-}
-
-def buffer_sizes(summaries_list):
-    """Return list of buffer sizes for each metric in summaries_list.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Buffer size for each metric.
-    """
-    return [METRIC_BUFFER_SIZES[name] for name in summaries_list]
-
-def output_sizes(summaries_list):
-    """Return list of output sizes for each metric in summaries_list.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Output size for each metric.
-    """
-    return [METRIC_OUTPUT_SIZES[name] for name in summaries_list]
-
-def buffer_offsets(summaries_list):
-    """Return cumulative buffer offsets for each metric.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Starting buffer offset for each metric.
-    """
-    sizes = buffer_sizes(summaries_list)
-    offsets = []
-    cumulative = 0
-    for size in sizes:
-        offsets.append(cumulative)
-        cumulative += size
-    return offsets
-
-def output_offsets(summaries_list):
-    """Return cumulative output offsets for each metric.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Starting output offset for each metric.
-    """
-    sizes = output_sizes(summaries_list)
-    offsets = []
-    cumulative = 0
-    for size in sizes:
-        offsets.append(cumulative)
-        cumulative += size
-    return offsets
-
-def params(summaries_list):
-    """Return customisable_variable parameters for each metric.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Parameter value for each metric (0 for all current metrics).
-    """
-    return [0 for _ in summaries_list]
-
-def update_functions(summaries_list):
-    """Return list of update function references for each metric.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Update function for each metric.
-    """
-    function_map = {
-        "mean": update_mean,
-        "max": update_max,
-        "min": update_min,
-        "rms": update_rms,
-        "std": update_std,
-        "mean_std": update_mean_std,
-        "mean_std_rms": update_mean_std_rms,
-        "std_rms": update_std_rms,
-        "extrema": update_extrema,
-        "peaks": update_peaks,
-        "negative_peaks": update_negative_peaks,
-        "max_magnitude": update_max_magnitude,
-        "dxdt_max": update_dxdt_max,
-        "dxdt_min": update_dxdt_min,
-        "dxdt_extrema": update_dxdt_extrema,
-        "d2xdt2_max": update_d2xdt2_max,
-        "d2xdt2_min": update_d2xdt2_min,
-        "d2xdt2_extrema": update_d2xdt2_extrema,
-    }
-    return [function_map[name] for name in summaries_list]
-
-def save_functions(summaries_list):
-    """Return list of save function references for each metric.
-    
-    Parameters
-    ----------
-    summaries_list
-        Sequence of summary metric names.
-    
-    Returns
-    -------
-    list
-        Save function for each metric.
-    """
-    function_map = {
-        "mean": save_mean,
-        "max": save_max,
-        "min": save_min,
-        "rms": save_rms,
-        "std": save_std,
-        "mean_std": save_mean_std,
-        "mean_std_rms": save_mean_std_rms,
-        "std_rms": save_std_rms,
-        "extrema": save_extrema,
-        "peaks": save_peaks,
-        "negative_peaks": save_negative_peaks,
-        "max_magnitude": save_max_magnitude,
-        "dxdt_max": save_dxdt_max,
-        "dxdt_min": save_dxdt_min,
-        "dxdt_extrema": save_dxdt_extrema,
-        "d2xdt2_max": save_d2xdt2_max,
-        "d2xdt2_min": save_d2xdt2_min,
-        "d2xdt2_extrema": save_d2xdt2_extrema,
-    }
-    return [function_map[name] for name in summaries_list]
-
-
-# =========================================================================
 # SUMMARY METRIC FUNCTIONS (Mean metric with chained pattern)
 # =========================================================================
 
@@ -5227,7 +4900,7 @@ def update_summary_factory(
     num_summarised_observables = int32(len(summarised_observable_indices))
     buff_per_var = summaries_buffer_height_per_var
     total_buffer_size = int32(buff_per_var)
-    buffer_offsets_list = buffer_offsets(summaries_list)
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
     num_metrics = len(buffer_offsets_list)
 
     summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
@@ -5235,9 +4908,9 @@ def update_summary_factory(
         num_metrics > 0
     )
 
-    update_fns = update_functions(summaries_list)
-    buffer_sizes_list = buffer_sizes(summaries_list)
-    params_list = params(summaries_list)
+    update_fns = summary_metrics.update_functions(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
     chain_fn = chain_metrics_update(
         update_fns, buffer_offsets_list, buffer_sizes_list, params_list
     )
@@ -5491,17 +5164,17 @@ def save_summary_factory(
     num_summarised_states = int32(len(summarised_state_indices))
     num_summarised_observables = int32(len(summarised_observable_indices))
 
-    save_functions_list = save_functions(summaries_list)
+    save_functions_list = summary_metrics.save_functions(summaries_list)
 
     buff_per_var = summaries_buffer_height_per_var
     total_buffer_size = int32(buff_per_var)
-    total_output_size = int32(sum(output_sizes(summaries_list)))
+    total_output_size = int32(summary_metrics.summaries_output_height(summaries_list))
 
-    buffer_offsets_list = buffer_offsets(summaries_list)
-    buffer_sizes_list = buffer_sizes(summaries_list)
-    output_offsets_list = output_offsets(summaries_list)
-    output_sizes_list = output_sizes(summaries_list)
-    params_list = params(summaries_list)
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    output_offsets_list = summary_metrics.output_offsets(summaries_list)
+    output_sizes_list = summary_metrics.output_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
     num_summary_metrics = len(output_offsets_list)
 
     summarise_states = (num_summarised_states > 0) and (
@@ -5600,7 +5273,7 @@ def save_summary_factory(
 # -------------------------------------------------------------------------
 # List-based output configuration (matches package pattern)
 # Available types: 'state', 'observables', 'time', 'iteration_counters'
-# Plus any metric name from implemented_metrics list
+# Plus any metric name from summary_metrics.implemented_metrics
 output_types = ['state', 'mean', 'max', 'rms']
 
 # Examples of output_types configurations:
@@ -5628,7 +5301,7 @@ else:
         if any(
             (
                 output_type.startswith(name)
-                for name in implemented_metrics
+                for name in summary_metrics.implemented_metrics
             )
         ):
             summary_types_list.append(output_type)
@@ -5645,11 +5318,12 @@ else:
 # Derive summarise booleans
 summarise_state_bool = len(summary_types) > 0 and save_state_bool
 summarise_obs_bool = len(summary_types) > 0 and save_obs_bool
+summarise = summarise_obs_bool or summarise_state_bool
 
 # Calculate buffer and output sizes based on enabled metrics
 if len(summary_types) > 0:
-    summaries_buffer_height_per_var = sum(buffer_sizes(summary_types))
-    summaries_output_height_per_var = sum(output_sizes(summary_types))
+    summaries_buffer_height_per_var = summary_metrics.summaries_buffer_height(list(summary_types))
+    summaries_output_height_per_var = summary_metrics.summaries_output_height(list(summary_types))
 else:
     summaries_buffer_height_per_var = 0
     summaries_output_height_per_var = 0
@@ -5761,7 +5435,6 @@ def save_summaries_inline(
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
 def clamp(value, min_val, max_val):
-    """Clamp a value between min and max."""
     return max(min_val, min(value, max_val))
 
 
