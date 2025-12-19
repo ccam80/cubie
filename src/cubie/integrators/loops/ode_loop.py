@@ -169,7 +169,7 @@ class IVPLoop(CUDAFactory):
         super().__init__()
 
         # Register all loop buffers with central registry
-        buffer_registry.clear_factory(self)
+        buffer_registry.clear_parent(self)
 
         buffer_registry.register(
             'loop_state', self, n_states, state_location,
@@ -227,6 +227,17 @@ class IVPLoop(CUDAFactory):
             observable_summary_buffer_height=observable_summary_buffer_height,
             controller_local_len=controller_local_len,
             algorithm_local_len=algorithm_local_len,
+            state_location=state_location,
+            proposed_state_location=state_proposal_location,
+            parameters_location=parameters_location,
+            drivers_location=drivers_location,
+            proposed_drivers_location=drivers_proposal_location,
+            observables_location=observables_location,
+            proposed_observables_location=observables_proposal_location,
+            error_location=error_location,
+            counters_location=counters_location,
+            state_summary_location=state_summary_location,
+            observable_summary_location=observable_summary_location,
             save_state_fn=save_state_func,
             update_summaries_fn=update_summaries_func,
             save_summaries_fn=save_summaries_func,
@@ -890,6 +901,10 @@ class IVPLoop(CUDAFactory):
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
+
+        # Update buffer locations in registry
+        recognised |= buffer_registry.update(self, updates_dict, silent=True)
+
         unrecognised = set(updates_dict.keys()) - recognised
         if not silent and unrecognised:
             raise KeyError(
