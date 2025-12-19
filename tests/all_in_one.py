@@ -44,14 +44,14 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 
 script_start = perf_counter()
 #
-algorithm_type = 'dirk'
-algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'dirk'
+# algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-# algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ode23s'
+algorithm_type = 'rosenbrock'
+algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -1192,8 +1192,8 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
     beta_inv = prec(1.0 / beta)
     gamma = prec(gamma)
     h_eff_factor = prec(gamma * beta_inv)
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
 
     @cuda.jit(
@@ -1227,8 +1227,8 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
 
 def stage_residual_factory(constants, prec, beta, gamma, order):
     """Auto-generated nonlinear residual for implicit updates."""
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
     beta_val = numba_prec(1.0) * numba_prec(beta)
 
@@ -1254,8 +1254,8 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
 
 def linear_operator_factory(constants, prec, beta, gamma, order):
     """Auto-generated linear operator."""
-    sigma = prec(constants['sigma'])
-    beta_const = prec(constants['beta'])
+    sigma = prec(constants['sigma_'])
+    beta_const = prec(constants['beta_'])
     gamma = prec(gamma)
     numba_prec = numba_from_dtype(prec)
 
