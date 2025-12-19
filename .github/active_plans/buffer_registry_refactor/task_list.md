@@ -12,7 +12,7 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
 ---
 
 ## Task Group 1: Rename BufferEntry to CUDABuffer - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -63,12 +63,19 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
    - Integration: BufferGroup tracks ownership via `parent` attribute
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (2 lines changed - class name and removed factory attribute)
+- Functions/Methods Added/Modified:
+  * CUDABuffer class renamed from BufferEntry
+  * factory attribute removed from class definition
+- Implementation Summary:
+  Successfully renamed BufferEntry to CUDABuffer and removed factory attribute. Class now stores only buffer metadata without parent reference. Docstring updated to reflect parent context instead of factory context.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Rename BufferContext to BufferGroup - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -146,12 +153,22 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
    - Integration: None
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (~40 lines changed)
+- Functions/Methods Added/Modified:
+  * BufferContext class renamed to BufferGroup
+  * factory attribute renamed to parent
+  * entries type annotation updated to Dict[str, CUDABuffer]
+  * _alias_offsets renamed to _alias_consumption
+  * invalidate_layouts() updated to clear _alias_consumption
+- Implementation Summary:
+  Successfully renamed BufferContext to BufferGroup with all attribute renames. The class now properly refers to parent instead of factory throughout, and uses _alias_consumption for tracking aliased buffer space usage.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Add Methods to BufferGroup - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -547,12 +564,26 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
    - Integration: BufferRegistry wrapper calls this; CUDABuffer.build_allocator handles compilation
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (~280 lines added)
+- Functions/Methods Added/Modified:
+  * BufferGroup.register() - validates and registers new buffers
+  * BufferGroup.update_buffer() - updates existing buffer properties
+  * BufferGroup.build_shared_layout() - computes shared memory layout with cross-location aliasing
+  * BufferGroup.build_persistent_layout() - computes persistent local layout with cross-location aliasing
+  * BufferGroup.build_local_sizes() - computes local buffer sizes
+  * BufferGroup.shared_buffer_size() - returns total shared memory elements
+  * BufferGroup.local_buffer_size() - returns total local memory elements
+  * BufferGroup.persistent_local_buffer_size() - returns total persistent local elements
+  * BufferGroup.get_allocator() - generates CUDA device function for buffer allocation
+- Implementation Summary:
+  Successfully implemented all 9 methods for BufferGroup. The key architectural change is cross-location aliasing support - buffers can now alias parents of different memory types with automatic fallback when space is insufficient. Layout building uses first-come-first-serve consumption tracking for multiple aliases. All size methods use lazy cached computation.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Add build_allocator to CUDABuffer - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -624,12 +655,18 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
    - Integration: Called by BufferGroup.get_allocator
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (~50 lines added)
+- Functions/Methods Added/Modified:
+  * CUDABuffer.build_allocator() - compiles CUDA device function for buffer allocation
+- Implementation Summary:
+  Successfully added build_allocator method to CUDABuffer class. The method uses compile-time constants captured in closures to generate optimized inline CUDA device functions. Priority order: shared slice, then persistent slice, then local array allocation. All parameters are pre-computed by BufferGroup before calling this method.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Refactor BufferRegistry to Wrapper Pattern - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 2, 3, 4
 
 **Required Context**:
@@ -904,12 +941,27 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
       - `_build_local_sizes` (lines 383-403)
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (~250 lines changed - simplified/removed)
+- Functions/Methods Added/Modified:
+  * BufferRegistry._contexts renamed to _groups (Dict[object, BufferGroup])
+  * BufferRegistry.register() - simplified to wrapper delegating to BufferGroup
+  * BufferRegistry.update_buffer() - simplified to wrapper
+  * BufferRegistry.clear_layout() - updated to use _groups
+  * BufferRegistry.clear_factory() renamed to clear_parent()
+  * BufferRegistry.shared_buffer_size() - simplified to wrapper
+  * BufferRegistry.local_buffer_size() - simplified to wrapper
+  * BufferRegistry.persistent_local_buffer_size() - simplified to wrapper
+  * BufferRegistry.get_allocator() - simplified to wrapper
+  * Removed: _build_shared_layout(), _build_persistent_layout(), _build_local_sizes()
+- Implementation Summary:
+  Successfully refactored BufferRegistry from heavyweight implementation to thin wrapper pattern. All layout building logic moved to BufferGroup. Registry now only manages parent-to-group mapping and delegates all operations. Removed ~150 lines of implementation code, replacing with simple delegation. Changed all factory terminology to parent throughout.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Update Tests - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-5
 
 **Required Context**:
@@ -1068,7 +1120,20 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
      - In `test_get_allocator_unregistered_factory_raises`: match text should be updated if needed
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/test_buffer_registry.py (~180 lines changed)
+- Functions/Methods Added/Modified:
+  * Updated imports: BufferEntry → CUDABuffer, BufferContext → BufferGroup
+  * TestBufferEntry class renamed to TestCUDABuffer
+  * All CUDABuffer instantiations updated (removed factory parameter)
+  * All _contexts references changed to _groups (20+ occurrences)
+  * All clear_factory calls changed to clear_parent
+  * Removed: test_shared_alias_with_local_location_raises (behavior changed)
+  * Removed: test_persistent_alias_of_nonpersistent_local_raises (behavior changed)
+  * Added: TestCrossLocationAliasing class with 5 new tests for cross-location aliasing behavior
+- Implementation Summary:
+  Successfully updated all tests to reflect the refactored architecture. Removed tests for old cross-type aliasing restrictions. Added comprehensive tests for new cross-location aliasing behavior including fallback scenarios, first-come-first-serve consumption, and multiple alias edge cases. All terminology updated from factory to parent.
+- Issues Flagged: None
 
 ---
 
@@ -1076,12 +1141,12 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
 
 | Group | Name | Status | Type | Estimated Complexity |
 |-------|------|--------|------|---------------------|
-| 1 | Rename BufferEntry to CUDABuffer | [ ] | SEQUENTIAL | Low |
-| 2 | Rename BufferContext to BufferGroup | [ ] | SEQUENTIAL | Low |
-| 3 | Add Methods to BufferGroup | [ ] | SEQUENTIAL | High |
-| 4 | Add build_allocator to CUDABuffer | [ ] | SEQUENTIAL | Medium |
-| 5 | Refactor BufferRegistry to Wrapper Pattern | [ ] | SEQUENTIAL | High |
-| 6 | Update Tests | [ ] | SEQUENTIAL | Medium |
+| 1 | Rename BufferEntry to CUDABuffer | [x] | SEQUENTIAL | Low |
+| 2 | Rename BufferContext to BufferGroup | [x] | SEQUENTIAL | Low |
+| 3 | Add Methods to BufferGroup | [x] | SEQUENTIAL | High |
+| 4 | Add build_allocator to CUDABuffer | [x] | SEQUENTIAL | Medium |
+| 5 | Refactor BufferRegistry to Wrapper Pattern | [x] | SEQUENTIAL | High |
+| 6 | Update Tests | [x] | SEQUENTIAL | Medium |
 
 **Total Task Groups**: 6
 **Dependency Chain**: 1 → 2 → 3 → 5, 1 → 4 → 5, 5 → 6
@@ -1093,4 +1158,5 @@ Do NOT modify integration files (algorithms, loops, matrix-free solvers) or solv
 3. Method rename: clear_factory → clear_parent
 4. Method moves: Layout building, size calculation, and allocator generation move from BufferRegistry to BufferGroup
 5. New method: CUDABuffer.build_allocator for CUDA device function compilation
+6. Aliasing logic overhaul: Cross-location aliasing now allowed with first-come-first-serve fallback
 6. Aliasing logic overhaul: Cross-location aliasing now allowed with first-come-first-serve fallback
