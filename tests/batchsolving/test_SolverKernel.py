@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from numba import cuda
 
-from _utils import assert_integration_outputs, LoopRunResult, LONG_RUN_PARAMS
+from tests._utils import assert_integration_outputs, LoopRunResult, LONG_RUN_PARAMS
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 
