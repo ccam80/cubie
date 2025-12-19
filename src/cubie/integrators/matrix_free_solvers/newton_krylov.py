@@ -11,10 +11,8 @@ import attrs
 from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
-import numba
 
 from cubie._utils import (
-    ALLOWED_PRECISIONS,
     PrecisionDType,
     getype_validator,
     gttype_validator,

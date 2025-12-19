@@ -12,7 +12,6 @@ import attrs
 from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
-import numba
 
 from cubie._utils import (
     PrecisionDType,
@@ -45,7 +44,7 @@ class LinearSolverConfig:
         Device function for approximate inverse preconditioner.
     correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
-    _tolerance : float
+    krylov_tolerance : float
         Target on squared residual norm for convergence.
     max_iters : int
         Maximum iterations permitted.
@@ -253,6 +252,7 @@ class LinearSolver(CUDAFactory):
             # no cover: start
             @cuda.jit(
                 device=True,
+                inline=True,
                 **compile_kwargs,
             )
             def linear_solver_cached(
