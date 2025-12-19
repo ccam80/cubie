@@ -20,7 +20,12 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     RosenbrockTableau,
 )
-from .matrix_free_solvers import inst_linear_solver_cached_factory
+from .matrix_free_solvers import (
+    InstrumentedLinearSolver,
+)
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverConfig
+)
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -208,19 +213,27 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = inst_linear_solver_cached_factory(
-            linear_operator,
+        linear_solver_config = LinearSolverConfig(
+            precision=config.precision,
             n=n,
+            operator_apply=linear_operator,
             preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            precision=config.precision,
+            use_cached_auxiliaries=True,
+        )
+        linear_solver_instance = InstrumentedLinearSolver(
+            linear_solver_config
         )
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
 
-        return linear_solver, prepare_jacobian, time_derivative_rhs
+        return (
+            linear_solver_instance.device_function,
+            prepare_jacobian,
+            time_derivative_rhs
+        )
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm."""

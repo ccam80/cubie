@@ -48,10 +48,10 @@ from cubie.integrators.algorithms.ode_implicitstep import (
 )
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    linear_solver_factory,
+    LinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    newton_krylov_solver_factory,
+    NewtonKrylov,
 )
 
 
@@ -216,13 +216,6 @@ class DIRKStep(ODEImplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
-            "krylov_tolerance": krylov_tolerance,
-            "max_linear_iters": max_linear_iters,
-            "linear_correction_type": linear_correction_type,
-            "newton_tolerance": newton_tolerance,
-            "max_newton_iters": max_newton_iters,
-            "newton_damping": newton_damping,
-            "newton_max_backtracks": newton_max_backtracks,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -298,6 +291,19 @@ class DIRKStep(ODEImplicitStep):
             defaults = DIRK_FIXED_DEFAULTS
 
         super().__init__(config, defaults)
+        
+        # Update solver parameters with DIRK-specific values
+        self._linear_solver.update(
+            correction_type=linear_correction_type,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+        )
+        self._newton_solver.update(
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
 
     def build_implicit_helpers(
         self,
@@ -338,39 +344,16 @@ class DIRKStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver = linear_solver_factory(
-            operator,
-            n=n,
-            precision=precision,
-            factory=self,
+        # Update solvers with device functions
+        self._linear_solver.update(
+            operator_apply=operator,
             preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
         )
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        nonlinear_solver = newton_krylov_solver_factory(
+        self._newton_solver.update(
             residual_function=residual,
-            linear_solver=linear_solver,
-            n=n,
-            factory=self,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
-            precision=precision,
         )
-
-        return nonlinear_solver
+        
+        return self._newton_solver.device_function
 
     def build_step(
         self,
