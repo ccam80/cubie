@@ -624,7 +624,7 @@ class BaseAlgorithmStep(CUDAFactory):
     def shared_memory_required(self) -> int:
         """Return the precision-entry count of shared memory required."""
 
-        return self.solver_shared_elements + self.algorithm_shared_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
     @abstractmethod
@@ -636,23 +636,7 @@ class BaseAlgorithmStep(CUDAFactory):
     def persistent_local_required(self) -> int:
         """Return the persistent local precision-entry requirement."""
 
-        return self.solver_local_elements + self.algorithm_local_elements
-
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return shared-memory elements consumed by solver infrastructure."""
-
-        return 0
-
-    @property
-    def solver_local_elements(self) -> int:
-        """Return persistent local elements consumed by solver infrastructure.
-
-        Defaults to zero for algorithms whose solvers do not retain
-        thread-local buffers between calls.
-        """
-
-        return 0
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     @abstractmethod
