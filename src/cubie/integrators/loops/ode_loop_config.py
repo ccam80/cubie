@@ -211,6 +211,52 @@ class ODELoopConfig:
         validator=getype_validator(int, 0)
     )
 
+    # Buffer location settings
+    state_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    proposed_state_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    parameters_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    drivers_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    proposed_drivers_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    observables_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    proposed_observables_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    error_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    counters_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    state_summary_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    observable_summary_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+
     precision: PrecisionDType = field(
         default=float32,
         converter=precision_converter,

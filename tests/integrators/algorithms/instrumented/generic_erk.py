@@ -83,28 +83,43 @@ class ERKStep(ODEExplicitStep):
             the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
         """
 
+        # Build config first so buffer registration can use config defaults
+        config_kwargs = {
+            "precision": precision,
+            "n": n,
+            "n_drivers": n_drivers,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "tableau": tableau,
+        }
+        if stage_rhs_location is not None:
+            config_kwargs["stage_rhs_location"] = stage_rhs_location
+        if stage_accumulator_location is not None:
+            config_kwargs["stage_accumulator_location"] = stage_accumulator_location
+
+        config = ERKStepConfig(**config_kwargs)
+
         # Clear any existing buffer registrations
-        buffer_registry.clear_factory(self)
+        buffer_registry.clear_parent(self)
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
 
-        # Determine locations (use defaults if not specified)
-        rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
-        acc_loc = stage_accumulator_location if stage_accumulator_location else 'local'
-
-        # Register algorithm buffers
+        # Register algorithm buffers using config values
         buffer_registry.register(
-            'erk_stage_rhs', self, n, rhs_loc, precision=precision
+            'erk_stage_rhs', self, n, config.stage_rhs_location,
+            precision=precision
         )
         buffer_registry.register(
-            'erk_stage_accumulator', self, accumulator_length, acc_loc,
-            precision=precision
+            'erk_stage_accumulator', self, accumulator_length,
+            config.stage_accumulator_location, precision=precision
         )
 
         # stage_cache aliasing logic for FSAL optimization
-        use_shared_rhs = rhs_loc == 'shared'
-        use_shared_acc = acc_loc == 'shared'
+        use_shared_rhs = config.stage_rhs_location == 'shared'
+        use_shared_acc = config.stage_accumulator_location == 'shared'
         if use_shared_rhs:
             buffer_registry.register(
                 'erk_stage_cache', self, n, 'shared',
@@ -121,20 +136,6 @@ class ERKStep(ODEExplicitStep):
                 persistent=True, precision=precision
             )
 
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau,
-            "stage_rhs_location": rhs_loc,
-            "stage_accumulator_location": acc_loc,
-        }
-        config = ERKStepConfig(**config_kwargs)
-        
         if tableau.has_error_estimate:
             defaults = ERK_ADAPTIVE_DEFAULTS
         else:

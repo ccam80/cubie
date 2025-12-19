@@ -16,6 +16,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
@@ -28,6 +29,14 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
     'n_drivers',
+    # DIRK buffer location parameters
+    'stage_increment_location', 'stage_base_location', 'accumulator_location',
+    # ERK buffer location parameters
+    'stage_rhs_location', 'stage_accumulator_location',
+    # FIRK buffer location parameters
+    'stage_driver_stack_location', 'stage_state_location',
+    # Rosenbrock buffer location parameters
+    'stage_store_location', 'cached_auxiliaries_location',
 }
 
 
@@ -506,6 +515,10 @@ class BaseAlgorithmStep(CUDAFactory):
             return set()
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
+
+        # Update buffer locations in registry
+        recognised |= buffer_registry.update(self, updates_dict, silent=True)
+
         unrecognised = set(updates_dict.keys()) - recognised
 
         # Check if unrecognized parameters are valid algorithm step parameters

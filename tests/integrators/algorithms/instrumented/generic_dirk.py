@@ -89,59 +89,7 @@ class DIRKStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_factory(self)
-
-        # Determine locations (use defaults if not specified)
-        inc_loc = stage_increment_location if stage_increment_location else 'local'
-        base_loc = stage_base_location if stage_base_location else 'local'
-        acc_loc = accumulator_location if accumulator_location else 'local'
-
-        # Calculate buffer sizes
-        accumulator_length = max(tableau.stage_count - 1, 0) * n
-        multistage = tableau.stage_count > 1
-
-        # Register algorithm buffers
-        buffer_registry.register(
-            'dirk_stage_increment', self, n, inc_loc, precision=precision
-        )
-        buffer_registry.register(
-            'dirk_accumulator', self, accumulator_length, acc_loc,
-            precision=precision
-        )
-
-        # stage_base aliasing: can alias accumulator when both are shared
-        # and method has multiple stages
-        stage_base_aliases_acc = (
-            multistage and acc_loc == 'shared' and base_loc == 'shared'
-        )
-        if stage_base_aliases_acc:
-            buffer_registry.register(
-                'dirk_stage_base', self, n, 'shared',
-                aliases='dirk_accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'dirk_stage_base', self, n, base_loc, precision=precision
-            )
-
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * n
-        buffer_registry.register(
-            'dirk_solver_scratch', self, solver_shared_size, 'shared',
-            precision=precision
-        )
-
-        # FSAL caches alias solver_scratch
-        buffer_registry.register(
-            'dirk_rhs_cache', self, n, 'shared',
-            aliases='dirk_solver_scratch', precision=precision
-        )
-        buffer_registry.register(
-            'dirk_increment_cache', self, n, 'shared',
-            aliases='dirk_solver_scratch', precision=precision
-        )
-
+        # Build config first so buffer registration can use config defaults
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -162,19 +110,74 @@ class DIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
-            "stage_increment_location": inc_loc,
-            "stage_base_location": base_loc,
-            "accumulator_location": acc_loc,
         }
+        if stage_increment_location is not None:
+            config_kwargs["stage_increment_location"] = stage_increment_location
+        if stage_base_location is not None:
+            config_kwargs["stage_base_location"] = stage_base_location
+        if accumulator_location is not None:
+            config_kwargs["accumulator_location"] = accumulator_location
 
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
-        
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_parent(self)
+
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+        multistage = tableau.stage_count > 1
+
+        # Register algorithm buffers using config values
+        buffer_registry.register(
+            'dirk_stage_increment', self, n, config.stage_increment_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'dirk_accumulator', self, accumulator_length,
+            config.accumulator_location, precision=precision
+        )
+
+        # stage_base aliasing: can alias accumulator when both are shared
+        # and method has multiple stages
+        stage_base_aliases_acc = (
+            multistage
+            and config.accumulator_location == 'shared'
+            and config.stage_base_location == 'shared'
+        )
+        if stage_base_aliases_acc:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, 'shared',
+                aliases='dirk_accumulator', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'dirk_stage_base', self, n, config.stage_base_location,
+                precision=precision
+            )
+
+        # solver_scratch is always shared (Newton delta + residual)
+        solver_shared_size = 2 * n
+        buffer_registry.register(
+            'dirk_solver_scratch', self, solver_shared_size, 'shared',
+            precision=precision
+        )
+
+        # FSAL caches alias solver_scratch
+        buffer_registry.register(
+            'dirk_rhs_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+        buffer_registry.register(
+            'dirk_increment_cache', self, n, 'shared',
+            aliases='dirk_solver_scratch', precision=precision
+        )
+
         if tableau.has_error_estimate:
             defaults = DIRK_ADAPTIVE_DEFAULTS
         else:
             defaults = DIRK_FIXED_DEFAULTS
-        
+
         super().__init__(config, defaults)
 
     def build_implicit_helpers(
