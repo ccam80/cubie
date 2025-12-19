@@ -2,67 +2,59 @@
 
 ## User Stories
 
-### US-1: Solver Buffer Registration
+### US-1: Hierarchical Memory Size Propagation
 **As a** CuBIE developer  
-**I want** Newton-Krylov and linear solvers to register their internal buffers
-with the buffer_registry using themselves as the factory  
-**So that** buffer locations remain user-configurable and memory sizes flow
-correctly through the hierarchy
+**I want** step algorithms to expose `shared_memory_elements` and
+`persistent_local_elements` properties that include solver memory needs  
+**So that** the loop can query total requirements without knowing solver
+implementation details
 
 **Acceptance Criteria:**
-- Newton-Krylov registers buffers (delta, residual, residual_temp,
-  stage_base_bt) with `buffer_registry.register(..., factory=self, ...)`
-- Linear solver registers buffers (preconditioned_vec, temp) with
-  `buffer_registry.register(..., factory=self, ...)`
-- Location parameters (delta_location, residual_location, etc.) are added
-  to solver factory signatures, allowing users to choose shared/local
-- The existing `factory` parameter is retained and used for registration
-- Buffer allocators are obtained via `buffer_registry.get_allocator()`
+- Step algorithms expose `solver_shared_elements` property
+- Solver memory sizes calculated manually in implicit steps (e.g., Newton
+  requires `n * 4` for delta, residual, residual_temp, stage_base_bt;
+  Linear requires `n * 2` for preconditioned_vec, temp)
+- Step's `shared_memory_elements` returns algorithm buffers + solver buffers
+- Loop queries step's property for total memory requirements
+- No registry queries for solver sizes (solvers are not CUDAFactory objects)
 
-### US-2: Hierarchical Memory Size Queries
+### US-2: Runtime Slice Allocation
 **As a** CuBIE developer  
-**I want** step algorithms to query solver memory requirements through the
-buffer_registry  
-**So that** memory sizes propagate correctly from children to parents
+**I want** parents to allocate buffers and pass slices to children at runtime  
+**So that** hierarchical memory allocation works correctly
 
 **Acceptance Criteria:**
-- Step algorithm queries `buffer_registry.shared_buffer_size(nonlinear_solver)`
-  to get the Newton solver's total shared memory needs
-- Step algorithm queries
-  `buffer_registry.persistent_local_buffer_size(nonlinear_solver)` for
-  persistent local needs
-- Step registers a `solver_shared` buffer with the queried shared size
-- Step registers a `solver_persistent` buffer with the queried persistent size
-- The step's own `shared_memory_elements` property includes step buffers
-  plus solver buffers
+- Loop allocates `algorithm_shared` array based on step's property
+- Step slices shared array for its buffers and solver scratch
+- Newton slices solver scratch for its buffers and linear solver scratch
+- Linear solver uses remaining slice for its buffers
+- Slice offsets computed at factory build time, captured in closures
+- Runtime slicing uses captured constants (not registry calls in device code)
 
-### US-3: Loop Memory Allocation
+### US-3: Buffer Location Configurability
 **As a** CuBIE developer  
-**I want** IVPLoop to query the step algorithm for total memory requirements  
-**So that** the loop allocates sufficient shared/persistent memory for all
-children
+**I want** all buffers to remain user-configurable via location parameters  
+**So that** users can optimize memory placement for their specific workloads
 
 **Acceptance Criteria:**
-- Loop queries step's `shared_memory_elements` property (which aggregates
-  step's own + solver buffers)
-- Loop allocates `algorithm_shared` array of the returned size
-- At runtime, step slices this array and passes appropriate portions to
-  the solver via its `solver_shared` allocator
-- Same pattern applies to persistent local memory
+- Solver factories accept location parameters (delta_location, etc.)
+- Location parameters flow through update/init system
+- `buffer_registry.update()` recognizes `*_location` parameters
+- Changing location affects allocated memory type (shared vs local)
+- No hard-coded buffer locations anywhere
 
-### US-4: Property-Based Memory Propagation
+### US-4: Fix Newton-Krylov Slice Bug
 **As a** CuBIE developer  
-**I want** memory requirements to flow UP through properties  
-**So that** each factory can query its children's needs without inline
-computation
+**I want** the linear solver slice offset to be computed at build time  
+**So that** the Newton solver works correctly in CUDA execution
 
 **Acceptance Criteria:**
-- Each factory exposes `shared_memory_elements` and
-  `persistent_local_elements` properties
-- Properties return registry query results for that factory plus all
-  registered child aggregation buffers
-- Memory info flows DOWN through update/init only when strictly necessary
-- No hard-coded buffer sizes in step algorithms or loop
+- Remove runtime `buffer_registry.shared_buffer_size(factory)` call from
+  newton_krylov.py device function
+- Compute Newton's shared buffer size after buffer registration
+- Capture offset as compile-time constant in closure
+- Linear solver receives `shared_scratch[newton_shared_size:]` using
+  captured constant
 
 ---
 
@@ -70,19 +62,20 @@ computation
 
 This task implements hierarchical buffer management across step algorithms,
 matrix-free solvers, and the integration loop. The architecture follows a
-consistent pattern:
+consistent pattern with a key constraint: **solvers remain as factory functions
+(not CUDAFactory objects)**, so solver memory sizes are calculated manually:
 
-1. **Solvers register their own buffers** - Newton and Linear solvers register
-   their internal buffers with the buffer_registry using themselves as the
-   factory
-2. **Parents query children** - Step algorithms query
-   `buffer_registry.shared_buffer_size(solver)` to determine solver needs
-3. **Parents register aggregation buffers** - Steps register `solver_shared`
-   and `solver_persistent` buffers with the queried sizes
-4. **Loop queries step** - Loop queries step's `shared_memory_elements`
-   property for total needs
-5. **Runtime slicing** - Parents allocate and pass slices to children at
-   device execution time
+1. **Solvers register their buffers** - Newton and Linear solvers register
+   their internal buffers with `factory` parameter (the step algorithm)
+2. **Manual size calculation** - Step algorithms compute solver memory needs
+   manually: Newton needs `n * 4` (delta, residual, residual_temp,
+   stage_base_bt), Linear needs `n * 2` (preconditioned_vec, temp)
+3. **Properties expose total sizes** - Step's `solver_shared_elements` returns
+   the manually calculated value; Loop queries step's `shared_memory_elements`
+4. **Build-time offset computation** - Newton computes its shared buffer size
+   after registration and captures it in the closure for runtime slicing
+5. **Runtime slicing** - Parents allocate and pass slices to children using
+   compile-time captured offsets
 
 ---
 
@@ -96,32 +89,31 @@ flowchart TD
     end
     
     subgraph Step["Step Algorithm"]
-        SR["registers solver_shared buffer"]
-        SQ["queries buffer_registry.shared_buffer_size(newton)"]
+        SC["computes solver_shared = n*4 + n*2"]
         SP["shared_memory_elements property"]
     end
     
     subgraph Newton["Newton-Krylov Solver"]
-        NR["registers delta, residual, etc."]
-        NQ["queries buffer_registry.shared_buffer_size(linear)"]
+        NR["registers delta, residual, etc. with factory=step"]
+        NS["newton_shared_size = registry.shared_buffer_size(factory)"]
+        NC["captures offset in closure"]
     end
     
     subgraph Linear["Linear Solver"]
-        LR["registers preconditioned_vec, temp"]
+        LR["registers preconditioned_vec, temp with factory=step"]
     end
     
     subgraph Registry["buffer_registry"]
         BS["shared_buffer_size(factory)"]
-        BP["persistent_local_buffer_size(factory)"]
     end
     
     Loop -->|"step.shared_memory_elements"| Step
-    Step -->|"shared_buffer_size(newton)"| Registry
-    Newton -->|"shared_buffer_size(linear)"| Registry
+    Step -->|"passes factory=self"| Newton
+    Newton -->|"passes factory=step"| Linear
     
-    Linear -->|"register('lin_*', self)"| Registry
-    Newton -->|"register('newton_*', self)"| Registry
-    Step -->|"register('solver_shared', self)"| Registry
+    Newton -->|"after registration, queries"| Registry
+    Linear -->|"register('lin_*', factory)"| Registry
+    Newton -->|"register('newton_*', factory)"| Registry
 ```
 
 ## Memory Size Flow
@@ -134,54 +126,60 @@ sequenceDiagram
     participant Linear as LinearSolver
     participant Reg as buffer_registry
     
-    Note over Loop,Reg: Initialization Phase
+    Note over Loop,Reg: Build Phase - Registration Order
     
-    Linear->>Reg: register('lin_preconditioned_vec', self, n, loc)
-    Linear->>Reg: register('lin_temp', self, n, loc)
-    Newton->>Reg: register('newton_delta', self, n, loc)
-    Newton->>Reg: register('newton_residual', self, n, loc)
-    Newton->>Reg: register('newton_residual_temp', self, n, loc)
-    Newton->>Reg: register('newton_stage_base_bt', self, n, loc)
+    Step->>Linear: linear_solver_factory(factory=self)
+    Linear->>Reg: register('lin_preconditioned_vec', step, n, loc)
+    Linear->>Reg: register('lin_temp', step, n, loc)
+    Linear-->>Step: returns linear_solver function
     
-    Note over Loop,Reg: Build Phase
+    Step->>Newton: newton_krylov_factory(factory=self, linear_solver)
+    Newton->>Reg: register('newton_delta', step, n, loc)
+    Newton->>Reg: register('newton_residual', step, n, loc)
+    Newton->>Reg: register('newton_residual_temp', step, n, loc)
+    Newton->>Reg: register('newton_stage_base_bt', step, n, loc)
+    Newton->>Reg: shared_buffer_size(step) → newton_shared_size
+    Note over Newton: Captures offset in closure
+    Newton-->>Step: returns newton_solver function
     
-    Step->>Reg: shared_buffer_size(newton)
-    Reg-->>Step: newton_shared_size
-    Step->>Reg: register('solver_shared', self, newton_shared_size)
+    Note over Loop,Reg: Query Phase
     
-    Loop->>Step: shared_memory_elements
-    Step->>Reg: shared_buffer_size(self)
-    Reg-->>Step: step_shared_size
-    Step-->>Loop: step_shared_size (includes solver_shared)
+    Loop->>Step: step.shared_memory_elements
+    Step-->>Loop: algorithm_shared + solver_shared (manual calc)
     
     Note over Loop,Reg: Runtime Phase
     
     Loop->>Step: shared_array[0:step_size]
-    Step->>Newton: solver_shared_allocator(shared)
-    Newton->>Linear: lin_shared (remaining slice)
+    Step->>Newton: solver_scratch = shared[:solver_shared_elements]
+    Newton->>Linear: lin_shared = solver_scratch[newton_shared_size:]
 ```
 
 ## Key Technical Decisions
 
-### 1. Solvers Own Their Buffers
-Each solver registers its buffers with the buffer_registry using itself as
-the factory. This keeps buffer ownership clear and enables registry queries
-to return accurate sizes.
+### 1. Solvers Register with Step as Factory
+Solvers register their buffers with the step algorithm as the factory (not
+themselves). This is because solvers are factory functions, not CUDAFactory
+objects. The step algorithm "owns" all solver buffers in the registry.
 
-### 2. Registry as Source of Truth
-The buffer_registry provides the authoritative size information via
-`shared_buffer_size(factory)` and `persistent_local_buffer_size(factory)`.
-Parents query these methods rather than computing sizes inline.
+### 2. Manual Size Calculation (Temporary)
+Since solvers are not CUDAFactory objects, step algorithms cannot query the
+registry for solver sizes. Instead, solver memory needs are calculated
+manually:
+- Newton: `n * 4` (delta, residual, residual_temp, stage_base_bt)
+- Linear: `n * 2` (preconditioned_vec, temp)
+- Total solver shared: `n * 6` when all buffers are shared
 
-### 3. Aggregation Buffers
-Parents register aggregation buffers (`solver_shared`, `solver_persistent`)
-that reserve space for their children's needs. At runtime, these buffers
-provide slices to child solvers.
+This will be replaced with registry queries when solvers become CUDAFactory
+objects in a future task.
 
-### 4. Location Parameters
-Buffer locations (shared/local/persistent) remain user-configurable through
-factory parameters. The registry respects these choices when computing sizes
-and generating allocators.
+### 3. Build-Time Offset Computation
+Newton must compute the slice offset for linear solver at build time (after
+buffer registration) and capture it in the closure. Runtime registry calls
+in device functions are not allowed.
+
+### 4. Location Parameters Preserved
+Buffer locations (shared/local) remain user-configurable through factory
+parameters. The registry respects these choices when computing sizes.
 
 ---
 
@@ -189,47 +187,52 @@ and generating allocators.
 
 | File | Changes |
 |------|---------|
-| `newton_krylov.py` | Keep factory parameter, add location parameters |
-| `linear_solver.py` | Keep factory parameter, add location parameters |
-| `ode_implicitstep.py` | Query solver sizes, register aggregation buffers |
-| `backwards_euler.py` | Use registry allocators for solver buffers |
-| `backwards_euler_predict_correct.py` | Same pattern as backwards_euler |
-| `crank_nicolson.py` | Same pattern as backwards_euler |
-| `generic_dirk.py` | Query solver sizes, pass solver factory correctly |
-| `generic_firk.py` | Query solver sizes, pass solver factory correctly |
-| `generic_rosenbrock_w.py` | Query solver sizes, pass solver factory correctly |
-| `ode_loop.py` | Query step for total memory requirements |
-| Instrumented files | Mirror source changes with logging additions |
+| `newton_krylov.py` | Fix runtime registry call - compute offset at build time |
+| `ode_implicitstep.py` | Pass `factory=self` to solver factories |
+| `backwards_euler.py` | No changes needed (inherits from base) |
+| `backwards_euler_predict_correct.py` | No changes needed |
+| `crank_nicolson.py` | No changes needed |
+| `generic_dirk.py` | Already passes `factory=self` - no changes |
+| `generic_firk.py` | Already passes `factory=self` - no changes |
+| `generic_rosenbrock_w.py` | Already passes `factory=self` - no changes |
+| `ode_loop.py` | Already correct - no changes needed |
+| Instrumented files | Independent - no changes needed |
 
 ---
 
 ## Trade-offs Considered
 
-### Alternative: Remove Factory Parameter (REJECTED)
-The previous plan proposed removing the factory parameter and using
-`cuda.local.array` for solver buffers. This was rejected because:
-- Eliminates user control over buffer locations
-- Prevents shared memory optimization for frequently-accessed buffers
-- Breaks the hierarchical size propagation pattern
+### Alternative: Convert Solvers to CUDAFactory (DEFERRED)
+Making Newton-Krylov and Linear solvers into CUDAFactory subclasses would
+allow:
+- Registry queries for solver sizes
+- Clean hierarchical composition
+- Automatic cache invalidation on settings changes
 
-### Alternative: Inline Size Computation (REJECTED)
-Computing sizes inline in step algorithms was rejected because:
-- Duplicates size logic across multiple files
-- Makes buffer sizes harder to track and update
-- Registry queries provide a single source of truth
+This is deferred to a separate task because:
+- Requires significant restructuring of solver factories
+- Current approach works with manual size calculation
+- Parallel development stream will handle this conversion
 
-### Selected Approach: Registry-Based Hierarchy
-- Solvers register their own buffers
-- Parents query registry for child sizes
-- Parents register aggregation buffers
-- Properties expose total requirements
-- This maintains user configurability while enabling proper size propagation
+### Alternative: Runtime Registry Queries (REJECTED)
+The previous plan attempted to call `buffer_registry.shared_buffer_size()`
+from within CUDA device functions. This was rejected because:
+- Python object methods cannot be called from CUDA device code
+- Causes compilation failures or runtime errors
+
+### Selected Approach: Build-Time Computation + Manual Sizes
+- Newton computes its shared size after registration, captures in closure
+- Step algorithms manually calculate solver needs (`n * 4` + `n * 2`)
+- This is temporary until solvers become CUDAFactory objects
+- Correctly handles the constraint that solvers are factory functions
 
 ---
 
 ## Expected Impact
 
-1. **User Control**: Buffer locations remain configurable via location params
-2. **Correctness**: Memory sizes propagate correctly through the hierarchy
-3. **Maintainability**: Registry is single source of truth for buffer sizes
-4. **Flexibility**: Adding new buffers only requires registry updates
+1. **Bug Fix**: Newton-Krylov solver will work correctly (no runtime registry
+   calls)
+2. **User Control**: Buffer locations remain configurable via location params
+3. **Correctness**: Memory sizes propagate through the hierarchy via properties
+4. **Future Ready**: Architecture supports clean transition when solvers
+   become CUDAFactory objects

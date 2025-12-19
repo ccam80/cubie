@@ -267,13 +267,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = linear_solver_factory(operator,
-                                              n=n,
-                                              precision=self.precision,
-                                              preconditioner=preconditioner,
-                                              correction_type=correction_type,
-                                              tolerance=krylov_tolerance,
-                                              max_iters=max_linear_iters)
+        linear_solver = linear_solver_factory(
+            operator,
+            n=n,
+            factory=self,
+            precision=self.precision,
+            preconditioner=preconditioner,
+            correction_type=correction_type,
+            tolerance=krylov_tolerance,
+            max_iters=max_linear_iters,
+        )
 
         newton_tolerance = config.newton_tolerance
         max_newton_iters = config.max_newton_iters
@@ -284,6 +287,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             residual_function=residual,
             linear_solver=linear_solver,
             n=n,
+            factory=self,
             tolerance=newton_tolerance,
             max_iters=max_newton_iters,
             damping=newton_damping,

@@ -113,6 +113,9 @@ def newton_krylov_solver_factory(
         'newton_stage_base_bt', factory
     )
 
+    # Newton's shared buffer size for linear solver slice offset
+    newton_shared_size = int32(buffer_registry.shared_buffer_size(factory))
+
     numba_precision = from_dtype(precision_dtype)
     tol_squared = numba_precision(tolerance * tolerance)
     typed_zero = numba_precision(0.0)
@@ -224,10 +227,8 @@ def newton_krylov_solver_factory(
                 active, int32(iters_count + int32(1)), iters_count
             )
 
-            # TODO: AI Error
-            # Linear solver uses remaining shared space after Newton buffers
-            lin_start = buffer_registry.shared_buffer_size(factory)
-            lin_shared = shared_scratch[lin_start:]
+            # Linear solver uses shared space after Newton's buffers
+            lin_shared = shared_scratch[newton_shared_size:]
             krylov_iters_local[0] = int32(0)
             lin_status = linear_solver(
                 stage_increment,
