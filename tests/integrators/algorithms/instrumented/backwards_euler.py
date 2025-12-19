@@ -14,8 +14,14 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 from .matrix_free_solvers import (
-    inst_linear_solver_factory,
-    inst_newton_krylov_solver_factory,
+    InstrumentedLinearSolver,
+    InstrumentedNewtonKrylov,
+)
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolverConfig
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonKrylovConfig
 )
 
 ALGO_CONSTANTS = {'beta': 1.0,
@@ -147,14 +153,18 @@ class BackwardsEulerStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = inst_linear_solver_factory(
-            operator,
+        linear_solver_config = LinearSolverConfig(
+            precision=precision,
             n=n,
+            operator_apply=operator,
             preconditioner=preconditioner,
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
-            precision=precision,
+            use_cached_auxiliaries=False,
+        )
+        linear_solver_instance = InstrumentedLinearSolver(
+            linear_solver_config
         )
 
         newton_tolerance = config.newton_tolerance
@@ -162,18 +172,19 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
 
-        nonlinear_solver = inst_newton_krylov_solver_factory(
-            residual_function=residual,
-            linear_solver=linear_solver,
+        newton_config = NewtonKrylovConfig(
+            precision=precision,
             n=n,
+            residual_function=residual,
+            linear_solver=linear_solver_instance,
             tolerance=newton_tolerance,
             max_iters=max_newton_iters,
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
-            precision=precision,
         )
+        newton_instance = InstrumentedNewtonKrylov(newton_config)
 
-        return nonlinear_solver
+        return newton_instance.device_function
 
     def build_step(
         self,
