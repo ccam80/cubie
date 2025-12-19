@@ -3390,7 +3390,23 @@ def update_mean(
     current_index,
     customisable_variable,
 ):
-    """Update the running sum with a new value."""
+    """Update the running sum with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to add to the running sum.
+    buffer
+        device array. Location containing the running sum.
+    current_index
+        int. Current integration step index (unused for mean).
+    customisable_variable
+        int. Metric parameter placeholder (unused for mean).
+
+    Notes
+    -----
+    Adds the new value to ``buffer[0]`` to maintain the running sum.
+    """
     buffer[0] += value
 
 
@@ -3407,7 +3423,24 @@ def save_mean(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate the mean and reset the buffer."""
+    """Calculate the mean and reset the buffer.
+
+    Parameters
+    ----------
+    buffer
+        device array. Location containing the running sum of values.
+    output_array
+        device array. Location for saving the mean value.
+    summarise_every
+        int. Number of integration steps contributing to each summary.
+    customisable_variable
+        int. Metric parameter placeholder (unused for mean).
+
+    Notes
+    -----
+    Divides the accumulated sum by ``summarise_every`` and saves the
+    result to ``output_array[0]`` before resetting ``buffer[0]``.
+    """
     output_array[0] = buffer[0] / summarise_every
     buffer[0] = precision(0.0)
 
@@ -3418,7 +3451,22 @@ def chain_update_metrics(
     buffer,
     current_step,
 ):
-    """Chain all metric update functions."""
+    """Chain all metric update functions.
+
+    Parameters
+    ----------
+    value
+        float. Current state or observable value to accumulate.
+    buffer
+        device array. Buffer for summary metric accumulation.
+    current_step
+        int. Current integration step index.
+
+    Notes
+    -----
+    Calls update functions for all enabled summary metrics in sequence.
+    Currently implements mean metric only (buffer offset 0, size 1).
+    """
     # For mean metric: buffer offset 0, size 1, param 0
     update_mean(value, buffer[0:1], current_step, 0)
 
@@ -3429,7 +3477,23 @@ def chain_save_metrics(
     output,
     summarise_every,
 ):
-    """Chain all metric save functions."""
+    """Chain all metric save functions.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing accumulated metric data.
+    output
+        device array. Output array for saving computed metrics.
+    summarise_every
+        int. Number of integration steps in each summary window.
+
+    Notes
+    -----
+    Calls save functions for all enabled summary metrics in sequence.
+    Each metric computes its final value, writes to output, and resets
+    its buffer. Currently implements mean metric only.
+    """
     # For mean metric: buffer offset 0, size 1, output offset 0, size 1, param 0
     save_mean(buffer[0:1], output[0:1], summarise_every, 0)
 
@@ -3442,7 +3506,27 @@ def update_summaries_inline(
     obs_summary_buffer,
     current_step,
 ):
-    """Accumulate summary metrics from the current state sample."""
+    """Accumulate summary metrics from the current state sample.
+
+    Parameters
+    ----------
+    current_state
+        device array. Current state vector.
+    current_observables
+        device array. Current observable vector.
+    state_summary_buffer
+        device array. Buffer for state summary accumulation.
+    obs_summary_buffer
+        device array. Buffer for observable summary accumulation.
+    current_step
+        int. Current integration step index.
+
+    Notes
+    -----
+    Iterates through all state variables and calls the chained metric
+    update function for each. Buffer layout: each variable has
+    total_buffer_size slots (1 for mean metric).
+    """
     total_buffer_size = int32(1)  # 1 slot for mean metric per variable
     for idx in range(n_states32):
         start = idx * total_buffer_size
@@ -3462,7 +3546,29 @@ def save_summaries_inline(
     output_obs,
     summarise_every,
 ):
-    """Export summary metrics from buffers to output windows."""
+    """Export summary metrics from buffers to output windows.
+
+    Parameters
+    ----------
+    buffer_state
+        device array. State summary accumulation buffer.
+    buffer_obs
+        device array. Observable summary accumulation buffer.
+    output_state
+        device array. State summary output array.
+    output_obs
+        device array. Observable summary output array.
+    summarise_every
+        int. Number of integration steps in each summary window.
+
+    Notes
+    -----
+    Iterates through all state variables and calls the chained metric
+    save function for each. Each metric computes its final value
+    (e.g., mean = sum/count), writes to output, and resets its buffer.
+    Buffer layout: total_buffer_size slots per variable (1 for mean).
+    Output layout: total_output_size values per variable (1 for mean).
+    """
     total_buffer_size = int32(1)  # 1 slot for mean metric per variable
     total_output_size = int32(1)  # 1 output for mean metric per variable
     for state_index in range(n_states32):
@@ -4285,7 +4391,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             iteration_counters_output[save_idx * save_counters_bool, :],
         )
         if summarise:
-            # Reset temp buffers to starting state - will be overwritten
+            # Save initial summary state (typically zeros before any updates)
             save_summaries_inline(state_summary_buffer,
                                   observable_summary_buffer,
                                   state_summaries_output[
