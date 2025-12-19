@@ -51,8 +51,11 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         driver_function = driver_function
         n = int32(n)
 
-        solver_shared_elements = self.solver_shared_elements
-        solver_persistent_elements = self.solver_local_elements
+        # Get child allocators for Newton solver
+        nonlinear_solver = solver_fn
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, nonlinear_solver, name='bepc_solver_scratch')
+        )
 
         @cuda.jit(
             # (
@@ -153,8 +156,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                     proposed_drivers,
                 )
 
-            solver_scratch = shared[: solver_shared_elements]
-            solver_persistent = persistent_local[: solver_persistent_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             status = solver_fn(
                 proposed_state,

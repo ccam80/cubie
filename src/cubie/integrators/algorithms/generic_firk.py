@@ -620,12 +620,6 @@ class FIRKStep(ODEImplicitStep):
         return self.compile_settings.stage_count
 
     @property
-    def solver_shared_elements(self) -> int:
-        """Return solver scratch elements accounting for flattened stages."""
-
-        return 2 * self.compile_settings.all_stages_n
-
-    @property
     def algorithm_shared_elements(self) -> int:
         """Return additional shared memory required by the algorithm."""
 
