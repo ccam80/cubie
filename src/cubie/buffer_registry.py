@@ -9,7 +9,7 @@ The registry uses a lazy cached build pattern - slice layouts are
 computed on demand and invalidated when any buffer is modified.
 """
 
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 import attrs
 from attrs import validators
@@ -226,7 +226,7 @@ class BufferGroup:
         self.entries[name] = entry
         self.invalidate_layouts()
 
-    def update_buffer(self, name: str, **kwargs: object) -> None:
+    def update_buffer(self, name: str, **kwargs: object) -> Tuple[bool, bool]:
         """Update an existing buffer's properties.
 
         Parameters
@@ -236,18 +236,33 @@ class BufferGroup:
         **kwargs
             Properties to update (size, location, persistent, aliases).
 
+        Returns
+        -------
+        bool, bool
+            Whether the buffer was recognized and updated, respectively.
+
         Notes
         -----
         Silently ignores updates for buffers not registered.
         """
-        if name not in self.entries:
-            return
+        recognized = False
+        changed = False
 
-        old_entry = self.entries[name]
-        new_values = attrs.asdict(old_entry)
-        new_values.update(kwargs)
-        self.entries[name] = CUDABuffer(**new_values)
-        self.invalidate_layouts()
+        if name not in self.entries:
+            recognized = False
+            changed = False
+        else:
+            recognized = True
+            old_entry = self.entries[name]
+            new_values = attrs.asdict(old_entry)
+            new_values.update(kwargs)
+
+            if new_values != old_entry:
+                changed = True
+                self.entries[name] = CUDABuffer(**new_values)
+                self.invalidate_layouts()
+
+        return recognized, changed
 
     def build_shared_layout(self) -> Dict[str, slice]:
         """Compute slice indices for shared memory buffers.
@@ -536,7 +551,7 @@ class BufferRegistry:
         name: str,
         parent: object,
         **kwargs: object,
-    ) -> None:
+    ) -> Tuple[bool, bool]:
         """Update an existing buffer's properties.
 
         Parameters
@@ -548,14 +563,22 @@ class BufferRegistry:
         **kwargs
             Properties to update (size, location, persistent, aliases).
 
+         Returns
+        -------
+        bool, bool
+            Whether the buffer was recognized and updated, respectively.
+
         Notes
         -----
         Silently ignores updates for parents with no registered group.
         """
         if parent not in self._groups:
-            return
-        self._groups[parent].update_buffer(name, **kwargs)
+            return False, False
 
+        recognized, changed = self._groups[parent].update_buffer(name,
+                                                                 **kwargs)
+
+        return recognized, changed
     def clear_layout(self, parent: object) -> None:
         """Invalidate cached slices for a parent.
 
