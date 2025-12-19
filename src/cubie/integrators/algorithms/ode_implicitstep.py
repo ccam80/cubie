@@ -37,20 +37,6 @@ class ImplicitStepConfig(BaseStepConfig):
         Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
-    krylov_tolerance
-        Linear solver tolerance used by the Krylov iteration.
-    max_linear_iters
-        Maximum iterations permitted for the linear solver.
-    linear_correction_type
-        Identifier controlling the linear correction operator.
-    newton_tolerance
-        Convergence tolerance for the Newton iteration.
-    max_newton_iters
-        Maximum iterations permitted for the Newton solver.
-    newton_damping
-        Damping factor applied within Newton updates.
-    newton_max_backtracks
-        Maximum number of backtracking steps within Newton updates.
     """
 
     _beta: float = attrs.field(
@@ -66,32 +52,6 @@ class ImplicitStepConfig(BaseStepConfig):
         default=1,
         validator=inrangetype_validator(int, 1, 32)
     )
-    _krylov_tolerance: float = attrs.field(
-        default=1e-3,
-        validator=gttype_validator(float, 0))
-    max_linear_iters: int = attrs.field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767),
-    )
-    linear_correction_type: str = attrs.field(default="minimal_residual")
-
-    _newton_tolerance: float = attrs.field(
-        default=1e-3,
-        validator=gttype_validator(float, 0)
-    )
-    max_newton_iters: int = attrs.field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767),
-    )
-    _newton_damping: float = attrs.field(
-        default=0.5,
-        validator=inrangetype_validator(float, 0, 1)
-    )
-
-    newton_max_backtracks: int = attrs.field(
-        default=10,
-        validator=inrangetype_validator(int, 1, 32767)
-    )
 
     @property
     def beta(self) -> float:
@@ -104,21 +64,6 @@ class ImplicitStepConfig(BaseStepConfig):
         return self.precision(self._gamma)
 
     @property
-    def krylov_tolerance(self) -> float:
-        """Return the linear solver tolerance."""
-        return self.precision(self._krylov_tolerance)
-
-    @property
-    def newton_tolerance(self) -> float:
-        """Return the nonlinear solver tolerance."""
-        return self.precision(self._newton_tolerance)
-
-    @property
-    def newton_damping(self) -> float:
-        """Return the Newton damping factor."""
-        return self.precision(self._newton_damping)
-
-    @property
     def settings_dict(self) -> dict:
         """Return configuration fields as a dictionary."""
 
@@ -129,13 +74,6 @@ class ImplicitStepConfig(BaseStepConfig):
                 'gamma': self.gamma,
                 'M': self.M,
                 'preconditioner_order': self.preconditioner_order,
-                'krylov_tolerance': self.krylov_tolerance,
-                'max_linear_iters': self.max_linear_iters,
-                'linear_correction_type': self.linear_correction_type,
-                'newton_tolerance': self.newton_tolerance,
-                'max_newton_iters': self.max_newton_iters,
-                'newton_damping': self.newton_damping,
-                'newton_max_backtracks': self.newton_max_backtracks,
                 'get_solver_helper_fn': self.get_solver_helper_fn,
             }
         )
@@ -161,27 +99,33 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         super().__init__(config, _controller_defaults)
         
-        # Create LinearSolver instance
-        linear_config = LinearSolverConfig(
+        # Create LinearSolver instance with explicit parameters
+        self._linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-            correction_type=config.linear_correction_type,
-            tolerance=config.krylov_tolerance,
-            max_iters=config.max_linear_iters,
         )
-        self._linear_solver = LinearSolver(linear_config)
         
-        # Create NewtonKrylov instance
-        newton_config = NewtonKrylovConfig(
+        # Set default solver parameters
+        self._linear_solver.update(
+            correction_type="minimal_residual",
+            krylov_tolerance=1e-3,
+            max_linear_iters=100,
+        )
+        
+        # Create NewtonKrylov instance with explicit parameters
+        self._newton_solver = NewtonKrylov(
             precision=config.precision,
             n=config.n,
             linear_solver=self._linear_solver,
-            tolerance=config.newton_tolerance,
-            max_iters=config.max_newton_iters,
-            damping=config.newton_damping,
-            max_backtracks=config.newton_max_backtracks,
         )
-        self._newton_solver = NewtonKrylov(newton_config)
+        
+        # Set default Newton parameters
+        self._newton_solver.update(
+            newton_tolerance=1e-3,
+            max_newton_iters=100,
+            newton_damping=0.5,
+            newton_max_backtracks=10,
+        )
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -359,40 +303,40 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def krylov_tolerance(self) -> float:
         """Return the tolerance used for the linear solve."""
 
-        return self.compile_settings.krylov_tolerance
+        return self._linear_solver.krylov_tolerance
 
     @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
 
-        return int(self.compile_settings.max_linear_iters)
+        return int(self._linear_solver.max_linear_iters)
 
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
 
-        return self.compile_settings.linear_correction_type
+        return self._linear_solver.correction_type
 
     @property
     def newton_tolerance(self) -> float:
         """Return the Newton solve tolerance."""
 
-        return self.compile_settings.newton_tolerance
+        return self._newton_solver.newton_tolerance
 
     @property
     def max_newton_iters(self) -> int:
         """Return the maximum allowed Newton iterations."""
 
-        return int(self.compile_settings.max_newton_iters)
+        return int(self._newton_solver.max_newton_iters)
 
     @property
     def newton_damping(self) -> float:
         """Return the Newton damping factor."""
 
-        return self.compile_settings.newton_damping
+        return self._newton_solver.newton_damping
 
     @property
     def newton_max_backtracks(self) -> int:
         """Return the maximum number of Newton backtracking steps."""
 
-        return int(self.compile_settings.newton_max_backtracks)
+        return int(self._newton_solver.newton_max_backtracks)

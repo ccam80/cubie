@@ -73,11 +73,11 @@ class LinearSolverConfig:
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"])
     )
-    _tolerance: float = attrs.field(
+    _krylov_tolerance: float = attrs.field(
         default=1e-6,
         validator=gttype_validator(float, 0)
     )
-    max_iters: int = attrs.field(
+    max_linear_iters: int = attrs.field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767)
     )
@@ -92,9 +92,9 @@ class LinearSolverConfig:
     use_cached_auxiliaries: bool = attrs.field(default=False)
     
     @property
-    def tolerance(self) -> float:
+    def krylov_tolerance(self) -> float:
         """Return tolerance in configured precision."""
-        return self.precision(self._tolerance)
+        return self.precision(self._krylov_tolerance)
     
     @property
     def numba_precision(self) -> type:
@@ -105,22 +105,6 @@ class LinearSolverConfig:
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
         return simsafe_dtype(np.dtype(self.precision))
-    
-    @property
-    def settings_dict(self) -> dict:
-        """Return configuration fields as dictionary."""
-        return {
-            'precision': self.precision,
-            'n': self.n,
-            'operator_apply': self.operator_apply,
-            'preconditioner': self.preconditioner,
-            'correction_type': self.correction_type,
-            'tolerance': self.tolerance,
-            'max_iters': self.max_iters,
-            'preconditioned_vec_location': self.preconditioned_vec_location,
-            'temp_location': self.temp_location,
-            'use_cached_auxiliaries': self.use_cached_auxiliaries,
-        }
 
 
 @attrs.define
@@ -145,49 +129,52 @@ class LinearSolver(CUDAFactory):
     for solving linear systems without forming Jacobian matrices.
     """
     
-    def __init__(self, config: LinearSolverConfig) -> None:
-        """Initialize LinearSolver with configuration.
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n: int,
+        preconditioned_vec_location: str = 'local',
+        temp_location: str = 'local',
+    ) -> None:
+        """Initialize LinearSolver with parameters.
         
         Parameters
         ----------
-        config : LinearSolverConfig
-            Configuration containing all compile-time parameters.
+        precision : PrecisionDType
+            Numerical precision for computations.
+        n : int
+            Length of residual and search-direction vectors.
+        preconditioned_vec_location : str, default='local'
+            Memory location for preconditioned_vec buffer ('local' or 'shared').
+        temp_location : str, default='local'
+            Memory location for temp buffer ('local' or 'shared').
         """
         super().__init__()
+        
+        # Create and setup configuration
+        config = LinearSolverConfig(
+            precision=precision,
+            n=n,
+            preconditioned_vec_location=preconditioned_vec_location,
+            temp_location=temp_location,
+        )
         self.setup_compile_settings(config)
         
-        # Register buffers with buffer_registry
-        # Buffer names depend on use_cached_auxiliaries flag
-        if config.use_cached_auxiliaries:
-            buffer_registry.register(
-                'lin_cached_preconditioned_vec',
-                self,
-                config.n,
-                config.preconditioned_vec_location,
-                precision=config.precision
-            )
-            buffer_registry.register(
-                'lin_cached_temp',
-                self,
-                config.n,
-                config.temp_location,
-                precision=config.precision
-            )
-        else:
-            buffer_registry.register(
-                'lin_preconditioned_vec',
-                self,
-                config.n,
-                config.preconditioned_vec_location,
-                precision=config.precision
-            )
-            buffer_registry.register(
-                'lin_temp',
-                self,
-                config.n,
-                config.temp_location,
-                precision=config.precision
-            )
+        # Register buffers with buffer_registry (same names for cached/non-cached)
+        buffer_registry.register(
+            'lin_preconditioned_vec',
+            self,
+            n,
+            preconditioned_vec_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'lin_temp',
+            self,
+            n,
+            temp_location,
+            precision=precision
+        )
     
     def build(self) -> LinearSolverCache:
         """Compile linear solver device function.
@@ -204,19 +191,13 @@ class LinearSolver(CUDAFactory):
         """
         config = self.compile_settings
         
-        # Validate required device functions are set
-        if config.operator_apply is None:
-            raise ValueError(
-                "operator_apply must be set before building LinearSolver"
-            )
-        
         # Extract parameters from config
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
         n = config.n
         correction_type = config.correction_type
-        tolerance = config.tolerance
-        max_iters = config.max_iters
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -227,24 +208,16 @@ class LinearSolver(CUDAFactory):
         
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(max_iters)
+        max_iters_val = int32(max_linear_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
-        tol_squared = precision_numba(tolerance * tolerance)
+        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
         
-        # Get allocators from buffer_registry
-        if use_cached_auxiliaries:
-            alloc_precond = buffer_registry.get_allocator(
-                'lin_cached_preconditioned_vec', self
-            )
-            alloc_temp = buffer_registry.get_allocator(
-                'lin_cached_temp', self
-            )
-        else:
-            alloc_precond = buffer_registry.get_allocator(
-                'lin_preconditioned_vec', self
-            )
-            alloc_temp = buffer_registry.get_allocator('lin_temp', self)
+        # Get allocators from buffer_registry (same names for all variants)
+        alloc_precond = buffer_registry.get_allocator(
+            'lin_preconditioned_vec', self
+        )
+        alloc_temp = buffer_registry.get_allocator('lin_temp', self)
         
         # Define device function with appropriate signature
         if use_cached_auxiliaries:
@@ -534,6 +507,24 @@ class LinearSolver(CUDAFactory):
         set
             Set of recognized parameter names that were updated.
         """
+        # Update buffer_registry for location changes
+        if updates_dict is None:
+            updates_dict = {}
+        all_updates = {**updates_dict, **kwargs}
+        
+        if 'preconditioned_vec_location' in all_updates:
+            buffer_registry.update(
+                'lin_preconditioned_vec',
+                self,
+                location=all_updates['preconditioned_vec_location']
+            )
+        if 'temp_location' in all_updates:
+            buffer_registry.update(
+                'lin_temp',
+                self,
+                location=all_updates['temp_location']
+            )
+        
         return self.update_compile_settings(
             updates_dict=updates_dict,
             silent=silent,
@@ -561,14 +552,14 @@ class LinearSolver(CUDAFactory):
         return self.compile_settings.correction_type
     
     @property
-    def tolerance(self) -> float:
+    def krylov_tolerance(self) -> float:
         """Return convergence tolerance."""
-        return self.compile_settings.tolerance
+        return self.compile_settings.krylov_tolerance
     
     @property
-    def max_iters(self) -> int:
+    def max_linear_iters(self) -> int:
         """Return maximum iterations."""
-        return self.compile_settings.max_iters
+        return self.compile_settings.max_linear_iters
     
     @property
     def use_cached_auxiliaries(self) -> bool:
