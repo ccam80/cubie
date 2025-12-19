@@ -28,6 +28,14 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
     'n_drivers',
+    # DIRK buffer location parameters
+    'stage_increment_location', 'stage_base_location', 'accumulator_location',
+    # ERK buffer location parameters
+    'stage_rhs_location', 'stage_accumulator_location',
+    # FIRK buffer location parameters
+    'stage_driver_stack_location', 'stage_state_location',
+    # Rosenbrock buffer location parameters
+    'stage_store_location', 'cached_auxiliaries_location',
 }
 
 

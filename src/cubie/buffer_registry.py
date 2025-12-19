@@ -9,7 +9,7 @@ The registry uses a lazy cached build pattern - slice layouts are
 computed on demand and invalidated when any buffer is modified.
 """
 
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple, Any, Set
 
 import attrs
 from attrs import validators
@@ -613,6 +613,87 @@ class BufferRegistry:
         """
         if parent in self._groups:
             del self._groups[parent]
+
+    def update(
+        self,
+        parent: object,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs: Any,
+    ) -> Set[str]:
+        """Update buffer locations from keyword arguments.
+
+        For each key of the form '[buffer_name]_location', finds the
+        corresponding buffer and updates its location. Mirrors the pattern
+        of CUDAFactory.update_compile_settings().
+
+        Parameters
+        ----------
+        parent
+            Parent instance that owns the buffers to update.
+        updates_dict
+            Mapping of parameter names to new values.
+        silent
+            Suppress errors for unrecognized parameters.
+        **kwargs
+            Additional parameters merged into updates_dict.
+
+        Returns
+        -------
+        Set[str]
+            Names of parameters that were successfully recognized.
+
+        Raises
+        ------
+        ValueError
+            If a location value is not 'shared' or 'local'.
+
+        Notes
+        -----
+        A parameter is recognized if it matches '[buffer_name]_location'
+        where buffer_name is registered for the parent. The method
+        silently ignores unrecognized parameters when silent=True.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = updates_dict.copy()
+        if kwargs:
+            updates_dict.update(kwargs)
+        if not updates_dict:
+            return set()
+
+        if parent not in self._groups:
+            return set()
+
+        group = self._groups[parent]
+        recognized = set()
+        updated = False
+
+        for key, value in updates_dict.items():
+            if not key.endswith('_location'):
+                continue
+
+            buffer_name = key[:-9]  # Remove '_location' suffix
+            if buffer_name not in group.entries:
+                continue
+
+            if value not in ('shared', 'local'):
+                raise ValueError(
+                    f"Invalid location '{value}' for buffer "
+                    f"'{buffer_name}'. Must be 'shared' or 'local'."
+                )
+
+            entry = group.entries[buffer_name]
+            if entry.location != value:
+                self.update_buffer(buffer_name, parent, location=value)
+                updated = True
+
+            recognized.add(key)
+
+        if updated:
+            group.invalidate_layouts()
+
+        return recognized
 
     def shared_buffer_size(self, parent: object) -> int:
         """Return total shared memory elements for a parent.

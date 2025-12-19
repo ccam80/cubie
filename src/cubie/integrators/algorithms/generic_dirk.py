@@ -207,7 +207,7 @@ class DIRKStep(ODEImplicitStep):
         mass = np.eye(n, dtype=precision)
 
         # Clear any existing buffer registrations
-        buffer_registry.clear_factory(self)
+        buffer_registry.clear_parent(self)
 
         # Determine locations (use defaults if not specified)
         inc_loc = stage_increment_location if stage_increment_location else 'local'

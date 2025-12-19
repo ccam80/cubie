@@ -211,6 +211,52 @@ class ODELoopConfig:
         validator=getype_validator(int, 0)
     )
 
+    # Buffer location settings (match buffer names in IVPLoop.__init__)
+    loop_state_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_proposed_state_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_parameters_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_drivers_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_proposed_drivers_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_observables_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_proposed_observables_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_error_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_counters_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_state_summary_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    loop_observable_summary_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+
     precision: PrecisionDType = field(
         default=float32,
         converter=precision_converter,

@@ -207,7 +207,7 @@ class ERKStep(ODEExplicitStep):
         """
 
         # Clear any existing buffer registrations
-        buffer_registry.clear_factory(self)
+        buffer_registry.clear_parent(self)
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n

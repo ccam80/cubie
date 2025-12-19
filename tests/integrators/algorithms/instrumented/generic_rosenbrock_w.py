@@ -87,7 +87,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau_value = tableau
 
         # Clear any existing buffer registrations
-        buffer_registry.clear_factory(self)
+        buffer_registry.clear_parent(self)
 
         # Determine locations (use defaults if not specified)
         rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
