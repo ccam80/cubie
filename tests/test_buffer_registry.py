@@ -494,3 +494,109 @@ class TestPrecisionValidation:
             precision=np.float16,
         )
         assert entry.precision == np.float16
+
+
+class TestBufferRegistryUpdate:
+    """Tests for BufferRegistry.update() method."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_registry(self):
+        """Create a fresh registry for each test."""
+        self.registry = BufferRegistry()
+        self.parent = MockFactory()
+        yield
+
+    def test_update_recognizes_location_params(self):
+        """BufferRegistry.update() recognizes [buffer_name]_location params."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        recognized = self.registry.update(
+            self.parent, test_buffer_location='shared'
+        )
+        assert 'test_buffer_location' in recognized
+
+    def test_update_changes_buffer_location(self):
+        """BufferRegistry.update() changes buffer location in CUDABuffer."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        self.registry.update(self.parent, test_buffer_location='shared')
+        entry = self.registry._groups[self.parent].entries['test_buffer']
+        assert entry.location == 'shared'
+
+    def test_update_invalid_location_raises(self):
+        """BufferRegistry.update() raises ValueError for invalid location."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        with pytest.raises(ValueError, match="Invalid location"):
+            self.registry.update(self.parent, test_buffer_location='invalid')
+
+    def test_update_unregistered_parent_silent(self):
+        """BufferRegistry.update() returns empty set for unregistered parent."""
+        other_parent = MockFactory()
+        recognized = self.registry.update(
+            other_parent, test_buffer_location='shared'
+        )
+        assert recognized == set()
+
+    def test_update_with_updates_dict(self):
+        """BufferRegistry.update() accepts updates_dict parameter."""
+        self.registry.register('buf1', self.parent, 100, 'local')
+        self.registry.register('buf2', self.parent, 50, 'local')
+        recognized = self.registry.update(
+            self.parent,
+            updates_dict={'buf1_location': 'shared', 'buf2_location': 'shared'}
+        )
+        assert 'buf1_location' in recognized
+        assert 'buf2_location' in recognized
+
+    def test_update_ignores_non_location_params(self):
+        """BufferRegistry.update() ignores params not ending in _location."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        recognized = self.registry.update(
+            self.parent, some_other_param='value'
+        )
+        assert recognized == set()
+
+    def test_update_ignores_unknown_buffer_names(self):
+        """BufferRegistry.update() ignores location for unknown buffers."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        recognized = self.registry.update(
+            self.parent, unknown_buffer_location='shared'
+        )
+        assert 'unknown_buffer_location' not in recognized
+
+    def test_update_invalidates_layout(self):
+        """BufferRegistry.update() invalidates layouts when locations change."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        _ = self.registry.local_buffer_size(self.parent)
+        group = self.registry._groups[self.parent]
+        assert group._local_sizes is not None
+
+        self.registry.update(self.parent, test_buffer_location='shared')
+        assert group._local_sizes is None
+
+    def test_update_no_change_doesnt_invalidate(self):
+        """BufferRegistry.update() preserves layout if location unchanged."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        _ = self.registry.local_buffer_size(self.parent)
+        group = self.registry._groups[self.parent]
+        assert group._local_sizes is not None
+
+        self.registry.update(self.parent, test_buffer_location='local')
+        # Layout should still be valid since location didn't change
+        assert group._local_sizes is not None
+
+    def test_update_empty_dict_returns_empty_set(self):
+        """BufferRegistry.update() returns empty set for empty updates."""
+        self.registry.register('test_buffer', self.parent, 100, 'local')
+        recognized = self.registry.update(self.parent)
+        assert recognized == set()
+
+    def test_update_merges_dict_and_kwargs(self):
+        """BufferRegistry.update() merges updates_dict and kwargs."""
+        self.registry.register('buf1', self.parent, 100, 'local')
+        self.registry.register('buf2', self.parent, 50, 'local')
+        recognized = self.registry.update(
+            self.parent,
+            updates_dict={'buf1_location': 'shared'},
+            buf2_location='shared'
+        )
+        assert 'buf1_location' in recognized
+        assert 'buf2_location' in recognized

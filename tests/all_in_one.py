@@ -44,14 +44,14 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 
 script_start = perf_counter()
 #
-algorithm_type = 'dirk'
-algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'dirk'
+# algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-# algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ode23s'
+algorithm_type = 'rosenbrock'
+algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -99,11 +99,11 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.1)
+duration = precision(0.01)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.1)
+dt_save = precision(0.01)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
