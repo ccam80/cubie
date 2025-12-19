@@ -4,7 +4,7 @@ All CUDA device functions are consolidated in this single file to enable
 proper line-level debugging with Numba's lineinfo.
 """
 # ruff: noqa: E402
-from math import ceil, floor
+from math import ceil, floor, sqrt, fabs
 from time import perf_counter
 from typing import Optional
 
@@ -143,15 +143,6 @@ safety = precision(0.9)
 atol_value = precision(1e-8)
 rtol_value = precision(1e-8)
 
-# -------------------------------------------------------------------------
-# Output Configuration
-# -------------------------------------------------------------------------
-# Compile-time flags for loop behavior
-save_obs_bool = False
-save_state_bool = True
-summarise_obs_bool = False
-summarise_state_bool = False
-save_counters_bool = False
 save_last = False
 
 # Saves per summary (for summary metric aggregation)
@@ -3374,12 +3365,229 @@ def save_state_inline(current_state, current_observables, current_counters,
 
 
 # =========================================================================
+# SUMMARY METRICS REGISTRY SIMULATION
+# =========================================================================
+
+# List of all implemented summary metrics (matches package registry)
+implemented_metrics = [
+    "mean", "max", "min", "rms", "std",
+    "mean_std", "mean_std_rms", "std_rms",
+    "extrema", "peaks", "negative_peaks", "max_magnitude",
+    "dxdt_max", "dxdt_min", "dxdt_extrema",
+    "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
+]
+
+# Buffer sizes per metric (number of slots needed per variable)
+METRIC_BUFFER_SIZES = {
+    "mean": 1,
+    "max": 1,
+    "min": 1,
+    "rms": 1,
+    "std": 3,
+    "mean_std": 3,
+    "mean_std_rms": 3,
+    "std_rms": 3,
+    "extrema": 2,
+    "peaks": 3,  # Base size, increases with customisable_variable
+    "negative_peaks": 3,  # Base size, increases with customisable_variable
+    "max_magnitude": 1,
+    "dxdt_max": 2,
+    "dxdt_min": 2,
+    "dxdt_extrema": 3,
+    "d2xdt2_max": 3,
+    "d2xdt2_min": 3,
+    "d2xdt2_extrema": 4,
+}
+
+# Output sizes per metric (number of values written per variable)
+METRIC_OUTPUT_SIZES = {
+    "mean": 1,
+    "max": 1,
+    "min": 1,
+    "rms": 1,
+    "std": 1,
+    "mean_std": 2,
+    "mean_std_rms": 3,
+    "std_rms": 2,
+    "extrema": 2,
+    "peaks": 0,  # Base size, increases with customisable_variable
+    "negative_peaks": 0,  # Base size, increases with customisable_variable
+    "max_magnitude": 1,
+    "dxdt_max": 1,
+    "dxdt_min": 1,
+    "dxdt_extrema": 2,
+    "d2xdt2_max": 1,
+    "d2xdt2_min": 1,
+    "d2xdt2_extrema": 2,
+}
+
+def buffer_sizes(summaries_list):
+    """Return list of buffer sizes for each metric in summaries_list.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Buffer size for each metric.
+    """
+    return [METRIC_BUFFER_SIZES[name] for name in summaries_list]
+
+def output_sizes(summaries_list):
+    """Return list of output sizes for each metric in summaries_list.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Output size for each metric.
+    """
+    return [METRIC_OUTPUT_SIZES[name] for name in summaries_list]
+
+def buffer_offsets(summaries_list):
+    """Return cumulative buffer offsets for each metric.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Starting buffer offset for each metric.
+    """
+    sizes = buffer_sizes(summaries_list)
+    offsets = []
+    cumulative = 0
+    for size in sizes:
+        offsets.append(cumulative)
+        cumulative += size
+    return offsets
+
+def output_offsets(summaries_list):
+    """Return cumulative output offsets for each metric.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Starting output offset for each metric.
+    """
+    sizes = output_sizes(summaries_list)
+    offsets = []
+    cumulative = 0
+    for size in sizes:
+        offsets.append(cumulative)
+        cumulative += size
+    return offsets
+
+def params(summaries_list):
+    """Return customisable_variable parameters for each metric.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Parameter value for each metric (0 for all current metrics).
+    """
+    return [0 for _ in summaries_list]
+
+def update_functions(summaries_list):
+    """Return list of update function references for each metric.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Update function for each metric.
+    """
+    function_map = {
+        "mean": update_mean,
+        "max": update_max,
+        "min": update_min,
+        "rms": update_rms,
+        "std": update_std,
+        "mean_std": update_mean_std,
+        "mean_std_rms": update_mean_std_rms,
+        "std_rms": update_std_rms,
+        "extrema": update_extrema,
+        "peaks": update_peaks,
+        "negative_peaks": update_negative_peaks,
+        "max_magnitude": update_max_magnitude,
+        "dxdt_max": update_dxdt_max,
+        "dxdt_min": update_dxdt_min,
+        "dxdt_extrema": update_dxdt_extrema,
+        "d2xdt2_max": update_d2xdt2_max,
+        "d2xdt2_min": update_d2xdt2_min,
+        "d2xdt2_extrema": update_d2xdt2_extrema,
+    }
+    return [function_map[name] for name in summaries_list]
+
+def save_functions(summaries_list):
+    """Return list of save function references for each metric.
+    
+    Parameters
+    ----------
+    summaries_list
+        Sequence of summary metric names.
+    
+    Returns
+    -------
+    list
+        Save function for each metric.
+    """
+    function_map = {
+        "mean": save_mean,
+        "max": save_max,
+        "min": save_min,
+        "rms": save_rms,
+        "std": save_std,
+        "mean_std": save_mean_std,
+        "mean_std_rms": save_mean_std_rms,
+        "std_rms": save_std_rms,
+        "extrema": save_extrema,
+        "peaks": save_peaks,
+        "negative_peaks": save_negative_peaks,
+        "max_magnitude": save_max_magnitude,
+        "dxdt_max": save_dxdt_max,
+        "dxdt_min": save_dxdt_min,
+        "dxdt_extrema": save_dxdt_extrema,
+        "d2xdt2_max": save_d2xdt2_max,
+        "d2xdt2_min": save_d2xdt2_min,
+        "d2xdt2_extrema": save_d2xdt2_extrema,
+    }
+    return [function_map[name] for name in summaries_list]
+
+
+# =========================================================================
 # SUMMARY METRIC FUNCTIONS (Mean metric with chained pattern)
 # =========================================================================
 
 @cuda.jit(
-    # ["float32, float32[::1], int32, int32",
-    #  "float64, float64[::1], int32, int32"],
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
     device=True,
     inline=True,
     **compile_kwargs
@@ -3409,10 +3617,11 @@ def update_mean(
     """
     buffer[0] += value
 
-
 @cuda.jit(
-    # ["float32[::1], float32[::1], int32, int32",
-    #  "float64[::1], float64[::1], int32, int32"],
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
     device=True,
     inline=True,
     **compile_kwargs
@@ -3444,58 +3653,2032 @@ def save_mean(
     output_array[0] = buffer[0] / summarise_every
     buffer[0] = precision(0.0)
 
-
-@cuda.jit(device=True, inline=True, **compile_kwargs)
-def chain_update_metrics(
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs
+)
+def update_max(
     value,
     buffer,
-    current_step,
+    current_index,
+    customisable_variable,
 ):
-    """Chain all metric update functions.
+    """Update the running maximum with a new value.
 
     Parameters
     ----------
     value
-        float. Current state or observable value to accumulate.
+        float. New value to compare against the current maximum.
     buffer
-        device array. Buffer for summary metric accumulation.
-    current_step
-        int. Current integration step index.
+        device array. Storage for the current maximum value.
+    current_index
+        int. Current integration step index (unused for this metric).
+    customisable_variable
+        int. Metric parameter placeholder (unused for max).
 
     Notes
     -----
-    Calls update functions for all enabled summary metrics in sequence.
-    Currently implements mean metric only (buffer offset 0, size 1).
+    Updates ``buffer[0]`` if the new value exceeds the current maximum.
     """
-    # For mean metric: buffer offset 0, size 1, param 0
-    update_mean(value, buffer[0:1], current_step, 0)
+    if value > buffer[0]:
+        buffer[0] = value
 
-
-@cuda.jit(device=True, inline=True, **compile_kwargs)
-def chain_save_metrics(
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs
+)
+def save_max(
     buffer,
-    output,
+    output_array,
     summarise_every,
+    customisable_variable,
 ):
-    """Chain all metric save functions.
+    """Save the maximum value to output and reset the buffer.
 
     Parameters
     ----------
     buffer
-        device array. Buffer containing accumulated metric data.
-    output
-        device array. Output array for saving computed metrics.
+        device array. Buffer containing the current maximum value.
+    output_array
+        device array. Output location for saving the maximum value.
     summarise_every
-        int. Number of integration steps in each summary window.
+        int. Number of steps between saves (unused for max).
+    customisable_variable
+        int. Metric parameter placeholder (unused for max).
 
     Notes
     -----
-    Calls save functions for all enabled summary metrics in sequence.
-    Each metric computes its final value, writes to output, and resets
-    its buffer. Currently implements mean metric only.
+    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
+    sentinel to ``-1.0e30`` for the next period.
     """
-    # For mean metric: buffer offset 0, size 1, output offset 0, size 1, param 0
-    save_mean(buffer[0:1], output[0:1], summarise_every, 0)
+    output_array[0] = buffer[0]
+    buffer[0] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the running minimum with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compare against the current minimum.
+    buffer
+        device array. Storage for the current minimum value.
+    current_index
+        int. Current integration step index (unused for this metric).
+    customisable_variable
+        int. Metric parameter placeholder (unused for min).
+
+    Notes
+    -----
+    Updates ``buffer[0]`` if the new value is less than the current
+    minimum.
+    """
+    if value < buffer[0]:
+        buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save the minimum value to output and reset the buffer.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing the current minimum value.
+    output_array
+        device array. Output location for saving the minimum value.
+    summarise_every
+        int. Number of steps between saves (unused for min).
+    customisable_variable
+        int. Metric parameter placeholder (unused for min).
+
+    Notes
+    -----
+    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
+    sentinel to ``1.0e30`` for the next period.
+    """
+    output_array[0] = buffer[0]
+    buffer[0] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the running sum of squares with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to square and add to the running sum.
+    buffer
+        device array. Storage containing the running sum of squares.
+    current_index
+        int. Current integration step index, used to reset the sum.
+    customisable_variable
+        int. Metric parameter placeholder (unused for RMS).
+
+    Notes
+    -----
+    Resets ``buffer[0]`` on the first step of a period before adding
+    the squared value.
+    """
+    sum_of_squares = buffer[0]
+    if current_index == 0:
+        sum_of_squares = precision(0.0)
+    sum_of_squares += value * value
+    buffer[0] = sum_of_squares
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Calculate the RMS from the running sum of squares.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing the running sum of squares.
+    output_array
+        device array. Output array location for saving the RMS value.
+    summarise_every
+        int. Number of steps contributing to each summary window.
+    customisable_variable
+        int. Metric parameter placeholder (unused for RMS).
+
+    Notes
+    -----
+    Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
+    and resets ``buffer[0]`` for the next summary period.
+    """
+
+    output_array[0] = sqrt(buffer[0] / summarise_every)
+    buffer[0] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_std(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the running sum and sum of squares with shifted values.
+
+    Parameters
+    ----------
+    value
+        float. New value to add to the running statistics.
+    buffer
+        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+    current_index
+        int. Current integration step index within the summary period.
+    customisable_variable
+        int. Metric parameter placeholder (unused for std).
+
+    Notes
+    -----
+    On first sample (current_index == 0), stores the value as shift
+    and resets accumulators. For all samples including the first,
+    computes shifted_value = value - shift and adds it to buffer[1]
+    (sum) and shifted_value^2 to buffer[2] (sum of squares). This
+    shifting improves numerical stability.
+    """
+    if current_index == 0:
+        buffer[0] = value  # Store shift value
+        buffer[1] = precision(0.0)    # Reset sum
+        buffer[2] = precision(0.0)    # Reset sum of squares
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_std(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Calculate the standard deviation from shifted running statistics.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+    output_array
+        device array. Output array location for saving the std value.
+    summarise_every
+        int. Number of steps contributing to each summary window.
+    customisable_variable
+        int. Metric parameter placeholder (unused for std).
+
+    Notes
+    -----
+    Calculates variance using the shifted data algorithm:
+    variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+    Then computes std = sqrt(variance) and saves to output_array[0].
+    Resets buffer for the next summary period.
+    """
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    output_array[0] = sqrt(variance)
+    mean = buffer[0] + mean_shifted
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_mean_std(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update running sums with a new value using shifted data.
+
+    Parameters
+    ----------
+    value
+        float. New value to add to the running statistics.
+    buffer
+        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+    current_index
+        int. Current integration step index within summary period.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    On first sample (current_index == 0), stores value as shift.
+    Computes shifted_value = value - shift and adds it to buffer[1]
+    (sum) and shifted_value^2 to buffer[2] (sum of squares).
+    """
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_mean_std(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Calculate mean and std from shifted running sums.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+    output_array
+        device array. Output location for [mean, std].
+    summarise_every
+        int. Number of steps contributing to each summary window.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Calculates:
+    - mean = shift + sum_shifted / n
+    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+    - std = sqrt(variance)
+    
+    Saves to output_array[0:2] and resets buffer for next period.
+    """
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    mean = shift + mean_shifted
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    
+    output_array[0] = mean
+    output_array[1] = sqrt(variance)
+    
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_mean_std_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update running sums with a new value using shifted data.
+
+    Parameters
+    ----------
+    value
+        float. New value to add to the running statistics.
+    buffer
+        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+    current_index
+        int. Current integration step index within summary period.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    On first sample (current_index == 0), stores value as shift.
+    Computes shifted_value = value - shift and adds it to buffer[1]
+    (sum) and shifted_value^2 to buffer[2] (sum of squares).
+    """
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_mean_std_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Calculate mean, std, and rms from shifted running sums.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+    output_array
+        device array. Output location for [mean, std, rms].
+    summarise_every
+        int. Number of steps contributing to each summary window.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Calculates:
+    - mean = shift + sum_shifted / n
+    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+    - std = sqrt(variance)
+    - rms = sqrt((sum_sq_shifted + 2*shift*sum_shifted + n*shift^2) / n)
+    
+    Saves to output_array[0:3] and resets buffer for next period.
+    """
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    # Mean: shift back to original scale
+    mean = shift + mean_shifted
+    
+    # Variance: using shifted values
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    std = sqrt(variance)
+    
+    # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
+    # = mean_of_squares_shifted + 2*shift*mean_shifted + shift^2
+    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+    rms = sqrt(mean_of_squares)
+    
+    output_array[0] = mean
+    output_array[1] = std
+    output_array[2] = rms
+    
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_std_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update running sums with a new value using shifted data.
+
+    Parameters
+    ----------
+    value
+        float. New value to add to the running statistics.
+    buffer
+        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+    current_index
+        int. Current integration step index within summary period.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    On first sample (current_index == 0), stores value as shift.
+    Computes shifted_value = value - shift and adds it to buffer[1]
+    (sum) and shifted_value^2 to buffer[2] (sum of squares).
+    """
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_std_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Calculate std and rms from shifted running sums.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+    output_array
+        device array. Output location for [std, rms].
+    summarise_every
+        int. Number of steps contributing to each summary window.
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Calculates:
+    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
+    - std = sqrt(variance)
+    - rms = sqrt((sum_sq_shifted + 2*shift*sum_shifted + n*shift^2) / n)
+    
+    Saves to output_array[0:2] and resets buffer for next period.
+    """
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    std = sqrt(variance)
+    
+    # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
+    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+    rms = sqrt(mean_of_squares)
+    
+    output_array[0] = std
+    output_array[1] = rms
+    
+    mean = shift + mean_shifted
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the running maximum and minimum with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compare against current extrema.
+    buffer
+        device array. Storage for [max, min] values.
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Updates ``buffer[0]`` (max) if value exceeds it, and
+    ``buffer[1]`` (min) if value is less than it.
+    """
+    if value > buffer[0]:
+        buffer[0] = value
+    if value < buffer[1]:
+        buffer[1] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save both extrema to output and reset the buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [max, min] values.
+    output_array
+        device array. Output location for [max, min] values.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Saves max to ``output_array[0]`` and min to ``output_array[1]``,
+    then resets buffers to their sentinel values.
+    """
+    output_array[0] = buffer[0]
+    output_array[1] = buffer[1]
+    buffer[0] = precision(-1.0e30)
+    buffer[1] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_peaks(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update peak detection with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to analyse for peak detection.
+    buffer
+        device array. Layout ``[prev, prev_prev, counter, times...]``.
+    current_index
+        int. Current integration step index, used to record peaks.
+    customisable_variable
+        int. Maximum number of peaks to detect.
+
+    Notes
+    -----
+    Detects peaks when the prior value exceeds both the current and
+    second-prior values. Peak indices are stored from ``buffer[3]``
+    onward.
+    """
+    npeaks = customisable_variable
+    prev = buffer[0]
+    prev_prev = buffer[1]
+    peak_counter = int(buffer[2])
+
+    if (
+        (current_index >= 2)
+        and (peak_counter < npeaks)
+        and (prev_prev != precision(0.0))
+    ):
+        if prev > value and prev_prev < prev:
+            # Bingo
+            buffer[3 + peak_counter] = (current_index - 1)
+            buffer[2] = float(int(buffer[2]) + 1)
+    buffer[0] = value  # Update previous value
+    buffer[1] = prev  # Update previous previous value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_peaks(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save detected peak time indices and reset the buffer.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing detected peak time indices.
+    output_array
+        device array. Output array for saving peak time indices.
+    summarise_every
+        int. Number of steps between saves (unused for peak detection).
+    customisable_variable
+        int. Maximum number of peaks to detect.
+
+    Notes
+    -----
+    Copies peak indices from ``buffer[3:]`` to the output array then
+    clears the storage for the next summary interval.
+    """
+    n_peaks = int32(customisable_variable)
+    for p in range(n_peaks):
+        output_array[p] = buffer[3 + p]
+        buffer[3 + p] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_negative_peaks(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update negative peak detection with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to analyse for negative peak detection.
+    buffer
+        device array. Layout ``[prev, prev_prev, counter, times...]``.
+    current_index
+        int. Current integration step index, used to record peaks.
+    customisable_variable
+        int. Maximum number of negative peaks to detect.
+
+    Notes
+    -----
+    Detects negative peaks (local minima) when the prior value is
+    less than both the current and second-prior values. Peak indices
+    are stored from ``buffer[3]`` onward.
+    """
+    npeaks = customisable_variable
+    prev = buffer[0]
+    prev_prev = buffer[1]
+    peak_counter = int(buffer[2])
+
+    if (
+        (current_index >= 2)
+        and (peak_counter < npeaks)
+        and (prev_prev != precision(0.0))
+    ):
+        if prev < value and prev_prev > prev:
+            buffer[3 + peak_counter] = (current_index - 1)
+            buffer[2] = float(int(buffer[2]) + 1)
+    buffer[0] = value
+    buffer[1] = prev
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_negative_peaks(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save detected negative peak time indices and reset the buffer.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer with detected negative peak time indices.
+    output_array
+        device array. Output array for saving peak time indices.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Maximum number of negative peaks to detect.
+
+    Notes
+    -----
+    Copies peak indices from ``buffer[3:]`` to the output array then
+    clears the storage for the next summary interval.
+    """
+    n_peaks = int32(customisable_variable)
+    for p in range(n_peaks):
+        output_array[p] = buffer[3 + p]
+        buffer[3 + p] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_max_magnitude(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the running maximum magnitude with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value whose absolute value is compared.
+    buffer
+        device array. Storage for the current maximum magnitude.
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Updates ``buffer[0]`` if ``abs(value)`` exceeds the current
+    maximum magnitude.
+    """
+    abs_value = fabs(value)
+    if abs_value > buffer[0]:
+        buffer[0] = abs_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_max_magnitude(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save the maximum magnitude to output and reset the buffer.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing the current max magnitude.
+    output_array
+        device array. Output location for saving the max magnitude.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
+    to ``0.0`` for the next period.
+    """
+    output_array[0] = buffer[0]
+    buffer[0] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_max(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the maximum first derivative with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute derivative from.
+    buffer
+        device array. Storage for [prev_value, max_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled derivative as (value - buffer[0]) and updates
+    buffer[1] if larger. Uses predicated commit pattern to avoid
+    warp divergence.
+    """
+    derivative_unscaled = value - buffer[0]
+    update_flag = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_max(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled maximum derivative and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, max_unscaled].
+    output_array
+        device array. Output location for maximum derivative.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the maximum unscaled derivative by dt_save and saves to
+    output_array[0], then resets buffers to sentinel values.
+    """
+    output_array[0] = buffer[1] / precision(dt_save)
+    buffer[1] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the minimum first derivative with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute derivative from.
+    buffer
+        device array. Storage for [prev_value, min_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled derivative as (value - buffer[0]) and updates
+    buffer[1] if smaller. Uses predicated commit pattern to avoid
+    warp divergence.
+    """
+    derivative_unscaled = value - buffer[0]
+    update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled minimum derivative and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, min_unscaled].
+    output_array
+        device array. Output location for minimum derivative.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the minimum unscaled derivative by dt_save and saves to
+    output_array[0], then resets buffers to sentinel values.
+    """
+    output_array[0] = buffer[1] / precision(dt_save)
+    buffer[1] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update maximum and minimum first derivatives with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute derivative from.
+    buffer
+        device array. Storage for [prev_value, max_unscaled, min_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled derivative as (value - buffer[0]) and updates
+    buffer[1] if larger and buffer[2] if smaller. Uses predicated
+    commit pattern to avoid warp divergence.
+    """
+    derivative_unscaled = value - buffer[0]
+    update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
+    update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
+    buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled derivative extrema and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, max_unscaled, min_unscaled].
+    output_array
+        device array. Output location for [max_derivative, min_derivative].
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the extrema by dt_save and saves to output_array[0] (max)
+    and output_array[1] (min), then resets buffers to sentinel values.
+    """
+    output_array[0] = buffer[1] / precision(dt_save)
+    output_array[1] = buffer[2] / precision(dt_save)
+    buffer[1] = precision(-1.0e30)
+    buffer[2] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_max(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the maximum second derivative with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute second derivative from.
+    buffer
+        device array. Storage for [prev_value, prev_prev_value, max_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled second derivative using central difference formula
+    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger.
+    Uses predicated commit pattern to avoid warp divergence. Guard on
+    buffer[1] ensures two previous values are available.
+    """
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_max(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled maximum second derivative and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, prev_prev_value, max_unscaled].
+    output_array
+        device array. Output location for maximum second derivative.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the maximum unscaled second derivative by dt_save² and saves
+    to output_array[0], then resets buffers to sentinel values.
+    """
+    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    buffer[2] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update the minimum second derivative with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute second derivative from.
+    buffer
+        device array. Storage for [prev_value, prev_prev_value, min_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled second derivative using central difference formula
+    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if smaller.
+    Uses predicated commit pattern to avoid warp divergence. Guard on
+    buffer[1] ensures two previous values are available.
+    """
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_flag = (second_derivative_unscaled < buffer[2]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled minimum second derivative and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, prev_prev_value, min_unscaled].
+    output_array
+        device array. Output location for minimum second derivative.
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the minimum unscaled second derivative by dt_save² and saves
+    to output_array[0], then resets buffers to sentinel values.
+    """
+    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    buffer[2] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    """Update maximum and minimum second derivatives with a new value.
+
+    Parameters
+    ----------
+    value
+        float. New value to compute second derivative from.
+    buffer
+        device array. Storage for [prev_value, prev_prev_value,
+        max_unscaled, min_unscaled].
+    current_index
+        int. Current integration step index (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Computes unscaled second derivative using central difference formula
+    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger
+    and buffer[3] if smaller. Uses predicated commit pattern to avoid
+    warp divergence. Guard on buffer[1] ensures two previous values
+    are available.
+    """
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
+    update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
+    buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    """Save scaled second derivative extrema and reset buffers.
+
+    Parameters
+    ----------
+    buffer
+        device array. Buffer containing [prev_value, prev_prev_value,
+        max_unscaled, min_unscaled].
+    output_array
+        device array. Output location for [max_second_derivative,
+        min_second_derivative].
+    summarise_every
+        int. Number of steps between saves (unused).
+    customisable_variable
+        int. Metric parameter placeholder (unused).
+
+    Notes
+    -----
+    Scales the extrema by dt_save² and saves to output_array[0] (max)
+    and output_array[1] (min), then resets buffers to sentinel values.
+    """
+    dt_save_sq = precision(dt_save) * precision(dt_save)
+    output_array[0] = buffer[2] / dt_save_sq
+    output_array[1] = buffer[3] / dt_save_sq
+    buffer[2] = precision(-1.0e30)
+    buffer[3] = precision(1.0e30)
+
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def do_nothing_update(
+    values,
+    buffer,
+    current_step,
+):
+    """Provide a no-op device function for empty metric chains.
+
+    Parameters
+    ----------
+    values
+        device array containing the current scalar value (unused).
+    buffer
+        device array slice reserved for summary accumulation (unused).
+    current_step
+        Integer or scalar step identifier (unused).
+
+    Returns
+    -------
+    None
+        The device function intentionally performs no operations.
+
+    Notes
+    -----
+    This function serves as the base case for the recursive chain when no
+    summary metrics are configured or as the initial ``inner_chain`` function
+    for update operations.
+    """
+    pass
+
+
+def chain_metrics_update(
+    metric_functions,
+    buffer_offsets,
+    buffer_sizes,
+    function_params,
+    inner_chain=do_nothing_update,
+):
+    """Recursively chain summary metric update functions for CUDA execution.
+
+    This function builds a recursive chain of summary metric update functions,
+    where each function in the sequence is wrapped with the previous
+    functions to create a single callable that updates all metrics.
+
+    Parameters
+    ----------
+    metric_functions
+        Sequence of CUDA device functions for updating summary metrics.
+    buffer_offsets
+        Sequence of offsets into the metric buffer for each function.
+    buffer_sizes
+        Sequence of per-metric buffer lengths.
+    function_params
+        Sequence of parameter payloads passed to each metric function.
+    inner_chain
+        Callable executed before the current metric; defaults to ``do_nothing_update``.
+
+    Returns
+    -------
+    Callable
+        CUDA device function that executes all chained metric updates.
+
+    Notes
+    -----
+    The function uses recursion to build a chain where each level executes
+    the inner chain first, then the current metric update function. This
+    ensures all requested metrics are updated in the correct order during
+    each integration step.
+    """
+    if len(metric_functions) == 0:
+        return do_nothing_update
+
+    current_fn = metric_functions[0]
+    current_offset = buffer_offsets[0]
+    current_size = buffer_sizes[0]
+    current_param = function_params[0]
+
+    remaining_functions = metric_functions[1:]
+    remaining_offsets = buffer_offsets[1:]
+    remaining_sizes = buffer_sizes[1:]
+    remaining_params = function_params[1:]
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def wrapper(
+        value,
+        buffer,
+        current_step,
+    ):
+        """Apply the accumulated metric chain before invoking the current metric.
+
+        Parameters
+        ----------
+        value
+            device array element being summarised.
+        buffer
+            device array slice containing the metric working storage.
+        current_step
+            Integer or scalar step identifier passed through the chain.
+
+        Returns
+        -------
+        None
+            The device function mutates the metric buffer in place.
+        """
+        inner_chain(value, buffer, current_step)
+        current_fn(
+            value,
+            buffer[current_offset : current_offset + current_size],
+            current_step,
+            current_param,
+        )
+
+    if remaining_functions:
+        return chain_metrics_update(
+            remaining_functions,
+            remaining_offsets,
+            remaining_sizes,
+            remaining_params,
+            wrapper,
+        )
+    else:
+        return wrapper
+
+
+def update_summary_factory(
+    summaries_buffer_height_per_var,
+    summarised_state_indices,
+    summarised_observable_indices,
+    summaries_list,
+):
+    """Factory function for creating CUDA device functions to update summary metrics.
+
+    This factory generates an optimized CUDA device function that applies
+    chained summary metric updates to all requested state and observable
+    variables during each integration step.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Number of buffer slots required per tracked variable.
+    summarised_state_indices
+        Sequence of state indices to include in summary calculations.
+    summarised_observable_indices
+        Sequence of observable indices to include in summary calculations.
+    summaries_list
+        Ordered list of summary metric identifiers.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for updating summary metrics.
+
+    Notes
+    -----
+    The generated function iterates through all specified state and observable
+    variables, applying the chained summary metric updates to accumulate data
+    in the appropriate buffer locations during each integration step.
+    """
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
+    buffer_offsets_list = buffer_offsets(summaries_list)
+    num_metrics = len(buffer_offsets_list)
+
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+
+    update_fns = update_functions(summaries_list)
+    buffer_sizes_list = buffer_sizes(summaries_list)
+    params_list = params(summaries_list)
+    chain_fn = chain_metrics_update(
+        update_fns, buffer_offsets_list, buffer_sizes_list, params_list
+    )
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def update_summary_metrics_func(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
+        """Accumulate summary metrics from the current state sample.
+
+        Parameters
+        ----------
+        current_state
+            device array holding the latest integrator state values.
+        current_observables
+            device array holding the latest observable values.
+        state_summary_buffer
+            device array slice used to accumulate state summary data.
+        observable_summary_buffer
+            device array slice used to accumulate observable summary data.
+        current_step
+            Integer or scalar step identifier associated with the sample.
+
+        Returns
+        -------
+        None
+            The device function mutates the supplied summary buffers in place.
+
+        Notes
+        -----
+        The chained metric function is executed for each selected state or
+        observable entry, writing into the contiguous buffer segment assigned
+        to that variable.
+        """
+        if summarise_states:
+            for idx in range(num_summarised_states):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
+                chain_fn(
+                    current_state[summarised_state_indices[idx]],
+                    state_summary_buffer[start:end],
+                    current_step,
+                )
+
+        if summarise_observables:
+            for idx in range(num_summarised_observables):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
+                chain_fn(
+                    current_observables[summarised_observable_indices[idx]],
+                    observable_summary_buffer[start:end],
+                    current_step,
+                )
+
+    return update_summary_metrics_func
+
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def do_nothing_save(
+    buffer,
+    output,
+    summarise_every,
+):
+    """Provide a no-op device function for empty metric chains.
+
+    Parameters
+    ----------
+    buffer
+        device array slice containing accumulated metric values (unused).
+    output
+        device array slice that would receive saved results (unused).
+    summarise_every
+        Integer interval between summary exports (unused).
+
+    Returns
+    -------
+    None
+        The device function intentionally performs no operations.
+
+    Notes
+    -----
+    This function serves as the base case for the recursive chain when no
+    summary metrics are configured or as the initial ``inner_chain`` function.
+    """
+    pass
+
+
+def chain_metrics_save(
+    metric_functions,
+    buffer_offsets_list,
+    buffer_sizes_list,
+    output_offsets_list,
+    output_sizes_list,
+    function_params,
+    inner_chain=do_nothing_save,
+):
+    """Recursively chain summary metric functions for CUDA execution.
+
+    This function builds a recursive chain of summary metric functions,
+    where each function in the sequence is wrapped with the previous
+    functions to create a single callable that executes all metrics.
+
+    Parameters
+    ----------
+    metric_functions
+        Sequence of CUDA device functions that save summary metrics.
+    buffer_offsets_list
+        Sequence of offsets into the accumulation buffer for each metric.
+    buffer_sizes_list
+        Sequence of per-metric buffer lengths.
+    output_offsets_list
+        Sequence of offsets into the output window for each metric.
+    output_sizes_list
+        Sequence of per-metric output lengths.
+    function_params
+        Sequence of parameter payloads passed to each metric function.
+    inner_chain
+        Callable executed before the current metric; defaults to ``do_nothing_save``.
+
+    Returns
+    -------
+    Callable
+        CUDA device function that executes all chained metrics.
+
+    Notes
+    -----
+    The function uses recursion to build a chain where each level executes
+    the inner chain first, then the current metric function. This ensures
+    all requested metrics are computed in the correct order.
+    """
+    if len(metric_functions) == 0:
+        return do_nothing_save
+    current_metric_fn = metric_functions[0]
+    current_buffer_offset = buffer_offsets_list[0]
+    current_buffer_size = buffer_sizes_list[0]
+    current_output_offset = output_offsets_list[0]
+    current_output_size = output_sizes_list[0]
+    current_metric_param = function_params[0]
+
+    remaining_metric_fns = metric_functions[1:]
+    remaining_buffer_offsets = buffer_offsets_list[1:]
+    remaining_buffer_sizes = buffer_sizes_list[1:]
+    remaining_output_offsets = output_offsets_list[1:]
+    remaining_output_sizes = output_sizes_list[1:]
+    remaining_metric_params = function_params[1:]
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def wrapper(
+        buffer,
+        output,
+        summarise_every,
+    ):
+        """Apply the accumulated metric chain before invoking the current metric.
+
+        Parameters
+        ----------
+        buffer
+            device array slice holding accumulated metric state.
+        output
+            device array slice that receives exported summary values.
+        summarise_every
+            Integer interval between summary exports passed along the chain.
+
+        Returns
+        -------
+        None
+            The device function mutates the provided output window in place.
+        """
+        inner_chain(
+            buffer,
+            output,
+            summarise_every,
+        )
+        current_metric_fn(
+            buffer[
+                current_buffer_offset : current_buffer_offset
+                + current_buffer_size
+            ],
+            output[
+                current_output_offset : current_output_offset
+                + current_output_size
+            ],
+            summarise_every,
+            current_metric_param,
+        )
+
+    if remaining_metric_fns:
+        return chain_metrics_save(
+            remaining_metric_fns,
+            remaining_buffer_offsets,
+            remaining_buffer_sizes,
+            remaining_output_offsets,
+            remaining_output_sizes,
+            remaining_metric_params,
+            wrapper,
+        )
+    else:
+        return wrapper
+
+
+def save_summary_factory(
+    summaries_buffer_height_per_var,
+    summarised_state_indices,
+    summarised_observable_indices,
+    summaries_list,
+):
+    """Factory function for creating CUDA device functions to save summary metrics.
+
+    This factory generates a CUDA device function that applies chained
+    summary metric calculations to all requested state and observable
+    variables.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Number of buffer slots required per tracked variable.
+    summarised_state_indices
+        Sequence of state indices to include in summary calculations.
+    summarised_observable_indices
+        Sequence of observable indices to include in summary calculations.
+    summaries_list
+        Ordered list of summary metric identifiers.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for saving summary metrics.
+
+    Notes
+    -----
+    The generated function iterates through all specified state and observable
+    variables, applying the chained summary metrics to each variable's buffer
+    and saving results to the appropriate output arrays.
+    """
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+
+    save_functions_list = save_functions(summaries_list)
+
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
+    total_output_size = int32(sum(output_sizes(summaries_list)))
+
+    buffer_offsets_list = buffer_offsets(summaries_list)
+    buffer_sizes_list = buffer_sizes(summaries_list)
+    output_offsets_list = output_offsets(summaries_list)
+    output_sizes_list = output_sizes(summaries_list)
+    params_list = params(summaries_list)
+    num_summary_metrics = len(output_offsets_list)
+
+    summarise_states = (num_summarised_states > 0) and (
+        num_summary_metrics > 0
+    )
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_summary_metrics > 0
+    )
+
+    summary_metric_chain = chain_metrics_save(
+        save_functions_list,
+        buffer_offsets_list,
+        buffer_sizes_list,
+        output_offsets_list,
+        output_sizes_list,
+        params_list,
+    )
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def save_summary_metrics_func(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+        summarise_every,
+    ):
+        """Export summary metrics from accumulation buffers to output windows.
+
+        Parameters
+        ----------
+        buffer_state_summaries
+            device array slice holding accumulated state summary data.
+        buffer_observable_summaries
+            device array slice holding accumulated observable summary data.
+        output_state_summaries_window
+            device array slice that receives state summary results.
+        output_observable_summaries_window
+            device array slice that receives observable summary results.
+        summarise_every
+            Integer interval between summary exports.
+
+        Returns
+        -------
+        None
+            The device function mutates the provided output windows in place.
+
+        Notes
+        -----
+        The chained metric function is executed for each selected state or
+        observable entry, writing the requested metric results into contiguous
+        regions of the output arrays.
+        """
+        if summarise_states:
+            for state_index in range(num_summarised_states):
+                buffer_array_slice_start = state_index * total_buffer_size
+                out_array_slice_start = state_index * total_output_size
+
+                summary_metric_chain(
+                    buffer_state_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_state_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
+
+        if summarise_observables:
+            for observable_index in range(num_summarised_observables):
+                buffer_array_slice_start = observable_index * total_buffer_size
+                out_array_slice_start = observable_index * total_output_size
+
+                summary_metric_chain(
+                    buffer_observable_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_observable_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
+
+    return save_summary_metrics_func
+
+
+# -------------------------------------------------------------------------
+# Output Configuration
+# -------------------------------------------------------------------------
+# List-based output configuration (matches package pattern)
+# Available types: 'state', 'observables', 'time', 'iteration_counters'
+# Plus any metric name from implemented_metrics list
+output_types = ['state', 'mean', 'max', 'rms']
+
+# Examples of output_types configurations:
+# output_types = ['state']  # Only save states, no summaries
+# output_types = ['state', 'mean']  # Save states and mean summary
+# output_types = ['state', 'mean', 'max', 'rms']  # Multiple summaries
+# output_types = ['state', 'dxdt_max', 'd2xdt2_extrema']  # Derivative metrics
+# output_types = []  # No outputs (valid but not useful)
+
+# Derive boolean toggles from output_types list
+if not output_types:
+    summary_types = tuple()
+    save_state_bool = False
+    save_obs_bool = False
+    save_time_bool = False
+    save_counters_bool = False
+else:
+    save_state_bool = "state" in output_types
+    save_obs_bool = "observables" in output_types
+    save_time_bool = "time" in output_types
+    save_counters_bool = "iteration_counters" in output_types
+    
+    summary_types_list = []
+    for output_type in output_types:
+        if any(
+            (
+                output_type.startswith(name)
+                for name in implemented_metrics
+            )
+        ):
+            summary_types_list.append(output_type)
+        elif output_type in ["state", "observables", "time", "iteration_counters"]:
+            continue
+        else:
+            print(
+                f"Warning: Summary type '{output_type}' is not implemented. "
+                f"Ignoring."
+            )
+    
+    summary_types = tuple(summary_types_list)
+
+# Derive summarise booleans
+summarise_state_bool = len(summary_types) > 0 and save_state_bool
+summarise_obs_bool = len(summary_types) > 0 and save_obs_bool
+
+# Calculate buffer and output sizes based on enabled metrics
+if len(summary_types) > 0:
+    summaries_buffer_height_per_var = sum(buffer_sizes(summary_types))
+    summaries_output_height_per_var = sum(output_sizes(summary_types))
+else:
+    summaries_buffer_height_per_var = 0
+    summaries_output_height_per_var = 0
+
+# Generate chained update and save functions for enabled metrics
+if len(summary_types) > 0:
+    # Create indices for all state variables (all summarised)
+    summarised_state_indices = list(range(n_states))
+    summarised_observable_indices = list(range(n_observables))
+    
+    # Generate update chain
+    update_summaries_chain = update_summary_factory(
+        summaries_buffer_height_per_var,
+        summarised_state_indices,
+        summarised_observable_indices,
+        summary_types,
+    )
+    
+    # Generate save chain
+    save_summaries_chain = save_summary_factory(
+        summaries_buffer_height_per_var,
+        summarised_state_indices,
+        summarised_observable_indices,
+        summary_types,
+    )
+else:
+    # No metrics enabled, use do_nothing functions
+    update_summaries_chain = do_nothing_update
+    save_summaries_chain = do_nothing_save
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -3523,19 +5706,16 @@ def update_summaries_inline(
 
     Notes
     -----
-    Iterates through all state variables and calls the chained metric
-    update function for each. Buffer layout: each variable has
-    total_buffer_size slots (1 for mean metric).
+    Delegates to factory-generated chained update function for all
+    enabled summary metrics.
     """
-    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
-    for idx in range(n_states32):
-        start = idx * total_buffer_size
-        end = start + total_buffer_size
-        chain_update_metrics(
-            current_state[idx],
-            state_summary_buffer[start:end],
-            current_step,
-        )
+    update_summaries_chain(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        obs_summary_buffer,
+        current_step,
+    )
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -3563,22 +5743,16 @@ def save_summaries_inline(
 
     Notes
     -----
-    Iterates through all state variables and calls the chained metric
-    save function for each. Each metric computes its final value
-    (e.g., mean = sum/count), writes to output, and resets its buffer.
-    Buffer layout: total_buffer_size slots per variable (1 for mean).
-    Output layout: total_output_size values per variable (1 for mean).
+    Delegates to factory-generated chained save function for all
+    enabled summary metrics.
     """
-    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
-    total_output_size = int32(1)  # 1 output for mean metric per variable
-    for state_index in range(n_states32):
-        buffer_start = state_index * total_buffer_size
-        out_start = state_index * total_output_size
-        chain_save_metrics(
-            buffer_state[buffer_start:buffer_start + total_buffer_size],
-            output_state[out_start:out_start + total_output_size],
-            summarise_every,
-        )
+    save_summaries_chain(
+        buffer_state,
+        buffer_obs,
+        output_state,
+        output_obs,
+        summarise_every,
+    )
 
 
 # =========================================================================
