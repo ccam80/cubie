@@ -246,18 +246,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return self._newton_solver.device_function
 
     @property
-    def solver_shared_elements(self) -> int:
-        """Return shared scratch dedicated to the Newton--Krylov solver."""
-
-        return self._newton_solver.shared_buffer_size
-
-    @property
-    def solver_local_elements(self) -> int:
-        """Return persistent local elements for the Newton--Krylov solver."""
-
-        return self._newton_solver.persistent_local_buffer_size
-
-    @property
     def algorithm_shared_elements(self) -> int:
         """Implicit base class does not reserve extra shared scratch."""
 

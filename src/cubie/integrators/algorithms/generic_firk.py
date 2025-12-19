@@ -253,9 +253,6 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * n_drivers
 
-        # Child allocators for Newton solver (replaces manual solver_scratch)
-        # No explicit registration needed - get_child_allocators handles it
-
         # Register algorithm buffers using config values
         buffer_registry.register(
             'firk_stage_increment', self, all_stages_n,

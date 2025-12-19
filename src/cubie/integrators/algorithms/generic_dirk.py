@@ -275,6 +275,10 @@ class DIRKStep(ODEImplicitStep):
             'dirk_increment_cache', self, n, 'local',
             persistent=True, precision=precision
         )
+        buffer_registry.register(
+            'dirk_stage_rhs', self, n, 'local',
+            precision=precision
+        )
 
         if tableau.has_error_estimate:
             defaults = DIRK_ADAPTIVE_DEFAULTS
@@ -414,6 +418,9 @@ class DIRKStep(ODEImplicitStep):
         alloc_increment_cache = buffer_registry.get_allocator(
             'dirk_increment_cache', self
         )
+        alloc_stage_rhs = buffer_registry.get_allocator(
+            'dirk_stage_rhs', self
+        )
         
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
@@ -509,6 +516,7 @@ class DIRKStep(ODEImplicitStep):
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             rhs_cache = alloc_rhs_cache(shared, persistent_local)
             increment_cache = alloc_increment_cache(shared, persistent_local)
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
             # Initialize local arrays
             for _i in range(n):
@@ -520,9 +528,6 @@ class DIRKStep(ODEImplicitStep):
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
-
-            # stage_rhs used during Newton iterations and explicit RK steps
-            stage_rhs = cuda.local.array(n, dtype=simsafe_precision)
 
             for idx in range(n):
                 if has_error and accumulates_error:

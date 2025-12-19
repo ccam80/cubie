@@ -479,14 +479,15 @@ class IVPLoop(CUDAFactory):
             counters_since_save = alloc_counters(shared_scratch, persistent_local)
             error = alloc_error(shared_scratch, persistent_local)
 
-            remaining_shared_scratch = shared_scratch[remaining_scratch_start:]
+            # Allocate child buffers for algorithm step
+            remaining_shared_scratch = alloc_algo_shared(shared_scratch, persistent_local)
+            algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             controller_temp = persistent_local[controller_slice]
-            algo_local = persistent_local[algorithm_slice]
 
             first_step_flag = True
             prev_step_accepted_flag = True
@@ -603,7 +604,7 @@ class IVPLoop(CUDAFactory):
                             first_step_flag,
                             prev_step_accepted_flag,
                             remaining_shared_scratch,
-                            algo_local,
+                            algo_persistent,
                             proposed_counters,
                         )
                     )

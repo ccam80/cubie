@@ -379,6 +379,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             controller_local_len=controller_local_elements,
             algorithm_local_len=algorithm_local_elements,
+            algorithm_shared_len=algorithm_shared_elements,
             **buffer_location_kwargs,
         )
         if "driver_function" not in loop_kwargs:
