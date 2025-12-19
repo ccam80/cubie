@@ -579,12 +579,7 @@ class NewtonKrylov(CUDAFactory):
         
         Includes both Newton buffers and nested LinearSolver buffers.
         """
-        newton_size = buffer_registry.shared_buffer_size(self)
-        if self.compile_settings.linear_solver is not None:
-            linear_size = self.compile_settings.linear_solver.shared_buffer_size
-        else:
-            linear_size = 0
-        return newton_size + linear_size
+        return buffer_registry.shared_buffer_size(self)
     
     @property
     def local_buffer_size(self) -> int:
@@ -592,12 +587,7 @@ class NewtonKrylov(CUDAFactory):
         
         Includes both Newton buffers and nested LinearSolver buffers.
         """
-        newton_size = buffer_registry.local_buffer_size(self)
-        if self.compile_settings.linear_solver is not None:
-            linear_size = self.compile_settings.linear_solver.local_buffer_size
-        else:
-            linear_size = 0
-        return newton_size + linear_size
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_buffer_size(self) -> int:
@@ -605,9 +595,4 @@ class NewtonKrylov(CUDAFactory):
         
         Includes both Newton buffers and nested LinearSolver buffers.
         """
-        newton_size = buffer_registry.persistent_local_buffer_size(self)
-        if self.compile_settings.linear_solver is not None:
-            linear_size = self.compile_settings.linear_solver.persistent_local_buffer_size
-        else:
-            linear_size = 0
-        return newton_size + linear_size
+        return buffer_registry.persistent_local_buffer_size(self)

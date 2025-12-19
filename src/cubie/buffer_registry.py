@@ -772,6 +772,7 @@ class BufferRegistry:
         self,
         parent: object,
         child: object,
+        name: Optional[str] = None,
     ) -> Tuple[Callable, Callable]:
         """Register child buffers and return shared and persistent allocators.
 
@@ -785,6 +786,9 @@ class BufferRegistry:
             Parent instance that will allocate memory for the child.
         child
             Child instance whose buffer requirements should be registered.
+        name
+            Optional base name for the buffer registrations. If not provided,
+            uses 'child_{id}' as the base name.
 
         Returns
         -------
@@ -799,19 +803,25 @@ class BufferRegistry:
         child, registers them with the parent's buffer group, and returns
         allocators that slice the parent's memory regions appropriately.
         The child's buffers are registered with names
-        '{child_id}_shared' and '{child_id}_persistent' to ensure uniqueness.
+        '{name}_shared' and '{name}_persistent' if name is provided, otherwise
+        'child_{child_id}_shared' and 'child_{child_id}_persistent'.
         """
         # Get child buffer sizes
         child_shared_size = self.shared_buffer_size(child)
         child_persistent_size = self.persistent_local_buffer_size(child)
 
-        # Generate unique buffer names using id
-        child_id = id(child)
-        shared_name = f'child_{child_id}_shared'
-        persistent_name = f'child_{child_id}_persistent'
+        # Generate buffer names
+        if name is None:
+            child_id = id(child)
+            base_name = f'child_{child_id}'
+        else:
+            base_name = name
+        
+        shared_name = f'{base_name}_shared'
+        persistent_name = f'{base_name}_persistent'
 
-        # Get precision from child if available
-        precision = getattr(child, 'precision', np.float32)
+        # Get precision from parent
+        precision = parent.precision
 
         # Register child buffers with parent
         self.register(

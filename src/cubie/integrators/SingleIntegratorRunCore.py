@@ -188,6 +188,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                 .local_memory_elements,
                 algorithm_local_elements=self._algo_step
                 .persistent_local_required,
+                algorithm_shared_elements=self._algo_step
+                .shared_memory_required,
                 compile_flags=self._output_functions.compile_flags,
                 state_summaries_buffer_height= self._output_functions
                 .state_summaries_buffer_height,
@@ -308,6 +310,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         observable_summaries_buffer_height: int,
         controller_local_elements: int,
         algorithm_local_elements: int,
+        algorithm_shared_elements: int,
         compile_flags: OutputCompileFlags,
         loop_settings: Dict[str, Any],
         driver_function: Optional[Callable] = None,
@@ -376,7 +379,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             observable_summary_buffer_height=observable_summaries_buffer_height,
             controller_local_len=controller_local_elements,
             algorithm_local_len=algorithm_local_elements,
-            algorithm_step=self._algo_step,
             **buffer_location_kwargs,
         )
         if "driver_function" not in loop_kwargs:

@@ -266,8 +266,15 @@ class DIRKStep(ODEImplicitStep):
                 precision=precision
             )
 
-        # Child allocators for Newton solver (replaces manual solver_scratch)
-        # No explicit registration needed - get_child_allocators handles it
+        # FSAL caches for first-same-as-last optimization
+        buffer_registry.register(
+            'dirk_rhs_cache', self, n, 'local',
+            persistent=True, precision=precision
+        )
+        buffer_registry.register(
+            'dirk_increment_cache', self, n, 'local',
+            persistent=True, precision=precision
+        )
 
         if tableau.has_error_estimate:
             defaults = DIRK_ADAPTIVE_DEFAULTS
@@ -401,10 +408,16 @@ class DIRKStep(ODEImplicitStep):
         alloc_stage_base = buffer_registry.get_allocator(
             'dirk_stage_base', self
         )
+        alloc_rhs_cache = buffer_registry.get_allocator(
+            'dirk_rhs_cache', self
+        )
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'dirk_increment_cache', self
+        )
         
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, nonlinear_solver)
+            buffer_registry.get_child_allocators(self, nonlinear_solver, name='dirk_solver_scratch')
         )
 
         # no cover: start
@@ -494,6 +507,8 @@ class DIRKStep(ODEImplicitStep):
             stage_base = alloc_stage_base(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            rhs_cache = alloc_rhs_cache(shared, persistent_local)
+            increment_cache = alloc_increment_cache(shared, persistent_local)
 
             # Initialize local arrays
             for _i in range(n):
@@ -506,19 +521,12 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            # stage_rhs: used during Newton iterations and subsequently
-            # for explicit RK steps. Allocate as local array.
+            # stage_rhs used during Newton iterations and explicit RK steps
             stage_rhs = cuda.local.array(n, dtype=simsafe_precision)
-
-            # FSAL caches: persist between steps.
-            # Allocate as persistent local arrays.
-            increment_cache = cuda.local.array(n, dtype=simsafe_precision)
-            rhs_cache = cuda.local.array(n, dtype=simsafe_precision)
 
             for idx in range(n):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
-                # Load increment_cache from previous step
                 stage_increment[idx] = increment_cache[idx]
 
             status_code = int32(0)
