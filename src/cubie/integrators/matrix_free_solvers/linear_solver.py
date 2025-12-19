@@ -255,13 +255,14 @@ class LinearSolver(CUDAFactory):
                 rhs,
                 x,
                 shared,
+                persistent_local,
                 krylov_iters_out,
             ):
                 """Run one cached preconditioned steepest-descent or MR solve."""
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(shared, shared)
-                temp = alloc_temp(shared, shared)
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 operator_apply(
                     state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
@@ -365,6 +366,7 @@ class LinearSolver(CUDAFactory):
                 rhs,
                 x,
                 shared,
+                persistent_local,
                 krylov_iters_out,
             ):
                 """Run one preconditioned steepest-descent or minimal-residual solve.
@@ -393,6 +395,8 @@ class LinearSolver(CUDAFactory):
                     final solution.
                 shared
                     Shared memory array for selective buffer allocation.
+                persistent_local
+                    Persistent local memory array for selective buffer allocation.
                 krylov_iters_out
                     Single-element int32 array to receive the iteration count.
                 
@@ -412,8 +416,8 @@ class LinearSolver(CUDAFactory):
                 """
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(shared, shared)
-                temp = alloc_temp(shared, shared)
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
@@ -575,3 +579,8 @@ class LinearSolver(CUDAFactory):
     def local_buffer_size(self) -> int:
         """Return total local memory elements required."""
         return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_buffer_size(self) -> int:
+        """Return total persistent local memory elements required."""
+        return buffer_registry.persistent_local_buffer_size(self)

@@ -138,6 +138,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
         solver_shared_elements = self.solver_shared_elements
+        solver_persistent_elements = self.solver_local_elements
         n = int32(n)
 
         @cuda.jit(
@@ -219,6 +220,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Status code returned by the nonlinear solver.
             """
             solver_scratch = shared[: solver_shared_elements]
+            solver_persistent = persistent_local[: solver_persistent_elements]
 
             for i in range(n):
                 proposed_state[i] = solver_scratch[i]
@@ -240,6 +242,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 

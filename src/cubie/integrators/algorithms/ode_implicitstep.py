@@ -253,9 +253,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
     @property
     def solver_local_elements(self) -> int:
-        """Implicit solvers return zero persistent local elements."""
+        """Return persistent local elements for the Newton--Krylov solver."""
 
-        return 0
+        return self._newton_solver.persistent_local_buffer_size
 
     @property
     def algorithm_shared_elements(self) -> int:

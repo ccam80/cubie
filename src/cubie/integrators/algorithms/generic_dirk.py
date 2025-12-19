@@ -266,24 +266,8 @@ class DIRKStep(ODEImplicitStep):
                 precision=precision
             )
 
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * n
-        buffer_registry.register(
-            'dirk_solver_scratch', self, solver_shared_size, 'local',
-            precision=precision
-        )
-
-        # FSAL caches alias solver_scratch
-        # rhs_cache aliases first n elements of solver_scratch
-        buffer_registry.register(
-            'dirk_rhs_cache', self, n, 'local',
-            aliases='dirk_solver_scratch', precision=precision
-        )
-        # increment_cache aliases second n elements
-        buffer_registry.register(
-            'dirk_increment_cache', self, n, 'local',
-            aliases='dirk_solver_scratch', precision=precision
-        )
+        # Child allocators for Newton solver (replaces manual solver_scratch)
+        # No explicit registration needed - get_child_allocators handles it
 
         if tableau.has_error_estimate:
             defaults = DIRK_ADAPTIVE_DEFAULTS
@@ -417,19 +401,11 @@ class DIRKStep(ODEImplicitStep):
         alloc_stage_base = buffer_registry.get_allocator(
             'dirk_stage_base', self
         )
-        alloc_solver_scratch = buffer_registry.get_allocator(
-            'dirk_solver_scratch', self
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, nonlinear_solver)
         )
-        alloc_rhs_cache = buffer_registry.get_allocator(
-            'dirk_rhs_cache', self
-        )
-        alloc_increment_cache = buffer_registry.get_allocator(
-            'dirk_increment_cache', self
-        )
-
-        # FSAL scratch allocation flags (solver_scratch >= 2n always)
-        has_rhs_in_scratch = True
-        has_increment_in_scratch = True
 
         # no cover: start
         @cuda.jit(
@@ -516,7 +492,8 @@ class DIRKStep(ODEImplicitStep):
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_accumulator = alloc_accumulator(shared, persistent_local)
             stage_base = alloc_stage_base(shared, persistent_local)
-            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             # Initialize local arrays
             for _i in range(n):
@@ -529,20 +506,20 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            # TODO: Obvious AI error
-            # stage_rhs is used during Newton iterations and overwritten.
-            # slice from solver_scratch (size 2n always provides space)
-            stage_rhs = solver_scratch[:n]
+            # stage_rhs: used during Newton iterations and subsequently
+            # for explicit RK steps. Allocate as local array.
+            stage_rhs = cuda.local.array(n, dtype=simsafe_precision)
 
-            # increment_cache and rhs_cache persist between steps for FSAL.
-            # Both fit in solver_scratch (size 2n)
-            increment_cache = solver_scratch[n:int32(2)*n]
-            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
+            # FSAL caches: persist between steps.
+            # Allocate as persistent local arrays.
+            increment_cache = cuda.local.array(n, dtype=simsafe_precision)
+            rhs_cache = cuda.local.array(n, dtype=simsafe_precision)
 
             for idx in range(n):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
-                stage_increment[idx] = increment_cache[idx]  # cache spent
+                # Load increment_cache from previous step
+                stage_increment[idx] = increment_cache[idx]
 
             status_code = int32(0)
             # --------------------------------------------------------------- #
@@ -570,12 +547,9 @@ class DIRKStep(ODEImplicitStep):
                     proposed_state[idx] = typed_zero
 
             if use_cached_rhs:
-                # Load cached RHS from persistent storage.
-                # When rhs_cache aliases stage_rhs (has_rhs_in_scratch=True),
-                # this is a no-op. Otherwise, copy from persistent_local.
-                if not has_rhs_in_scratch:
-                    for idx in range(n):
-                        stage_rhs[idx] = rhs_cache[idx]
+                # Load cached RHS from persistent storage
+                for idx in range(n):
+                    stage_rhs[idx] = rhs_cache[idx]
 
             else:
                 if can_reuse_accepted_start:
@@ -600,7 +574,8 @@ class DIRKStep(ODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[0],
                         stage_base,
-                        solver_scratch,
+                        solver_shared,
+                        solver_persistent,
                         counters,
                     )
                     status_code = int32(status_code | solver_status)
@@ -701,7 +676,8 @@ class DIRKStep(ODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[stage_idx],
                         stage_base,
-                        solver_scratch,
+                        solver_shared,
+                        solver_persistent,
                         counters,
                     )
                     status_code = int32(status_code | solver_status)
@@ -772,10 +748,7 @@ class DIRKStep(ODEImplicitStep):
             # Cache increment and RHS for FSAL optimization
             for idx in range(n):
                 increment_cache[idx] = stage_increment[idx]
-                # rhs_cache aliases stage_rhs when has_rhs_in_scratch=True,
-                # so no explicit copy needed. Otherwise, copy to persistent_local.
-                if not has_rhs_in_scratch:
-                    rhs_cache[idx] = stage_rhs[idx]
+                rhs_cache[idx] = stage_rhs[idx]
 
             return int32(status_code)
         # no cover: end

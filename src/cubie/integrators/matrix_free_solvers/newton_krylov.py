@@ -303,12 +303,10 @@ class NewtonKrylov(CUDAFactory):
             'newton_stage_base_bt', self
         )
         
-        # Compute offset for linear solver shared buffers.
-        # NewtonKrylov registers its buffers first (delta, residual,
-        # residual_temp, stage_base_bt), so shared_buffer_size(self) returns
-        # the total size of Newton buffers. LinearSolver buffers start
-        # immediately after.
-        lin_shared_offset = buffer_registry.shared_buffer_size(self)
+        # Get child allocators for linear solver
+        alloc_lin_shared, alloc_lin_persistent = (
+            buffer_registry.get_child_allocators(self, linear_solver)
+        )
         
         # no cover: start
         @cuda.jit(
@@ -325,6 +323,7 @@ class NewtonKrylov(CUDAFactory):
             a_ij,
             base_state,
             shared_scratch,
+            persistent_scratch,
             counters,
         ):
             """Solve a nonlinear system with a damped Newton--Krylov iteration.
@@ -348,6 +347,8 @@ class NewtonKrylov(CUDAFactory):
             shared_scratch
                 Shared scratch buffer providing Newton direction, residual,
                 and linear solver storage.
+            persistent_scratch
+                Persistent local scratch buffer for Newton and linear solver.
             counters
                 Size (2,) int32 array for iteration counters.
             
@@ -358,10 +359,10 @@ class NewtonKrylov(CUDAFactory):
             """
             
             # Allocate buffers from registry
-            delta = alloc_delta(shared_scratch, shared_scratch)
-            residual = alloc_residual(shared_scratch, shared_scratch)
-            residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
+            delta = alloc_delta(shared_scratch, persistent_scratch)
+            residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
+            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
             
             # Initialize local arrays
             for _i in range(n_val):
@@ -404,8 +405,9 @@ class NewtonKrylov(CUDAFactory):
                     active, int32(iters_count + int32(1)), iters_count
                 )
                 
-                # Linear solver uses remaining shared space after Newton buffers
-                lin_shared = shared_scratch[lin_shared_offset:]
+                # Allocate child buffers for linear solver
+                lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
+                lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
                     stage_increment,
@@ -418,6 +420,7 @@ class NewtonKrylov(CUDAFactory):
                     residual,
                     delta,
                     lin_shared,
+                    lin_persistent,
                     krylov_iters_local,
                 )
                 
@@ -592,6 +595,19 @@ class NewtonKrylov(CUDAFactory):
         newton_size = buffer_registry.local_buffer_size(self)
         if self.compile_settings.linear_solver is not None:
             linear_size = self.compile_settings.linear_solver.local_buffer_size
+        else:
+            linear_size = 0
+        return newton_size + linear_size
+
+    @property
+    def persistent_local_buffer_size(self) -> int:
+        """Return total persistent local memory elements required.
+        
+        Includes both Newton buffers and nested LinearSolver buffers.
+        """
+        newton_size = buffer_registry.persistent_local_buffer_size(self)
+        if self.compile_settings.linear_solver is not None:
+            linear_size = self.compile_settings.linear_solver.persistent_local_buffer_size
         else:
             linear_size = 0
         return newton_size + linear_size

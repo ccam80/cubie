@@ -52,6 +52,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         n = int32(n)
 
         solver_shared_elements = self.solver_shared_elements
+        solver_persistent_elements = self.solver_local_elements
 
         @cuda.jit(
             # (
@@ -153,6 +154,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 )
 
             solver_scratch = shared[: solver_shared_elements]
+            solver_persistent = persistent_local[: solver_persistent_elements]
 
             status = solver_fn(
                 proposed_state,
@@ -163,6 +165,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 

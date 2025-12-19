@@ -154,6 +154,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         n = int32(n)
 
         solver_shared_elements = self.solver_shared_elements
+        solver_persistent_elements = self.solver_local_elements
 
         @cuda.jit(
             # (
@@ -238,6 +239,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state[i] = typed_zero
 
             solver_scratch = shared[:solver_shared_elements]
+            solver_persistent = persistent_local[:solver_persistent_elements]
             # Reuse solver scratch for the dx/dt evaluation buffer.
             dxdt = solver_scratch[:n]
             # error buffer tracks the stage base during setup.
@@ -278,6 +280,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 
@@ -295,6 +298,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             ) & int32(0xFFFF)  # don't record Newton iterations for error check
 

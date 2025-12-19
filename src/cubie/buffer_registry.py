@@ -768,6 +768,74 @@ class BufferRegistry:
             )
         return self._groups[parent].get_allocator(name)
 
+    def get_child_allocators(
+        self,
+        parent: object,
+        child: object,
+    ) -> Tuple[Callable, Callable]:
+        """Register child buffers and return shared and persistent allocators.
+
+        Registers buffers for a child device function within the parent's
+        buffer group, then returns allocators that provide slices into the
+        parent's shared and persistent memory regions.
+
+        Parameters
+        ----------
+        parent
+            Parent instance that will allocate memory for the child.
+        child
+            Child instance whose buffer requirements should be registered.
+
+        Returns
+        -------
+        Callable
+            Allocator for child's shared memory (returns slice).
+        Callable
+            Allocator for child's persistent memory (returns slice).
+
+        Notes
+        -----
+        This method computes the shared and persistent buffer sizes for the
+        child, registers them with the parent's buffer group, and returns
+        allocators that slice the parent's memory regions appropriately.
+        The child's buffers are registered with names
+        '{child_id}_shared' and '{child_id}_persistent' to ensure uniqueness.
+        """
+        # Get child buffer sizes
+        child_shared_size = self.shared_buffer_size(child)
+        child_persistent_size = self.persistent_local_buffer_size(child)
+
+        # Generate unique buffer names using id
+        child_id = id(child)
+        shared_name = f'child_{child_id}_shared'
+        persistent_name = f'child_{child_id}_persistent'
+
+        # Get precision from child if available
+        precision = getattr(child, 'precision', np.float32)
+
+        # Register child buffers with parent
+        self.register(
+            shared_name,
+            parent,
+            child_shared_size,
+            'shared',
+            precision=precision
+        )
+        self.register(
+            persistent_name,
+            parent,
+            child_persistent_size,
+            'local',
+            persistent=True,
+            precision=precision
+        )
+
+        # Get and return allocators
+        alloc_shared = self.get_allocator(shared_name, parent)
+        alloc_persistent = self.get_allocator(persistent_name, parent)
+
+        return alloc_shared, alloc_persistent
+
 
 # Module-level singleton instance
 buffer_registry = BufferRegistry()
