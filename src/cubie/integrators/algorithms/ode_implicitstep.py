@@ -74,6 +74,13 @@ class ImplicitStepConfig(BaseStepConfig):
                 'gamma': self.gamma,
                 'M': self.M,
                 'preconditioner_order': self.preconditioner_order,
+                'krylov_tolerance': 1e-3,
+                'max_linear_iters': 100,
+                'linear_correction_type': "minimal_residual",
+                'newton_tolerance': 1e-3,
+                'max_newton_iters': 100,
+                'newton_damping': 0.5,
+                'newton_max_backtracks': 10,
                 'get_solver_helper_fn': self.get_solver_helper_fn,
             }
         )
@@ -99,28 +106,20 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         super().__init__(config, _controller_defaults)
         
-        # Create LinearSolver instance with explicit parameters
+        # Create LinearSolver instance with explicit parameters including defaults
         self._linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-        )
-        
-        # Set default solver parameters
-        self._linear_solver.update(
             correction_type="minimal_residual",
             krylov_tolerance=1e-3,
             max_linear_iters=100,
         )
         
-        # Create NewtonKrylov instance with explicit parameters
+        # Create NewtonKrylov instance with explicit parameters including defaults
         self._newton_solver = NewtonKrylov(
             precision=config.precision,
             n=config.n,
             linear_solver=self._linear_solver,
-        )
-        
-        # Set default Newton parameters
-        self._newton_solver.update(
             newton_tolerance=1e-3,
             max_newton_iters=100,
             newton_damping=0.5,

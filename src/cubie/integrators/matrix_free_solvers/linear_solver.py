@@ -46,7 +46,7 @@ class LinearSolverConfig:
         Line-search strategy ('steepest_descent' or 'minimal_residual').
     krylov_tolerance : float
         Target on squared residual norm for convergence.
-    max_iters : int
+    max_linear_iters : int
         Maximum iterations permitted.
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
@@ -133,6 +133,9 @@ class LinearSolver(CUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
+        correction_type: Optional[str] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
         preconditioned_vec_location: str = 'local',
         temp_location: str = 'local',
     ) -> None:
@@ -144,6 +147,15 @@ class LinearSolver(CUDAFactory):
             Numerical precision for computations.
         n : int
             Length of residual and search-direction vectors.
+        correction_type : str, optional
+            Line-search strategy ('steepest_descent' or 'minimal_residual').
+            If None, defaults to 'minimal_residual'.
+        krylov_tolerance : float, optional
+            Target on squared residual norm for convergence.
+            If None, defaults to 1e-6.
+        max_linear_iters : int, optional
+            Maximum iterations permitted.
+            If None, defaults to 100.
         preconditioned_vec_location : str, default='local'
             Memory location for preconditioned_vec buffer ('local' or 'shared').
         temp_location : str, default='local'
@@ -151,10 +163,13 @@ class LinearSolver(CUDAFactory):
         """
         super().__init__()
         
-        # Create and setup configuration
+        # Create and setup configuration with explicit parameters
         config = LinearSolverConfig(
             precision=precision,
             n=n,
+            correction_type=correction_type if correction_type is not None else "minimal_residual",
+            krylov_tolerance=krylov_tolerance if krylov_tolerance is not None else 1e-6,
+            max_linear_iters=max_linear_iters if max_linear_iters is not None else 100,
             preconditioned_vec_location=preconditioned_vec_location,
             temp_location=temp_location,
         )
@@ -508,22 +523,7 @@ class LinearSolver(CUDAFactory):
             Set of recognized parameter names that were updated.
         """
         # Update buffer_registry for location changes
-        if updates_dict is None:
-            updates_dict = {}
-        all_updates = {**updates_dict, **kwargs}
-        
-        if 'preconditioned_vec_location' in all_updates:
-            buffer_registry.update(
-                'lin_preconditioned_vec',
-                self,
-                location=all_updates['preconditioned_vec_location']
-            )
-        if 'temp_location' in all_updates:
-            buffer_registry.update(
-                'lin_temp',
-                self,
-                location=all_updates['temp_location']
-            )
+        buffer_registry.update(self, updates_dict=updates_dict, silent=True, **kwargs)
         
         return self.update_compile_settings(
             updates_dict=updates_dict,

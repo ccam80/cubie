@@ -43,13 +43,13 @@ class NewtonKrylovConfig:
         Device function evaluating residuals.
     linear_solver : Optional[LinearSolver]
         LinearSolver instance for solving linear systems.
-    _tolerance : float
+    newton_tolerance : float
         Residual norm threshold for convergence.
-    max_iters : int
+    max_newton_iters : int
         Maximum Newton iterations permitted.
-    _damping : float
+    newton_damping : float
         Step shrink factor for backtracking.
-    max_backtracks : int
+    newton_max_backtracks : int
         Maximum damping attempts per Newton step.
     delta_location : str
         Memory location for delta buffer.
@@ -166,6 +166,10 @@ class NewtonKrylov(CUDAFactory):
         precision: PrecisionDType,
         n: int,
         linear_solver: LinearSolver,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
         delta_location: str = 'local',
         residual_location: str = 'local',
         residual_temp_location: str = 'local',
@@ -181,6 +185,18 @@ class NewtonKrylov(CUDAFactory):
             Size of state vectors.
         linear_solver : LinearSolver
             LinearSolver instance for solving linear systems.
+        newton_tolerance : float, optional
+            Residual norm threshold for convergence.
+            If None, defaults to 1e-3.
+        max_newton_iters : int, optional
+            Maximum Newton iterations permitted.
+            If None, defaults to 100.
+        newton_damping : float, optional
+            Step shrink factor for backtracking.
+            If None, defaults to 0.5.
+        newton_max_backtracks : int, optional
+            Maximum damping attempts per Newton step.
+            If None, defaults to 8.
         delta_location : str, default='local'
             Memory location for delta buffer ('local' or 'shared').
         residual_location : str, default='local'
@@ -192,11 +208,15 @@ class NewtonKrylov(CUDAFactory):
         """
         super().__init__()
         
-        # Create and setup configuration
+        # Create and setup configuration with explicit parameters
         config = NewtonKrylovConfig(
             precision=precision,
             n=n,
             linear_solver=linear_solver,
+            newton_tolerance=newton_tolerance if newton_tolerance is not None else 1e-3,
+            max_newton_iters=max_newton_iters if max_newton_iters is not None else 100,
+            newton_damping=newton_damping if newton_damping is not None else 0.5,
+            newton_max_backtracks=newton_max_backtracks if newton_max_backtracks is not None else 8,
             delta_location=delta_location,
             residual_location=residual_location,
             residual_temp_location=residual_temp_location,
@@ -502,34 +522,7 @@ class NewtonKrylov(CUDAFactory):
         the LinearSolver's internal state may have changed.
         """
         # Update buffer_registry for location changes
-        if updates_dict is None:
-            updates_dict = {}
-        all_updates = {**updates_dict, **kwargs}
-        
-        if 'delta_location' in all_updates:
-            buffer_registry.update(
-                'newton_delta',
-                self,
-                location=all_updates['delta_location']
-            )
-        if 'residual_location' in all_updates:
-            buffer_registry.update(
-                'newton_residual',
-                self,
-                location=all_updates['residual_location']
-            )
-        if 'residual_temp_location' in all_updates:
-            buffer_registry.update(
-                'newton_residual_temp',
-                self,
-                location=all_updates['residual_temp_location']
-            )
-        if 'stage_base_bt_location' in all_updates:
-            buffer_registry.update(
-                'newton_stage_base_bt',
-                self,
-                location=all_updates['stage_base_bt_location']
-            )
+        buffer_registry.update(self, updates_dict=updates_dict, silent=True, **kwargs)
         
         return self.update_compile_settings(
             updates_dict=updates_dict,
