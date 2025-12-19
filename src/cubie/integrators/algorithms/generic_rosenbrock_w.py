@@ -51,7 +51,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+from cubie.integrators.matrix_free_solvers import LinearSolver
 
 
 
@@ -213,9 +213,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "driver_del_t": driver_del_t,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
-            "krylov_tolerance": krylov_tolerance,
-            "max_linear_iters": max_linear_iters,
-            "linear_correction_type": linear_correction_type,
             "tableau": tableau_value,
             "beta": 1.0,
             "gamma": tableau_value.gamma,
@@ -271,6 +268,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             defaults = ROSENBROCK_FIXED_DEFAULTS
 
         super().__init__(config, defaults)
+        
+        # Update linear solver parameters with Rosenbrock-specific values
+        # Rosenbrock only uses linear solver, not Newton-Krylov
+        self._linear_solver.update(
+            correction_type=linear_correction_type,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            use_cached_auxiliaries=True,  # Rosenbrock uses cached auxiliaries
+        )
 
     def build_implicit_helpers(
         self,
@@ -319,20 +325,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             'rosenbrock_cached_auxiliaries', self,
             size=self._cached_auxiliary_count
         )
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver = linear_solver_cached_factory(
-            linear_operator,
-            precision=precision,
-            n=n,
-            factory=self,
+        
+        # Update linear solver with device functions and use cached auxiliaries
+        self._linear_solver.update(
+            operator_apply=linear_operator,
             preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
         )
+        linear_solver = self._linear_solver.device_function
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
 
