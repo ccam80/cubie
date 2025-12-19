@@ -165,6 +165,7 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
+        algorithm_step: Optional[object] = None,
     ) -> None:
         super().__init__()
 
@@ -245,6 +246,7 @@ class IVPLoop(CUDAFactory):
             step_function=step_function,
             driver_function=driver_function,
             observables_fn=observables_fn,
+            algorithm_step=algorithm_step,
             precision=precision,
             compile_flags=compile_flags,
             dt_save=dt_save,
@@ -349,8 +351,16 @@ class IVPLoop(CUDAFactory):
         
         fixed_mode = not config.is_adaptive
 
-        # Remaining scratch starts after all loop buffers
-        remaining_scratch_start = buffer_registry.shared_buffer_size(self)
+        # Get child allocators for algorithm step if available
+        if config.algorithm_step is not None:
+            alloc_algo_shared, alloc_algo_persistent = (
+                buffer_registry.get_child_allocators(self, config.algorithm_step)
+            )
+        else:
+            # Fallback: manual calculation for backwards compatibility
+            remaining_scratch_start = buffer_registry.shared_buffer_size(self)
+            alloc_algo_shared = None
+            alloc_algo_persistent = None
 
 
         @cuda.jit(
@@ -465,14 +475,20 @@ class IVPLoop(CUDAFactory):
             counters_since_save = alloc_counters(shared_scratch, persistent_local)
             error = alloc_error(shared_scratch, persistent_local)
 
-            remaining_shared_scratch = shared_scratch[remaining_scratch_start:]
+            # Allocate child buffers for algorithm step
+            if alloc_algo_shared is not None:
+                remaining_shared_scratch = alloc_algo_shared(shared_scratch, persistent_local)
+                algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
+            else:
+                # Fallback: manual slicing for backwards compatibility
+                remaining_shared_scratch = shared_scratch[remaining_scratch_start:]
+                algo_persistent = persistent_local[algorithm_slice]
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             controller_temp = persistent_local[controller_slice]
-            algo_local = persistent_local[algorithm_slice]
 
             first_step_flag = True
             prev_step_accepted_flag = True
@@ -589,7 +605,7 @@ class IVPLoop(CUDAFactory):
                             first_step_flag,
                             prev_step_accepted_flag,
                             remaining_shared_scratch,
-                            algo_local,
+                            algo_persistent,
                             proposed_counters,
                         )
                     )

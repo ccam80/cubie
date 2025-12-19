@@ -302,6 +302,9 @@ class ODELoopConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
+    algorithm_step: Optional[object] = field(
+        default=None
+    )
     _dt0: Optional[float] = field(
         default=0.01,
         validator=opt_gttype_validator(float, 0),
