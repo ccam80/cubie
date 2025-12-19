@@ -1,185 +1,257 @@
 # Implementation Task List
-# Feature: Buffer Settings Plumbing (Init and Plumbing Changes)
+# Feature: Buffer Settings Plumbing (Expanded Scope - ALL CUDAFactory Subclasses)
 # Plan Reference: .github/active_plans/buffer_settings_plumbing/agent_plan.md
 
 ## Overview
 
-This task list implements the plumbing changes required to pass buffer location keywords from the top-level solver API through to the IVPLoop where buffer registration occurs. The work focuses on:
+This task list implements buffer settings plumbing for **ALL CUDAFactory subclasses** that register buffers. The scope includes:
 
-1. Adding buffer location fields to ODELoopConfig
-2. Modifying IVPLoop to use Optional[str] = None for location parameters
-3. Integrating buffer location keywords with the solver's argument filtering system
-4. Ensuring update() methods properly propagate location changes
+1. Adding `update()` method to BufferRegistry
+2. Adding buffer location fields to compile settings across all factories
+3. Ensuring location parameters flow through existing argument filtering utilities
+4. Updating instrumented test files to mirror source changes
 
-**Out of Scope (handled by other tasks):**
-- buffer_registry.py modifications (Task 1 - ALREADY COMPLETE)
-- Algorithm files, loop template/builder files, matrix-free solvers (Task 3)
+**CRITICAL Design Requirements (from user feedback):**
+- Do NOT create separate buffer-location keyword arg dicts
+- Do NOT clutter __init__ with "if location is not None:" noise
+- Do NOT have a separate location-param-to-buffer mapping dict
+- Buffer location parameters are NOT separate from other compile settings
+- Use existing `split_applicable_settings()` and `merge_kwargs_into_settings()` utilities from `cubie/_utils.py`
+- Each CUDAFactory owns its own buffers and their locations
+
+**Buffer Naming Convention:**
+- IVPLoop buffers use prefix `loop_` (e.g., `loop_state`, `loop_proposed_state`)
+- Newton-Krylov buffers use prefix `newton_` (e.g., `newton_delta`, `newton_residual`)
+- Linear solver buffers use prefix `lin_` (e.g., `lin_preconditioned_vec`, `lin_temp`)
+- Location parameter naming: `[buffer_name]_location` (e.g., `loop_state_location`, `newton_delta_location`)
 
 ---
 
-## Task Group 1: Add Buffer Location Fields to ODELoopConfig - SEQUENTIAL
+## Task Group 1: Add update() Method to BufferRegistry - SEQUENTIAL
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop_config.py (lines 134-330, entire ODELoopConfig class)
+- File: src/cubie/buffer_registry.py (entire file, especially lines 241-294 for update_buffer pattern)
+- File: src/cubie/CUDAFactory.py (update_compile_settings pattern, lines 565-636)
 
 **Input Validation Required**:
-- Each location field: validate value is in ['shared', 'local'] using `validators.in_(['shared', 'local'])`
-- Default value: 'local' for all location fields
+- `factory`: Must be an object that exists in `_contexts` (silent mode returns empty set if not)
+- `updates_dict`: Optional dict, merged with kwargs
+- `value` for location: Must be 'shared' or 'local' - raise ValueError otherwise
+
+**Tasks**:
+
+1. **Add required imports to buffer_registry.py**
+   - File: src/cubie/buffer_registry.py
+   - Action: Modify line 3
+   - Details:
+     Update imports at top of file to include Set and Any:
+     ```python
+     from typing import Callable, Dict, Optional, Any, Set
+     ```
+
+2. **Add update() method to BufferRegistry class**
+   - File: src/cubie/buffer_registry.py
+   - Action: Add method after `clear_factory()` method (around line 294)
+   - Details:
+     ```python
+     def update(
+         self,
+         factory: object,
+         updates_dict: Optional[Dict[str, Any]] = None,
+         silent: bool = False,
+         **kwargs: Any,
+     ) -> Set[str]:
+         """Update buffer locations from keyword arguments.
+
+         For each key of the form '[buffer_name]_location', finds the
+         corresponding buffer and updates its location. Mirrors the pattern
+         of CUDAFactory.update_compile_settings().
+
+         Parameters
+         ----------
+         factory
+             Factory instance that owns the buffers to update.
+         updates_dict
+             Mapping of parameter names to new values.
+         silent
+             Suppress errors for unrecognized parameters.
+         **kwargs
+             Additional parameters merged into updates_dict.
+
+         Returns
+         -------
+         Set[str]
+             Names of parameters that were successfully recognized.
+
+         Raises
+         ------
+         ValueError
+             If a location value is not 'shared' or 'local'.
+
+         Notes
+         -----
+         A parameter is recognized if it matches '[buffer_name]_location'
+         where buffer_name is registered for the factory. The method
+         silently ignores unrecognized parameters when silent=True.
+         """
+         if updates_dict is None:
+             updates_dict = {}
+         updates_dict = updates_dict.copy()
+         if kwargs:
+             updates_dict.update(kwargs)
+         if not updates_dict:
+             return set()
+
+         if factory not in self._contexts:
+             return set()
+
+         context = self._contexts[factory]
+         recognized = set()
+         updated = False
+
+         for key, value in updates_dict.items():
+             if not key.endswith('_location'):
+                 continue
+
+             buffer_name = key[:-9]  # Remove '_location' suffix
+             if buffer_name not in context.entries:
+                 continue
+
+             if value not in ('shared', 'local'):
+                 raise ValueError(
+                     f"Invalid location '{value}' for buffer "
+                     f"'{buffer_name}'. Must be 'shared' or 'local'."
+                 )
+
+             entry = context.entries[buffer_name]
+             if entry.location != value:
+                 self.update_buffer(buffer_name, factory, location=value)
+                 updated = True
+
+             recognized.add(key)
+
+         if updated:
+             context.invalidate_layouts()
+
+         return recognized
+     ```
+   - Edge cases:
+     - Empty updates_dict: Returns empty set
+     - Factory not registered: Returns empty set silently
+     - Invalid location value: Raises ValueError
+     - Buffer name not found: Silently skipped, key not in recognized set
+   - Integration:
+     - Mirrors CUDAFactory.update_compile_settings() pattern
+     - Works with existing update_buffer() method
+     - Invalidates layouts when locations change
+
+**Outcomes**: 
+- [ ] BufferRegistry.update() method added at correct location
+- [ ] Method follows same pattern as CUDAFactory.update_compile_settings()
+- [ ] Required imports added (Set, Any)
+- [ ] Method handles edge cases correctly
+
+---
+
+## Task Group 2: Add Location Fields to ODELoopConfig - SEQUENTIAL
+**Status**: [ ]
+**Dependencies**: Task Group 1
+
+**Required Context**:
+- File: src/cubie/integrators/loops/ode_loop_config.py (entire ODELoopConfig class, lines 134-330)
+- File: src/cubie/integrators/loops/ode_loop.py (buffer registrations, lines 172-217)
+
+**Input Validation Required**:
+- All location fields: Must be 'shared' or 'local' using `validators.in_(['shared', 'local'])`
 
 **Tasks**:
 
 1. **Add buffer location fields to ODELoopConfig attrs class**
    - File: src/cubie/integrators/loops/ode_loop_config.py
-   - Action: Modify
+   - Action: Add 11 location fields after `algorithm_local_len` field (around line 212) and before `precision` field
    - Details:
-     Add the following 11 fields to the ODELoopConfig class, positioned after the size parameters (n_states, n_parameters, etc.) and before the precision field:
-     
      ```python
-     # Buffer location settings - control memory allocation strategy
-     state_location: str = field(
+     # Buffer location settings (match buffer names in IVPLoop.__init__)
+     loop_state_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     state_proposal_location: str = field(
+     loop_proposed_state_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     parameters_location: str = field(
+     loop_parameters_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     drivers_location: str = field(
+     loop_drivers_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     drivers_proposal_location: str = field(
+     loop_proposed_drivers_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     observables_location: str = field(
+     loop_observables_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     observables_proposal_location: str = field(
+     loop_proposed_observables_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     error_location: str = field(
+     loop_error_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     counters_location: str = field(
+     loop_counters_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     state_summary_location: str = field(
+     loop_state_summary_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
-     observable_summary_location: str = field(
+     loop_observable_summary_location: str = field(
          default='local',
          validator=validators.in_(['shared', 'local'])
      )
      ```
-     
-   - Edge cases:
-     - Invalid location value: Validator raises ValueError with clear message
-     - These are compile-critical settings; changing them triggers cache invalidation
-   - Integration:
-     - ODELoopConfig is the compile_settings for IVPLoop
-     - CUDAFactory.update_compile_settings() handles cache invalidation automatically
-     - These fields become the single source of truth for buffer location defaults
+   - Note: Field names match buffer names registered in IVPLoop (e.g., `loop_state` buffer → `loop_state_location` field)
 
 **Outcomes**: 
-- [ ] ODELoopConfig has 11 new buffer location fields
-- [ ] All location fields default to 'local'
-- [ ] All location fields are validated to be 'shared' or 'local'
+- [ ] ODELoopConfig has 11 buffer location fields with `loop_` prefix
+- [ ] All fields validated to be 'shared' or 'local'
+- [ ] All fields default to 'local'
+- [ ] Field names match buffer names exactly
 
 ---
 
-## Task Group 2: Modify IVPLoop __init__ to Use Optional Parameters - SEQUENTIAL
+## Task Group 3: Update IVPLoop for Location Config Integration - SEQUENTIAL
 **Status**: [ ]
-**Dependencies**: Task Group 1
+**Dependencies**: Task Groups 1, 2
 
 **Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 49-246, IVPLoop.__init__)
-- File: src/cubie/integrators/loops/ode_loop_config.py (ODELoopConfig class)
+- File: src/cubie/integrators/loops/ode_loop.py (entire file)
+  - __init__ method: lines 130-246
+  - update() method: lines 855-900
+  - Buffer registration: lines 172-217
 
 **Input Validation Required**:
-- Location parameters: Accept Optional[str] = None; when None, defer to ODELoopConfig default
-- No additional validation in IVPLoop - ODELoopConfig validators handle validation
+- Location params in __init__: Validated by ODELoopConfig attrs validators
+- update() method: Delegate validation to buffer_registry.update()
 
 **Tasks**:
 
-1. **Change location parameter signatures from str to Optional[str]**
+1. **Update IVPLoop.__init__ to pass location params to ODELoopConfig**
    - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
+   - Action: Modify ODELoopConfig instantiation (around line 219-245)
    - Details:
-     Change the IVPLoop.__init__ signature from:
+     Add location fields to config creation:
      ```python
-     state_location: str = 'local',
-     state_proposal_location: str = 'local',
-     parameters_location: str = 'local',
-     drivers_location: str = 'local',
-     drivers_proposal_location: str = 'local',
-     observables_location: str = 'local',
-     observables_proposal_location: str = 'local',
-     error_location: str = 'local',
-     counters_location: str = 'local',
-     state_summary_location: str = 'local',
-     observable_summary_location: str = 'local',
-     ```
-     
-     To:
-     ```python
-     state_location: Optional[str] = None,
-     state_proposal_location: Optional[str] = None,
-     parameters_location: Optional[str] = None,
-     drivers_location: Optional[str] = None,
-     drivers_proposal_location: Optional[str] = None,
-     observables_location: Optional[str] = None,
-     observables_proposal_location: Optional[str] = None,
-     error_location: Optional[str] = None,
-     counters_location: Optional[str] = None,
-     state_summary_location: Optional[str] = None,
-     observable_summary_location: Optional[str] = None,
-     ```
-     
-   - Edge cases:
-     - All values None: Uses ODELoopConfig defaults ('local' for all)
-     - Some values provided: Only provided values override defaults
-   - Integration:
-     - Removes duplicate default values from __init__ signature
-     - ODELoopConfig becomes sole source of defaults
-
-2. **Reorder __init__ to create ODELoopConfig BEFORE buffer registration**
-   - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
-   - Details:
-     Current order in __init__:
-     1. Clear factory buffers
-     2. Register buffers with passed locations
-     3. Create ODELoopConfig
-     4. setup_compile_settings(config)
-     
-     New order:
-     1. Clear factory buffers
-     2. Build config_kwargs dict with all non-None location values
-     3. Create ODELoopConfig (which applies defaults for None values)
-     4. Register buffers using config.* location values
-     5. setup_compile_settings(config)
-     
-     Implementation pattern:
-     ```python
-     super().__init__()
-     
-     # Register all loop buffers with central registry
-     buffer_registry.clear_factory(self)
-     
-     # Build config kwargs, only including provided location values
-     config_kwargs = dict(
+     config = ODELoopConfig(
          n_states=n_states,
          n_parameters=n_parameters,
          n_drivers=n_drivers,
@@ -190,160 +262,29 @@ This task list implements the plumbing changes required to pass buffer location 
          observable_summary_buffer_height=observable_summary_buffer_height,
          controller_local_len=controller_local_len,
          algorithm_local_len=algorithm_local_len,
+         # Add location fields
+         loop_state_location=state_location,
+         loop_proposed_state_location=state_proposal_location,
+         loop_parameters_location=parameters_location,
+         loop_drivers_location=drivers_location,
+         loop_proposed_drivers_location=drivers_proposal_location,
+         loop_observables_location=observables_location,
+         loop_proposed_observables_location=observables_proposal_location,
+         loop_error_location=error_location,
+         loop_counters_location=counters_location,
+         loop_state_summary_location=state_summary_location,
+         loop_observable_summary_location=observable_summary_location,
+         # Existing fields continue...
          save_state_fn=save_state_func,
-         update_summaries_fn=update_summaries_func,
-         save_summaries_fn=save_summaries_func,
-         step_controller_fn=step_controller_fn,
-         step_function=step_function,
-         driver_function=driver_function,
-         observables_fn=observables_fn,
-         precision=precision,
-         compile_flags=compile_flags,
-         dt_save=dt_save,
-         dt_summarise=dt_summarise,
-         dt0=dt0,
-         dt_min=dt_min,
-         dt_max=dt_max,
-         is_adaptive=is_adaptive,
+         # ...
      )
-     
-     # Add location kwargs only if provided (not None)
-     if state_location is not None:
-         config_kwargs['state_location'] = state_location
-     if state_proposal_location is not None:
-         config_kwargs['state_proposal_location'] = state_proposal_location
-     if parameters_location is not None:
-         config_kwargs['parameters_location'] = parameters_location
-     if drivers_location is not None:
-         config_kwargs['drivers_location'] = drivers_location
-     if drivers_proposal_location is not None:
-         config_kwargs['drivers_proposal_location'] = drivers_proposal_location
-     if observables_location is not None:
-         config_kwargs['observables_location'] = observables_location
-     if observables_proposal_location is not None:
-         config_kwargs['observables_proposal_location'] = observables_proposal_location
-     if error_location is not None:
-         config_kwargs['error_location'] = error_location
-     if counters_location is not None:
-         config_kwargs['counters_location'] = counters_location
-     if state_summary_location is not None:
-         config_kwargs['state_summary_location'] = state_summary_location
-     if observable_summary_location is not None:
-         config_kwargs['observable_summary_location'] = observable_summary_location
-     
-     config = ODELoopConfig(**config_kwargs)
-     
-     # Register buffers using config values (which have defaults applied)
-     buffer_registry.register(
-         'loop_state', self, n_states, config.state_location,
-         precision=precision
-     )
-     buffer_registry.register(
-         'loop_proposed_state', self, n_states,
-         config.state_proposal_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_parameters', self, n_parameters,
-         config.parameters_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_drivers', self, n_drivers, config.drivers_location,
-         precision=precision
-     )
-     buffer_registry.register(
-         'loop_proposed_drivers', self, n_drivers,
-         config.drivers_proposal_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_observables', self, n_observables,
-         config.observables_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_proposed_observables', self, n_observables,
-         config.observables_proposal_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_error', self, n_error, config.error_location,
-         precision=precision
-     )
-     buffer_registry.register(
-         'loop_counters', self, n_counters, config.counters_location,
-         precision=precision
-     )
-     buffer_registry.register(
-         'loop_state_summary', self, state_summary_buffer_height,
-         config.state_summary_location, precision=precision
-     )
-     buffer_registry.register(
-         'loop_observable_summary', self, observable_summary_buffer_height,
-         config.observable_summary_location, precision=precision
-     )
-     
-     self.setup_compile_settings(config)
      ```
-     
-   - Edge cases:
-     - Empty/zero-size buffers: Still registered with size 0, registry handles gracefully
-   - Integration:
-     - Uses ODELoopConfig defaults when None provided
-     - buffer_registry.register() receives validated location values
 
-**Outcomes**: 
-- [ ] IVPLoop.__init__ uses Optional[str] = None for all location parameters
-- [ ] ODELoopConfig is created BEFORE buffer registration
-- [ ] Buffer registration uses config.* location values
-
----
-
-## Task Group 3: Add Location Parameter Mapping for update() - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Group 1, Task Group 2
-
-**Required Context**:
-- File: src/cubie/integrators/loops/ode_loop.py (lines 855-901, IVPLoop.update())
-- File: src/cubie/buffer_registry.py (update_buffer method, lines 241-272)
-- File: src/cubie/integrators/SingleIntegratorRunCore.py (lines 31-43, ALL_BUFFER_LOCATION_PARAMETERS)
-
-**Input Validation Required**:
-- Location updates: Validate values are 'shared' or 'local' (handled by ODELoopConfig validators via update_compile_settings)
-
-**Tasks**:
-
-1. **Define LOCATION_PARAM_TO_BUFFER mapping constant**
+2. **Update IVPLoop.update() to call buffer_registry.update()**
    - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
+   - Action: Modify update() method (lines 855-900)
    - Details:
-     Add a module-level constant after ALL_LOOP_SETTINGS (around line 46):
-     
-     ```python
-     # Maps location parameter names to their corresponding buffer names
-     # in the buffer registry. Used by IVPLoop.update() to propagate
-     # location changes to registered buffers.
-     LOCATION_PARAM_TO_BUFFER = {
-         'state_location': 'loop_state',
-         'state_proposal_location': 'loop_proposed_state',
-         'parameters_location': 'loop_parameters',
-         'drivers_location': 'loop_drivers',
-         'drivers_proposal_location': 'loop_proposed_drivers',
-         'observables_location': 'loop_observables',
-         'observables_proposal_location': 'loop_proposed_observables',
-         'error_location': 'loop_error',
-         'counters_location': 'loop_counters',
-         'state_summary_location': 'loop_state_summary',
-         'observable_summary_location': 'loop_observable_summary',
-     }
-     ```
-     
-   - Edge cases: None - this is a static mapping
-   - Integration: Used by IVPLoop.update() to find buffer names
-
-2. **Modify IVPLoop.update() to propagate location changes to buffer registry**
-   - File: src/cubie/integrators/loops/ode_loop.py
-   - Action: Modify
-   - Details:
-     Add logic after the update_compile_settings call to update buffer locations in the registry:
-     
-     Current update() method (lines 855-901):
+     Add call to buffer_registry.update() after update_compile_settings():
      ```python
      def update(
          self,
@@ -351,395 +292,417 @@ This task list implements the plumbing changes required to pass buffer location 
          silent: bool = False,
          **kwargs: object,
      ) -> Set[str]:
-         # ... existing code ...
+         """Update compile settings through the CUDAFactory interface.
+         ...
+         """
+         if updates_dict is None:
+             updates_dict = {}
+         updates_dict = updates_dict.copy()
+         if kwargs:
+             updates_dict.update(kwargs)
+         if updates_dict == {}:
+             return set()
+
          updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
-         
+
          recognised = self.update_compile_settings(updates_dict, silent=True)
-         # ... existing code ...
-     ```
-     
-     Modified update() method:
-     ```python
-     def update(
-         self,
-         updates_dict: Optional[dict[str, object]] = None,
-         silent: bool = False,
-         **kwargs: object,
-     ) -> Set[str]:
-         # ... existing code ...
-         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
-         
-         recognised = self.update_compile_settings(updates_dict, silent=True)
-         
-         # Propagate location changes to buffer registry
-         for param_name, buffer_name in LOCATION_PARAM_TO_BUFFER.items():
-             if param_name in recognised:
-                 new_location = getattr(self.compile_settings, param_name)
-                 buffer_registry.update_buffer(
-                     buffer_name, self, location=new_location
-                 )
-         
-         # ... existing code ...
-     ```
-     
-   - Edge cases:
-     - Location not in updates_dict: No buffer update needed
-     - Factory not registered: buffer_registry.update_buffer silently ignores
-   - Integration:
-     - update_compile_settings() validates values via ODELoopConfig validators
-     - buffer_registry.update_buffer() updates the stored BufferEntry
-     - Cache invalidation happens automatically in both systems
 
-**Outcomes**: 
-- [ ] LOCATION_PARAM_TO_BUFFER mapping defined at module level
-- [ ] IVPLoop.update() propagates location changes to buffer_registry
+         # Update buffer locations in registry
+         recognised |= buffer_registry.update(self, updates_dict, silent=True)
 
----
-
-## Task Group 4: Integrate Buffer Location Keywords with Solver - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Groups 1-3
-
-**Required Context**:
-- File: src/cubie/batchsolving/solver.py (lines 1-35 imports, lines 162-245 Solver.__init__)
-- File: src/cubie/integrators/SingleIntegratorRunCore.py (lines 31-43, ALL_BUFFER_LOCATION_PARAMETERS)
-- File: src/cubie/_utils.py (lines 200-245, merge_kwargs_into_settings)
-
-**Input Validation Required**:
-- None at Solver level - validation happens in ODELoopConfig when IVPLoop is instantiated
-
-**Tasks**:
-
-1. **Add import for ALL_BUFFER_LOCATION_PARAMETERS**
-   - File: src/cubie/batchsolving/solver.py
-   - Action: Modify
-   - Details:
-     Add import from SingleIntegratorRunCore. Modify the existing import block (lines 19-35):
-     
-     Current imports include:
-     ```python
-     from cubie.integrators.loops.ode_loop import (
-         ALL_LOOP_SETTINGS,
-     )
-     ```
-     
-     Add new import after existing integrators imports:
-     ```python
-     from cubie.integrators.SingleIntegratorRunCore import (
-         ALL_BUFFER_LOCATION_PARAMETERS,
-     )
-     ```
-     
-   - Edge cases: None
-   - Integration: Makes buffer location parameters available for merge_kwargs_into_settings
-
-2. **Union buffer location parameters with loop settings in merge_kwargs_into_settings call**
-   - File: src/cubie/batchsolving/solver.py
-   - Action: Modify
-   - Details:
-     Modify the loop_settings merge in Solver.__init__ (around line 222-224):
-     
-     Current code:
-     ```python
-     loop_settings, loop_recognized = merge_kwargs_into_settings(
-         kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
-         user_settings=loop_settings)
-     ```
-     
-     New code:
-     ```python
-     loop_settings, loop_recognized = merge_kwargs_into_settings(
-         kwargs=kwargs,
-         valid_keys=ALL_LOOP_SETTINGS | ALL_BUFFER_LOCATION_PARAMETERS,
-         user_settings=loop_settings)
-     ```
-     
-   - Edge cases:
-     - User provides state_location in both kwargs and loop_settings dict:
-       merge_kwargs_into_settings handles this, kwargs takes precedence with warning
-   - Integration:
-     - Buffer location kwargs flow through same path as dt_save, dt_summarise
-     - No changes needed to solve_ivp (it passes **kwargs through to Solver)
-
-**Outcomes**: 
-- [ ] ALL_BUFFER_LOCATION_PARAMETERS imported in solver.py
-- [ ] Buffer location keywords recognized by merge_kwargs_into_settings
-
----
-
-## Task Group 5: Tests for Buffer Location Flow - PARALLEL
-**Status**: [ ]
-**Dependencies**: Task Groups 1-4
-
-**Required Context**:
-- File: tests/batchsolving/ (existing test patterns)
-- File: tests/integrators/loops/ (existing test patterns)
-- File: tests/conftest.py (fixture patterns)
-
-**Input Validation Required**:
-- Test assertions only - no input validation in tests
-
-**Tasks**:
-
-1. **Test buffer location kwargs recognized by Solver**
-   - File: tests/batchsolving/test_solver_buffer_locations.py
-   - Action: Create
-   - Details:
-     Create new test file with tests for buffer location flow:
-     
-     ```python
-     """Tests for buffer location keyword argument flow through Solver."""
-     import pytest
-     
-     
-     def test_buffer_location_kwargs_recognized(three_state_linear):
-         """Buffer location kwargs pass through Solver to loop config."""
-         from cubie import Solver
-         
-         solver = Solver(three_state_linear, state_location='shared')
-         config = solver.kernel.single_integrator._loop.compile_settings
-         assert config.state_location == 'shared'
-         # Other locations should use defaults
-         assert config.parameters_location == 'local'
-     
-     
-     def test_buffer_location_default(three_state_linear):
-         """Buffer locations default to 'local' when not specified."""
-         from cubie import Solver
-         
-         solver = Solver(three_state_linear)
-         config = solver.kernel.single_integrator._loop.compile_settings
-         assert config.state_location == 'local'
-         assert config.state_proposal_location == 'local'
-         assert config.parameters_location == 'local'
-         assert config.drivers_location == 'local'
-         assert config.drivers_proposal_location == 'local'
-         assert config.observables_location == 'local'
-         assert config.observables_proposal_location == 'local'
-         assert config.error_location == 'local'
-         assert config.counters_location == 'local'
-         assert config.state_summary_location == 'local'
-         assert config.observable_summary_location == 'local'
-     
-     
-     def test_buffer_location_in_loop_settings(three_state_linear):
-         """Buffer locations can be specified via loop_settings dict."""
-         from cubie import Solver
-         
-         solver = Solver(
-             three_state_linear,
-             loop_settings={'state_location': 'shared'}
-         )
-         config = solver.kernel.single_integrator._loop.compile_settings
-         assert config.state_location == 'shared'
-     
-     
-     def test_invalid_buffer_location_raises(three_state_linear):
-         """Invalid buffer location values raise ValueError."""
-         from cubie import Solver
-         
-         with pytest.raises(ValueError):
-             Solver(three_state_linear, state_location='gpu')
-     
-     
-     def test_buffer_location_update(three_state_linear):
-         """Buffer location can be updated via solver.update()."""
-         from cubie import Solver
-         
-         solver = Solver(three_state_linear)
-         config = solver.kernel.single_integrator._loop.compile_settings
-         assert config.state_location == 'local'
-         
-         solver.update(state_location='shared')
-         config = solver.kernel.single_integrator._loop.compile_settings
-         assert config.state_location == 'shared'
-     
-     
-     def test_solve_ivp_buffer_location(three_state_linear):
-         """Buffer locations can be passed through solve_ivp."""
-         from cubie import solve_ivp
-         import numpy as np
-         
-         # Just verify it doesn't raise - full integration would require GPU
-         # This test verifies the kwargs flow through correctly
-         try:
-             solve_ivp(
-                 three_state_linear,
-                 y0={'x': np.array([1.0])},
-                 parameters={'a': np.array([0.1])},
-                 state_location='shared',
-                 duration=0.1,
+         unrecognised = set(updates_dict.keys()) - recognised
+         if not silent and unrecognised:
+             raise KeyError(
+                 f"Unrecognized parameters in update: {unrecognised}. "
+                 "These parameters were not updated.",
              )
-         except Exception as e:
-             # Allow CUDA-related errors in cudasim mode
-             if 'CUDA' not in str(e) and 'cuda' not in str(e).lower():
-                 raise
+         return recognised | unpacked_keys
      ```
-     
-   - Edge cases:
-     - Tests should work in both CUDA and cudasim modes
-     - Use existing system fixtures from conftest.py
-   - Integration:
-     - Uses three_state_linear fixture from conftest.py
-     - Tests verify end-to-end flow from Solver to ODELoopConfig
-
-2. **Test ODELoopConfig location field validation**
-   - File: tests/integrators/loops/test_ode_loop_config.py
-   - Action: Modify (or create if doesn't exist)
-   - Details:
-     Add tests for the new location fields:
-     
-     ```python
-     """Tests for ODELoopConfig buffer location fields."""
-     import pytest
-     from cubie.integrators.loops.ode_loop_config import ODELoopConfig
-     
-     
-     def test_location_fields_default_to_local():
-         """All buffer location fields default to 'local'."""
-         config = ODELoopConfig()
-         assert config.state_location == 'local'
-         assert config.state_proposal_location == 'local'
-         assert config.parameters_location == 'local'
-         assert config.drivers_location == 'local'
-         assert config.drivers_proposal_location == 'local'
-         assert config.observables_location == 'local'
-         assert config.observables_proposal_location == 'local'
-         assert config.error_location == 'local'
-         assert config.counters_location == 'local'
-         assert config.state_summary_location == 'local'
-         assert config.observable_summary_location == 'local'
-     
-     
-     def test_location_fields_accept_shared():
-         """Buffer location fields accept 'shared' value."""
-         config = ODELoopConfig(
-             state_location='shared',
-             parameters_location='shared',
-         )
-         assert config.state_location == 'shared'
-         assert config.parameters_location == 'shared'
-         # Others still default
-         assert config.drivers_location == 'local'
-     
-     
-     def test_invalid_location_raises_valueerror():
-         """Invalid location values raise ValueError."""
-         with pytest.raises(ValueError):
-             ODELoopConfig(state_location='gpu')
-         
-         with pytest.raises(ValueError):
-             ODELoopConfig(parameters_location='global')
-         
-         with pytest.raises(ValueError):
-             ODELoopConfig(state_location='')
-     ```
-     
-   - Edge cases:
-     - Empty string as location value
-     - Case sensitivity (should be exact match)
-   - Integration:
-     - Tests validate ODELoopConfig field validators work correctly
-
-3. **Test IVPLoop location parameter handling**
-   - File: tests/integrators/loops/test_ode_loop.py
-   - Action: Modify (add tests)
-   - Details:
-     Add tests for IVPLoop location parameter handling:
-     
-     ```python
-     def test_ivploop_location_defaults_from_config(precision):
-         """IVPLoop uses ODELoopConfig defaults when locations are None."""
-         from cubie.integrators.loops.ode_loop import IVPLoop
-         from cubie.outputhandling import OutputCompileFlags
-         
-         loop = IVPLoop(
-             precision=precision,
-             n_states=3,
-             compile_flags=OutputCompileFlags(),
-         )
-         config = loop.compile_settings
-         assert config.state_location == 'local'
-         assert config.parameters_location == 'local'
-     
-     
-     def test_ivploop_location_override(precision):
-         """IVPLoop accepts explicit location values."""
-         from cubie.integrators.loops.ode_loop import IVPLoop
-         from cubie.outputhandling import OutputCompileFlags
-         
-         loop = IVPLoop(
-             precision=precision,
-             n_states=3,
-             compile_flags=OutputCompileFlags(),
-             state_location='shared',
-         )
-         config = loop.compile_settings
-         assert config.state_location == 'shared'
-         # Others still default
-         assert config.parameters_location == 'local'
-     
-     
-     def test_ivploop_update_location(precision):
-         """IVPLoop.update() propagates location changes."""
-         from cubie.integrators.loops.ode_loop import IVPLoop
-         from cubie.outputhandling import OutputCompileFlags
-         from cubie.buffer_registry import buffer_registry
-         
-         loop = IVPLoop(
-             precision=precision,
-             n_states=3,
-             compile_flags=OutputCompileFlags(),
-         )
-         
-         # Initial location is 'local'
-         assert loop.compile_settings.state_location == 'local'
-         
-         # Update location
-         loop.update(state_location='shared')
-         
-         # Config updated
-         assert loop.compile_settings.state_location == 'shared'
-         
-         # Buffer registry also updated
-         context = buffer_registry._contexts.get(loop)
-         if context:
-             entry = context.entries.get('loop_state')
-             if entry:
-                 assert entry.location == 'shared'
-     ```
-     
-   - Edge cases:
-     - Update with same value (should be no-op)
-     - Update non-existent parameter
-   - Integration:
-     - Uses precision fixture from conftest.py
-     - Tests verify compile_settings and buffer_registry are both updated
 
 **Outcomes**: 
-- [ ] test_solver_buffer_locations.py created with 6 tests
-- [ ] test_ode_loop_config.py has location field tests
-- [ ] test_ode_loop.py has location parameter tests
+- [ ] IVPLoop.__init__ passes location params to ODELoopConfig
+- [ ] IVPLoop.update() calls buffer_registry.update()
+- [ ] Location updates propagate to both compile_settings and buffer_registry
+- [ ] Cache invalidation occurs when locations change
+
+---
+
+## Task Group 4: Add Location Fields to ImplicitStepConfig - SEQUENTIAL
+**Status**: [ ]
+**Dependencies**: Task Group 1
+
+**Required Context**:
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (entire file)
+  - ImplicitStepConfig class: lines 22-138
+  - ODEImplicitStep class: lines 141-389
+  - build_implicit_helpers() method: lines 226-293
+- File: src/cubie/integrators/matrix_free_solvers/newton_krylov.py
+  - newton_krylov_solver_factory: lines 18-316 (buffer registrations at lines 91-104)
+- File: src/cubie/integrators/matrix_free_solvers/linear_solver.py
+  - linear_solver_factory: lines 19-252 (buffer registrations at lines 88-94)
+
+**Input Validation Required**:
+- All location fields: Must be 'shared' or 'local' using `validators.in_(['shared', 'local'])`
+
+**Tasks**:
+
+1. **Add Newton-Krylov buffer location fields to ImplicitStepConfig**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Add location fields after `newton_max_backtracks` field (around line 90)
+   - Details:
+     ```python
+     # Newton-Krylov buffer locations (match buffer names in newton_krylov.py)
+     newton_delta_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     newton_residual_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     newton_residual_temp_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     newton_stage_base_bt_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     # Linear solver buffer locations (match buffer names in linear_solver.py)
+     lin_preconditioned_vec_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     lin_temp_location: str = attrs.field(
+         default='local',
+         validator=validators.in_(['shared', 'local'])
+     )
+     ```
+   - Note: Add `from attrs import validators` import if not already present
+
+2. **Update build_implicit_helpers() to pass location values to solver factories**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Modify linear_solver_factory and newton_krylov_solver_factory calls (lines 270-293)
+   - Details:
+     ```python
+     linear_solver = linear_solver_factory(
+         operator,
+         n=n,
+         factory=self,  # Pass self as factory for buffer registration
+         precision=self.precision,
+         preconditioner=preconditioner,
+         correction_type=correction_type,
+         tolerance=krylov_tolerance,
+         max_iters=max_linear_iters,
+         preconditioned_vec_location=config.lin_preconditioned_vec_location,
+         temp_location=config.lin_temp_location,
+     )
+
+     nonlinear_solver = newton_krylov_solver_factory(
+         residual_function=residual,
+         linear_solver=linear_solver,
+         n=n,
+         factory=self,  # Pass self as factory for buffer registration
+         tolerance=newton_tolerance,
+         max_iters=max_newton_iters,
+         damping=newton_damping,
+         max_backtracks=newton_max_backtracks,
+         precision=self.precision,
+         delta_location=config.newton_delta_location,
+         residual_location=config.newton_residual_location,
+         residual_temp_location=config.newton_residual_temp_location,
+         stage_base_bt_location=config.newton_stage_base_bt_location,
+     )
+     ```
+
+3. **Add buffer_registry import to ode_implicitstep.py**
+   - File: src/cubie/integrators/algorithms/ode_implicitstep.py
+   - Action: Add import at top of file (around line 6)
+   - Details:
+     ```python
+     from cubie.buffer_registry import buffer_registry
+     ```
+
+**Outcomes**: 
+- [ ] ImplicitStepConfig has 6 buffer location fields (4 Newton + 2 linear solver)
+- [ ] build_implicit_helpers() passes locations to solver factories
+- [ ] Solver factories register buffers with locations from config
+- [ ] Factory reference (`self`) passed to solver factories for buffer ownership
+
+---
+
+## Task Group 5: Update Algorithm Files for Location Inheritance - PARALLEL
+**Status**: [ ]
+**Dependencies**: Task Groups 1, 4
+
+**Required Context**:
+- All files in src/cubie/integrators/algorithms/
+- Each algorithm inherits from ODEImplicitStep or ODEExplicitStep
+
+**Input Validation Required**:
+- Explicit algorithms (no buffers): No location fields needed
+- Implicit algorithms: Location fields inherited from ImplicitStepConfig
+- DIRK/FIRK with custom buffers: Add stage-specific location fields
+
+**Tasks (can run in parallel)**:
+
+1. **backwards_euler.py** - Verify inherits from ODEImplicitStep
+   - File: src/cubie/integrators/algorithms/backwards_euler.py
+   - Action: Verify only - uses ImplicitStepConfig, no changes needed
+   - Details: Inherits location fields from ImplicitStepConfig
+
+2. **backwards_euler_predict_correct.py** - Verify inherits correctly
+   - File: src/cubie/integrators/algorithms/backwards_euler_predict_correct.py
+   - Action: Verify only - no changes needed
+
+3. **crank_nicolson.py** - Verify inherits correctly
+   - File: src/cubie/integrators/algorithms/crank_nicolson.py
+   - Action: Verify only - no changes needed
+
+4. **explicit_euler.py** - No location fields needed
+   - File: src/cubie/integrators/algorithms/explicit_euler.py
+   - Action: Verify only - explicit methods don't register buffers
+
+5. **generic_dirk.py** - Check for DIRK-specific buffers
+   - File: src/cubie/integrators/algorithms/generic_dirk.py
+   - Action: Review and add location fields if DIRK registers custom buffers
+   - Details: Check if DIRKStep registers buffers beyond base implicit step
+
+6. **generic_erk.py** - No location fields needed
+   - File: src/cubie/integrators/algorithms/generic_erk.py
+   - Action: Verify only - explicit methods don't register buffers
+
+7. **generic_firk.py** - Check for FIRK-specific buffers
+   - File: src/cubie/integrators/algorithms/generic_firk.py
+   - Action: Review and add location fields if FIRK registers custom buffers
+
+8. **generic_rosenbrock_w.py** - Check for Rosenbrock-specific buffers
+   - File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py
+   - Action: Review and add location fields if Rosenbrock registers custom buffers
+
+9. **ode_explicitstep.py** - Base explicit step
+   - File: src/cubie/integrators/algorithms/ode_explicitstep.py
+   - Action: Verify only - explicit base class has no buffers
+
+10. **base_algorithm_step.py** - Add location params to ALL_ALGORITHM_STEP_PARAMETERS
+    - File: src/cubie/integrators/algorithms/base_algorithm_step.py
+    - Action: Modify ALL_ALGORITHM_STEP_PARAMETERS set (around line 23)
+    - Details:
+      Add all location parameter names to the set:
+      ```python
+      ALL_ALGORITHM_STEP_PARAMETERS = {
+          'algorithm',
+          'precision', 'n', 'dxdt_function', 'observables_function',
+          'driver_function', 'get_solver_helper_fn', "driver_del_t",
+          'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
+          'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
+          'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
+          'n_drivers',
+          # Buffer location parameters
+          'newton_delta_location', 'newton_residual_location',
+          'newton_residual_temp_location', 'newton_stage_base_bt_location',
+          'lin_preconditioned_vec_location', 'lin_temp_location',
+      }
+      ```
+
+**Outcomes**: 
+- [ ] All algorithm files properly inherit location handling
+- [ ] Algorithm-specific buffers have location fields in their configs
+- [ ] ALL_ALGORITHM_STEP_PARAMETERS updated with location param names
+
+---
+
+## Task Group 6: Update Instrumented Test Files - PARALLEL
+**Status**: [ ]
+**Dependencies**: Task Groups 4, 5
+
+**Required Context**:
+- All files in tests/integrators/algorithms/instrumented/
+- Must mirror changes made to source files exactly
+
+**Tasks (can run in parallel)**:
+
+1. **backwards_euler.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/backwards_euler.py
+   - Action: Add location params to __init__ signature if source file changes
+
+2. **backwards_euler_predict_correct.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/backwards_euler_predict_correct.py
+   - Action: Mirror any changes from source
+
+3. **crank_nicolson.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/crank_nicolson.py
+   - Action: Mirror any changes from source
+
+4. **explicit_euler.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/explicit_euler.py
+   - Action: Mirror any changes from source
+
+5. **generic_dirk.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/generic_dirk.py
+   - Action: Mirror any changes from source
+
+6. **generic_erk.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/generic_erk.py
+   - Action: Mirror any changes from source
+
+7. **generic_firk.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/generic_firk.py
+   - Action: Mirror any changes from source
+
+8. **generic_rosenbrock_w.py** - Mirror source changes
+   - File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
+   - Action: Mirror any changes from source
+
+9. **matrix_free_solvers.py** - Mirror newton_krylov and linear_solver changes
+   - File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py
+   - Action: Add location params to factory signatures
+
+**CRITICAL**: Instrumented files must have IDENTICAL changes to source files except for logging additions.
+
+**Outcomes**: 
+- [ ] All instrumented files mirror source changes
+- [ ] Only difference is logging/instrumentation code
+
+---
+
+## Task Group 7: Integration Tests - SEQUENTIAL
+**Status**: [ ]
+**Dependencies**: All previous task groups
+
+**Required Context**:
+- File: tests/test_buffer_registry.py (existing tests)
+- File: tests/integrators/loops/test_ode_loop.py (existing tests)
+
+**Tasks**:
+
+1. **Test buffer_registry.update() method**
+   - File: tests/test_buffer_registry.py
+   - Action: Add new test functions
+   - Details:
+     ```python
+     def test_buffer_registry_update_recognizes_location_params():
+         """BufferRegistry.update() recognizes [buffer_name]_location params."""
+         # Setup factory with registered buffers
+         # Call update with location params
+         # Assert recognized set contains the param names
+
+     def test_buffer_registry_update_changes_buffer_location():
+         """BufferRegistry.update() changes buffer location in entry."""
+         # Setup factory with buffer at 'local'
+         # Call update with 'shared' location
+         # Verify buffer entry location changed
+
+     def test_buffer_registry_update_invalid_location_raises():
+         """BufferRegistry.update() raises ValueError for invalid location."""
+         # Setup factory with buffer
+         # Call update with invalid location value
+         # Assert ValueError raised
+
+     def test_buffer_registry_update_unregistered_factory_silent():
+         """BufferRegistry.update() returns empty set for unregistered factory."""
+         # Call update with factory that has no registered buffers
+         # Assert returns empty set
+     ```
+
+2. **Test location parameter flow through IVPLoop.update()**
+   - File: tests/integrators/loops/test_ode_loop.py
+   - Action: Add new test functions
+   - Details:
+     ```python
+     def test_ivploop_update_with_location_params():
+         """IVPLoop.update() recognizes buffer location parameters."""
+         # Create IVPLoop with default locations
+         # Call update with location params
+         # Assert params recognized in returned set
+
+     def test_ivploop_update_propagates_to_registry():
+         """IVPLoop.update() propagates location changes to buffer_registry."""
+         # Create IVPLoop
+         # Call update with location change
+         # Verify buffer_registry entry updated
+     ```
+
+3. **Test algorithm location update flow**
+   - File: tests/integrators/algorithms/test_algorithm_buffer_locations.py
+   - Action: Create new test file
+   - Details:
+     ```python
+     def test_implicit_step_location_params_in_config():
+         """ImplicitStepConfig has buffer location fields."""
+         # Create ImplicitStepConfig
+         # Assert location fields exist and have defaults
+
+     def test_implicit_step_passes_locations_to_solvers():
+         """ODEImplicitStep passes location values to solver factories."""
+         # Create implicit step with custom locations
+         # Verify solvers received location values
+     ```
+
+**Outcomes**: 
+- [ ] buffer_registry.update() tested for all cases
+- [ ] IVPLoop location update flow tested
+- [ ] Algorithm location handling tested
 
 ---
 
 ## Summary
 
-### Total Task Groups: 5
+### Total Task Groups: 7
 ### Dependency Chain:
-1. Task Group 1 (ODELoopConfig fields) → No dependencies
-2. Task Group 2 (IVPLoop __init__) → Depends on 1
-3. Task Group 3 (IVPLoop update) → Depends on 1, 2
-4. Task Group 4 (Solver integration) → Depends on 1, 2, 3
-5. Task Group 5 (Tests) → Depends on 1, 2, 3, 4 (can run in parallel internally)
+```
+Task Group 1 (BufferRegistry.update)
+      ↓
+      ├──────────────────────────────────────┐
+      ↓                                      ↓
+Task Group 2 (ODELoopConfig)         Task Group 4 (ImplicitStepConfig)
+      ↓                                      ↓
+Task Group 3 (IVPLoop)               Task Group 5 (Algorithm files)
+      ↓                                      ↓
+      └─────────────────┬────────────────────┘
+                        ↓
+               Task Group 6 (Instrumented files)
+                        ↓
+               Task Group 7 (Tests)
+```
 
 ### Parallel Execution Opportunities:
-- Within Task Group 5, all test files can be written in parallel
-- Task Groups 1-4 must be sequential due to dependencies
+- Task Groups 2, 4 can run in parallel (both depend only on 1)
+- Task Group 5 subtasks can run in parallel
+- Task Group 6 subtasks can run in parallel
+- Task Group 7 can run after all implementation complete
 
-### Estimated Complexity:
-- Task Group 1: Low (adding attrs fields with validators)
-- Task Group 2: Medium (reordering __init__, handling Optional parameters)
-- Task Group 3: Low (adding mapping constant and update logic)
-- Task Group 4: Low (adding import and modifying set union)
-- Task Group 5: Medium (comprehensive test coverage)
+### Files Modified (Total: 20+)
+
+**Core Infrastructure (1 file)**:
+- src/cubie/buffer_registry.py - Add update() method
+
+**Loop Files (2 files)**:
+- src/cubie/integrators/loops/ode_loop_config.py - Add 11 location fields
+- src/cubie/integrators/loops/ode_loop.py - Pass locations to config, update() integration
+
+**Algorithm Files (3 files modified)**:
+- src/cubie/integrators/algorithms/ode_implicitstep.py - Add 6 location fields, pass to solvers
+- src/cubie/integrators/algorithms/base_algorithm_step.py - Update ALL_ALGORITHM_STEP_PARAMETERS
+- (Other algorithm files: verify inheritance only, no changes unless they register custom buffers)
+
+**Instrumented Test Files (9 files)**:
+- tests/integrators/algorithms/instrumented/*.py - Mirror source changes
+
+**New/Modified Test Files (3 files)**:
+- tests/test_buffer_registry.py - Add tests for update() method
+- tests/integrators/loops/test_ode_loop.py - Add location update tests
+- tests/integrators/algorithms/test_algorithm_buffer_locations.py - New test file
+
+### Key Design Decisions
+
+1. **Buffer naming convention**: Buffer names use prefixes (`loop_`, `newton_`, `lin_`) and location params use `[buffer_name]_location` format
+
+2. **Ownership model**: Each CUDAFactory owns its buffers. Solver factories receive `factory=self` to register buffers under the owning algorithm
+
+3. **Update flow**: 
+   - `update_compile_settings()` handles location fields in config
+   - `buffer_registry.update()` handles location changes in registry
+   - Both paths invalidate cache
+
+4. **No separate handling**: Location params use same filtering utilities as other compile settings
