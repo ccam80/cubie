@@ -203,45 +203,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
-        # Determine locations (use defaults if not specified)
-        rhs_loc = stage_rhs_location if stage_rhs_location else 'local'
-        store_loc = stage_store_location if stage_store_location else 'local'
-        aux_loc = cached_auxiliaries_location if cached_auxiliaries_location else 'local'
-
-        # Calculate buffer sizes
-        stage_store_elements = tableau.stage_count * n
-        # cached_auxiliary_count starts at 0; updated in build_implicit_helpers
-
-        # Register algorithm buffers
-        buffer_registry.register(
-            'rosenbrock_stage_rhs', self, n, rhs_loc, precision=precision
-        )
-        buffer_registry.register(
-            'rosenbrock_stage_store', self, stage_store_elements, store_loc,
-            precision=precision
-        )
-        # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
-        buffer_registry.register(
-            'rosenbrock_cached_auxiliaries', self, 0, aux_loc,
-            precision=precision
-        )
-
-        # stage_cache: persistent when stage_store is local
-        if store_loc == 'local':
-            buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'local',
-                persistent=True, precision=precision
-            )
-        else:
-            # Aliases stage_store when shared
-            buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'shared',
-                aliases='rosenbrock_stage_store', precision=precision
-            )
-
+        # Build config first so buffer registration can use config defaults
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -258,13 +220,50 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": tableau_value.gamma,
             "M": mass,
-            "stage_rhs_location": rhs_loc,
-            "stage_store_location": store_loc,
-            "cached_auxiliaries_location": aux_loc,
         }
+        if stage_rhs_location is not None:
+            config_kwargs["stage_rhs_location"] = stage_rhs_location
+        if stage_store_location is not None:
+            config_kwargs["stage_store_location"] = stage_store_location
+        if cached_auxiliaries_location is not None:
+            config_kwargs["cached_auxiliaries_location"] = cached_auxiliaries_location
 
         config = RosenbrockWStepConfig(**config_kwargs)
         self._cached_auxiliary_count = None
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_parent(self)
+
+        # Calculate buffer sizes
+        stage_store_elements = tableau.stage_count * n
+
+        # Register algorithm buffers using config values
+        buffer_registry.register(
+            'rosenbrock_stage_rhs', self, n, config.stage_rhs_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'rosenbrock_stage_store', self, stage_store_elements,
+            config.stage_store_location, precision=precision
+        )
+        # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
+        buffer_registry.register(
+            'rosenbrock_cached_auxiliaries', self, 0,
+            config.cached_auxiliaries_location, precision=precision
+        )
+
+        # stage_cache: persistent when stage_store is local
+        if config.stage_store_location == 'local':
+            buffer_registry.register(
+                'rosenbrock_stage_cache', self, n, 'local',
+                persistent=True, precision=precision
+            )
+        else:
+            # Aliases stage_store when shared
+            buffer_registry.register(
+                'rosenbrock_stage_cache', self, n, 'shared',
+                aliases='rosenbrock_stage_store', precision=precision
+            )
 
         if tableau.has_error_estimate:
             defaults = ROSENBROCK_ADAPTIVE_DEFAULTS

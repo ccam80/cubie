@@ -116,13 +116,12 @@ Overall, this is a **solid implementation** that meets the user stories and desi
 
 ### Low Priority (Nice-to-have)
 
-2. **Consider unifying parameter names**
+2. **Parameter naming now unified** ✅ ADDRESSED
    - Task Group: Task Group 3 (IVPLoop config integration)
    - File: `src/cubie/integrators/loops/ode_loop.py`
-   - Issue: `__init__` uses `state_location` but config uses `loop_state_location`. This mapping (lines 230-240) adds cognitive overhead.
-   - Fix: Either rename `__init__` params to match config fields (`loop_state_location`) or rename config fields to match `__init__` params (`state_location`). The former is preferable since buffer names use `loop_` prefix.
-   - Rationale: API consistency; reduces developer confusion.
-   - **Status**: Breaking change, may be deferred per project guidelines.
+   - Issue: RESOLVED - The `loop_` prefix was removed from ODELoopConfig fields per user feedback.
+   - Config fields now use `state_location`, `proposed_state_location`, etc., matching `__init__` param names.
+   - **Status**: Fixed.
 
 3. **Add docstring to ODELoopConfig location fields**
    - Task Group: Task Group 2 (ODELoopConfig)

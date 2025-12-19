@@ -16,6 +16,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
@@ -514,6 +515,10 @@ class BaseAlgorithmStep(CUDAFactory):
             return set()
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
+
+        # Update buffer locations in registry
+        recognised |= buffer_registry.update(self, updates_dict, silent=True)
+
         unrecognised = set(updates_dict.keys()) - recognised
 
         # Check if unrecognized parameters are valid algorithm step parameters

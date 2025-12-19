@@ -102,38 +102,7 @@ class FIRKStep(ODEImplicitStep):
 
         mass = np.eye(n, dtype=precision)
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
-        # Determine locations (use defaults if not specified)
-        inc_loc = stage_increment_location if stage_increment_location else 'local'
-        drv_loc = stage_driver_stack_location if stage_driver_stack_location else 'local'
-        state_loc = stage_state_location if stage_state_location else 'local'
-
-        # Calculate buffer sizes
-        all_stages_n = tableau.stage_count * n
-        stage_driver_stack_elements = tableau.stage_count * n_drivers
-
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * all_stages_n
-        buffer_registry.register(
-            'firk_solver_scratch', self, solver_shared_size, 'shared',
-            precision=precision
-        )
-
-        # Register algorithm buffers
-        buffer_registry.register(
-            'firk_stage_increment', self, all_stages_n, inc_loc,
-            precision=precision
-        )
-        buffer_registry.register(
-            'firk_stage_driver_stack', self, stage_driver_stack_elements,
-            drv_loc, precision=precision
-        )
-        buffer_registry.register(
-            'firk_stage_state', self, n, state_loc, precision=precision
-        )
-
+        # Build config first so buffer registration can use config defaults
         config_kwargs = {
             "precision": precision,
             "n": n,
@@ -154,18 +123,49 @@ class FIRKStep(ODEImplicitStep):
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
-            "stage_increment_location": inc_loc,
-            "stage_driver_stack_location": drv_loc,
-            "stage_state_location": state_loc,
         }
+        if stage_increment_location is not None:
+            config_kwargs["stage_increment_location"] = stage_increment_location
+        if stage_driver_stack_location is not None:
+            config_kwargs["stage_driver_stack_location"] = stage_driver_stack_location
+        if stage_state_location is not None:
+            config_kwargs["stage_state_location"] = stage_state_location
 
         config = FIRKStepConfig(**config_kwargs)
-        
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_parent(self)
+
+        # Calculate buffer sizes
+        all_stages_n = tableau.stage_count * n
+        stage_driver_stack_elements = tableau.stage_count * n_drivers
+
+        # solver_scratch is always shared (Newton delta + residual)
+        solver_shared_size = 2 * all_stages_n
+        buffer_registry.register(
+            'firk_solver_scratch', self, solver_shared_size, 'shared',
+            precision=precision
+        )
+
+        # Register algorithm buffers using config values
+        buffer_registry.register(
+            'firk_stage_increment', self, all_stages_n,
+            config.stage_increment_location, precision=precision
+        )
+        buffer_registry.register(
+            'firk_stage_driver_stack', self, stage_driver_stack_elements,
+            config.stage_driver_stack_location, precision=precision
+        )
+        buffer_registry.register(
+            'firk_stage_state', self, n, config.stage_state_location,
+            precision=precision
+        )
+
         if tableau.has_error_estimate:
             defaults = FIRK_ADAPTIVE_DEFAULTS
         else:
             defaults = FIRK_FIXED_DEFAULTS
-        
+
         super().__init__(config, defaults)
 
     def build_implicit_helpers(

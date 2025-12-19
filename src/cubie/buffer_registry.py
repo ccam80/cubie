@@ -257,7 +257,7 @@ class BufferGroup:
             new_values = attrs.asdict(old_entry)
             new_values.update(kwargs)
 
-            if new_values != old_entry:
+            if new_values != attrs.asdict(old_entry):
                 changed = True
                 self.entries[name] = CUDABuffer(**new_values)
                 self.invalidate_layouts()
@@ -665,17 +665,13 @@ class BufferRegistry:
         if parent not in self._groups:
             return set()
 
-        group = self._groups[parent]
         recognized = set()
-        updated = False
 
         for key, value in updates_dict.items():
             if not key.endswith('_location'):
                 continue
 
             buffer_name = key[:-9]  # Remove '_location' suffix
-            if buffer_name not in group.entries:
-                continue
 
             if value not in ('shared', 'local'):
                 raise ValueError(
@@ -683,15 +679,11 @@ class BufferRegistry:
                     f"'{buffer_name}'. Must be 'shared' or 'local'."
                 )
 
-            entry = group.entries[buffer_name]
-            if entry.location != value:
-                self.update_buffer(buffer_name, parent, location=value)
-                updated = True
-
-            recognized.add(key)
-
-        if updated:
-            group.invalidate_layouts()
+            buffer_recognized, _ = self.update_buffer(
+                buffer_name, parent, location=value
+            )
+            if buffer_recognized:
+                recognized.add(key)
 
         return recognized
 
