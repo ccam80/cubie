@@ -400,7 +400,7 @@ class TestCrossLocationAliasing:
         )
         # Child needs 80 but parent only has 50, so allocates separately
         size = self.registry.shared_buffer_size(self.parent)
-        assert size == 50  # Only non-aliased parent counts
+        assert size == 130  # Total allocated space including fallback
 
         # But layout should have both
         group = self.registry._groups[self.parent]
@@ -426,7 +426,7 @@ class TestCrossLocationAliasing:
         )
 
         group = self.registry._groups[self.parent]
-        _ = self.registry.shared_buffer_size(self.parent)
+        size = self.registry.shared_buffer_size(self.parent)
         layout = group._shared_layout
 
         # parent: slice(0, 100)
@@ -437,6 +437,8 @@ class TestCrossLocationAliasing:
         assert layout['child1'] == slice(0, 40)
         assert layout['child2'] == slice(40, 80)
         assert layout['child3'] == slice(100, 140)
+        # Total size should be 140 (max slice.stop)
+        assert size == 140
 
     def test_persistent_alias_of_nonpersistent_local_allowed(self):
         """Persistent buffer can now alias non-persistent local."""

@@ -325,14 +325,13 @@ class BufferGroup:
         """
         offset = 0
         layout = {}
-        persistent_consumption = {}
 
         # Process non-aliased persistent buffers first
         for name, entry in self.entries.items():
             if not entry.is_persistent_local or entry.aliases is not None:
                 continue
             layout[name] = slice(offset, offset + entry.size)
-            persistent_consumption[name] = 0
+            self._alias_consumption[name] = 0
             offset += entry.size
 
         # Process aliased persistent buffers
@@ -344,7 +343,7 @@ class BufferGroup:
 
             if parent_entry.is_persistent_local:
                 # Parent is persistent - check if space available
-                consumed = persistent_consumption.get(entry.aliases, 0)
+                consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
                 if entry.size <= available:
@@ -352,7 +351,7 @@ class BufferGroup:
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
-                    persistent_consumption[entry.aliases] = (
+                    self._alias_consumption[entry.aliases] = (
                         consumed + entry.size
                     )
                 else:
@@ -387,16 +386,14 @@ class BufferGroup:
         Returns
         -------
         int
-            Total shared memory elements (excludes aliased buffers).
+            Total shared memory elements needed (end of last slice).
         """
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
 
-        total = 0
-        for name, entry in self.entries.items():
-            if entry.location == 'shared' and entry.aliases is None:
-                total += entry.size
-        return total
+        if not self._shared_layout:
+            return 0
+        return max(s.stop for s in self._shared_layout.values())
 
     def local_buffer_size(self) -> int:
         """Return total local memory elements.
@@ -417,16 +414,14 @@ class BufferGroup:
         Returns
         -------
         int
-            Total persistent_local elements (excludes aliased buffers).
+            Total persistent_local elements needed (end of last slice).
         """
         if self._persistent_layout is None:
             self._persistent_layout = self.build_persistent_layout()
 
-        total = 0
-        for name, entry in self.entries.items():
-            if entry.is_persistent_local and entry.aliases is None:
-                total += entry.size
-        return total
+        if not self._persistent_layout:
+            return 0
+        return max(s.stop for s in self._persistent_layout.values())
 
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.

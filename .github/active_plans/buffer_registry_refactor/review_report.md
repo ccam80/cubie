@@ -542,3 +542,66 @@ The architecture is sound, the code is clean, and the tests are comprehensive. T
 
 **Submitted by**: Harsh Critic Agent  
 **Review Complete**: 2025-12-19T01:13:01.071Z
+
+---
+
+## Review Fixes Applied
+
+**Fix Application Date**: 2025-12-19T01:16:38.569Z  
+**Applied by**: Taskmaster Agent (2nd invocation)
+
+### Critical Fixes Applied (Issue 1)
+
+**Status**: ✅ **COMPLETE**
+
+#### Fix 1: BufferGroup.shared_buffer_size() - lines 384-396
+- **Changed from**: Counting non-aliased buffers only
+- **Changed to**: Returns `max(s.stop for s in self._shared_layout.values())`
+- **Result**: Correctly returns total allocated shared memory including fallback allocations
+
+#### Fix 2: BufferGroup.persistent_local_buffer_size() - lines 411-424
+- **Changed from**: Counting non-aliased buffers only
+- **Changed to**: Returns `max(s.stop for s in self._persistent_layout.values())`
+- **Result**: Correctly returns total allocated persistent memory including fallback allocations
+
+#### Fix 3: Test update - test_alias_fallback_when_parent_too_small()
+- **Changed**: Assertion from `assert size == 50` to `assert size == 130`
+- **Rationale**: Test now validates correct behavior (total allocated space including fallback)
+
+#### Fix 4: Test enhancement - test_multiple_aliases_first_come_first_serve()
+- **Added**: Assertion `assert size == 140` to verify total size calculation
+- **Rationale**: Validates that size method correctly accounts for fallback child3 allocation
+
+### Medium Priority Fixes Applied (Issue 2)
+
+**Status**: ✅ **COMPLETE**
+
+#### Fix 5: BufferGroup.build_persistent_layout() - lines 313-366
+- **Changed**: Replaced local `persistent_consumption` dict with `self._alias_consumption`
+- **Changes**: 4 occurrences updated
+  - Line 334: Initialize `self._alias_consumption[name] = 0`
+  - Line 346: Read `consumed = self._alias_consumption.get(entry.aliases, 0)`
+  - Line 354: Update `self._alias_consumption[entry.aliases] = consumed + entry.size`
+- **Result**: Consistent consumption tracking strategy across shared and persistent layouts
+
+### Files Modified
+
+1. **src/cubie/buffer_registry.py**: 3 methods updated (25 lines changed)
+   - `shared_buffer_size()`: 16→14 lines
+   - `persistent_local_buffer_size()`: 15→14 lines
+   - `build_persistent_layout()`: 55→54 lines (consumption dict unified)
+
+2. **tests/test_buffer_registry.py**: 2 test methods updated (4 lines changed)
+   - `test_alias_fallback_when_parent_too_small()`: Updated assertion + comment
+   - `test_multiple_aliases_first_come_first_serve()`: Added size assertion + comment
+
+### Implementation Summary
+
+All critical and medium priority fixes from the review have been successfully applied:
+- ✅ Size calculation methods now use computed layouts (source of truth)
+- ✅ GPU memory corruption risk eliminated
+- ✅ Consumption tracking unified across layout builders
+- ✅ Tests updated to validate correct behavior
+- ✅ All changes are minimal and surgical
+
+**Implementation is now ready for final approval and merge.**
