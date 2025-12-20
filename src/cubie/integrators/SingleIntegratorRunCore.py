@@ -26,23 +26,6 @@ from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
 
-# Buffer location parameters that can be specified at Solver level.
-# These parameters control whether specific buffers are allocated in
-# shared or local memory within CUDA device functions.
-ALL_BUFFER_LOCATION_PARAMETERS = {
-    "state_location",
-    "proposed_state_location",
-    "parameters_location",
-    "drivers_location",
-    "proposed_drivers_location",
-    "observables_location",
-    "proposed_observables_location",
-    "error_location",
-    "counters_location",
-    "state_summary_location",
-    "observable_summary_location",
-}
-
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
@@ -349,17 +332,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         """
         n_counters = 4 if compile_flags.save_counters else 0
         
-        # Extract buffer location kwargs from loop_settings
-        buffer_location_kwargs = {
-            key: loop_settings[key]
-            for key in ALL_BUFFER_LOCATION_PARAMETERS
-            if key in loop_settings
-        }
-
         loop_kwargs = dict(loop_settings)
-        # Remove buffer location kwargs from loop_settings (we'll pass them separately)
-        for key in ALL_BUFFER_LOCATION_PARAMETERS:
-            loop_kwargs.pop(key, None)
 
         # Build the loop with individual parameters (new API)
         loop_kwargs.update(
@@ -373,7 +346,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             n_counters=n_counters,
             state_summary_buffer_height=state_summaries_buffer_height,
             observable_summary_buffer_height=observable_summaries_buffer_height,
-            **buffer_location_kwargs,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function

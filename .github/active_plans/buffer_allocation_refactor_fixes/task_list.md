@@ -415,7 +415,7 @@ All buffer names now match their location parameter names exactly, following the
 ---
 
 ## Task Group 3: Remove ALL_BUFFER_LOCATION_PARAMETERS - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1+2 (must complete buffer name fixes first)
 **Priority**: HIGH
 
@@ -537,11 +537,40 @@ All buffer names now match their location parameter names exactly, following the
 **Integration**: Validates that removal of filtering doesn't break instantiation
 
 **Outcomes**:
-- [ ] ALL_BUFFER_LOCATION_PARAMETERS constant deleted
-- [ ] Filtering logic removed from instantiate_loop()
-- [ ] Location parameters flow naturally in loop_kwargs
-- [ ] Docstrings updated to reflect simpler architecture
-- [ ] IVPLoop instantiation verified to work with natural flow
+- [x] ALL_BUFFER_LOCATION_PARAMETERS constant deleted
+- [x] Filtering logic removed from instantiate_loop()
+- [x] Location parameters flow naturally in loop_kwargs
+- [x] Docstrings verified - no special handling references found
+- [x] IVPLoop instantiation verified to work with natural flow
+
+**Files Modified**:
+- src/cubie/integrators/SingleIntegratorRunCore.py (16 lines removed)
+  * Deleted ALL_BUFFER_LOCATION_PARAMETERS constant definition (lines 29-44)
+  * Removed buffer_location_kwargs extraction logic in instantiate_loop()
+  * Simplified loop_kwargs construction - location parameters now flow naturally from loop_settings
+  * No changes needed to update() method - already handles params correctly
+
+**Functions/Methods Modified**:
+- SingleIntegratorRunCore.instantiate_loop()
+  * Removed special filtering for buffer location parameters
+  * Location parameters now included naturally in loop_kwargs from loop_settings
+  * Simplified from 9 lines of filtering code to 1 line: loop_kwargs = dict(loop_settings)
+
+**Implementation Summary**:
+Successfully removed all special handling for buffer location parameters. Location parameters now flow through the initialization chain identically to other factory parameters (e.g., kp, newton_tolerance). The architecture is now simpler and more consistent:
+- loop_settings may contain location parameters as normal keys
+- loop_kwargs receives all loop_settings items directly
+- IVPLoop.__init__ accepts location parameters with default='local'
+- No filtering, extraction, or special treatment required
+
+**Verification Completed**:
+- IVPLoop.__init__ signature confirmed to accept all 11 location parameters
+- All location parameters have default values ('local')
+- Parameters are used in buffer_registry.register() calls
+- Docstrings contain no references to special buffer location handling
+- update() method already flows location parameters correctly to self._loop.update()
+
+**Issues Flagged**: None - all changes were clean deletions and simplifications
 
 ---
 
