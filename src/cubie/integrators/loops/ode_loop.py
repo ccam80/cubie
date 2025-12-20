@@ -8,7 +8,6 @@ device call so that compiled kernels only focus on algorithmic updates.
 from typing import Callable, Optional, Set
 
 import attrs
-from attrs import validators
 import numpy as np
 from numba import cuda, int32, float64, bool_
 
@@ -16,7 +15,7 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values
+from cubie._utils import PrecisionDType, unpack_dict_values
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
@@ -170,15 +169,15 @@ class IVPLoop(CUDAFactory):
         buffer_registry.clear_parent(self)
 
         buffer_registry.register(
-            'loop_state', self, n_states, state_location,
+            'state', self, n_states, state_location,
             precision=precision
         )
         buffer_registry.register(
-            'loop_proposed_state', self, n_states,
+            'proposed_state', self, n_states,
             state_proposal_location, precision=precision
         )
         buffer_registry.register(
-            'loop_parameters', self, n_parameters,
+            'parameters', self, n_parameters,
             parameters_location, precision=precision
         )
         buffer_registry.register(
@@ -186,7 +185,7 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'loop_proposed_drivers', self, n_drivers,
+            'proposed_drivers', self, n_drivers,
             drivers_proposal_location, precision=precision
         )
         buffer_registry.register(
@@ -202,7 +201,7 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'loop_counters', self, n_counters, counters_location,
+            'counters', self, n_counters, counters_location,
             precision=precision
         )
         buffer_registry.register(
@@ -306,15 +305,15 @@ class IVPLoop(CUDAFactory):
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
-        alloc_state = getalloc('loop_state', self)
-        alloc_proposed_state = getalloc('loop_proposed_state', self)
-        alloc_parameters = getalloc('loop_parameters', self)
+        alloc_state = getalloc('state', self)
+        alloc_proposed_state = getalloc('proposed_state', self)
+        alloc_parameters = getalloc('parameters', self)
         alloc_drivers = getalloc('drivers', self)
         alloc_proposed_drivers =getalloc('proposed_drivers', self)
         alloc_observables = getalloc('observables', self)
         alloc_proposed_observables = getalloc('proposed_observables', self)
         alloc_error = getalloc('error', self)
-        alloc_counters = getalloc('loop_counters', self)
+        alloc_counters = getalloc('counters', self)
         alloc_state_summary = getalloc('state_summary', self)
         alloc_observable_summary = getalloc('observable_summary', self)
         alloc_algo_shared = getalloc('algorithm_shared', self)
