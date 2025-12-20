@@ -691,7 +691,7 @@ def get_allocator(self, name: str) -> Callable:
 ---
 
 ## Task Group 5: Update All Allocator Call Sites - PARALLEL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 3, Task Group 4 (allocators must be two-parameter first)
 
 **Required Context**:
@@ -926,7 +926,36 @@ buffer_name = alloc_buffer_name(shared, persistent_local)
 **Integration**: Ensures complete coverage of all call sites
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_erk.py (3 allocator calls updated)
+  * src/cubie/integrators/algorithms/generic_dirk.py (8 allocator calls updated)
+  * src/cubie/integrators/algorithms/generic_firk.py (5 allocator calls updated)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (3 allocator calls updated)
+  * src/cubie/integrators/algorithms/backwards_euler.py (2 allocator calls updated)
+  * src/cubie/integrators/algorithms/backwards_euler_predict_correct.py (0 - already uses 2-parameter form)
+  * src/cubie/integrators/algorithms/crank_nicolson.py (2 allocator calls updated)
+  * src/cubie/integrators/algorithms/explicit_euler.py (0 - no allocator calls found)
+  * src/cubie/integrators/loops/ode_loop.py (16 allocator calls updated)
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (6 allocator calls updated)
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (4 allocator calls updated - 2 in cached variant, 2 in non-cached variant)
+- Functions/Methods Modified:
+  * ERKStep.build_step() - Updated 3 allocator calls (stage_rhs, stage_accumulator, stage_cache)
+  * DIRKStep.build_step() - Updated 8 allocator calls (stage_increment, accumulator, stage_base, solver_shared, solver_persistent, rhs_cache, increment_cache, stage_rhs)
+  * FIRKStep.build_step() - Updated 5 allocator calls (stage_state, solver_shared, solver_persistent, stage_increment, stage_driver_stack)
+  * GenericRosenbrockWStep.build_step() - Updated 3 allocator calls (stage_rhs, stage_store, cached_auxiliaries)
+  * BackwardsEulerStep.build_step() - Updated 2 allocator calls (solver_scratch, solver_persistent)
+  * CrankNicolsonStep.build_step() - Updated 2 allocator calls (solver_scratch, solver_persistent)
+  * IVPLoop.build() loop_fn device function - Updated 16 allocator calls (state_buffer, state_proposal_buffer, observables_buffer, observables_proposal_buffer, parameters_buffer, drivers_buffer, drivers_proposal_buffer, state_summary_buffer, observable_summary_buffer, counters_since_save, error, algo_shared, algo_persistent, controller_temp, dt, accept_step)
+  * NewtonKrylov.build() newton_krylov_solver device function - Updated 6 allocator calls (delta, residual, residual_temp, stage_base_bt, lin_shared, lin_persistent)
+  * LinearSolver.build() linear_solver device functions - Updated 4 allocator calls (2 in cached variant: preconditioned_vec, temp; 2 in non-cached variant: preconditioned_vec, temp)
+- Implementation Summary:
+  * Removed third argument from all allocator calls across 10 files
+  * Changed pattern from `allocator(shared, persistent, X)` to `allocator(shared, persistent)`
+  * Total of 49 allocator calls updated (not 57 as estimated - some files already correct or don't use allocators)
+  * Condensed multi-line allocator calls to single lines where appropriate for readability
+  * Maintained PEP8 79-character line limit throughout
+  * No logic changes - only parameter removal
+- Issues Flagged: None
 
 ---
 

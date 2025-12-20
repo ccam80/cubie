@@ -433,56 +433,36 @@ class IVPLoop(CUDAFactory):
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
-            state_buffer = alloc_state(
-                shared_scratch, persistent_local, None
-            )
+            state_buffer = alloc_state(shared_scratch, persistent_local)
             state_proposal_buffer = alloc_proposed_state(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
-            observables_buffer = alloc_observables(
-                shared_scratch, persistent_local, None
-            )
+            observables_buffer = alloc_observables(shared_scratch, persistent_local)
             observables_proposal_buffer = alloc_proposed_observables(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
-            parameters_buffer = alloc_parameters(
-                shared_scratch, persistent_local, None
-            )
-            drivers_buffer = alloc_drivers(
-                shared_scratch, persistent_local, None
-            )
+            parameters_buffer = alloc_parameters(shared_scratch, persistent_local)
+            drivers_buffer = alloc_drivers(shared_scratch, persistent_local)
             drivers_proposal_buffer = alloc_proposed_drivers(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
             state_summary_buffer = alloc_state_summary(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
             observable_summary_buffer = alloc_observable_summary(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
-            counters_since_save = alloc_counters(
-                shared_scratch, persistent_local, None
-            )
-            error = alloc_error(
-                shared_scratch, persistent_local, None
-            )
+            counters_since_save = alloc_counters(shared_scratch, persistent_local)
+            error = alloc_error(shared_scratch, persistent_local)
 
             # Allocate child buffers for algorithm step
-            algo_shared = alloc_algo_shared(
-                shared_scratch, persistent_local, None
-            )
-            algo_persistent = alloc_algo_persistent(
-                shared_scratch, persistent_local, None
-            )
+            algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
+            algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
             controller_temp = alloc_controller_persistent(
-                shared_scratch, persistent_local, None
+                shared_scratch, persistent_local
             )
-            dt = alloc_dt(
-                shared_scratch, persistent_local, None
-            )
-            accept_step = alloc_accept_step(
-                shared_scratch, persistent_local, None
-            )
+            dt = alloc_dt(shared_scratch, persistent_local)
+            accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)

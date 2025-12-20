@@ -397,16 +397,9 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            stage_rhs = alloc_stage_rhs(
-                shared, persistent_local, None
-            )
-            stage_accumulator = alloc_stage_accumulator(
-                shared, persistent_local, None
-            )
-
-            stage_cache = alloc_stage_cache(
-                    shared, persistent_local, stage_accumulator
-            )
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
+            stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
+            stage_cache = alloc_stage_cache(shared, persistent_local)
 
             # Initialize arrays
             for _i in range(n):

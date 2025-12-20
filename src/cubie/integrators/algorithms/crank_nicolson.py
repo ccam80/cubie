@@ -242,12 +242,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = typed_zero
 
-            solver_scratch = alloc_solver_shared(
-                shared, persistent_local, None
-            )
-            solver_persistent = alloc_solver_persistent(
-                shared, persistent_local, None
-            )
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # Reuse solver scratch for the dx/dt evaluation buffer.
             dxdt = solver_scratch[:n]
             # error buffer tracks the stage base during setup.

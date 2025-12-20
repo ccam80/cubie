@@ -261,12 +261,8 @@ class LinearSolver(CUDAFactory):
                 """Run one cached preconditioned steepest-descent or MR solve."""
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(
-                    shared, persistent_local, None
-                )
-                temp = alloc_temp(
-                    shared, persistent_local, None
-                )
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 operator_apply(
                     state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
@@ -420,12 +416,8 @@ class LinearSolver(CUDAFactory):
                 """
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(
-                    shared, persistent_local, None
-                )
-                temp = alloc_temp(
-                    shared, persistent_local, None
-                )
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp

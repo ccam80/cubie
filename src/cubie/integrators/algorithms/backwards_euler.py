@@ -217,12 +217,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-            solver_scratch = alloc_solver_shared(
-                shared, persistent_local, None
-            )
-            solver_persistent = alloc_solver_persistent(
-                shared, persistent_local, None
-            )
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             for i in range(n):
                 proposed_state[i] = solver_scratch[i]

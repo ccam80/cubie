@@ -359,24 +359,12 @@ class NewtonKrylov(CUDAFactory):
             """
 
             # Allocate buffers from registry
-            delta = alloc_delta(
-                shared_scratch, persistent_scratch, None
-            )
-            residual = alloc_residual(
-                shared_scratch, persistent_scratch, None
-            )
-            residual_temp = alloc_residual_temp(
-                shared_scratch, persistent_scratch, None
-            )
-            stage_base_bt = alloc_stage_base_bt(
-                shared_scratch, persistent_scratch, None
-            )
-            lin_shared = alloc_lin_shared(
-                shared_scratch, persistent_scratch, None
-            )
-            lin_persistent = alloc_lin_persistent(
-                shared_scratch, persistent_scratch, None
-            )
+            delta = alloc_delta(shared_scratch, persistent_scratch)
+            residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
+            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
+            lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
+            lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
 
             # Initialize local arrays
             for _i in range(n_val):
