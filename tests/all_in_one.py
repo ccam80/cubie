@@ -75,26 +75,6 @@ n_observables = 0
 n_drivers = 0
 n_counters = 4
 
-# -------------------------------------------------------------------------
-# Driver Interpolation Configuration (when n_drivers > 0)
-# -------------------------------------------------------------------------
-# Driver input dictionary for ArrayInterpolator
-# When n_drivers > 0, provide a dictionary with:
-#   - Driver signal names as keys with 1D numpy arrays as values
-#   - "dt" or "time": time information for samples
-#   - Optional: "order", "wrap", "boundary_condition"
-#
-# Example usage with drivers:
-#   driver_input_dict = {
-#       "driver_0": np.sin(np.linspace(0, 2*np.pi, 10)),
-#       "driver_1": np.cos(np.linspace(0, 2*np.pi, 10)),
-#       "dt": 0.1,
-#       "t0": 0.0,
-#       "order": 3,
-#       "wrap": True,
-#       "boundary_condition": "periodic"
-#   }
-#
 driver_input_dict = None
 
 # -------------------------------------------------------------------------
@@ -107,6 +87,8 @@ dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 dt_save = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
+
+output_types = ['state', 'mean', 'max', 'rms']
 
 # -------------------------------------------------------------------------
 # Implicit Solver Parameters (DIRK only)
@@ -144,22 +126,17 @@ safety = precision(0.9)
 atol_value = precision(1e-8)
 rtol_value = precision(1e-8)
 
+saved_state_indices = np.arange(n_states, dtype=np.int_)
+saved_observable_indices = np.arange(n_observables, dtype=np.int_)
+summarised_state_indices = np.arange(n_states, dtype=np.int_)
+summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
+
 save_last = False
 
 # Saves per summary (for summary metric aggregation)
 saves_per_summary = int32(2)
 
-# -------------------------------------------------------------------------
-# Memory Location Configuration (for optimization experiments)
-# -------------------------------------------------------------------------
-# Toggle whether each internal array uses local or shared memory.
-# 'local' = cuda.local.array (per-thread registers/local memory)
-# 'shared' = cuda.shared.array (block-level shared memory)
-#
-# Note: These affect compile-time code generation. Changing these requires
-# recompilation of the affected device functions.
 
-# Loop buffers (main integration loop)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
@@ -344,37 +321,7 @@ def get_strides(
     array_native_order: tuple = (0, 1, 2),
     desired_order: tuple = DEFAULT_STRIDE_ORDER,
 ) -> Optional[tuple]:
-    """Calculate memory strides for a given access pattern (stride order).
 
-    This function replicates the striding logic from MemoryManager.get_strides()
-    to allow all_in_one.py to allocate arrays with the same stride patterns
-    as the production batch solver.
-
-    Parameters
-    ----------
-    shape
-        Tuple describing the array shape.
-    dtype
-        NumPy dtype for the array elements.
-    array_native_order
-        Tuple of indices describing the logical dimension ordering for
-        the array's shape. For 3D arrays, indices represent:
-        0=time, 1=variable, 2=run. Defaults to (0, 1, 2).
-    desired_order
-        Tuple of indices describing the desired memory stride ordering.
-        The last index changes fastest (contiguous). Defaults to (0, 1, 2)
-        which matches cubie's current default: time, variable, run.
-
-    Returns
-    -------
-    tuple or None
-        Stride tuple for the array, or None if no custom strides needed.
-
-    Notes
-    -----
-    Only 3D arrays get custom stride optimization. Arrays with fewer
-    dimensions use default strides.
-    """
     if len(shape) != 3:
         return None
 
@@ -2141,38 +2088,7 @@ def erk_step_inline_factory(
         persistent_local,
         counters,
     ):
-        # ----------------------------------------------------------- #
-        # Shared and local buffer guide:
-        # stage_accumulator: size (stage_count-1) * n.
-        #   Memory location controlled by use_shared_stage_accumulator.
-        #   Default behaviour:
-        #       - Holds finished stage rhs * dt for later stage sums.
-        #       - Slice k stores contributions streamed into stage k+1.
-        #   Reuse:
-        #       - stage_cache: first slice (size n)
-        #           - Saves the FSAL rhs when the tableau supports it.
-        #           - Cache survives after the loop so no live slice is hit.
-        # proposed_state: size n, global memory.
-        #   Default behaviour:
-        #       - Starts as the accepted state and gathers stage updates.
-        #       - Each stage applies its weighted increment before moving on.
-        # proposed_drivers / proposed_observables: size n each, global.
-        #   Default behaviour:
-        #       - Refresh to the current stage time before rhs evaluation.
-        #       - Later stages only read the newest values, so nothing lingers.
-        # stage_rhs: size n.
-        #   Memory location controlled by use_shared_stage_rhs.
-        #   Default behaviour:
-        #       - Holds the current stage rhs before scaling by dt.
-        #   Reuse:
-        #       - When FSAL hits we copy cached rhs here before touching
-        #         shared memory, keeping lifetimes separate.
-        # error: size n, global memory (adaptive runs only).
-        #   Default behaviour:
-        #       - Accumulates error-weighted f(y_jn) during the loop.
-        #       - Cleared at loop entry so prior steps cannot leak in.
-        # ----------------------------------------------------------- #
-        # Memory allocation based on configuration flags
+
         if stage_rhs_in_shared:
             stage_rhs = shared[:n]
         else:
@@ -4197,32 +4113,9 @@ def save_summary_factory(
 # -------------------------------------------------------------------------
 # Output Configuration
 # -------------------------------------------------------------------------
-# List-based output configuration (matches package pattern)
-# Available types: 'state', 'observables', 'time', 'iteration_counters'
-# Plus any metric name from summary_metrics.implemented_metrics
-output_types = ['state', 'mean', 'max', 'rms']
 
-# Examples of output_types configurations:
-# output_types = ['state']  # Only save states, no summaries
-# output_types = ['state', 'mean']  # Save states and mean summary
-# output_types = ['state', 'mean', 'max', 'rms']  # Multiple summaries
-# output_types = ['state', 'dxdt_max', 'd2xdt2_extrema']  # Derivative metrics
-# output_types = []  # No outputs (valid but not useful)
 
-# -------------------------------------------------------------------------
-# Index Arrays for Output Selection
-# -------------------------------------------------------------------------
-# These must be ndarrays (not lists) to avoid closure issues in device functions
-# Indices of states to save in time-domain output
-saved_state_indices = np.arange(n_states, dtype=np.int_)  # All states
-# Indices of observables to save in time-domain output
-saved_observable_indices = np.arange(n_observables, dtype=np.int_)  # All observables
-# Indices of states for summary calculations (will be set based on summaries enabled)
-# These are set later in the configuration section after summary_types is known
-# Indices of observables for summary calculations (will be set based on summaries enabled)
-# These are set later in the configuration section after summary_types is known
 
-# Derive boolean toggles from output_types list
 if not output_types:
     summary_types = tuple()
     save_state_bool = False
@@ -4270,10 +4163,6 @@ else:
 
 # Generate chained update and save functions for enabled metrics
 if len(summary_types) > 0:
-    # Create indices as ndarrays (not lists) to avoid closure issues in device functions
-    summarised_state_indices = np.arange(n_states, dtype=np.int_)
-    summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
-    
     # Generate update chain
     update_summaries_chain = update_summary_factory(
         summaries_buffer_height_per_var,
