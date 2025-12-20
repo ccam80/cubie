@@ -99,6 +99,14 @@ class CrankNicolsonStep(ODEImplicitStep):
             M=M,
             n=n,
             preconditioner_order=preconditioner_order,
+            dxdt_function=dxdt_function,
+            observables_function=observables_function,
+            driver_function=driver_function,
+            precision=precision,
+        )
+        super().__init__(
+            config, 
+            CN_DEFAULTS.copy(),
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
             linear_correction_type=linear_correction_type,
@@ -106,16 +114,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             max_newton_iters=max_newton_iters,
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
         )
-        super().__init__(config, CN_DEFAULTS)
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -127,8 +129,6 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -147,6 +147,8 @@ class CrankNicolsonStep(ODEImplicitStep):
         StepCache
             Container holding the compiled step function and solver.
         """
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)

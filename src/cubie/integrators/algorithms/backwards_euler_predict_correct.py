@@ -14,7 +14,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -26,8 +25,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -46,7 +43,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         StepCache
             Container holding the compiled predictor-corrector step.
         """
-
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
@@ -57,6 +53,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             buffer_registry.get_child_allocators(self, self._newton_solver,
                                                  name='solver_scratch')
         )
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
 
         @cuda.jit(
             # (

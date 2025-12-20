@@ -196,12 +196,15 @@ class CrankNicolsonStep(ODEImplicitStep):
             max_backtracks=newton_max_backtracks,
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
+        
+        # Replace parent solvers with instrumented versions
+        self._linear_solver = linear_solver_instance
+        self._newton_solver = newton_instance
 
         return newton_instance.device_function
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -212,6 +215,9 @@ class CrankNicolsonStep(ODEImplicitStep):
         """Build the device function for the Crank–Nicolson step."""
 
         config = self.compile_settings
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)

@@ -254,12 +254,15 @@ class FIRKStep(ODEImplicitStep):
             max_backtracks=newton_max_backtracks,
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
+        
+        # Replace parent solvers with instrumented versions
+        self._linear_solver = linear_solver_instance
+        self._newton_solver = newton_instance
 
         return newton_instance.device_function
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -272,7 +275,11 @@ class FIRKStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
         nonlinear_solver = solver_fn
+        
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)

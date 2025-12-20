@@ -239,6 +239,25 @@ class FIRKStep(ODEImplicitStep):
             config_kwargs["stage_state_location"] = stage_state_location
 
         config = FIRKStepConfig(**config_kwargs)
+        
+        # Select defaults based on error estimate
+        if tableau.has_error_estimate:
+            controller_defaults = FIRK_ADAPTIVE_DEFAULTS
+        else:
+            controller_defaults = FIRK_FIXED_DEFAULTS
+        
+        # Call parent __init__ to create solver instances
+        super().__init__(
+            config,
+            controller_defaults,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
 
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
@@ -259,26 +278,6 @@ class FIRKStep(ODEImplicitStep):
         buffer_registry.register(
             'stage_state', self, n, config.stage_state_location,
             precision=precision
-        )
-
-        if tableau.has_error_estimate:
-            defaults = FIRK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = FIRK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
-        
-        # Update solver parameters with FIRK-specific values
-        self._linear_solver.update(
-            correction_type=linear_correction_type,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-        )
-        self._newton_solver.update(
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
 
     def build_implicit_helpers(
@@ -339,7 +338,6 @@ class FIRKStep(ODEImplicitStep):
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -352,7 +350,11 @@ class FIRKStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
         nonlinear_solver = solver_fn
+        
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)

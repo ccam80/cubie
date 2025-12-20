@@ -31,7 +31,7 @@ for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
 https://doi.org/10.1023/A:1021900219772
 """
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Set
 
 import attrs
 import numpy as np
@@ -262,84 +262,139 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 aliases='rosenbrock_stage_store', precision=precision
             )
 
+        # Select defaults based on error estimate
         if tableau.has_error_estimate:
-            defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
+            controller_defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
         else:
-            defaults = ROSENBROCK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
+            controller_defaults = ROSENBROCK_FIXED_DEFAULTS
         
-        # Update linear solver parameters with Rosenbrock-specific values
-        # Rosenbrock only uses linear solver, not Newton-Krylov
-        self._linear_solver.update(
+        # Call BaseAlgorithmStep.__init__ directly, skipping ODEImplicitStep
+        # Rosenbrock uses LinearSolver only, not NewtonKrylov
+        from cubie.integrators.algorithms.base_algorithm_step import BaseAlgorithmStep
+        BaseAlgorithmStep.__init__(self, config, controller_defaults)
+        
+        # Create ONLY LinearSolver (no NewtonKrylov)
+        self._linear_solver = LinearSolver(
+            precision=config.precision,
+            n=config.n,
             correction_type=linear_correction_type,
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
-            use_cached_auxiliaries=True,  # Rosenbrock uses cached auxiliaries
         )
+
+    def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
+        """Update algorithm and linear solver parameters.
+        
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of parameter names to new values.
+        silent : bool, default=False
+            Suppress warnings for unrecognized parameters.
+        **kwargs
+            Additional parameters to update.
+        
+        Returns
+        -------
+        set[str]
+            Names of parameters that were successfully recognized.
+        """
+        # Merge updates
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+        
+        if not all_updates:
+            return set()
+        
+        # Separate linear solver parameters
+        linear_params = {}
+        algo_params = all_updates.copy()
+        
+        for key in ['krylov_tolerance', 'max_linear_iters', 
+                    'linear_correction_type', 'correction_type']:
+            if key in algo_params:
+                linear_params[key] = algo_params.pop(key)
+        
+        # Update linear solver (no Newton solver)
+        recognized = set()
+        if linear_params:
+            recognized.update(
+                self._linear_solver.update_compile_settings(
+                    linear_params, silent=True
+                )
+            )
+        
+        # Invalidate algorithm cache when solver parameters change
+        if linear_params:
+            self.invalidate_cache()
+        
+        # Update buffer registry
+        from cubie.buffer_registry import buffer_registry
+        recognized.update(
+            buffer_registry.update(self, updates_dict=algo_params, silent=True)
+        )
+        
+        # Update algorithm compile settings
+        recognized.update(
+            self.update_compile_settings(
+                updates_dict=algo_params, silent=silent
+            )
+        )
+        
+        return recognized
 
     def build_implicit_helpers(
         self,
-    ) -> Tuple[Callable, Callable, Callable]:
-        """Construct the nonlinear solver chain used by implicit methods.
-
+    ) -> Callable:
+        """Construct the linear solver used by Rosenbrock methods.
+        
         Returns
         -------
-        tuple of Callables
-            Linear solver function and Jacobian helpers for the Rosenbrock-W
-            step.
+        Callable
+            Linear solver function compiled for the configured scheme.
         """
-        precision = self.precision
         config = self.compile_settings
         beta = config.beta
-        gamma = config.tableau.gamma
+        gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        n = config.n
-
+        
         get_fn = config.get_solver_helper_fn
-
+        
+        # Get device functions from ODE system
         preconditioner = get_fn(
-            "neumann_preconditioner_cached",
+            'neumann_preconditioner',
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order,
+            preconditioner_order=preconditioner_order
         )
-
-        linear_operator = get_fn(
-            "linear_operator_cached",
+        operator = get_fn(
+            'linear_operator',
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        prepare_jacobian = get_fn(
-            "prepare_jac",
-            preconditioner_order=preconditioner_order,
-        )
-        self._cached_auxiliary_count = get_fn("cached_aux_count")
-        # Update buffer registry with the actual cached_auxiliary_count
-        buffer_registry.update_buffer(
-            'rosenbrock_cached_auxiliaries', self,
-            size=self._cached_auxiliary_count
+            preconditioner_order=preconditioner_order
         )
         
-        # Update linear solver with device functions and use cached auxiliaries
-        self._linear_solver.update(
-            operator_apply=linear_operator,
+        # Store Rosenbrock-specific helpers as instance attributes
+        self._prepare_jacobian = get_fn(
+            'prepare_jac',
+            preconditioner_order=preconditioner_order,
+        )
+        self._time_derivative_rhs = get_fn('time_derivative_rhs')
+        
+        # Update linear solver with device functions
+        self._linear_solver.update_compile_settings(
+            operator_apply=operator,
             preconditioner=preconditioner,
+            use_cached_auxiliaries=True,
         )
-        linear_solver = self._linear_solver.device_function
-
-        time_derivative_rhs = get_fn("time_derivative_rhs")
-
-        return (
-            linear_solver,
-            prepare_jacobian,
-            time_derivative_rhs,
-        )
+        
+        # Return linear solver device function
+        return self._linear_solver.device_function
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -351,30 +406,34 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        
+        # Update compile settings to include solver device function reference
+        # This ensures cache invalidates when solver parameters change
+        self.update_compile_settings(solver_device_function=solver_fn)
+        
         dxdt_fn = config.dxdt_function
         driver_del_t = config.driver_del_t
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
         driver_function = config.driver_function
-
+        n_drivers = config.n_drivers
+        
+        # build_step no longer receives solver_fn parameter
         return self.build_step(
-            solver_fn,
             dxdt_fn,
             observables_function,
             driver_function,
             driver_del_t,
             numba_precision,
             n,
-            config.n_drivers,
+            n_drivers,
         )
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -388,7 +447,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
-        (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
+        
+        # Access solver and helpers from owned instances
+        linear_solver = self._linear_solver.device_function
+        prepare_jacobian = self._prepare_jacobian
+        time_derivative_rhs = self._time_derivative_rhs
 
         n = int32(n)
         stage_count = int32(self.stage_count)

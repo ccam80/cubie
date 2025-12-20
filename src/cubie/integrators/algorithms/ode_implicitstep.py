@@ -1,7 +1,7 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Set
 
 import attrs
 import numpy as np
@@ -64,7 +64,7 @@ class ImplicitStepConfig(BaseStepConfig):
     @property
     def settings_dict(self) -> dict:
         """Return configuration fields as a dictionary."""
-
+        
         settings_dict = super().settings_dict
         settings_dict.update(
             {
@@ -72,13 +72,6 @@ class ImplicitStepConfig(BaseStepConfig):
                 'gamma': self.gamma,
                 'M': self.M,
                 'preconditioner_order': self.preconditioner_order,
-                'krylov_tolerance': 1e-3,
-                'max_linear_iters': 100,
-                'linear_correction_type': "minimal_residual",
-                'newton_tolerance': 1e-3,
-                'max_newton_iters': 100,
-                'newton_damping': 0.5,
-                'newton_max_backtracks': 10,
                 'get_solver_helper_fn': self.get_solver_helper_fn,
             }
         )
@@ -88,9 +81,18 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    def __init__(self,
-                 config: ImplicitStepConfig,
-                 _controller_defaults: StepControlDefaults) -> None:
+    def __init__(
+        self,
+        config: ImplicitStepConfig,
+        _controller_defaults: StepControlDefaults,
+        krylov_tolerance: float = 1e-3,
+        max_linear_iters: int = 100,
+        linear_correction_type: str = "minimal_residual",
+        newton_tolerance: float = 1e-3,
+        max_newton_iters: int = 100,
+        newton_damping: float = 0.5,
+        newton_max_backtracks: int = 10,
+    ) -> None:
         """Initialise the implicit step with its configuration.
 
         Parameters
@@ -98,31 +100,148 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config
             Configuration describing the implicit step.
         _controller_defaults
-           Per-algorithm default runtime collaborators, such as step
-           controllers and matrix-free solvers.
+           Per-algorithm default runtime collaborators.
+        krylov_tolerance
+            Tolerance used by the linear solver.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver.
+        linear_correction_type
+            Identifier for the linear correction strategy.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver.
+        newton_damping
+            Damping factor applied within Newton updates.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver.
         """
-
         super().__init__(config, _controller_defaults)
         
-        # Create LinearSolver instance with explicit parameters including defaults
+        # Create LinearSolver instance with passed parameters
         self._linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-            correction_type="minimal_residual",
-            krylov_tolerance=1e-3,
-            max_linear_iters=100,
+            correction_type=linear_correction_type,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
         )
         
-        # Create NewtonKrylov instance with explicit parameters including defaults
+        # Create NewtonKrylov instance with passed parameters
         self._newton_solver = NewtonKrylov(
             precision=config.precision,
             n=config.n,
             linear_solver=self._linear_solver,
-            newton_tolerance=1e-3,
-            max_newton_iters=100,
-            newton_damping=0.5,
-            newton_max_backtracks=10,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
         )
+
+    def _split_solver_params(self, updates):
+        """Split updates dict into linear, newton, and algorithm parameters.
+        
+        Parameters
+        ----------
+        updates : dict
+            Dictionary of parameter updates.
+        
+        Returns
+        -------
+        linear_params : dict
+            Parameters for the linear solver.
+        newton_params : dict
+            Parameters for the Newton solver.
+        algo_params : dict
+            Parameters for the algorithm.
+        """
+        linear_keys = {
+            'krylov_tolerance', 'max_linear_iters',
+            'linear_correction_type', 'correction_type'
+        }
+        newton_keys = {
+            'newton_tolerance', 'max_newton_iters',
+            'newton_damping', 'newton_max_backtracks'
+        }
+        
+        linear_params = {k: updates[k] for k in linear_keys & updates.keys()}
+        newton_params = {k: updates[k] for k in newton_keys & updates.keys()}
+        algo_params = {
+            k: v for k, v in updates.items()
+            if k not in linear_keys | newton_keys
+        }
+        
+        return linear_params, newton_params, algo_params
+
+    def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
+        """Update algorithm and owned solver parameters.
+        
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of parameter names to new values.
+        silent : bool, default=False
+            Suppress warnings for unrecognized parameters.
+        **kwargs
+            Additional parameters to update.
+        
+        Returns
+        -------
+        set[str]
+            Names of parameters that were successfully recognized.
+        
+        Notes
+        -----
+        Delegates solver parameters to owned solver instances.
+        Delegates other parameters to parent class update_compile_settings.
+        """
+        # Merge updates
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+        
+        if not all_updates:
+            return set()
+        
+        # Separate solver parameters from algorithm parameters
+        linear_params, newton_params, algo_params = (
+            self._split_solver_params(all_updates)
+        )
+        
+        # Update owned solvers
+        recognized = set()
+        if linear_params:
+            recognized.update(
+                self._linear_solver.update_compile_settings(
+                    linear_params, silent=True
+                )
+            )
+        if newton_params:
+            recognized.update(
+                self._newton_solver.update_compile_settings(
+                    newton_params, silent=True
+                )
+            )
+        
+        # Invalidate algorithm cache when solver parameters change
+        if linear_params or newton_params:
+            self.invalidate_cache()
+        
+        # Update buffer registry for any buffer location changes
+        from cubie.buffer_registry import buffer_registry
+        recognized.update(
+            buffer_registry.update(self, updates_dict=algo_params, silent=True)
+        )
+        
+        # Update algorithm compile settings
+        recognized.update(
+            self.update_compile_settings(
+                updates_dict=algo_params, silent=silent
+            )
+        )
+        
+        return recognized
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -132,18 +251,21 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        
+        # Store solver device function reference for cache comparison
+        self.update_compile_settings(solver_device_function=solver_fn)
+        
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
         driver_function = config.driver_function
         n_drivers = config.n_drivers
-
+        
+        # build_step no longer receives solver_fn parameter
         return self.build_step(
-            solver_fn,
             dxdt_fn,
             observables_function,
             driver_function,
@@ -155,7 +277,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -164,11 +285,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
-
+        
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by ``build_implicit_helpers``.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -181,13 +300,18 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Dimension of the state vector.
         n_drivers
             Number of driver signals provided to the system.
-
+        
         Returns
         -------
         StepCache
             Container holding the device step implementation.
+        
+        Notes
+        -----
+        Subclasses access solver device function via 
+        self._newton_solver.device_function or 
+        self._linear_solver.device_function, not as a parameter.
         """
-
         raise NotImplementedError
 
     def build_implicit_helpers(self) -> Callable:

@@ -226,20 +226,28 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         linear_solver_instance = InstrumentedLinearSolver(
             linear_solver_config
         )
+        
+        # Replace parent linear solver with instrumented version
+        self._linear_solver = linear_solver_instance
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
+        
+        # Store Rosenbrock-specific helpers as instance attributes
+        self._prepare_jacobian = prepare_jacobian
+        self._time_derivative_rhs = time_derivative_rhs
 
-        return (
-            linear_solver_instance.device_function,
-            prepare_jacobian,
-            time_derivative_rhs
-        )
+        return linear_solver_instance.device_function
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm."""
 
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        
+        # Update compile settings to include solver device function reference
+        # This ensures cache invalidates when solver parameters change
+        self.update_compile_settings(solver_device_function=solver_fn)
+        
         dxdt_fn = config.dxdt_function
         driver_del_t = config.driver_del_t
         numba_precision = config.numba_precision
@@ -248,8 +256,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         observables_function = config.observables_function
         driver_function = config.driver_function
 
+        # build_step no longer receives solver_fn parameter
         return self.build_step(
-            solver_fn,
             dxdt_fn,
             observables_function,
             driver_function,
@@ -261,7 +269,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -275,7 +282,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
-        (linear_solver, prepare_jacobian, time_derivative_rhs) = solver_fn
+        
+        # Access solver and helpers from owned instances
+        linear_solver = self._linear_solver.device_function
+        prepare_jacobian = self._prepare_jacobian
+        time_derivative_rhs = self._time_derivative_rhs
 
         n = int32(n)
         stage_count = int32(self.stage_count)

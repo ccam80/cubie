@@ -183,12 +183,15 @@ class BackwardsEulerStep(ODEImplicitStep):
             max_backtracks=newton_max_backtracks,
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
+        
+        # Replace parent solvers with instrumented versions
+        self._linear_solver = linear_solver_instance
+        self._newton_solver = newton_instance
 
         return newton_instance.device_function
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -200,8 +203,6 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -220,11 +221,13 @@ class BackwardsEulerStep(ODEImplicitStep):
         StepCache
             Container holding the compiled step function and solver.
         """
-
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         solver_shared_elements = self.solver_shared_elements
         n = int32(n)
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
 
         @cuda.jit(
             # (

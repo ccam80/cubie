@@ -224,6 +224,25 @@ class DIRKStep(ODEImplicitStep):
 
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
+        
+        # Select defaults based on error estimate
+        if tableau.has_error_estimate:
+            controller_defaults = DIRK_ADAPTIVE_DEFAULTS
+        else:
+            controller_defaults = DIRK_FIXED_DEFAULTS
+        
+        # Call parent __init__ to create solver instances
+        super().__init__(
+            config,
+            controller_defaults,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
 
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
@@ -291,26 +310,6 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
 
-        if tableau.has_error_estimate:
-            defaults = DIRK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = DIRK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
-        
-        # Update solver parameters with DIRK-specific values
-        self._linear_solver.update(
-            correction_type=linear_correction_type,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-        )
-        self._newton_solver.update(
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-        )
-
     def build_implicit_helpers(
         self,
     ) -> Callable:
@@ -363,7 +362,6 @@ class DIRKStep(ODEImplicitStep):
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -376,7 +374,11 @@ class DIRKStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
+        
+        # Access solver device function from owned instance
+        solver_fn = self._newton_solver.device_function
         nonlinear_solver = solver_fn
+        
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
