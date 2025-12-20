@@ -344,11 +344,8 @@ class BufferGroup:
         return layout
 
     @property
-    def shared_primary_layout(self) -> Dict[str, slice]:
-        """Return primary (aliased) shared memory layout.
-        
-        Primary layout contains slices for buffers that alias their
-        parent shared buffer.
+    def shared_layout(self) -> Dict[str, slice]:
+        """Return shared memory layout.
         
         Returns
         -------
@@ -357,27 +354,7 @@ class BufferGroup:
         """
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
-        return self._shared_layout[0]
-
-    @property
-    def shared_fallback_layout(self) -> Dict[str, slice]:
-        """Return fallback shared memory layout.
-        
-        Fallback layout contains slices for shared buffers that cannot
-        alias their parent (either parent is local, or parent shared
-        buffer has insufficient remaining space).
-        
-        Slices in fallback layout start after primary layout ends to
-        prevent overlap in the same shared array.
-        
-        Returns
-        -------
-        Dict[str, slice]
-            Mapping of buffer names to shared memory slices.
-        """
-        if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
-        return self._shared_layout[1]
+        return self._shared_layout
 
     def build_persistent_layout(self) -> Dict[str, slice]:
         """Compute slice indices for persistent local buffers.
@@ -451,13 +428,11 @@ class BufferGroup:
         if self._persistent_layout is None:
             self._persistent_layout = self.build_persistent_layout()
 
-        primary_layout, fallback_layout = self._shared_layout
-
         sizes = {}
         for name, entry in self.entries.items():
             if entry.is_local:
-                # Check if buffer already allocated via aliasing
-                if (name in primary_layout or name in fallback_layout
+                # Check if this buffer was already allocated via aliasing
+                if (name in self._shared_layout
                         or name in self._persistent_layout):
                     # Already allocated elsewhere, skip local allocation
                     continue
@@ -468,10 +443,6 @@ class BufferGroup:
     def shared_buffer_size(self) -> int:
         """Return total shared memory elements.
 
-        Includes both primary (aliased) and fallback shared allocations.
-        Both layouts use the same array with fallback starting after
-        primary, so total size is the maximum stop value across both.
-
         Returns
         -------
         int
@@ -480,17 +451,9 @@ class BufferGroup:
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
 
-        primary_layout, fallback_layout = self._shared_layout
-
-        primary_size = (
-            max(s.stop for s in primary_layout.values())
-            if primary_layout else 0
-        )
-        fallback_size = (
-            max(s.stop for s in fallback_layout.values())
-            if fallback_layout else 0
-        )
-        return max(primary_size, fallback_size)
+        if not self._shared_layout:
+            return 0
+        return max(s.stop for s in self._shared_layout.values())
 
     def local_buffer_size(self) -> int:
         """Return total local memory elements.
@@ -519,26 +482,6 @@ class BufferGroup:
         if not self._persistent_layout:
             return 0
         return max(s.stop for s in self._persistent_layout.values())
-
-    def shared_fallback_buffer_size(self) -> int:
-        """Return fallback shared memory elements for this parent.
-
-        Returns size of shared_fallback array needed for cross-location
-        aliasing scenarios.
-
-        Returns
-        -------
-        int
-            Fallback shared memory elements needed.
-        """
-        if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
-
-        primary_layout, fallback_layout = self._shared_layout
-
-        if not fallback_layout:
-            return 0
-        return max(s.stop for s in fallback_layout.values())
 
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.
@@ -572,12 +515,12 @@ class BufferGroup:
             self._local_sizes = self.build_local_sizes()
 
         # Determine allocation source
-        primary_layout, fallback_layout = self._shared_layout
-
-        shared_slice = primary_layout.get(name)
-        aliased_parent_slice = fallback_layout.get(name)
+        shared_slice = self._shared_layout.get(name)
         persistent_slice = self._persistent_layout.get(name)
         local_size = self._local_sizes.get(name)
+
+        # Parent slice is None since aliasing now happens at layout time
+        aliased_parent_slice = None
 
         return entry.build_allocator(
             shared_slice, persistent_slice, aliased_parent_slice,

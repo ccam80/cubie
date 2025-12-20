@@ -321,7 +321,7 @@ After TG2 completion:
 ---
 
 ## Task Group 3: Remove Fallback Properties and Update shared_buffer_size - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -488,11 +488,40 @@ None (internal helper methods)
 **Outcomes**:
 ```
 After TG3 completion:
-- shared_primary_layout and shared_fallback_layout properties removed
-- Single shared_layout property added
-- shared_buffer_size simplified to use single layout
-- shared_fallback_buffer_size method removed
-- build_local_sizes uses single layout
+- Files Modified:
+  * src/cubie/buffer_registry.py (15 lines deleted - shared_primary_layout property, lines 346-360)
+  * src/cubie/buffer_registry.py (17 lines deleted - shared_fallback_layout property, lines 362-380)
+  * src/cubie/buffer_registry.py (12 lines added - shared_layout property, lines 346-357)
+  * src/cubie/buffer_registry.py (14 lines simplified - shared_buffer_size method, lines 445-458)
+  * src/cubie/buffer_registry.py (19 lines deleted - shared_fallback_buffer_size method, lines 473-491)
+  * src/cubie/buffer_registry.py (4 lines simplified - build_local_sizes method, lines 420-443)
+  * src/cubie/buffer_registry.py (4 lines simplified - get_allocator method, lines 490-523)
+- Functions/Methods Modified:
+  * shared_primary_layout property - DELETED (no longer needed)
+  * shared_fallback_layout property - DELETED (no longer needed)
+  * shared_layout property - ADDED (returns single unified layout dict)
+  * shared_buffer_size() - simplified to use single layout dict
+  * shared_fallback_buffer_size() - DELETED (no longer needed)
+  * build_local_sizes() - updated to check single layout dict instead of unpacking tuple
+  * get_allocator() - updated to use single layout dict, set aliased_parent_slice to None
+- Implementation Summary:
+  * TG3.1: Removed shared_primary_layout property (lines 346-360)
+  * TG3.2: Removed shared_fallback_layout property (lines 362-380)
+  * TG3.3: Added shared_layout property that returns single dict (lines 346-357)
+  * TG3.4: Updated shared_buffer_size to use single _shared_layout dict (lines 445-458):
+    - Removed tuple unpacking
+    - Simplified to single max() call on layout values
+    - Updated docstring to remove "primary" and "fallback" language
+  * TG3.5: Removed shared_fallback_buffer_size method entirely (lines 473-491)
+  * TG3.6: Updated build_local_sizes to check single _shared_layout dict (lines 420-443):
+    - Removed "primary_layout, fallback_layout = self._shared_layout" unpacking
+    - Changed condition from "name in primary_layout or name in fallback_layout" to "name in self._shared_layout"
+  * Additional fix in get_allocator (lines 490-523):
+    - Removed tuple unpacking of _shared_layout
+    - Changed to get shared_slice directly from _shared_layout dict
+    - Set aliased_parent_slice to None (aliasing now handled at layout time)
+    - Added comment explaining aliased_parent_slice is None
+- Issues Flagged: None
 ```
 
 ---
