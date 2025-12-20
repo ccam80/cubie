@@ -486,6 +486,11 @@ class BufferGroup:
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
+        Determines allocation strategy based on buffer properties and
+        whether aliasing succeeds. When aliasing succeeds, passes parent
+        buffer for slicing. Otherwise passes shared or appropriate
+        location.
+
         Parameters
         ----------
         name
@@ -514,13 +519,78 @@ class BufferGroup:
         if self._local_sizes is None:
             self._local_sizes = self.build_local_sizes()
 
-        # Determine allocation source
-        shared_slice = self._shared_layout.get(name)
-        persistent_slice = self._persistent_layout.get(name)
-        local_size = self._local_sizes.get(name)
-
-        # Parent slice is None since aliasing now happens at layout time
+        # Determine allocation strategy
+        shared_slice = None
+        persistent_slice = None
         aliased_parent_slice = None
+        local_size = None
+
+        if entry.aliases is not None:
+            # This buffer aliases another
+            parent_entry = self.entries[entry.aliases]
+            parent_name = entry.aliases
+
+            if entry.is_shared and parent_entry.is_shared:
+                # Both shared - check if aliasing succeeded
+                if name in self._shared_layout:
+                    child_slice = self._shared_layout[name]
+                    parent_slice = self._shared_layout[parent_name]
+
+                    # If child slice is WITHIN parent bounds, aliasing
+                    # succeeded
+                    if (child_slice.start >= parent_slice.start and
+                            child_slice.stop <= parent_slice.stop):
+                        # Aliasing succeeded - compute relative slice
+                        relative_start = (
+                            child_slice.start - parent_slice.start
+                        )
+                        relative_stop = (
+                            child_slice.stop - parent_slice.start
+                        )
+                        aliased_parent_slice = slice(
+                            relative_start, relative_stop
+                        )
+                    else:
+                        # Got fresh allocation (parent was full)
+                        shared_slice = child_slice
+            elif (entry.is_persistent_local and
+                  parent_entry.is_persistent_local):
+                # Both persistent - similar logic
+                if name in self._persistent_layout:
+                    child_slice = self._persistent_layout[name]
+                    parent_slice = self._persistent_layout[parent_name]
+
+                    if (child_slice.start >= parent_slice.start and
+                            child_slice.stop <= parent_slice.stop):
+                        # Aliasing succeeded
+                        relative_start = (
+                            child_slice.start - parent_slice.start
+                        )
+                        relative_stop = (
+                            child_slice.stop - parent_slice.start
+                        )
+                        aliased_parent_slice = slice(
+                            relative_start, relative_stop
+                        )
+                    else:
+                        # Got fresh allocation
+                        persistent_slice = child_slice
+            else:
+                # Cross-location: use child's layout
+                if entry.is_shared:
+                    shared_slice = self._shared_layout.get(name)
+                elif entry.is_persistent_local:
+                    persistent_slice = self._persistent_layout.get(name)
+                else:
+                    local_size = self._local_sizes.get(name)
+        else:
+            # Non-aliased buffer: use appropriate layout
+            if entry.is_shared:
+                shared_slice = self._shared_layout.get(name)
+            elif entry.is_persistent_local:
+                persistent_slice = self._persistent_layout.get(name)
+            else:
+                local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
             shared_slice, persistent_slice, aliased_parent_slice,

@@ -527,7 +527,7 @@ After TG3 completion:
 ---
 
 ## Task Group 4: Fix get_allocator Logic - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, 3
 
 **Required Context**:
@@ -650,13 +650,25 @@ None (internal method, buffer existence validated at registration)
 - **Integration**: Critical method - determines what gets passed to allocators
 
 **Outcomes**:
-```
-After TG4 completion:
-- get_allocator determines aliased_parent_slice vs shared_slice correctly
-- When aliasing succeeds: passes relative slice into parent
-- When aliasing fails: passes fresh allocation from appropriate layout
-- Handles cross-location aliasing (parent local, child shared)
-```
+- Files Modified:
+  * src/cubie/buffer_registry.py (73 lines changed - complete rewrite of get_allocator method, lines 486-598)
+- Functions/Methods Modified:
+  * BufferGroup.get_allocator() - complete rewrite with correct aliasing detection logic
+- Implementation Summary:
+  * TG4.1: Completely rewrote get_allocator method (lines 486-598):
+    - Added logic to detect when aliasing succeeds by checking if child slice is WITHIN parent slice bounds
+    - For shared buffers: checks if child_slice.start >= parent_slice.start AND child_slice.stop <= parent_slice.stop
+    - For persistent buffers: same bounds checking logic
+    - When aliasing succeeds: computes relative slice (offset within parent) and sets aliased_parent_slice
+    - When aliasing fails: sets shared_slice or persistent_slice from child's layout
+    - Cross-location aliasing: uses child's layout (e.g., parent local, child shared)
+    - Non-aliased buffers: uses appropriate layout based on location
+    - Updated docstring to explain allocation strategy determination
+  * Three scenarios now correctly handled:
+    1. Non-aliased buffer: passes (shared_slice, persistent_slice, None)
+    2. Aliased with shared parent (success): passes (None, None, aliased_parent_slice)
+    3. Aliased with local parent or full parent: passes (shared_slice, None, None)
+- Issues Flagged: None
 
 ---
 
