@@ -268,82 +268,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         else:
             controller_defaults = ROSENBROCK_FIXED_DEFAULTS
         
-        # Call BaseAlgorithmStep.__init__ directly, skipping ODEImplicitStep
-        # Rosenbrock uses LinearSolver only, not NewtonKrylov
-        from cubie.integrators.algorithms.base_algorithm_step import BaseAlgorithmStep
-        BaseAlgorithmStep.__init__(self, config, controller_defaults)
-        
-        # Create ONLY LinearSolver (no NewtonKrylov)
-        self._linear_solver = LinearSolver(
-            precision=config.precision,
-            n=config.n,
-            correction_type=linear_correction_type,
+        # Call ODEImplicitStep.__init__ with solver_type='linear'
+        super().__init__(
+            config, controller_defaults, solver_type='linear',
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type
         )
-
-    def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
-        """Update algorithm and linear solver parameters.
-        
-        Parameters
-        ----------
-        updates_dict : dict, optional
-            Mapping of parameter names to new values.
-        silent : bool, default=False
-            Suppress warnings for unrecognized parameters.
-        **kwargs
-            Additional parameters to update.
-        
-        Returns
-        -------
-        set[str]
-            Names of parameters that were successfully recognized.
-        """
-        # Merge updates
-        all_updates = {}
-        if updates_dict:
-            all_updates.update(updates_dict)
-        all_updates.update(kwargs)
-        
-        if not all_updates:
-            return set()
-        
-        # Separate linear solver parameters
-        linear_params = {}
-        algo_params = all_updates.copy()
-        
-        for key in ['krylov_tolerance', 'max_linear_iters', 
-                    'linear_correction_type', 'correction_type']:
-            if key in algo_params:
-                linear_params[key] = algo_params.pop(key)
-        
-        # Update linear solver (no Newton solver)
-        recognized = set()
-        if linear_params:
-            recognized.update(
-                self._linear_solver.update_compile_settings(
-                    linear_params, silent=True
-                )
-            )
-        
-        # Invalidate algorithm cache when solver parameters change
-        if linear_params:
-            self.invalidate_cache()
-        
-        # Update buffer registry
-        from cubie.buffer_registry import buffer_registry
-        recognized.update(
-            buffer_registry.update(self, updates_dict=algo_params, silent=True)
-        )
-        
-        # Update algorithm compile settings
-        recognized.update(
-            self.update_compile_settings(
-                updates_dict=algo_params, silent=silent
-            )
-        )
-        
-        return recognized
 
     def build_implicit_helpers(
         self,
@@ -387,14 +318,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self._time_derivative_rhs = get_fn('time_derivative_rhs')
         
         # Update linear solver with device functions
-        self._linear_solver.update_compile_settings(
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
             use_cached_auxiliaries=True,
         )
         
         # Return linear solver device function
-        return self._linear_solver.device_function
+        return self.solver.device_function
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -449,7 +380,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         
         # Access solver and helpers from owned instances
-        linear_solver = self._linear_solver.device_function
+        linear_solver = self.solver.device_function
         prepare_jacobian = self._prepare_jacobian
         time_derivative_rhs = self._time_derivative_rhs
 

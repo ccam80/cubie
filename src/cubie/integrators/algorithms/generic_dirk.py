@@ -254,7 +254,7 @@ class DIRKStep(ODEImplicitStep):
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
         _ = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver')
         )
 
@@ -350,15 +350,13 @@ class DIRKStep(ODEImplicitStep):
         )
 
         # Update solvers with device functions
-        self._linear_solver.update(
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-        )
-        self._newton_solver.update(
             residual_function=residual,
         )
         
-        return self._newton_solver.device_function
+        return self.solver.device_function
 
     def build_step(
         self,
@@ -376,7 +374,7 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         
         # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = self.solver.device_function
         nonlinear_solver = solver_fn
         
         n = int32(n)

@@ -327,14 +327,12 @@ class FIRKStep(ODEImplicitStep):
         )
 
         # Update solvers with device functions
-        self._linear_solver.update(
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-        )
-        self._newton_solver.update(
             residual_function=residual,
         )
-        return self._newton_solver.device_function
+        return self.solver.device_function
 
     def build_step(
         self,
@@ -352,7 +350,7 @@ class FIRKStep(ODEImplicitStep):
         tableau = config.tableau
         
         # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = self.solver.device_function
         nonlinear_solver = solver_fn
         
         n = int32(n)

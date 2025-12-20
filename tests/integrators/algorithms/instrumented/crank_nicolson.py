@@ -123,7 +123,17 @@ class CrankNicolsonStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config, CN_DEFAULTS)
+        super().__init__(
+            config,
+            CN_DEFAULTS,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
 
     def build_implicit_helpers(self) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
@@ -197,9 +207,8 @@ class CrankNicolsonStep(ODEImplicitStep):
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
         
-        # Replace parent solvers with instrumented versions
-        self._linear_solver = linear_solver_instance
-        self._newton_solver = newton_instance
+        # Replace parent solver with instrumented version
+        self.solver = newton_instance
 
         return newton_instance.device_function
 
@@ -217,7 +226,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         config = self.compile_settings
         
         # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = self.solver.device_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)

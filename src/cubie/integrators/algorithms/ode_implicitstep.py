@@ -8,6 +8,7 @@ import numpy as np
 import sympy as sp
 
 from cubie._utils import inrangetype_validator
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
@@ -85,6 +86,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self,
         config: ImplicitStepConfig,
         _controller_defaults: StepControlDefaults,
+        solver_type: str = 'newton',
         krylov_tolerance: float = 1e-3,
         max_linear_iters: int = 100,
         linear_correction_type: str = "minimal_residual",
@@ -101,6 +103,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Configuration describing the implicit step.
         _controller_defaults
            Per-algorithm default runtime collaborators.
+        solver_type
+            Type of solver to create: 'newton' or 'linear'.
         krylov_tolerance
             Tolerance used by the linear solver.
         max_linear_iters
@@ -116,10 +120,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
+        # Validate solver_type
+        if solver_type not in ['newton', 'linear']:
+            raise ValueError(
+                f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
+            )
+        
         super().__init__(config, _controller_defaults)
         
         # Create LinearSolver instance with passed parameters
-        self._linear_solver = LinearSolver(
+        linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
             correction_type=linear_correction_type,
@@ -127,51 +137,21 @@ class ODEImplicitStep(BaseAlgorithmStep):
             max_linear_iters=max_linear_iters,
         )
         
-        # Create NewtonKrylov instance with passed parameters
-        self._newton_solver = NewtonKrylov(
-            precision=config.precision,
-            n=config.n,
-            linear_solver=self._linear_solver,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-        )
-
-    def _split_solver_params(self, updates):
-        """Split updates dict into linear, newton, and algorithm parameters.
-        
-        Parameters
-        ----------
-        updates : dict
-            Dictionary of parameter updates.
-        
-        Returns
-        -------
-        linear_params : dict
-            Parameters for the linear solver.
-        newton_params : dict
-            Parameters for the Newton solver.
-        algo_params : dict
-            Parameters for the algorithm.
-        """
-        linear_keys = {
-            'krylov_tolerance', 'max_linear_iters',
-            'linear_correction_type', 'correction_type'
-        }
-        newton_keys = {
-            'newton_tolerance', 'max_newton_iters',
-            'newton_damping', 'newton_max_backtracks'
-        }
-        
-        linear_params = {k: updates[k] for k in linear_keys & updates.keys()}
-        newton_params = {k: updates[k] for k in newton_keys & updates.keys()}
-        algo_params = {
-            k: v for k, v in updates.items()
-            if k not in linear_keys | newton_keys
-        }
-        
-        return linear_params, newton_params, algo_params
+        # Create solver based on solver_type
+        if solver_type == 'newton':
+            # Create NewtonKrylov with LinearSolver
+            self.solver = NewtonKrylov(
+                precision=config.precision,
+                n=config.n,
+                linear_solver=linear_solver,
+                newton_tolerance=newton_tolerance,
+                max_newton_iters=max_newton_iters,
+                newton_damping=newton_damping,
+                newton_max_backtracks=newton_max_backtracks,
+            )
+        else:  # solver_type == 'linear'
+            # Store LinearSolver directly
+            self.solver = linear_solver
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
@@ -192,8 +172,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         Notes
         -----
-        Delegates solver parameters to owned solver instances.
-        Delegates other parameters to parent class update_compile_settings.
+        Delegates solver parameters to owned solver instance.
+        Invalidates step cache only if solver cache was invalidated.
         """
         # Merge updates
         all_updates = {}
@@ -204,42 +184,26 @@ class ODEImplicitStep(BaseAlgorithmStep):
         if not all_updates:
             return set()
         
-        # Separate solver parameters from algorithm parameters
-        linear_params, newton_params, algo_params = (
-            self._split_solver_params(all_updates)
-        )
-        
-        # Update owned solvers
+        # Delegate to solver with full dict
         recognized = set()
-        if linear_params:
-            recognized.update(
-                self._linear_solver.update_compile_settings(
-                    linear_params, silent=True
-                )
-            )
-        if newton_params:
-            recognized.update(
-                self._newton_solver.update_compile_settings(
-                    newton_params, silent=True
-                )
-            )
+        solver_recognized = self.solver.update(all_updates, silent=True)
+        recognized.update(solver_recognized)
         
-        # Invalidate algorithm cache when solver parameters change
-        if linear_params or newton_params:
+        # Check if solver cache was invalidated
+        if not self.solver.cache_valid:
             self.invalidate_cache()
         
-        # Update buffer registry for any buffer location changes
-        from cubie.buffer_registry import buffer_registry
-        recognized.update(
-            buffer_registry.update(self, updates_dict=algo_params, silent=True)
+        # Update buffer registry with full dict
+        buffer_recognized = buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
         )
+        recognized.update(buffer_recognized)
         
-        # Update algorithm compile settings
-        recognized.update(
-            self.update_compile_settings(
-                updates_dict=algo_params, silent=silent
-            )
+        # Update algorithm compile settings with full dict
+        algo_recognized = self.update_compile_settings(
+            updates_dict=all_updates, silent=silent
         )
+        recognized.update(algo_recognized)
         
         return recognized
 
@@ -308,9 +272,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         Notes
         -----
-        Subclasses access solver device function via 
-        self._newton_solver.device_function or 
-        self._linear_solver.device_function, not as a parameter.
+        Subclasses access solver device function via self.solver.device_function.
         """
         raise NotImplementedError
 
@@ -355,17 +317,17 @@ class ODEImplicitStep(BaseAlgorithmStep):
             preconditioner_order=preconditioner_order
         )
         
-        # Update solvers with device functions
-        self._linear_solver.update(
+        # Update solver with device functions
+        # If solver is NewtonKrylov, it will delegate linear params to its linear_solver
+        # If solver is LinearSolver, it will recognize linear params directly
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-        )
-        self._newton_solver.update(
             residual_function=residual,
         )
         
         # Return device function
-        return self._newton_solver.device_function
+        return self.solver.device_function
 
     @property
     def is_implicit(self) -> bool:
@@ -399,41 +361,59 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def krylov_tolerance(self) -> float:
         """Return the tolerance used for the linear solve."""
-
-        return self._linear_solver.krylov_tolerance
+        if hasattr(self.solver, 'krylov_tolerance'):
+            return self.solver.krylov_tolerance
+        # For NewtonKrylov, forward to nested linear_solver
+        return self.solver.linear_solver.krylov_tolerance
 
     @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
-
-        return int(self._linear_solver.max_linear_iters)
+        if hasattr(self.solver, 'max_linear_iters'):
+            return int(self.solver.max_linear_iters)
+        # For NewtonKrylov, forward to nested linear_solver
+        return int(self.solver.linear_solver.max_linear_iters)
 
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
-
-        return self._linear_solver.correction_type
+        if hasattr(self.solver, 'correction_type'):
+            return self.solver.correction_type
+        # For NewtonKrylov, forward to nested linear_solver
+        return self.solver.linear_solver.correction_type
 
     @property
     def newton_tolerance(self) -> float:
         """Return the Newton solve tolerance."""
-
-        return self._newton_solver.newton_tolerance
+        if hasattr(self.solver, 'newton_tolerance'):
+            return self.solver.newton_tolerance
+        raise AttributeError(
+            f"{type(self.solver).__name__} does not have newton_tolerance"
+        )
 
     @property
     def max_newton_iters(self) -> int:
         """Return the maximum allowed Newton iterations."""
-
-        return int(self._newton_solver.max_newton_iters)
+        if hasattr(self.solver, 'max_newton_iters'):
+            return int(self.solver.max_newton_iters)
+        raise AttributeError(
+            f"{type(self.solver).__name__} does not have max_newton_iters"
+        )
 
     @property
     def newton_damping(self) -> float:
         """Return the Newton damping factor."""
-
-        return self._newton_solver.newton_damping
+        if hasattr(self.solver, 'newton_damping'):
+            return self.solver.newton_damping
+        raise AttributeError(
+            f"{type(self.solver).__name__} does not have newton_damping"
+        )
 
     @property
     def newton_max_backtracks(self) -> int:
         """Return the maximum number of Newton backtracking steps."""
-
-        return int(self._newton_solver.newton_max_backtracks)
+        if hasattr(self.solver, 'newton_max_backtracks'):
+            return int(self.solver.newton_max_backtracks)
+        raise AttributeError(
+            f"{type(self.solver).__name__} does not have newton_max_backtracks"
+        )

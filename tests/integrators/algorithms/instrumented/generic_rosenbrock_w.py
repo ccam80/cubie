@@ -159,7 +159,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         else:
             defaults = ROSENBROCK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults)
+        super().__init__(
+            config, defaults, solver_type='linear',
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type
+        )
+        
+        # Configure cached auxiliaries for Rosenbrock
+        self.solver.update(use_cached_auxiliaries=True)
 
     def build_implicit_helpers(
         self,
@@ -227,8 +235,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             linear_solver_config
         )
         
-        # Replace parent linear solver with instrumented version
-        self._linear_solver = linear_solver_instance
+        # Replace parent solver with instrumented version
+        self.solver = linear_solver_instance
 
         time_derivative_rhs = get_fn("time_derivative_rhs")
         
@@ -284,7 +292,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau = config.tableau
         
         # Access solver and helpers from owned instances
-        linear_solver = self._linear_solver.device_function
+        linear_solver = self.solver.device_function
         prepare_jacobian = self._prepare_jacobian
         time_derivative_rhs = self._time_derivative_rhs
 

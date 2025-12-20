@@ -503,6 +503,8 @@ class NewtonKrylov(CUDAFactory):
     ) -> Set[str]:
         """Update compile settings and invalidate cache if changed.
         
+        Delegates linear solver parameters to nested linear_solver.
+        
         Parameters
         ----------
         updates_dict : dict, optional
@@ -516,20 +518,40 @@ class NewtonKrylov(CUDAFactory):
         -------
         set
             Set of recognized parameter names that were updated.
-        
-        Notes
-        -----
-        If linear_solver is updated, cache is invalidated even if
-        the LinearSolver instance reference hasn't changed, because
-        the LinearSolver's internal state may have changed.
         """
-        buffer_registry.update(self, updates_dict=updates_dict, silent=True, **kwargs)
+        # Merge updates
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
         
-        return self.update_compile_settings(
-            updates_dict=updates_dict,
-            silent=silent,
-            **kwargs
-        )
+        if not all_updates:
+            return set()
+        
+        # Extract Newton parameters
+        newton_keys = {
+            'newton_tolerance', 'max_newton_iters',
+            'newton_damping', 'newton_max_backtracks',
+            'residual_function'
+        }
+        newton_params = {k: all_updates[k] for k in newton_keys & all_updates.keys()}
+        
+        # Delegate to linear solver with full dict
+        recognized = set()
+        linear_recognized = self.linear_solver.update(all_updates, silent=True)
+        recognized.update(linear_recognized)
+        
+        # Update Newton parameters
+        if newton_params:
+            newton_recognized = self.update_compile_settings(
+                updates_dict=newton_params, silent=True
+            )
+            recognized.update(newton_recognized)
+        
+        # Update buffer registry with full dict (extracts buffer location params)
+        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        
+        return recognized
     
     @property
     def device_function(self) -> Callable:

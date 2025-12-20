@@ -526,14 +526,36 @@ class LinearSolver(CUDAFactory):
         set
             Set of recognized parameter names that were updated.
         """
-        # Update buffer_registry for location changes
-        buffer_registry.update(self, updates_dict=updates_dict, silent=True, **kwargs)
+        # Merge updates
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
         
-        return self.update_compile_settings(
-            updates_dict=updates_dict,
-            silent=silent,
-            **kwargs
-        )
+        if not all_updates:
+            return set()
+        
+        # Extract linear solver parameters
+        linear_keys = {
+            'krylov_tolerance', 'max_linear_iters',
+            'linear_correction_type', 'correction_type',
+            'operator_apply', 'preconditioner',
+            'use_cached_auxiliaries'
+        }
+        linear_params = {k: all_updates[k] for k in linear_keys & all_updates.keys()}
+        
+        recognized = set()
+        
+        # Update buffer registry with full dict (extracts buffer location params)
+        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        
+        # Update compile settings with recognized params only
+        if linear_params:
+            recognized = self.update_compile_settings(
+                updates_dict=linear_params, silent=silent
+            )
+        
+        return recognized
     
     @property
     def device_function(self) -> Callable:

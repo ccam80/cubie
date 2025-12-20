@@ -148,7 +148,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             Container holding the compiled step function and solver.
         """
         # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = self.solver.device_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
@@ -158,7 +158,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
 
