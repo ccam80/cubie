@@ -629,7 +629,7 @@ class BaseAlgorithmStep(CUDAFactory):
     @property
     def local_scratch_required(self) -> int:
         """Return the precision-entry count of local scratch required."""
-        raise buffer_registry.local_buffer_size(self)
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:

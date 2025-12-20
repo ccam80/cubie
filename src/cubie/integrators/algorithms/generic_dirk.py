@@ -232,14 +232,16 @@ class DIRKStep(ODEImplicitStep):
         accumulator_length = max(tableau.stage_count - 1, 0) * n
         multistage = tableau.stage_count > 1
 
-        alloc_solver_shared, alloc_solver_persistent = (
+        # Register solver scratch and solver persistent buffers so they can
+        # be aliased
+        _ = (
             buffer_registry.get_child_allocators(self, self._newton_solver,
                                                  name='solver')
         )
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'dirk_stage_increment', self, n, config.stage_increment_location,
+            'stage_increment', self, n, config.stage_increment_location,
             precision=precision
         )
         buffer_registry.register(
@@ -413,7 +415,7 @@ class DIRKStep(ODEImplicitStep):
 
         # Get allocators from buffer registry
         alloc_stage_increment = buffer_registry.get_allocator(
-            'dirk_stage_increment', self
+            'stage_increment', self
         )
         alloc_accumulator = buffer_registry.get_allocator(
             'accumulator', self

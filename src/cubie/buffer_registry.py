@@ -671,7 +671,7 @@ class BufferRegistry:
             if not key.endswith('_location'):
                 continue
 
-            buffer_name = key.rstrip("_location")
+            buffer_name = key.removesuffix("_location")
 
             if value not in ('shared', 'local'):
                 raise ValueError(
