@@ -47,12 +47,12 @@ script_start = perf_counter()
 #
 # algorithm_type = 'dirk'
 # algorithm_tableau_name ='l_stable_sdirk_4'
-# algorithm_type = 'erk'
-# algorithm_tableau_name = 'tsit5'
+algorithm_type = 'erk'
+algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ros3p'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -80,15 +80,16 @@ driver_input_dict = None
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.2)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.2)
+dt_save = precision(0.1)
+dt_summarise = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
-output_types = ['state', 'mean', 'max', 'rms']
+output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]']
 
 # -------------------------------------------------------------------------
 # Implicit Solver Parameters (DIRK only)
@@ -134,7 +135,7 @@ summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
 save_last = False
 
 # Saves per summary (for summary metric aggregation)
-saves_per_summary = int32(2)
+saves_per_summary = int(dt_summarise/dt_save)
 
 
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
@@ -5277,9 +5278,9 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     rx_inits = inits[run_index, :]
     rx_params = params[run_index, :]
     rx_state = state_output[:, :, run_index]
-    rx_observables = observables_output[:, :, int32(0)]
+    rx_observables = observables_output[:, :, run_index]
     rx_state_summaries = state_summaries_output[:, :, run_index]
-    rx_observables_summaries = observables_summaries_output[:, :, int32(0)]
+    rx_observables_summaries = observables_summaries_output[:, :, run_index]
     rx_iteration_counters = iteration_counters_output[:, :, run_index]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
