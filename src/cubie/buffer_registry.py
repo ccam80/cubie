@@ -293,6 +293,10 @@ class BufferGroup:
           (returned in second dict as fallback)
         - Multiple aliases consume parent space first-come-first-serve
 
+        IMPORTANT: Both primary and fallback layouts use slices into
+        the SAME shared array. Fallback slices start immediately after
+        the primary layout ends to prevent overlap.
+
         Returns
         -------
         Tuple[Dict[str, slice], Dict[str, slice]]
@@ -313,10 +317,12 @@ class BufferGroup:
             self._alias_consumption[name] = 0
             offset += entry.size
 
-        # Track fallback offset separately
-        fallback_offset = 0
+        # Fallback slices start after all primary shared buffers
+        fallback_offset = offset
 
         # Process aliased buffers
+        # Aliased buffers consume space from their parent if possible,
+        # otherwise allocate new space in fallback layout
         for name, entry in self.entries.items():
             if entry.aliases is None:
                 continue
@@ -324,12 +330,13 @@ class BufferGroup:
             parent_entry = self.entries[entry.aliases]
 
             if parent_entry.is_shared:
-                # Parent shared - check if space available AND buffer shared
+                # Parent is shared - attempt to alias within parent's space
+                # Track how much of parent has been consumed by other aliases
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
                 if entry.is_shared and entry.size <= available:
-                    # Alias fits within parent - use primary layout
+                    # Child is shared and fits - alias within parent (primary)
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
@@ -337,14 +344,14 @@ class BufferGroup:
                         consumed + entry.size
                     )
                 elif entry.is_shared:
-                    # Parent too small - allocate in fallback layout
+                    # Child is shared but doesn't fit - new allocation (fallback)
                     fallback_layout[name] = slice(
                         fallback_offset, fallback_offset + entry.size
                     )
                     fallback_offset += entry.size
-                # else: not shared, will be handled by persistent/local
+                # else: child not shared, handled by persistent/local layout
             elif entry.is_shared:
-                # Parent local, child shared - use fallback layout
+                # Parent is local, child is shared - new allocation (fallback)
                 fallback_layout[name] = slice(
                     fallback_offset, fallback_offset + entry.size
                 )
@@ -355,14 +362,36 @@ class BufferGroup:
 
     @property
     def shared_primary_layout(self) -> Dict[str, slice]:
-        """Return primary (aliased) shared memory layout."""
+        """Return primary (aliased) shared memory layout.
+        
+        Primary layout contains slices for buffers that alias their
+        parent shared buffer.
+        
+        Returns
+        -------
+        Dict[str, slice]
+            Mapping of buffer names to shared memory slices.
+        """
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
         return self._shared_layout[0]
 
     @property
     def shared_fallback_layout(self) -> Dict[str, slice]:
-        """Return fallback shared memory layout."""
+        """Return fallback shared memory layout.
+        
+        Fallback layout contains slices for shared buffers that cannot
+        alias their parent (either parent is local, or parent shared
+        buffer has insufficient remaining space).
+        
+        Slices in fallback layout start after primary layout ends to
+        prevent overlap in the same shared array.
+        
+        Returns
+        -------
+        Dict[str, slice]
+            Mapping of buffer names to shared memory slices.
+        """
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
         return self._shared_layout[1]
@@ -457,6 +486,8 @@ class BufferGroup:
         """Return total shared memory elements.
 
         Includes both primary (aliased) and fallback shared allocations.
+        Both layouts use the same array with fallback starting after
+        primary, so total size is the maximum stop value across both.
 
         Returns
         -------
@@ -468,15 +499,15 @@ class BufferGroup:
 
         primary_layout, fallback_layout = self._shared_layout
 
-        primary_size = 0
-        if primary_layout:
-            primary_size = max(s.stop for s in primary_layout.values())
-
-        fallback_size = 0
-        if fallback_layout:
-            fallback_size = max(s.stop for s in fallback_layout.values())
-
-        return primary_size + fallback_size
+        primary_size = (
+            max(s.stop for s in primary_layout.values())
+            if primary_layout else 0
+        )
+        fallback_size = (
+            max(s.stop for s in fallback_layout.values())
+            if fallback_layout else 0
+        )
+        return max(primary_size, fallback_size)
 
     def local_buffer_size(self) -> int:
         """Return total local memory elements.
@@ -566,7 +597,8 @@ class BufferGroup:
         local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
-            shared_slice, persistent_slice, shared_fallback_slice, local_size
+            shared_slice, persistent_slice, shared_fallback_slice,
+            local_size
         )
 
 

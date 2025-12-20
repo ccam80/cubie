@@ -173,8 +173,8 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'proposed_state', self, n_states,
-            proposed_state_location, precision=precision
+            'proposed_state', self, n_states, proposed_state_location,
+            precision=precision
         )
         buffer_registry.register(
             'parameters', self, n_parameters,
@@ -436,14 +436,11 @@ class IVPLoop(CUDAFactory):
 
             shared_scratch[:] = precision(0.0)
 
-            # Create fallback shared memory for cross-location aliasing
-            if shared_fallback_size > 0:
-                shared_fallback = cuda.shared.array(
-                    shared_fallback_size, precision
-                )
-            else:
-                # Create minimal array even if not needed
-                shared_fallback = cuda.shared.array(1, precision)
+            # Allocate fallback shared array for cross-location aliasing
+            # (CUDA shared arrays are compile-time allocations)
+            shared_fallback = cuda.shared.array(
+                max(shared_fallback_size, 1), precision
+            )
 
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
