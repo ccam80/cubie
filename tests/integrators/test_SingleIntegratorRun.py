@@ -224,7 +224,6 @@ class TestSingleIntegratorRun:
             "implicit_step": "is_implicit",
             "order": "order",
             "integration_step_function": "step_function",
-            "nonlinear_solver_function": "nonlinear_solver_function",
             "state_count": "n",
             "solver_helper": "get_solver_helper_fn",
             "beta_coefficient": "beta",

@@ -612,6 +612,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs,
                 stage_increment,
                 shared,
+                persistent_local,
                 krylov_iters_out,
             )
 
@@ -747,6 +748,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_increment,
                     shared,
+                    persistent_local,
                     krylov_iters_out,
                 )
 

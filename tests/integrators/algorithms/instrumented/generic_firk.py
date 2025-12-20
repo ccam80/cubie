@@ -564,43 +564,10 @@ class FIRKStep(ODEImplicitStep):
         return self.tableau.has_error_estimate
 
     @property
-    def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     def stage_count(self) -> int:
         """Return the number of stages described by the tableau."""
 
         return self.compile_settings.stage_count
-
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return solver scratch elements accounting for flattened stages."""
-
-        return 3 * self.compile_settings.all_stages_n
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Return additional shared memory required by the algorithm."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Return persistent local memory required by the algorithm."""
-
-        return 0
 
     @property
     def is_implicit(self) -> bool:

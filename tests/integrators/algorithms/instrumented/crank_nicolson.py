@@ -488,30 +488,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         return False
 
     @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Crank–Nicolson does not reserve extra shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Crank–Nicolson does not require persistent local storage."""
-
-        return 0
-
-    @property
     def is_adaptive(self) -> bool:
         """Return ``True`` because the embedded error estimate enables adaptivity."""
 

@@ -2,10 +2,11 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -85,13 +86,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             M=M,
             n=n,
             preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
@@ -137,8 +131,13 @@ class BackwardsEulerStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-        solver_shared_elements = self.solver_shared_elements
         n = int32(n)
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver_scratch')
+        )
 
         @cuda.jit(
             # (
@@ -218,7 +217,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-            solver_scratch = shared[: solver_shared_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             for i in range(n):
                 proposed_state[i] = solver_scratch[i]
@@ -240,6 +240,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 
@@ -264,30 +265,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         """Return ``False`` because backward Euler is a single-stage method."""
 
         return False
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Backward Euler has no additional shared-memory requirements."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Backward Euler does not reserve persistent local storage."""
-
-        return 0
 
     @property
     def is_adaptive(self) -> bool:

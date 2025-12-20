@@ -2,8 +2,9 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
@@ -51,7 +52,11 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         driver_function = driver_function
         n = int32(n)
 
-        solver_shared_elements = self.solver_shared_elements
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver_scratch')
+        )
 
         @cuda.jit(
             # (
@@ -152,7 +157,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                     proposed_drivers,
                 )
 
-            solver_scratch = shared[: solver_shared_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             status = solver_fn(
                 proposed_state,
@@ -163,6 +169,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 

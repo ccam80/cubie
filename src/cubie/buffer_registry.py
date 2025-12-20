@@ -590,8 +590,8 @@ class BufferRegistry:
 
         recognized, changed = self._groups[parent].update_buffer(name,
                                                                  **kwargs)
-
         return recognized, changed
+
     def clear_layout(self, parent: object) -> None:
         """Invalidate cached slices for a parent.
 
@@ -671,7 +671,7 @@ class BufferRegistry:
             if not key.endswith('_location'):
                 continue
 
-            buffer_name = key[:-9]  # Remove '_location' suffix
+            buffer_name = key.removesuffix("_location")
 
             if value not in ('shared', 'local'):
                 raise ValueError(
@@ -679,11 +679,13 @@ class BufferRegistry:
                     f"'{buffer_name}'. Must be 'shared' or 'local'."
                 )
 
-            buffer_recognized, _ = self.update_buffer(
+            buffer_recognized, buffer_changed = self.update_buffer(
                 buffer_name, parent, location=value
             )
             if buffer_recognized:
                 recognized.add(key)
+            if buffer_changed:
+                self.clear_layout(parent)
 
         return recognized
 
@@ -767,6 +769,84 @@ class BufferRegistry:
                 f"Parent {parent} has no registered buffer group."
             )
         return self._groups[parent].get_allocator(name)
+
+    def get_child_allocators(
+        self,
+        parent: object,
+        child: object,
+        name: Optional[str] = None,
+    ) -> Tuple[Callable, Callable]:
+        """Register child buffers and return shared and persistent allocators.
+
+        Registers buffers for a child device function within the parent's
+        buffer group, then returns allocators that provide slices into the
+        parent's shared and persistent memory regions.
+
+        Parameters
+        ----------
+        parent
+            Parent instance that will allocate memory for the child.
+        child
+            Child instance whose buffer requirements should be registered.
+        name
+            Optional base name for the buffer registrations. If not provided,
+            uses 'child_{id}' as the base name.
+
+        Returns
+        -------
+        Callable
+            Allocator for child's shared memory (returns slice).
+        Callable
+            Allocator for child's persistent memory (returns slice).
+
+        Notes
+        -----
+        This method computes the shared and persistent buffer sizes for the
+        child, registers them with the parent's buffer group, and returns
+        allocators that slice the parent's memory regions appropriately.
+        The child's buffers are registered with names
+        '{name}_shared' and '{name}_persistent' if name is provided, otherwise
+        'child_{child_id}_shared' and 'child_{child_id}_persistent'.
+        """
+        # Get child buffer sizes
+        child_shared_size = self.shared_buffer_size(child)
+        child_persistent_size = self.persistent_local_buffer_size(child)
+
+        # Generate buffer names
+        if name is None:
+            child_id = id(child)
+            base_name = f'child_{child_id}'
+        else:
+            base_name = name
+        
+        shared_name = f'{base_name}_shared'
+        persistent_name = f'{base_name}_persistent'
+
+        # Get precision from parent
+        precision = parent.precision
+
+        # Register child buffers with parent
+        self.register(
+            shared_name,
+            parent,
+            child_shared_size,
+            'shared',
+            precision=precision
+        )
+        self.register(
+            persistent_name,
+            parent,
+            child_persistent_size,
+            'local',
+            persistent=True,
+            precision=precision
+        )
+
+        # Get and return allocators
+        alloc_shared = self.get_allocator(shared_name, parent)
+        alloc_persistent = self.get_allocator(persistent_name, parent)
+
+        return alloc_shared, alloc_persistent
 
 
 # Module-level singleton instance

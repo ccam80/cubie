@@ -620,51 +620,22 @@ class BaseAlgorithmStep(CUDAFactory):
         """
 
         return self.compile_settings.can_reuse_accepted_start
+
     @property
     def shared_memory_required(self) -> int:
         """Return the precision-entry count of shared memory required."""
-
-        return self.solver_shared_elements + self.algorithm_shared_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
-    @abstractmethod
     def local_scratch_required(self) -> int:
         """Return the precision-entry count of local scratch required."""
-        raise NotImplementedError
+        return buffer_registry.local_buffer_size(self)
 
     @property
     def persistent_local_required(self) -> int:
         """Return the persistent local precision-entry requirement."""
 
-        return self.solver_local_elements + self.algorithm_local_elements
-
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return shared-memory elements consumed by solver infrastructure."""
-
-        return 0
-
-    @property
-    def solver_local_elements(self) -> int:
-        """Return persistent local elements consumed by solver infrastructure.
-
-        Defaults to zero for algorithms whose solvers do not retain
-        thread-local buffers between calls.
-        """
-
-        return 0
-
-    @property
-    @abstractmethod
-    def algorithm_shared_elements(self) -> int:
-        """Return shared-memory elements required by the algorithm itself."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def algorithm_local_elements(self) -> int:
-        """Return persistent local elements required by the algorithm."""
-        raise NotImplementedError
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     @abstractmethod
@@ -682,10 +653,6 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the cached device function that advances the solution."""
         return self.get_cached_output("step")
 
-    @property
-    def nonlinear_solver_function(self) -> Callable:
-        """Return the cached nonlinear solver helper."""
-        return self.get_cached_output("nonlinear_solver")
 
     @property
     def settings_dict(self) -> Dict[str, object]:

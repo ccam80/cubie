@@ -45,12 +45,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylov,
-)
 
 
 
@@ -253,24 +247,17 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * n_drivers
 
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * all_stages_n
-        buffer_registry.register(
-            'firk_solver_scratch', self, solver_shared_size, 'shared',
-            precision=precision
-        )
-
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'firk_stage_increment', self, all_stages_n,
+            'stage_increment', self, all_stages_n,
             config.stage_increment_location, precision=precision
         )
         buffer_registry.register(
-            'firk_stage_driver_stack', self, stage_driver_stack_elements,
+            'stage_driver_stack', self, stage_driver_stack_elements,
             config.stage_driver_stack_location, precision=precision
         )
         buffer_registry.register(
-            'firk_stage_state', self, n, config.stage_state_location,
+            'stage_state', self, n, config.stage_state_location,
             precision=precision
         )
 
@@ -397,17 +384,19 @@ class FIRKStep(ODEImplicitStep):
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         # Get allocators from buffer registry
-        alloc_solver_scratch = buffer_registry.get_allocator(
-            'firk_solver_scratch', self
-        )
         alloc_stage_increment = buffer_registry.get_allocator(
-            'firk_stage_increment', self
+            'stage_increment', self
         )
         alloc_stage_driver_stack = buffer_registry.get_allocator(
-            'firk_stage_driver_stack', self
+            'stage_driver_stack', self
         )
         alloc_stage_state = buffer_registry.get_allocator(
-            'firk_stage_state', self
+            'stage_state', self
+        )
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, nonlinear_solver)
         )
         # no cover: start
         @cuda.jit(
@@ -455,7 +444,8 @@ class FIRKStep(ODEImplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_state = alloc_stage_state(shared, persistent_local)
-            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
@@ -501,7 +491,8 @@ class FIRKStep(ODEImplicitStep):
                 dt_scalar,
                 typed_zero,
                 state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
             )
             status_code = int32(status_code | solver_status)
@@ -602,16 +593,6 @@ class FIRKStep(ODEImplicitStep):
         return self.tableau.has_error_estimate
 
     @property
-    def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
         return buffer_registry.persistent_local_buffer_size(self)
@@ -621,24 +602,6 @@ class FIRKStep(ODEImplicitStep):
         """Return the number of stages described by the tableau."""
 
         return self.compile_settings.stage_count
-
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return solver scratch elements accounting for flattened stages."""
-
-        return 2 * self.compile_settings.all_stages_n
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Return additional shared memory required by the algorithm."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Return persistent local memory required by the algorithm."""
-
-        return 0
 
     @property
     def is_implicit(self) -> bool:

@@ -2,10 +2,11 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -153,7 +154,11 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function = driver_function
         n = int32(n)
 
-        solver_shared_elements = self.solver_shared_elements
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver_scratch')
+        )
 
         @cuda.jit(
             # (
@@ -237,7 +242,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = typed_zero
 
-            solver_scratch = shared[:solver_shared_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # Reuse solver scratch for the dx/dt evaluation buffer.
             dxdt = solver_scratch[:n]
             # error buffer tracks the stage base during setup.
@@ -278,6 +284,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 
@@ -295,6 +302,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             ) & int32(0xFFFF)  # don't record Newton iterations for error check
 
@@ -319,30 +327,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         """Return ``False`` because Crank–Nicolson is a single-stage method."""
 
         return False
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Crank–Nicolson does not reserve extra shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Crank–Nicolson does not require persistent local storage."""
-
-        return 0
 
     @property
     def is_adaptive(self) -> bool:

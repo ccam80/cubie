@@ -438,30 +438,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         return False
 
     @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Backward Euler has no additional shared-memory requirements."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Backward Euler does not reserve persistent local storage."""
-
-        return 0
-
-    @property
     def is_adaptive(self) -> bool:
         """Return ``False`` because backward Euler is fixed step."""
 
