@@ -114,6 +114,7 @@ class ERKStepConfig(ExplicitStepConfig):
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
     stage_rhs_location: str = attrs.field(default='local')
     stage_accumulator_location: str = attrs.field(default='local')
+    stage_cache_location: str = attrs.field(default='local')
 
     @property
     def first_same_as_last(self) -> bool:
@@ -136,6 +137,7 @@ class ERKStep(ODEExplicitStep):
         n_drivers: int = 0,
         stage_rhs_location: Optional[str] = None,
         stage_accumulator_location: Optional[str] = None,
+        stage_cache_location: Optional[str] = None,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
         
@@ -232,28 +234,27 @@ class ERKStep(ODEExplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'stage_rhs', self, n, config.stage_rhs_location,
+            'stage_rhs',
+            self,
+            n,
+            config.stage_rhs_location,
             precision=precision
         )
         buffer_registry.register(
-            'stage_accumulator', self, accumulator_length,
-            config.stage_accumulator_location, precision=precision
+            'stage_accumulator',
+            self,
+            accumulator_length,
+            config.stage_accumulator_location,
+            precision=precision
         )
 
-        # stage_cache can alias stage_rhs or stage_accumulator for FSAL
-        # buffer_registry handles aliasing logic
-        use_shared_rhs = config.stage_rhs_location == 'shared'
-        use_shared_acc = config.stage_accumulator_location == 'shared'
-        cache_location = 'shared' if (use_shared_rhs or use_shared_acc) else 'local'
-        cache_aliases = (
-            'stage_rhs' if use_shared_rhs
-            else 'stage_accumulator' if use_shared_acc
-            else None
-        )
         buffer_registry.register(
-            'stage_cache', self, n, cache_location,
-            aliases=cache_aliases,
-            persistent=cache_location == 'local',
+            'stage_cache',
+            self,
+            n,
+            config.stage_cache_location,
+            aliases='stage_accumulator',
+            persistent=True,
             precision=precision
         )
 
@@ -322,11 +323,6 @@ class ERKStep(ODEExplicitStep):
             'stage_cache', self
         )
 
-        # Compile-time flags for stage_cache aliasing parent determination
-        use_shared_rhs = config.stage_rhs_location == 'shared'
-        use_shared_acc = config.stage_accumulator_location == 'shared'
-        cache_aliases_rhs = use_shared_rhs
-        cache_aliases_acc = use_shared_acc and not use_shared_rhs
 
         # no cover: start
         @cuda.jit(
@@ -410,21 +406,9 @@ class ERKStep(ODEExplicitStep):
                 shared, persistent_local, None
             )
 
-            if multistage:
-                # stage_cache aliases stage_rhs if both shared, else
-                # stage_accumulator if both shared, else no aliasing
-                if cache_aliases_rhs:
-                    stage_cache = alloc_stage_cache(
-                        shared, persistent_local, stage_rhs
-                    )
-                elif cache_aliases_acc:
-                    stage_cache = alloc_stage_cache(
-                        shared, persistent_local, stage_accumulator
-                    )
-                else:
-                    stage_cache = alloc_stage_cache(
-                        shared, persistent_local, None
-                    )
+            stage_cache = alloc_stage_cache(
+                    shared, persistent_local, stage_accumulator
+            )
 
             # Initialize arrays
             for _i in range(n):

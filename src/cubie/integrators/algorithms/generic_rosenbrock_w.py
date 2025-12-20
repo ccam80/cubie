@@ -249,12 +249,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             config.cached_auxiliaries_location, precision=precision
         )
 
-        # stage_cache can alias stage_store for some configurations
-        # buffer_registry handles aliasing logic
         buffer_registry.register(
-            'stage_cache', self, n, config.stage_store_location,
+            'stage_cache',
+            self,
+            n,
+            config.stage_cache_location,
             aliases='stage_store',
-            persistent=config.stage_store_location == 'local',
+            persistent=True,
             precision=precision
         )
 

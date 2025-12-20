@@ -249,23 +249,25 @@ class DIRKStep(ODEImplicitStep):
             config.accumulator_location, precision=precision
         )
 
-        # stage_base can alias accumulator for multistage methods
-        # buffer_registry handles aliasing logic
+
         buffer_registry.register(
-            'stage_base', self, n, config.stage_base_location,
-            aliases='accumulator' if multistage else None,
+            'stage_base',
+            self,
+            n,
+            config.stage_base_location,
+            aliases='accumulator',
             precision=precision
         )
 
         # FSAL caches for first-same-as-last optimization
         buffer_registry.register(
-                'rhs_cache',
-                self,
-                n,
-                'local',
-                aliases='solver_shared',
-                persistent=True,
-                precision=precision
+            'rhs_cache',
+            self,
+            n,
+            'local',
+            aliases='solver_shared',
+            persistent=True,
+            precision=precision
         )
         buffer_registry.register(
             'increment_cache',
