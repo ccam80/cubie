@@ -79,7 +79,6 @@ Receive from plan_new_feature agent:
    - Integration code THIRD (wiring components together)
    - Tests LAST (validation)
 5. **Execution Grouping**: Group tasks for taskmaster agent
-   - Mark groups as SEQUENTIAL or PARALLEL
    - Each group should be cohesive and independently executable
    - Include all context needed (no searching required by taskmaster)
 
@@ -126,7 +125,7 @@ Structure:
 
 ---
 
-## Task Group 2: [Next Group] - [SEQUENTIAL/PARALLEL]
+## Task Group 2: [Next Group]
 ...
 ```
 
@@ -142,10 +141,13 @@ Structure:
 ## Behavior Guidelines
 
 - Include .github/context/cubie_internal_structure.md in your context
-- When faced with ambiguity, ASK the user for clarification
-- When multiple implementation approaches exist, ASK which to use
+- NEVER include backward compatibility stubs or shims, changes are expected to be breaking and complete
+- NEVER include a minimal or optional implementation option. Your goal is to implement the full feature requested, without compromise.
 - Save the user from reviewing incorrect implementations
 - Prefer architectural changes before content changes
+- NEVER leave a task group unspecified or referring to another task group, e.g. "Same as task group X"
+- ALWAYS skip validation for inputs that come from internal sources, and design implementations to provide correct output instead.
+- Always specify each task group in full detail, down to individual functions and lines. Each task group will be implemented by a new agent with a clean context.
 - Consider both CUDA and CUDASIM compatibility
 
 ## Tools and When to Use Them

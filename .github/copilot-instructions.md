@@ -123,7 +123,7 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 
 When the user says "run pipeline on issue #X" or similar commands, interpret this as a request to execute the custom agent pipeline for that issue. The pipeline automates feature development through specialized agents.
 
-**Important**: Pipeline coordination is handled by the **default Copilot agent** (you). Custom agents do NOT have the ability to invoke other custom agents. You are responsible for invoking each agent in the proper sequence based on the `return_after` parameter.
+**Important**: Pipeline coordination is handled by the **default Copilot agent** (you). Custom agents do NOT have the ability to invoke other custom agents. You are responsible for invoking each agent in the proper sequence based on the `return_after` parameter. When acting as the pipeline orchestrating agent, NEVER read or edit files yourself, just call custom agents.
 
 **Command variations to recognize:**
 - "run pipeline on issue #X, return after [level]"
@@ -137,20 +137,19 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 2. **Invoke plan_new_feature agent** with the issue content
 3. **Invoke subsequent agents in sequence** based on the `return_after` level:
    - If return_after > plan_new_feature: invoke detailed_implementer
-   - If return_after > detailed_implementer: invoke taskmaster
+   - If return_after > detailed_implementer: invoke one taskmaster agent for each task group.
    - If return_after > taskmaster: invoke reviewer
    - If return_after > reviewer AND reviewer suggests edits: invoke taskmaster again (2nd time)
-   - If return_after = docstring_guru: invoke docstring_guru
-4. **Default return_after level**: Use `docstring_guru` for complete implementation
+   - If return_after == taskmaster 2: return after the taskmaster has completed review edits.
+4. **Default return_after level**: Use `taskmaster 2` for complete implementation
 5. **Default starting agent**: `plan_new_feature` unless specified otherwise
 
 **Pipeline levels (in order):**
 1. `plan_new_feature` - Creates user stories, overview, and architectural plan
 2. `detailed_implementer` - Creates detailed task list
-3. `taskmaster` - Executes all tasks directly
+3. `taskmaster` - Executes all tasks directly. Call multiple times, once per task group.
 4. `reviewer` - Reviews implementation against user stories
 5. `taskmaster_2` - Applies review edits (second invocation of taskmaster)
-6. `docstring_guru` - Adds complete docstrings
 
 **Example interpretation:**
 
@@ -164,14 +163,13 @@ Your action:
 3. Wait for plan_new_feature to complete
 4. Invoke detailed_implementer with plan_new_feature outputs
 5. Wait for detailed_implementer to complete
-6. Invoke taskmaster with detailed_implementer outputs
-7. Wait for taskmaster to complete
+6. Invoke taskmaster with detailed_implementer outputs, specifying the task group to complete (1:1:end)
+7. Wait for taskmaster to complete, then call again on next task group
 8. Invoke reviewer with taskmaster outputs
 9. Wait for reviewer to complete
 10. If reviewer suggests edits, invoke taskmaster again with review outputs
 11. Wait for taskmaster (2nd) to complete
-12. Invoke docstring_guru with all outputs
-13. Summarize and return to user
+12. Summarize and return to user
 ```
 
 ### Running the Renamer Agent
