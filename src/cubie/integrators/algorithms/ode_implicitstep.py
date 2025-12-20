@@ -51,6 +51,10 @@ class ImplicitStepConfig(BaseStepConfig):
         default=1,
         validator=inrangetype_validator(int, 1, 32)
     )
+    solver_fn = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(Callable)
+    )
 
     @property
     def beta(self) -> float:
@@ -128,7 +132,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         super().__init__(config, _controller_defaults)
         
-        # Create LinearSolver instance with passed parameters
         linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
@@ -137,9 +140,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             max_linear_iters=max_linear_iters,
         )
         
-        # Create solver based on solver_type
         if solver_type == 'newton':
-            # Create NewtonKrylov with LinearSolver
             self.solver = NewtonKrylov(
                 precision=config.precision,
                 n=config.n,
@@ -150,7 +151,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 newton_max_backtracks=newton_max_backtracks,
             )
         else:  # solver_type == 'linear'
-            # Store LinearSolver directly
             self.solver = linear_solver
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
@@ -175,7 +175,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         Delegates solver parameters to owned solver instance.
         Invalidates step cache only if solver cache was invalidated.
         """
-        # Merge updates
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -184,27 +183,20 @@ class ODEImplicitStep(BaseAlgorithmStep):
         if not all_updates:
             return set()
         
-        # Delegate to solver with full dict
         recognized = set()
-        solver_recognized = self.solver.update(all_updates, silent=True)
-        recognized.update(solver_recognized)
-        
+        recognized |= self.solver.update(all_updates, silent=True)
+
         # Check if solver cache was invalidated
         if not self.solver.cache_valid:
-            self.invalidate_cache()
+            self._invalidate_cache()
         
-        # Update buffer registry with full dict
-        buffer_recognized = buffer_registry.update(
+        recognized |= buffer_registry.update(
             self, updates_dict=all_updates, silent=True
         )
-        recognized.update(buffer_recognized)
-        
-        # Update algorithm compile settings with full dict
-        algo_recognized = self.update_compile_settings(
+        recognized |= self.update_compile_settings(
             updates_dict=all_updates, silent=silent
         )
-        recognized.update(algo_recognized)
-        
+
         return recognized
 
     def build(self) -> StepCache:
@@ -217,8 +209,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
-        
-        # Store solver device function reference for cache comparison
+
+        # checking if a build is required while building is pretty dumb
         self.update_compile_settings(solver_device_function=solver_fn)
         
         dxdt_fn = config.dxdt_function
@@ -228,7 +220,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         driver_function = config.driver_function
         n_drivers = config.n_drivers
         
-        # build_step no longer receives solver_fn parameter
         return self.build_step(
             dxdt_fn,
             observables_function,
@@ -269,10 +260,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         -------
         StepCache
             Container holding the device step implementation.
-        
-        Notes
-        -----
-        Subclasses access solver device function via self.solver.device_function.
         """
         raise NotImplementedError
 
@@ -316,10 +303,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             mass=mass,
             preconditioner_order=preconditioner_order
         )
-        
-        # Update solver with device functions
-        # If solver is NewtonKrylov, it will delegate linear params to its linear_solver
-        # If solver is LinearSolver, it will recognize linear params directly
+
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,

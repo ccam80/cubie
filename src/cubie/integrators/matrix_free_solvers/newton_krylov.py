@@ -70,10 +70,10 @@ class NewtonKrylovConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    linear_solver: Optional['LinearSolver'] = attrs.field(
+    linear_solver_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(
-            validators.instance_of(LinearSolver)
+            validators.instance_of(is_device_validator)
         )
     )
     _newton_tolerance: float = attrs.field(
@@ -108,16 +108,7 @@ class NewtonKrylovConfig:
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    
-    def __attrs_post_init__(self):
-        """Validate precision consistency with linear_solver."""
-        if self.linear_solver is not None:
-            if self.linear_solver.precision != self.precision:
-                raise ValueError(
-                    f"NewtonKrylov precision ({self.precision}) must match "
-                    f"LinearSolver precision ({self.linear_solver.precision})"
-                )
-    
+
     @property
     def newton_tolerance(self) -> float:
         """Return tolerance in configured precision."""
@@ -170,10 +161,10 @@ class NewtonKrylov(CUDAFactory):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
-        delta_location: str = 'local',
-        residual_location: str = 'local',
-        residual_temp_location: str = 'local',
-        stage_base_bt_location: str = 'local',
+        delta_location: Optional[str] = None,
+        residual_location: Optional[str] = None,
+        residual_temp_location: Optional[str] = None,
+        stage_base_bt_location: Optional[str] = None,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
         
@@ -207,21 +198,33 @@ class NewtonKrylov(CUDAFactory):
             Memory location for stage_base_bt buffer ('local' or 'shared').
         """
         super().__init__()
-        
+
+        self.linear_solver = linear_solver
         # Create and setup configuration with explicit parameters
+        newton_kwargs = {}
+        if newton_tolerance is not None:
+            newton_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            newton_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            newton_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        if delta_location is not None:
+            newton_kwargs['delta_location'] = delta_location
+        if residual_location is not None:
+            newton_kwargs['residual_location'] = residual_location
+        if residual_temp_location is not None:
+            newton_kwargs['residual_temp_location'] = residual_temp_location
+        if stage_base_bt_location is not None:
+            newton_kwargs['stage_base_bt_location'] = stage_base_bt_location
+
         config = NewtonKrylovConfig(
             precision=precision,
             n=n,
-            linear_solver=linear_solver,
-            newton_tolerance=newton_tolerance if newton_tolerance is not None else 1e-3,
-            max_newton_iters=max_newton_iters if max_newton_iters is not None else 100,
-            newton_damping=newton_damping if newton_damping is not None else 0.5,
-            newton_max_backtracks=newton_max_backtracks if newton_max_backtracks is not None else 8,
-            delta_location=delta_location,
-            residual_location=residual_location,
-            residual_temp_location=residual_temp_location,
-            stage_base_bt_location=stage_base_bt_location,
+            **newton_kwargs
         )
+
         self.setup_compile_settings(config)
         
         # Register buffers with buffer_registry
@@ -502,9 +505,7 @@ class NewtonKrylov(CUDAFactory):
         **kwargs
     ) -> Set[str]:
         """Update compile settings and invalidate cache if changed.
-        
-        Delegates linear solver parameters to nested linear_solver.
-        
+
         Parameters
         ----------
         updates_dict : dict, optional
@@ -527,23 +528,12 @@ class NewtonKrylov(CUDAFactory):
         
         if not all_updates:
             return set()
-        
-        # Extract Newton parameters
-        newton_keys = {
-            'newton_tolerance', 'max_newton_iters',
-            'newton_damping', 'newton_max_backtracks',
-            'residual_function'
-        }
-        newton_params = {k: all_updates[k] for k in newton_keys & all_updates.keys()}
-        
-        # Delegate to linear solver with full dict
+
         recognized = set()
-        linear_recognized = self.linear_solver.update(all_updates, silent=True)
-        recognized.update(linear_recognized)
-        
+        recognized |= self.linear_solver.update(all_updates, silent=True)
+
         # Update Newton parameters
-        if newton_params:
-            newton_recognized = self.update_compile_settings(
+        newton_recognized = self.update_compile_settings(
                 updates_dict=newton_params, silent=True
             )
             recognized.update(newton_recognized)
