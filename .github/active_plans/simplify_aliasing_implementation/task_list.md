@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/simplify_aliasing_implementation/agent_plan.md
 
 ## Task Group 1: Fix ERK Stage Cache Registration - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -102,12 +102,26 @@ else:
 - Config remains valid for step controller and other consumers
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_erk.py (25 lines changed)
+- Functions/Methods Added/Modified:
+  * ERKStep.__init__() - Restored conditional stage_cache registration
+  * ERKStepConfig class - Removed stage_cache_location field
+- Implementation Summary:
+  * Replaced single stage_cache registration with three-branch
+    conditional logic
+  * Checks stage_rhs_location first, stage_accumulator_location second,
+    falls back to persistent local
+  * Removed stage_cache_location parameter from ERKStepConfig and
+    __init__ signature
+  * Registration now derives location from parent buffer locations
+    instead of using explicit config field
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Fix Rosenbrock Stage Cache Registration - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -194,7 +208,25 @@ else:
 - Config remains valid for linear solver and other consumers
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (16 lines changed)
+- Functions/Methods Added/Modified:
+  * GenericRosenbrockWStep.__init__() - Fixed conditional stage_cache
+    registration
+- Implementation Summary:
+  * Replaced single stage_cache registration with two-branch conditional
+    logic
+  * Checks stage_store_location: if shared, aliases stage_store; if
+    local, uses persistent local
+  * Removed contradictory persistent=True when location='shared'
+  * Registration now derives location from stage_store_location instead
+    of using non-existent config.stage_cache_location field
+  * Note: RosenbrockWStepConfig never had stage_cache_location field, so
+    no config changes needed
+- Issues Flagged: 
+  * The original code referenced config.stage_cache_location which
+    doesn't exist in RosenbrockWStepConfig - this was a bug that would
+    have caused AttributeError at runtime
 
 ---
 

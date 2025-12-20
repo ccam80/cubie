@@ -249,15 +249,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             config.cached_auxiliaries_location, precision=precision
         )
 
-        buffer_registry.register(
-            'stage_cache',
-            self,
-            n,
-            config.stage_cache_location,
-            aliases='stage_store',
-            persistent=True,
-            precision=precision
-        )
+        # Stage cache attempts to alias stage_store for memory reuse.
+        use_shared_store = config.stage_store_location == 'shared'
+
+        if use_shared_store:
+            buffer_registry.register(
+                'stage_cache', self, n, 'shared',
+                aliases='stage_store', precision=precision
+            )
+        else:
+            buffer_registry.register(
+                'stage_cache', self, n, 'local',
+                persistent=True, precision=precision
+            )
 
         if tableau.has_error_estimate:
             defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
