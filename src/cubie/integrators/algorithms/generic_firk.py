@@ -444,19 +444,19 @@ class FIRKStep(ODEImplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_state = alloc_stage_state(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             solver_shared = alloc_solver_shared(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             solver_persistent = alloc_solver_persistent(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             stage_increment = alloc_stage_increment(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             stage_driver_stack = alloc_stage_driver_stack(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
 
             # Initialize local arrays

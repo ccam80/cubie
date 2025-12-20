@@ -346,11 +346,6 @@ class IVPLoop(CUDAFactory):
         
         fixed_mode = not config.is_adaptive
 
-        # Compute fallback shared memory size for cross-location aliasing
-        shared_fallback_size = buffer_registry.shared_fallback_buffer_size(
-            self
-        )
-
         @cuda.jit(
             # [
             #     (
@@ -435,65 +430,58 @@ class IVPLoop(CUDAFactory):
             stagnant_counts = int32(0)
 
             shared_scratch[:] = precision(0.0)
-
-            # Allocate fallback shared array for cross-location aliasing
-            # (CUDA shared arrays are compile-time allocations)
-            shared_fallback = cuda.shared.array(
-                max(shared_fallback_size, 1), precision
-            )
-
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
             state_buffer = alloc_state(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             state_proposal_buffer = alloc_proposed_state(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             observables_buffer = alloc_observables(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             observables_proposal_buffer = alloc_proposed_observables(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             parameters_buffer = alloc_parameters(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             drivers_buffer = alloc_drivers(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             drivers_proposal_buffer = alloc_proposed_drivers(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             state_summary_buffer = alloc_state_summary(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             observable_summary_buffer = alloc_observable_summary(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             counters_since_save = alloc_counters(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             error = alloc_error(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
 
             # Allocate child buffers for algorithm step
             algo_shared = alloc_algo_shared(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             algo_persistent = alloc_algo_persistent(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             controller_temp = alloc_controller_persistent(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             dt = alloc_dt(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             accept_step = alloc_accept_step(
-                shared_scratch, persistent_local, shared_fallback
+                shared_scratch, persistent_local, None
             )
             # ----------------------------------------------------------- #
 

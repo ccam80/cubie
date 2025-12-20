@@ -262,10 +262,10 @@ class LinearSolver(CUDAFactory):
                 
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(
-                    shared, persistent_local, shared
+                    shared, persistent_local, None
                 )
                 temp = alloc_temp(
-                    shared, persistent_local, shared
+                    shared, persistent_local, None
                 )
                 
                 operator_apply(
@@ -421,10 +421,10 @@ class LinearSolver(CUDAFactory):
                 
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(
-                    shared, persistent_local, shared
+                    shared, persistent_local, None
                 )
                 temp = alloc_temp(
-                    shared, persistent_local, shared
+                    shared, persistent_local, None
                 )
                 
                 operator_apply(

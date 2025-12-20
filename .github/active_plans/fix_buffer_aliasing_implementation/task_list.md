@@ -808,7 +808,7 @@ None (buffer registration, validation happens in buffer_registry)
 ---
 
 ## Task Group 6: Update All Allocator Call Sites - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, 3, 4
 
 **Required Context**:
@@ -951,14 +951,60 @@ None (allocator calls, parameters validated by allocator itself)
 - **Integration**: Complete migration across entire codebase
 
 **Outcomes**:
-```
-After TG6 completion:
-- All ode_loop.py allocator calls use correct third argument
-- shared_fallback renamed/removed in favor of shared_scratch
-- All algorithm step functions use correct third argument
-- No remaining uses of shared_fallback parameter name
-- All calls follow pattern: (shared, persistent, aliased_parent_or_shared)
-```
+- Files Modified:
+  * src/cubie/integrators/loops/ode_loop.py (56 lines changed)
+  * src/cubie/integrators/algorithms/generic_dirk.py (8 lines changed)
+  * src/cubie/integrators/algorithms/generic_erk.py (18 lines changed)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (3 lines changed)
+  * src/cubie/integrators/algorithms/generic_firk.py (5 lines changed)
+  * src/cubie/integrators/algorithms/backwards_euler.py (2 lines changed)
+  * src/cubie/integrators/algorithms/crank_nicolson.py (2 lines changed)
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (6 lines changed)
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (4 lines changed)
+- Functions/Methods Modified:
+  * ode_loop.py: build() - removed shared_fallback_buffer_size call, removed shared_fallback allocation, updated 16 allocator calls
+  * generic_dirk.py: step() - updated 8 allocator calls (stage_base aliases stage_accumulator, rhs_cache/increment_cache alias solver_shared)
+  * generic_erk.py: build_step() - added compile-time flags for cache aliasing, updated 3 allocator calls (stage_cache conditionally aliases stage_rhs or stage_accumulator)
+  * generic_rosenbrock_w.py: step() - updated 3 allocator calls (all non-aliased)
+  * generic_firk.py: step() - updated 5 allocator calls (all non-aliased)
+  * backwards_euler.py: step() - updated 2 allocator calls (all non-aliased)
+  * crank_nicolson.py: step() - updated 2 allocator calls (all non-aliased)
+  * newton_krylov.py: newton_krylov_solver() - updated 6 allocator calls (all non-aliased)
+  * linear_solver.py: linear_solver_cached() and linear_solver() - updated 4 allocator calls (all non-aliased)
+- Implementation Summary:
+  * TG6.1: Updated ode_loop.py (lines 347-496):
+    - Removed shared_fallback_buffer_size() call (line 350-352)
+    - Removed shared_fallback allocation (lines 439-443)
+    - Updated 16 allocator calls from (shared_scratch, persistent_local, shared_fallback) to (shared_scratch, persistent_local, None)
+    - All ode_loop buffers are non-aliased, so all use None as third argument
+  * TG6.2: Removed shared_fallback variable (completed as part of TG6.1)
+    - shared_fallback allocation removed entirely
+    - All allocator calls use shared_scratch and None
+  * TG6.3: Updated algorithm step functions:
+    - generic_dirk.py (lines 514-537): 8 calls updated
+      * stage_base aliases stage_accumulator: passes stage_accumulator as third arg
+      * rhs_cache aliases solver_shared: passes solver_shared as third arg
+      * increment_cache aliases solver_shared: passes solver_shared as third arg
+      * Others (stage_increment, stage_accumulator, solver_shared, solver_persistent, stage_rhs): pass None
+    - generic_erk.py (lines 316-327, 400-424): Added compile-time flags and updated 3 calls
+      * Added use_shared_rhs, use_shared_acc, cache_aliases_rhs, cache_aliases_acc flags
+      * stage_cache conditionally aliases stage_rhs or stage_accumulator based on location config
+      * If cache_aliases_rhs: passes stage_rhs as third arg
+      * Elif cache_aliases_acc: passes stage_accumulator as third arg
+      * Else: passes None
+      * stage_rhs and stage_accumulator: pass None
+    - generic_rosenbrock_w.py (lines 497-505): 3 calls updated to pass None (no aliasing)
+    - generic_firk.py (lines 446-460): 5 calls updated to pass None (no aliasing)
+    - backwards_euler.py (lines 220-225): 2 calls updated to pass None (no aliasing)
+    - crank_nicolson.py (lines 245-250): 2 calls updated to pass None (no aliasing)
+  * TG6.4: Updated solver files:
+    - newton_krylov.py (lines 362-379): 6 calls updated to pass None (no aliasing)
+    - linear_solver.py (lines 264-268, 423-428): 4 calls updated to pass None (no aliasing)
+  * Verified pattern: All ~57 allocator calls now use correct third argument:
+    - Non-aliased buffers: pass None
+    - Aliased buffers: pass parent buffer variable
+    - No more (shared, persistent, shared) pattern
+- Issues Flagged: None
 
 ---
 

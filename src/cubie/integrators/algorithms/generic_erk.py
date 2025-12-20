@@ -322,6 +322,12 @@ class ERKStep(ODEExplicitStep):
             'stage_cache', self
         )
 
+        # Compile-time flags for stage_cache aliasing parent determination
+        use_shared_rhs = config.stage_rhs_location == 'shared'
+        use_shared_acc = config.stage_accumulator_location == 'shared'
+        cache_aliases_rhs = use_shared_rhs
+        cache_aliases_acc = use_shared_acc and not use_shared_rhs
+
         # no cover: start
         @cuda.jit(
             # (
@@ -398,16 +404,27 @@ class ERKStep(ODEExplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_rhs = alloc_stage_rhs(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             stage_accumulator = alloc_stage_accumulator(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
 
             if multistage:
-                stage_cache = alloc_stage_cache(
-                    shared, persistent_local, shared
-                )
+                # stage_cache aliases stage_rhs if both shared, else
+                # stage_accumulator if both shared, else no aliasing
+                if cache_aliases_rhs:
+                    stage_cache = alloc_stage_cache(
+                        shared, persistent_local, stage_rhs
+                    )
+                elif cache_aliases_acc:
+                    stage_cache = alloc_stage_cache(
+                        shared, persistent_local, stage_accumulator
+                    )
+                else:
+                    stage_cache = alloc_stage_cache(
+                        shared, persistent_local, None
+                    )
 
             # Initialize arrays
             for _i in range(n):

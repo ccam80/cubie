@@ -512,28 +512,28 @@ class DIRKStep(ODEImplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_increment = alloc_stage_increment(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             stage_accumulator = alloc_accumulator(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             stage_base = alloc_stage_base(
-                shared, persistent_local, shared
+                shared, persistent_local, stage_accumulator
             )
             solver_shared = alloc_solver_shared(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             solver_persistent = alloc_solver_persistent(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
             rhs_cache = alloc_rhs_cache(
-                shared, persistent_local, shared
+                shared, persistent_local, solver_shared
             )
             increment_cache = alloc_increment_cache(
-                shared, persistent_local, shared
+                shared, persistent_local, solver_shared
             )
             stage_rhs = alloc_stage_rhs(
-                shared, persistent_local, shared
+                shared, persistent_local, None
             )
 
             # Initialize local arrays
