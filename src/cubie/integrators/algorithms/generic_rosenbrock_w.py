@@ -249,18 +249,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             config.cached_auxiliaries_location, precision=precision
         )
 
-        # stage_cache: persistent when stage_store is local
-        if config.stage_store_location == 'local':
-            buffer_registry.register(
-                'stage_cache', self, n, 'local',
-                persistent=True, precision=precision
-            )
-        else:
-            # Aliases stage_store when shared
-            buffer_registry.register(
-                'stage_cache', self, n, 'shared',
-                aliases='stage_store', precision=precision
-            )
+        # stage_cache can alias stage_store for some configurations
+        # buffer_registry handles aliasing logic
+        buffer_registry.register(
+            'stage_cache', self, n, config.stage_store_location,
+            aliases='stage_store',
+            persistent=config.stage_store_location == 'local',
+            precision=precision
+        )
 
         if tableau.has_error_estimate:
             defaults = ROSENBROCK_ADAPTIVE_DEFAULTS

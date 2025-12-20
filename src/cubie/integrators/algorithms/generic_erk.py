@@ -240,24 +240,22 @@ class ERKStep(ODEExplicitStep):
             config.stage_accumulator_location, precision=precision
         )
 
-        # stage_cache aliasing logic for FSAL optimization
+        # stage_cache can alias stage_rhs or stage_accumulator for FSAL
+        # buffer_registry handles aliasing logic
         use_shared_rhs = config.stage_rhs_location == 'shared'
         use_shared_acc = config.stage_accumulator_location == 'shared'
-        if use_shared_rhs:
-            buffer_registry.register(
-                'stage_cache', self, n, 'shared',
-                aliases='stage_rhs', precision=precision
-            )
-        elif use_shared_acc:
-            buffer_registry.register(
-                'stage_cache', self, n, 'shared',
-                aliases='stage_accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'stage_cache', self, n, 'local',
-                persistent=True, precision=precision
-            )
+        cache_location = 'shared' if (use_shared_rhs or use_shared_acc) else 'local'
+        cache_aliases = (
+            'stage_rhs' if use_shared_rhs
+            else 'stage_accumulator' if use_shared_acc
+            else None
+        )
+        buffer_registry.register(
+            'stage_cache', self, n, cache_location,
+            aliases=cache_aliases,
+            persistent=cache_location == 'local',
+            precision=precision
+        )
 
         if tableau.has_error_estimate:
             defaults = ERK_ADAPTIVE_DEFAULTS

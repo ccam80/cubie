@@ -249,23 +249,13 @@ class DIRKStep(ODEImplicitStep):
             config.accumulator_location, precision=precision
         )
 
-        # stage_base aliasing: can alias accumulator when both are shared
-        # and method has multiple stages
-        stage_base_aliases_acc = (
-            multistage
-            and config.accumulator_location == 'shared'
-            and config.stage_base_location == 'shared'
+        # stage_base can alias accumulator for multistage methods
+        # buffer_registry handles aliasing logic
+        buffer_registry.register(
+            'stage_base', self, n, config.stage_base_location,
+            aliases='accumulator' if multistage else None,
+            precision=precision
         )
-        if stage_base_aliases_acc:
-            buffer_registry.register(
-                'stage_base', self, n, 'local',
-                aliases='accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'stage_base', self, n, config.stage_base_location,
-                precision=precision
-            )
 
         # FSAL caches for first-same-as-last optimization
         buffer_registry.register(

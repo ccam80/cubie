@@ -673,7 +673,7 @@ None (internal method, buffer existence validated at registration)
 ---
 
 ## Task Group 5: Remove Manual Aliasing Logic from Step Functions - PARALLEL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None (can run in parallel with TG1-4, or after)
 
 **Required Context**:
@@ -769,14 +769,41 @@ None (buffer registration, validation happens in buffer_registry)
 - **Integration**: Consistent pattern across all algorithms
 
 **Outcomes**:
-```
-After TG5 completion:
-- No manual aliasing logic in generic_dirk.py
-- No manual aliasing logic in generic_rosenbrock_w.py
-- No manual aliasing logic in any algorithm files
-- All algorithms register buffers once with aliases parameter
-- buffer_registry makes all aliasing decisions
-```
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_dirk.py (10 lines changed, lines 252-258)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (7 lines changed, lines 252-259)
+  * src/cubie/integrators/algorithms/generic_erk.py (11 lines changed, lines 243-258)
+- Functions/Methods Modified:
+  * GenericDIRKStep.__init__() - removed if/else for stage_base aliasing
+  * GenericRosenbrockWStep.__init__() - removed if/else for stage_cache aliasing
+  * ERKStep.__init__() - removed if/elif/else for stage_cache aliasing
+- Implementation Summary:
+  * TG5.1: Fixed generic_dirk.py (lines 252-258):
+    - Removed stage_base_aliases_acc calculation and if/else block
+    - Replaced with single register() call using config.stage_base_location
+    - Added conditional aliases parameter: 'accumulator' if multistage else None
+    - buffer_registry now handles all aliasing decisions
+  * TG5.2: Fixed generic_rosenbrock_w.py (lines 252-259):
+    - Removed if/else block checking stage_store_location
+    - Replaced with single register() call using config.stage_store_location
+    - Added conditional aliases parameter: always 'stage_store'
+    - Added conditional persistent parameter: True when stage_store_location == 'local'
+    - buffer_registry now handles all aliasing decisions
+  * TG5.3: Searched for other manual aliasing patterns:
+    - Found and fixed generic_erk.py (lines 243-258):
+      * Removed three-branch if/elif/else for stage_cache
+      * Computed cache_location based on whether any buffer is shared
+      * Computed cache_aliases with preference order (stage_rhs > stage_accumulator > None)
+      * Single register() call with conditional parameters
+    - Verified NO manual aliasing in:
+      * generic_firk.py (no conditional buffer registration)
+      * backwards_euler.py (no conditional buffer registration)
+      * crank_nicolson.py (no conditional buffer registration)
+      * backwards_euler_predict_correct.py (no buffer registration)
+      * ode_loop.py (no conditional buffer registration)
+      * matrix_free_solvers/linear_solver.py (no conditional buffer registration)
+      * matrix_free_solvers/newton_krylov.py (no conditional buffer registration)
+- Issues Flagged: None
 
 ---
 
