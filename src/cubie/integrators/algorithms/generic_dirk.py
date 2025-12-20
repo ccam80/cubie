@@ -125,14 +125,14 @@ class DIRKStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 2,
-        krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 10,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 10,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
         stage_increment_location: Optional[str] = None,
@@ -163,22 +163,29 @@ class DIRKStep(ODEImplicitStep):
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         preconditioner_order
-            Order of the finite-difference Jacobian approximation used in the
-            preconditioner.
+            Order of the truncated Neumann preconditioner. If None, uses
+            default value of 2.
         krylov_tolerance
-            Convergence tolerance for the Krylov linear solver.
+            Convergence tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
         max_linear_iters
-            Maximum iterations allowed for the Krylov solver.
+            Maximum iterations allowed for the Krylov solver. If None, uses
+            default from LinearSolverConfig.
         linear_correction_type
-            Type of Krylov correction ("minimal_residual" or other).
+            Type of Krylov correction. If None, uses default from
+            LinearSolverConfig.
         newton_tolerance
-            Convergence tolerance for Newton iterations.
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
         max_newton_iters
-            Maximum Newton iterations per implicit stage.
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
         newton_damping
-            Damping factor for Newton step size.
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
         newton_max_backtracks
-            Maximum backtracking steps in Newton's method.
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
         tableau
             DIRK tableau describing the coefficients. Defaults to
             :data:`DEFAULT_DIRK_TABLEAU`.
@@ -209,7 +216,7 @@ class DIRKStep(ODEImplicitStep):
             "observables_function": observables_function,
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order,
+            "preconditioner_order": preconditioner_order if preconditioner_order is not None else 2,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -231,19 +238,35 @@ class DIRKStep(ODEImplicitStep):
         else:
             controller_defaults = DIRK_FIXED_DEFAULTS
         
+        # Build kwargs dict conditionally
+        solver_kwargs = {}
+        if krylov_tolerance is not None:
+            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            solver_kwargs['max_linear_iters'] = max_linear_iters
+        if linear_correction_type is not None:
+            solver_kwargs['linear_correction_type'] = linear_correction_type
+        if newton_tolerance is not None:
+            solver_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            solver_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            solver_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        
         # Call parent __init__ to create solver instances
-        super().__init__(
-            config,
-            controller_defaults,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-        )
+        super().__init__(config, controller_defaults, **solver_kwargs)
 
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+        
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -363,6 +386,7 @@ class DIRKStep(ODEImplicitStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -373,8 +397,7 @@ class DIRKStep(ODEImplicitStep):
         precision = self.precision
         tableau = config.tableau
         
-        # Access solver device function from owned instance
-        solver_fn = self.solver.device_function
+        solver_fn = solver_function
         nonlinear_solver = solver_fn
         
         n = int32(n)

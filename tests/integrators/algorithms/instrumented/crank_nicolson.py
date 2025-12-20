@@ -52,14 +52,14 @@ class CrankNicolsonStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 1,
-        krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 100,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 1000,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 10,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -110,30 +110,31 @@ class CrankNicolsonStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
+            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(
-            config,
-            CN_DEFAULTS,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-        )
+        
+        # Build kwargs dict conditionally
+        solver_kwargs = {}
+        if krylov_tolerance is not None:
+            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            solver_kwargs['max_linear_iters'] = max_linear_iters
+        if linear_correction_type is not None:
+            solver_kwargs['linear_correction_type'] = linear_correction_type
+        if newton_tolerance is not None:
+            solver_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            solver_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            solver_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        
+        super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
 
     def build_implicit_helpers(self) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
@@ -217,6 +218,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -225,8 +227,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         config = self.compile_settings
         
-        # Access solver device function from owned instance
-        solver_fn = self.solver.device_function
+        solver_fn = solver_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)

@@ -17,6 +17,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -31,6 +32,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Device observable computation helper.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -54,8 +57,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                                                  name='solver_scratch')
         )
         
-        # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = solver_function
 
         @cuda.jit(
             # (

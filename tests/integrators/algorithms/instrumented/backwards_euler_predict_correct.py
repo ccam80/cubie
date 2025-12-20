@@ -17,6 +17,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -48,8 +49,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         solver_shared_elements = self.solver_shared_elements
         n = int32(n)
         
-        # Access solver device function from owned instance
-        solver_fn = self._newton_solver.device_function
+        solver_fn = solver_function
         has_driver_function = driver_function is not None
         n = int32(n)
 

@@ -245,7 +245,7 @@ class NewtonKrylov(CUDAFactory):
         buffer_registry.register(
             'newton_residual',
             self,
-            self.nn,
+            self.n,
             config.residual_location,
             precision=precision
         )
