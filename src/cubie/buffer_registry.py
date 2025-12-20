@@ -76,57 +76,57 @@ class CUDABuffer:
         self,
         shared_slice: Optional[slice],
         persistent_slice: Optional[slice],
-        aliased_parent_slice: Optional[slice],
         local_size: Optional[int],
     ) -> Callable:
         """Compile CUDA device function for buffer allocation.
 
         Generates an inlined device function that allocates this buffer
-        from the appropriate memory region based on which parameters are
-        provided.
+        from the appropriate memory region based on which slice parameters
+        are provided.
 
         Parameters
         ----------
         shared_slice
-            Slice into shared memory for fresh shared allocation, or None.
+            Slice into shared memory, or None if not using shared.
         persistent_slice
-            Slice into persistent local memory, or None.
-        aliased_parent_slice
-            Slice into parent buffer when aliasing succeeds, or None.
+            Slice into persistent local memory, or None if not using
+            persistent.
         local_size
             Size for local array allocation, or None if not local.
 
         Returns
         -------
         Callable
-            CUDA device function:
-            (shared, persistent, aliased_parent) -> array
+            CUDA device function: (shared, persistent) -> array
+
+            The device function accepts shared and persistent memory
+            arrays and returns a view/slice into the appropriate memory
+            region, or allocates a fresh local array.
+
+        Notes
+        -----
+        When a buffer aliases another buffer and aliasing succeeds, both
+        buffers receive slices in the same memory region (shared or
+        persistent) that overlap. The allocator transparently provides
+        the correct view without needing a separate parent reference.
         """
         # Compile-time constants captured in closure
         _use_shared = shared_slice is not None
         _use_persistent = persistent_slice is not None
-        _use_aliased_parent = aliased_parent_slice is not None
         _shared_slice = shared_slice if _use_shared else slice(0, 0)
         _persistent_slice = (
             persistent_slice if _use_persistent else slice(0, 0)
-        )
-        _aliased_parent_slice = (
-            aliased_parent_slice if _use_aliased_parent else slice(0, 0)
         )
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def allocate_buffer(
-            shared, persistent, aliased_parent
-        ):
+        def allocate_buffer(shared, persistent):
             """Allocate buffer from appropriate memory region."""
-            if _use_aliased_parent:
-                array = aliased_parent[_aliased_parent_slice]
+            if _use_shared:
+                array = shared[_shared_slice]
             elif _use_persistent:
                 array = persistent[_persistent_slice]
-            elif _use_shared:
-                array = shared[_shared_slice]
             else:
                 array = cuda.local.array(_local_size, _precision)
             return array
@@ -486,10 +486,9 @@ class BufferGroup:
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
-        Determines allocation strategy based on buffer properties and
-        whether aliasing succeeds. When aliasing succeeds, passes parent
-        buffer for slicing. Otherwise passes shared or appropriate
-        location.
+        Retrieves the pre-computed memory slice for this buffer from the
+        appropriate layout (shared, persistent, or local) and generates
+        an allocator that uses that slice.
 
         Parameters
         ----------
@@ -500,11 +499,24 @@ class BufferGroup:
         -------
         Callable
             CUDA device function that allocates the buffer.
+            Signature: (shared, persistent) -> array
 
         Raises
         ------
         KeyError
             If buffer name not registered.
+
+        Notes
+        -----
+        The layout building phase (build_shared_layout and
+        build_persistent_layout) determines which memory region each
+        buffer uses and assigns slices accordingly. This method simply
+        retrieves those pre-computed slices and creates an allocator
+        that uses them.
+
+        For aliased buffers, the layout builder assigns slices that
+        overlap the parent buffer, implementing aliasing transparently
+        at the slice level.
         """
         if name not in self.entries:
             raise KeyError(f"Buffer '{name}' not registered for parent.")
@@ -519,82 +531,13 @@ class BufferGroup:
         if self._local_sizes is None:
             self._local_sizes = self.build_local_sizes()
 
-        # Determine allocation strategy
-        shared_slice = None
-        persistent_slice = None
-        aliased_parent_slice = None
-        local_size = None
-
-        if entry.aliases is not None:
-            # This buffer aliases another
-            parent_entry = self.entries[entry.aliases]
-            parent_name = entry.aliases
-
-            if entry.is_shared and parent_entry.is_shared:
-                # Both shared - check if aliasing succeeded
-                if name in self._shared_layout:
-                    child_slice = self._shared_layout[name]
-                    parent_slice = self._shared_layout[parent_name]
-
-                    # If child slice is WITHIN parent bounds, aliasing
-                    # succeeded
-                    if (child_slice.start >= parent_slice.start and
-                            child_slice.stop <= parent_slice.stop):
-                        # Aliasing succeeded - compute relative slice
-                        relative_start = (
-                            child_slice.start - parent_slice.start
-                        )
-                        relative_stop = (
-                            child_slice.stop - parent_slice.start
-                        )
-                        aliased_parent_slice = slice(
-                            relative_start, relative_stop
-                        )
-                    else:
-                        # Got fresh allocation (parent was full)
-                        shared_slice = child_slice
-            elif (entry.is_persistent_local and
-                  parent_entry.is_persistent_local):
-                # Both persistent - similar logic
-                if name in self._persistent_layout:
-                    child_slice = self._persistent_layout[name]
-                    parent_slice = self._persistent_layout[parent_name]
-
-                    if (child_slice.start >= parent_slice.start and
-                            child_slice.stop <= parent_slice.stop):
-                        # Aliasing succeeded
-                        relative_start = (
-                            child_slice.start - parent_slice.start
-                        )
-                        relative_stop = (
-                            child_slice.stop - parent_slice.start
-                        )
-                        aliased_parent_slice = slice(
-                            relative_start, relative_stop
-                        )
-                    else:
-                        # Got fresh allocation
-                        persistent_slice = child_slice
-            else:
-                # Cross-location: use child's layout
-                if entry.is_shared:
-                    shared_slice = self._shared_layout.get(name)
-                elif entry.is_persistent_local:
-                    persistent_slice = self._persistent_layout.get(name)
-                else:
-                    local_size = self._local_sizes.get(name)
-        else:
-            # Non-aliased buffer: use appropriate layout
-            if entry.is_shared:
-                shared_slice = self._shared_layout.get(name)
-            elif entry.is_persistent_local:
-                persistent_slice = self._persistent_layout.get(name)
-            else:
-                local_size = self._local_sizes.get(name)
+        # Get slice from appropriate layout
+        shared_slice = self._shared_layout.get(name)
+        persistent_slice = self._persistent_layout.get(name)
+        local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
-            shared_slice, persistent_slice, aliased_parent_slice,
-            local_size
+            shared_slice, persistent_slice, local_size
         )
 
 

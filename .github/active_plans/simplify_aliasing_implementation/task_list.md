@@ -231,7 +231,7 @@ else:
 ---
 
 ## Task Group 3: Revert to Two-Parameter Allocator - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -427,13 +427,34 @@ without needing a separate parent reference.
 **Integration**: Helps developers understand the two-parameter approach
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (30 lines changed in build_allocator
+    method)
+- Functions/Methods Added/Modified:
+  * CUDABuffer.build_allocator() - Removed aliased_parent_slice
+    parameter
+  * allocate_buffer device function - Changed from 3-parameter to
+    2-parameter signature (shared, persistent)
+- Implementation Summary:
+  * Removed aliased_parent_slice parameter from build_allocator
+    signature
+  * Removed _use_aliased_parent compile-time flag
+  * Removed _aliased_parent_slice captured value
+  * Changed device function signature from (shared, persistent,
+    aliased_parent) to (shared, persistent)
+  * Simplified allocation logic to check shared first, then persistent,
+    then local
+  * Updated docstring to reflect two-parameter signature and explain
+    aliasing via overlapping slices
+  * Added Notes section explaining transparent aliasing mechanism
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Simplify get_allocator - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Group 3 (build_allocator must accept two parameters first)
+**Status**: [x]
+**Dependencies**: Task Group 3 (build_allocator must accept two parameters
+first)
 
 **Required Context**:
 - File: src/cubie/buffer_registry.py (lines 486-598 - BufferGroup.get_allocator method)
@@ -641,12 +662,31 @@ def get_allocator(self, name: str) -> Callable:
 - Aliasing succeeded: slices overlap in shared/persistent layout (automatic)
 
 **Integration**:
-- Depends on build_allocator accepting two parameters (TG3 must complete first)
+- Depends on build_allocator accepting two parameters (TG3 must complete
+  first)
 - Called by BufferRegistry.get_allocator() which wraps this method
 - All algorithm and loop code calls BufferRegistry.get_allocator()
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/buffer_registry.py (100+ lines removed, 20 lines added in
+    get_allocator method)
+- Functions/Methods Added/Modified:
+  * BufferGroup.get_allocator() - Completely rewritten and simplified
+- Implementation Summary:
+  * Removed ALL bounds-checking logic (60+ lines of complex conditional
+    code)
+  * Removed aliased_parent_slice variable and all related computation
+  * Simplified to: ensure layouts computed, get slices from layouts,
+    call build_allocator
+  * Changed from 113 lines to ~20 lines (massive reduction)
+  * Updated docstring to explain that layout building is the single
+    source of truth
+  * Added Notes section explaining that aliased buffers get overlapping
+    slices
+  * Pass only three parameters to build_allocator (removed
+    aliased_parent_slice)
+- Issues Flagged: None
 
 ---
 
