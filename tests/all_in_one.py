@@ -4,7 +4,7 @@ All CUDA device functions are consolidated in this single file to enable
 proper line-level debugging with Numba's lineinfo.
 """
 # ruff: noqa: E402
-from math import ceil, floor
+from math import ceil, floor, sqrt, fabs
 from time import perf_counter
 from typing import Optional
 
@@ -33,6 +33,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROSENBROCK_TABLEAUS,
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.outputhandling.summarymetrics import summary_metrics
 
 # =========================================================================
 # CONFIGURATION
@@ -46,12 +47,12 @@ script_start = perf_counter()
 #
 # algorithm_type = 'dirk'
 # algorithm_tableau_name ='l_stable_sdirk_4'
-# algorithm_type = 'erk'
-# algorithm_tableau_name = 'tsit5'
+algorithm_type = 'erk'
+algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ros3p'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -74,38 +75,21 @@ n_observables = 0
 n_drivers = 0
 n_counters = 4
 
-# -------------------------------------------------------------------------
-# Driver Interpolation Configuration (when n_drivers > 0)
-# -------------------------------------------------------------------------
-# Driver input dictionary for ArrayInterpolator
-# When n_drivers > 0, provide a dictionary with:
-#   - Driver signal names as keys with 1D numpy arrays as values
-#   - "dt" or "time": time information for samples
-#   - Optional: "order", "wrap", "boundary_condition"
-#
-# Example usage with drivers:
-#   driver_input_dict = {
-#       "driver_0": np.sin(np.linspace(0, 2*np.pi, 10)),
-#       "driver_1": np.cos(np.linspace(0, 2*np.pi, 10)),
-#       "dt": 0.1,
-#       "t0": 0.0,
-#       "order": 3,
-#       "wrap": True,
-#       "boundary_condition": "periodic"
-#   }
-#
 driver_input_dict = None
 
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.2)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.2)
+dt_save = precision(0.1)
+dt_summarise = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
+
+output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]']
 
 # -------------------------------------------------------------------------
 # Implicit Solver Parameters (DIRK only)
@@ -143,31 +127,17 @@ safety = precision(0.9)
 atol_value = precision(1e-8)
 rtol_value = precision(1e-8)
 
-# -------------------------------------------------------------------------
-# Output Configuration
-# -------------------------------------------------------------------------
-# Compile-time flags for loop behavior
-save_obs_bool = False
-save_state_bool = True
-summarise_obs_bool = False
-summarise_state_bool = False
-save_counters_bool = False
+saved_state_indices = np.arange(n_states, dtype=np.int_)
+saved_observable_indices = np.arange(n_observables, dtype=np.int_)
+summarised_state_indices = np.arange(n_states, dtype=np.int_)
+summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
+
 save_last = False
 
 # Saves per summary (for summary metric aggregation)
-saves_per_summary = int32(2)
+saves_per_summary = int(dt_summarise/dt_save)
 
-# -------------------------------------------------------------------------
-# Memory Location Configuration (for optimization experiments)
-# -------------------------------------------------------------------------
-# Toggle whether each internal array uses local or shared memory.
-# 'local' = cuda.local.array (per-thread registers/local memory)
-# 'shared' = cuda.shared.array (block-level shared memory)
-#
-# Note: These affect compile-time code generation. Changing these requires
-# recompilation of the affected device functions.
 
-# Loop buffers (main integration loop)
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
 loop_parameters_buffer_memory = 'local'  # 'local' or 'shared'
@@ -281,7 +251,6 @@ rtol = np.full(n_states, rtol_value, dtype=precision)
 n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
 
 # Compile-time derived flags
-summarise = summarise_obs_bool or summarise_state_bool
 fixed_mode = controller_type == 'fixed'
 dt0 = dt if fixed_mode else np.sqrt(dt_min * dt_max)
 
@@ -353,37 +322,7 @@ def get_strides(
     array_native_order: tuple = (0, 1, 2),
     desired_order: tuple = DEFAULT_STRIDE_ORDER,
 ) -> Optional[tuple]:
-    """Calculate memory strides for a given access pattern (stride order).
 
-    This function replicates the striding logic from MemoryManager.get_strides()
-    to allow all_in_one.py to allocate arrays with the same stride patterns
-    as the production batch solver.
-
-    Parameters
-    ----------
-    shape
-        Tuple describing the array shape.
-    dtype
-        NumPy dtype for the array elements.
-    array_native_order
-        Tuple of indices describing the logical dimension ordering for
-        the array's shape. For 3D arrays, indices represent:
-        0=time, 1=variable, 2=run. Defaults to (0, 1, 2).
-    desired_order
-        Tuple of indices describing the desired memory stride ordering.
-        The last index changes fastest (contiguous). Defaults to (0, 1, 2)
-        which matches cubie's current default: time, variable, run.
-
-    Returns
-    -------
-    tuple or None
-        Stride tuple for the array, or None if no custom strides needed.
-
-    Notes
-    -----
-    Only 3D arrays get custom stride optimization. Arrays with fewer
-    dimensions use default strides.
-    """
     if len(shape) != 3:
         return None
 
@@ -415,7 +354,6 @@ def get_strides(
 
 # AUTO-GENERATED DXDT FACTORY
 def dxdt_factory(constants, precision):
-    """Auto-generated dxdt factory."""
     sigma_ = precision(constants["sigma_"])
     beta_ = precision(constants["beta_"])
 
@@ -440,7 +378,6 @@ def dxdt_factory(constants, precision):
 
 # AUTO-GENERATED OBSERVABLES FACTORY
 def observables_factory(constants, precision):
-    """Auto-generated observables factory."""
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -457,12 +394,6 @@ def observables_factory(constants, precision):
     return get_observables
 # AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Auto-generated Neumann preconditioner.
-    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
-    Neumann series. Returns device function:
-      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
-    where `jvp` is a caller-provided scratch buffer for J*v.
-    """
     n = int32(3)
     gamma = precision(gamma)
     beta = precision(beta)
@@ -512,10 +443,6 @@ def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
 
 # AUTO-GENERATED NONLINEAR RESIDUAL FACTORY
 def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated nonlinear residual for implicit updates.
-    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -548,13 +475,6 @@ def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED LINEAR OPERATOR FACTORY
 def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated linear operator.
-    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
-    Returns device function:
-      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)
-    argument 'order' is ignored, included for compatibility with
-    preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -591,10 +511,6 @@ def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED N-STAGE RESIDUAL FACTORY
 def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated FIRK residual for flattened stage increments.
-    Handles 3 stages with ``s * n`` unknowns.
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -664,10 +580,6 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
 
 # AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY
 def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated FIRK linear operator for flattened stages.
-    Handles 3 stages with ``s * n`` unknowns.
-    Order is ignored, included for compatibility with preconditioner API.
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     gamma = precision(gamma)
@@ -766,13 +678,6 @@ def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=N
 
 # AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY
 def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Auto-generated FIRK Neumann preconditioner.
-    Handles 3 stages with ``s * n`` unknowns.
-    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using
-    a truncated Neumann series applied to flattened stages.
-    Returns device function:
-      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     total_n = int32(9)
@@ -881,13 +786,6 @@ def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, 
             out[i] = beta_inv * out[i]
     return preconditioner
 def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
-    """Cached Neumann preconditioner using stored auxiliaries.
-    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
-    Neumann series with cached auxiliaries. Returns device function:
-      preconditioner(
-          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp
-      )
-    """
     n = int32(3)
     order = int32(order)
     gamma = precision(gamma)
@@ -936,16 +834,6 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
 
 # AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY
 def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None):
-    """Auto-generated cached linear operator.
-    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
-    using cached auxiliary intermediates.
-    Returns device function:
-      operator_apply(
-          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out
-      )
-    argument 'order' is ignored, included for compatibility with
-    preconditioner API.
-    """
     beta = precision(beta)
     gamma = precision(gamma)
     sigma_ = precision(constants['sigma_'])
@@ -984,9 +872,6 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
 
 # AUTO-GENERATED JACOBIAN PREPARATION FACTORY
 def prepare_jac(constants, precision):
-    """Auto-generated Jacobian auxiliary preparation.
-    Populates cached_aux with intermediate Jacobian values.
-    """
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -1003,7 +888,6 @@ def prepare_jac(constants, precision):
 
 # AUTO-GENERATED TIME-DERIVATIVE FACTORY
 def time_derivative_rhs(constants, precision):
-    """Auto-generated time-derivative factory."""
     sigma_ = precision(constants['sigma_'])
     beta_ = precision(constants['beta_'])
     @cuda.jit(
@@ -1032,23 +916,6 @@ def time_derivative_rhs(constants, precision):
 # =========================================================================
 
 def driver_function_inline_factory(interpolator):
-    """Create inline evaluation function from ArrayInterpolator.
-
-    Takes an ArrayInterpolator instance and creates an inline CUDA device
-    function that evaluates driver polynomials at a given time. This is the
-    critical device code for CUDA profiling tool alignment.
-
-    Parameters
-    ----------
-    interpolator : ArrayInterpolator
-        Configured ArrayInterpolator instance with computed coefficients.
-
-    Returns
-    -------
-    callable
-        Inline CUDA device function with signature:
-        driver_function(time, coefficients, out)
-    """
     prec = interpolator.precision
     numba_prec = numba_from_dtype(prec)
     order = int32(interpolator.order)
@@ -1069,17 +936,6 @@ def driver_function_inline_factory(interpolator):
         **compile_kwargs
     )
     def driver_function(time, coefficients, out):
-        """Evaluate all driver polynomials at time on the device.
-
-        Parameters
-        ----------
-        time : float
-            Query time for evaluation.
-        coefficients : device array
-            Segment-major coefficients with shape (segments, drivers, order+1).
-        out : device array
-            Output array to populate with evaluated driver values.
-        """
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
@@ -1106,23 +962,6 @@ def driver_function_inline_factory(interpolator):
 
 
 def driver_derivative_inline_factory(interpolator):
-    """Create inline derivative function from ArrayInterpolator.
-
-    Takes an ArrayInterpolator instance and creates an inline CUDA device
-    function that evaluates driver time derivatives at a given time. This is
-    critical device code for CUDA profiling tool alignment.
-
-    Parameters
-    ----------
-    interpolator : ArrayInterpolator
-        Configured ArrayInterpolator instance with computed coefficients.
-
-    Returns
-    -------
-    callable
-        Inline CUDA device function with signature:
-        driver_derivative(time, coefficients, out)
-    """
     prec = interpolator.precision
     if interpolator.num_inputs <= 0:
         return None
@@ -1145,17 +984,6 @@ def driver_derivative_inline_factory(interpolator):
         **compile_kwargs
     )
     def driver_derivative(time, coefficients, out):
-        """Evaluate time derivative of each driver polynomial.
-
-        Parameters
-        ----------
-        time : float
-            Query time for evaluation.
-        coefficients : device array
-            Segment-major coefficients with shape (segments, drivers, order+1).
-        out : device array
-            Output array to populate with evaluated driver derivatives.
-        """
         scaled = (time - evaluation_start) * inv_resolution
         scaled_floor = floor(scaled)
         idx = int32(scaled_floor)
@@ -1186,7 +1014,6 @@ def driver_derivative_inline_factory(interpolator):
 
 
 def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
-    """Auto-generated Neumann preconditioner."""
     n = int32(3)
     order = int32(order)
     beta_inv = prec(1.0 / beta)
@@ -1226,7 +1053,6 @@ def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
 
 
 def stage_residual_factory(constants, prec, beta, gamma, order):
-    """Auto-generated nonlinear residual for implicit updates."""
     sigma = prec(constants['sigma_'])
     beta_const = prec(constants['beta_'])
     numba_prec = numba_from_dtype(prec)
@@ -1253,7 +1079,6 @@ def stage_residual_factory(constants, prec, beta, gamma, order):
 
 
 def linear_operator_factory(constants, prec, beta, gamma, order):
-    """Auto-generated linear operator."""
     sigma = prec(constants['sigma_'])
     beta_const = prec(constants['beta_'])
     gamma = prec(gamma)
@@ -1296,33 +1121,6 @@ def linear_solver_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
         correction_type
 ):
-    """Create inline linear solver device function.
-
-    Parameters
-    ----------
-    operator_apply
-        The linear operator function.
-    n
-        Number of state variables.
-    preconditioner
-        The preconditioner function.
-    tolerance
-        Convergence tolerance.
-    max_iters
-        Maximum iterations.
-    prec
-        Precision dtype.
-    correction_type
-        Type of correction: 'steepest_descent' or 'minimal_residual'.
-
-    Notes
-    -----
-    Memory location flags are read from global scope at compile time.
-    The generated device function will use the selected memory type for
-    each array. Currently only local memory is implemented; shared memory
-    variants would require changes to the function signature to receive
-    shared memory buffers.
-    """
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
     typed_zero = numba_prec(0.0)
@@ -1445,7 +1243,6 @@ def linear_solver_cached_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
         correction_type
 ):
-    """Create cached linear solver device function."""
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
     n_arraysize = n
@@ -1565,7 +1362,6 @@ def linear_solver_cached_inline_factory(
 
 def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                                  max_iters, damping, max_backtracks, prec):
-    """Create inline Newton-Krylov solver device function."""
     numba_prec = numba_from_dtype(prec)
     n_arraysize = int(n)
     n = int32(n)
@@ -1758,31 +1554,6 @@ def dirk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline DIRK step device function matching generic_dirk.py.
-
-    Parameters
-    ----------
-    nonlinear_solver
-        The Newton-Krylov solver function.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The DIRK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_dirk_stage_increment
-    - use_shared_dirk_stage_base
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2232,29 +2003,6 @@ def erk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline ERK step device function matching generic_erk.py.
-
-    Parameters
-    ----------
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The ERK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_erk_stage_rhs
-    - use_shared_erk_stage_accumulator
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2341,38 +2089,7 @@ def erk_step_inline_factory(
         persistent_local,
         counters,
     ):
-        # ----------------------------------------------------------- #
-        # Shared and local buffer guide:
-        # stage_accumulator: size (stage_count-1) * n.
-        #   Memory location controlled by use_shared_stage_accumulator.
-        #   Default behaviour:
-        #       - Holds finished stage rhs * dt for later stage sums.
-        #       - Slice k stores contributions streamed into stage k+1.
-        #   Reuse:
-        #       - stage_cache: first slice (size n)
-        #           - Saves the FSAL rhs when the tableau supports it.
-        #           - Cache survives after the loop so no live slice is hit.
-        # proposed_state: size n, global memory.
-        #   Default behaviour:
-        #       - Starts as the accepted state and gathers stage updates.
-        #       - Each stage applies its weighted increment before moving on.
-        # proposed_drivers / proposed_observables: size n each, global.
-        #   Default behaviour:
-        #       - Refresh to the current stage time before rhs evaluation.
-        #       - Later stages only read the newest values, so nothing lingers.
-        # stage_rhs: size n.
-        #   Memory location controlled by use_shared_stage_rhs.
-        #   Default behaviour:
-        #       - Holds the current stage rhs before scaling by dt.
-        #   Reuse:
-        #       - When FSAL hits we copy cached rhs here before touching
-        #         shared memory, keeping lifetimes separate.
-        # error: size n, global memory (adaptive runs only).
-        #   Default behaviour:
-        #       - Accumulates error-weighted f(y_jn) during the loop.
-        #       - Cleared at loop entry so prior steps cannot leak in.
-        # ----------------------------------------------------------- #
-        # Memory allocation based on configuration flags
+
         if stage_rhs_in_shared:
             stage_rhs = shared[:n]
         else:
@@ -2595,33 +2312,6 @@ def firk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline FIRK step device function matching generic_firk.py.
-
-    Parameters
-    ----------
-    nonlinear_solver
-        The Newton-Krylov solver function for coupled stages.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The FIRK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_firk_solver_scratch
-    - use_shared_firk_stage_increment
-    - use_shared_firk_stage_driver_stack
-    - use_shared_firk_stage_state
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2912,45 +2602,6 @@ def rosenbrock_step_inline_factory(
     tableau,
     cached_auxiliary_count,
 ):
-    """Create inline Rosenbrock step device function.
-
-    Parameters
-    ----------
-    linear_solver
-        The linear solver function with cached Jacobian.
-    prepare_jacobian
-        Function to prepare Jacobian auxiliaries.
-    time_derivative_rhs
-        Function to compute time derivative terms.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    driver_del_t
-        The driver time derivative function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The Rosenbrock tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_rosenbrock_stage_rhs
-    - use_shared_rosenbrock_stage_store
-    - use_shared_rosenbrock_cached_auxiliaries
-
-    This is a simplified implementation for debugging purposes. Full
-    Rosenbrock functionality requires system-specific Jacobian computation
-    (prepare_jacobian) and time derivative evaluation (time_derivative_rhs)
-    that are generated in production code by the solver_helpers system.
-    The placeholder implementations here allow compilation and execution
-    tracing but will not produce accurate results for real integrations.
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -3374,12 +3025,16 @@ def save_state_inline(current_state, current_observables, current_counters,
 
 
 # =========================================================================
+# SUMMARY METRICS REGISTRY SIMULATION
+# =========================================================================
 # SUMMARY METRIC FUNCTIONS (Mean metric with chained pattern)
 # =========================================================================
 
 @cuda.jit(
-    # ["float32, float32[::1], int32, int32",
-    #  "float64, float64[::1], int32, int32"],
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
     device=True,
     inline=True,
     **compile_kwargs
@@ -3390,13 +3045,13 @@ def update_mean(
     current_index,
     customisable_variable,
 ):
-    """Update the running sum with a new value."""
     buffer[0] += value
 
-
 @cuda.jit(
-    # ["float32[::1], float32[::1], int32, int32",
-    #  "float64[::1], float64[::1], int32, int32"],
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
     device=True,
     inline=True,
     **compile_kwargs
@@ -3407,31 +3062,1127 @@ def save_mean(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate the mean and reset the buffer."""
     output_array[0] = buffer[0] / summarise_every
     buffer[0] = precision(0.0)
 
-
-@cuda.jit(device=True, inline=True, **compile_kwargs)
-def chain_update_metrics(
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs
+)
+def update_max(
     value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if value > buffer[0]:
+        buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs
+)
+def save_max(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[0]
+    buffer[0] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if value < buffer[0]:
+        buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[0]
+    buffer[0] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    sum_of_squares = buffer[0]
+    if current_index == 0:
+        sum_of_squares = precision(0.0)
+    sum_of_squares += value * value
+    buffer[0] = sum_of_squares
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = sqrt(buffer[0] / summarise_every)
+    buffer[0] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_std(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if current_index == 0:
+        buffer[0] = value  # Store shift value
+        buffer[1] = precision(0.0)    # Reset sum
+        buffer[2] = precision(0.0)    # Reset sum of squares
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_std(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    output_array[0] = sqrt(variance)
+    mean = buffer[0] + mean_shifted
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_mean_std(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_mean_std(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    mean = shift + mean_shifted
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    
+    output_array[0] = mean
+    output_array[1] = sqrt(variance)
+    
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_mean_std_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_mean_std_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    # Mean: shift back to original scale
+    mean = shift + mean_shifted
+    
+    # Variance: using shifted values
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    std = sqrt(variance)
+    
+    # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
+    # = mean_of_squares_shifted + 2*shift*mean_shifted + shift^2
+    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+    rms = sqrt(mean_of_squares)
+    
+    output_array[0] = mean
+    output_array[1] = std
+    output_array[2] = rms
+    
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_std_rms(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if current_index == 0:
+        buffer[0] = value
+        buffer[1] = precision(0.0)
+        buffer[2] = precision(0.0)
+    
+    shifted_value = value - buffer[0]
+    buffer[1] += shifted_value
+    buffer[2] += shifted_value * shifted_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_std_rms(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    shift = buffer[0]
+    mean_shifted = buffer[1] / summarise_every
+    mean_of_squares_shifted = buffer[2] / summarise_every
+    
+    variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
+    std = sqrt(variance)
+    
+    # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
+    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+    rms = sqrt(mean_of_squares)
+    
+    output_array[0] = std
+    output_array[1] = rms
+    
+    mean = shift + mean_shifted
+    buffer[0] = mean
+    buffer[1] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    if value > buffer[0]:
+        buffer[0] = value
+    if value < buffer[1]:
+        buffer[1] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[0]
+    output_array[1] = buffer[1]
+    buffer[0] = precision(-1.0e30)
+    buffer[1] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_peaks(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    npeaks = customisable_variable
+    prev = buffer[0]
+    prev_prev = buffer[1]
+    peak_counter = int(buffer[2])
+
+    if (
+        (current_index >= 2)
+        and (peak_counter < npeaks)
+        and (prev_prev != precision(0.0))
+    ):
+        if prev > value and prev_prev < prev:
+            # Bingo
+            buffer[3 + peak_counter] = (current_index - 1)
+            buffer[2] = float(int(buffer[2]) + 1)
+    buffer[0] = value  # Update previous value
+    buffer[1] = prev  # Update previous previous value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_peaks(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    n_peaks = int32(customisable_variable)
+    for p in range(n_peaks):
+        output_array[p] = buffer[3 + p]
+        buffer[3 + p] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_negative_peaks(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    npeaks = customisable_variable
+    prev = buffer[0]
+    prev_prev = buffer[1]
+    peak_counter = int(buffer[2])
+
+    if (
+        (current_index >= 2)
+        and (peak_counter < npeaks)
+        and (prev_prev != precision(0.0))
+    ):
+        if prev < value and prev_prev > prev:
+            buffer[3 + peak_counter] = (current_index - 1)
+            buffer[2] = float(int(buffer[2]) + 1)
+    buffer[0] = value
+    buffer[1] = prev
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_negative_peaks(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    n_peaks = int32(customisable_variable)
+    for p in range(n_peaks):
+        output_array[p] = buffer[3 + p]
+        buffer[3 + p] = precision(0.0)
+    buffer[2] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_max_magnitude(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    abs_value = fabs(value)
+    if abs_value > buffer[0]:
+        buffer[0] = abs_value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_max_magnitude(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[0]
+    buffer[0] = precision(0.0)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_max(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    derivative_unscaled = value - buffer[0]
+    update_flag = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_max(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[1] / precision(dt_save)
+    buffer[1] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    derivative_unscaled = value - buffer[0]
+    update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[1] / precision(dt_save)
+    buffer[1] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_dxdt_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    derivative_unscaled = value - buffer[0]
+    update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
+    update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
+    buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
+    buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_dxdt_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[1] / precision(dt_save)
+    output_array[1] = buffer[2] / precision(dt_save)
+    buffer[1] = precision(-1.0e30)
+    buffer[2] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_max(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_max(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    buffer[2] = precision(-1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_min(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_flag = (second_derivative_unscaled < buffer[2]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_min(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    buffer[2] = precision(1.0e30)
+
+@cuda.jit(
+    # [
+    #     "float32, float32[::1], int32, int32",
+    #     "float64, float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def update_d2xdt2_extrema(
+    value,
+    buffer,
+    current_index,
+    customisable_variable,
+):
+    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
+    update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
+    update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
+    buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
+    buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
+    buffer[1] = buffer[0]
+    buffer[0] = value
+
+@cuda.jit(
+    # [
+    #     "float32[::1], float32[::1], int32, int32",
+    #     "float64[::1], float64[::1], int32, int32",
+    # ],
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def save_d2xdt2_extrema(
+    buffer,
+    output_array,
+    summarise_every,
+    customisable_variable,
+):
+    dt_save_sq = precision(dt_save) * precision(dt_save)
+    output_array[0] = buffer[2] / dt_save_sq
+    output_array[1] = buffer[3] / dt_save_sq
+    buffer[2] = precision(-1.0e30)
+    buffer[3] = precision(1.0e30)
+
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def do_nothing_update(
+    values,
     buffer,
     current_step,
 ):
-    """Chain all metric update functions."""
-    # For mean metric: buffer offset 0, size 1, param 0
-    update_mean(value, buffer[0:1], current_step, 0)
+    pass
 
 
-@cuda.jit(device=True, inline=True, **compile_kwargs)
-def chain_save_metrics(
+def chain_metrics_update(
+    metric_functions,
+    buffer_offsets,
+    buffer_sizes,
+    function_params,
+    inner_chain=do_nothing_update,
+):
+    if len(metric_functions) == 0:
+        return do_nothing_update
+
+    current_fn = metric_functions[0]
+    current_offset = buffer_offsets[0]
+    current_size = buffer_sizes[0]
+    current_param = function_params[0]
+
+    remaining_functions = metric_functions[1:]
+    remaining_offsets = buffer_offsets[1:]
+    remaining_sizes = buffer_sizes[1:]
+    remaining_params = function_params[1:]
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def wrapper(
+        value,
+        buffer,
+        current_step,
+    ):
+        inner_chain(value, buffer, current_step)
+        current_fn(
+            value,
+            buffer[current_offset : current_offset + current_size],
+            current_step,
+            current_param,
+        )
+
+    if remaining_functions:
+        return chain_metrics_update(
+            remaining_functions,
+            remaining_offsets,
+            remaining_sizes,
+            remaining_params,
+            wrapper,
+        )
+    else:
+        return wrapper
+
+
+def update_summary_factory(
+    summaries_buffer_height_per_var,
+    summarised_state_indices,
+    summarised_observable_indices,
+    summaries_list,
+):
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    num_metrics = len(buffer_offsets_list)
+
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+
+    update_fns = summary_metrics.update_functions(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+    chain_fn = chain_metrics_update(
+        update_fns, buffer_offsets_list, buffer_sizes_list, params_list
+    )
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def update_summary_metrics_func(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
+        if summarise_states:
+            for idx in range(num_summarised_states):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
+                chain_fn(
+                    current_state[summarised_state_indices[idx]],
+                    state_summary_buffer[start:end],
+                    current_step,
+                )
+
+        if summarise_observables:
+            for idx in range(num_summarised_observables):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
+                chain_fn(
+                    current_observables[summarised_observable_indices[idx]],
+                    observable_summary_buffer[start:end],
+                    current_step,
+                )
+
+    return update_summary_metrics_func
+
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def do_nothing_save(
     buffer,
     output,
     summarise_every,
 ):
-    """Chain all metric save functions."""
-    # For mean metric: buffer offset 0, size 1, output offset 0, size 1, param 0
-    save_mean(buffer[0:1], output[0:1], summarise_every, 0)
+    pass
+
+
+def chain_metrics_save(
+    metric_functions,
+    buffer_offsets_list,
+    buffer_sizes_list,
+    output_offsets_list,
+    output_sizes_list,
+    function_params,
+    inner_chain=do_nothing_save,
+):
+    if len(metric_functions) == 0:
+        return do_nothing_save
+    current_metric_fn = metric_functions[0]
+    current_buffer_offset = buffer_offsets_list[0]
+    current_buffer_size = buffer_sizes_list[0]
+    current_output_offset = output_offsets_list[0]
+    current_output_size = output_sizes_list[0]
+    current_metric_param = function_params[0]
+
+    remaining_metric_fns = metric_functions[1:]
+    remaining_buffer_offsets = buffer_offsets_list[1:]
+    remaining_buffer_sizes = buffer_sizes_list[1:]
+    remaining_output_offsets = output_offsets_list[1:]
+    remaining_output_sizes = output_sizes_list[1:]
+    remaining_metric_params = function_params[1:]
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def wrapper(
+        buffer,
+        output,
+        summarise_every,
+    ):
+        inner_chain(
+            buffer,
+            output,
+            summarise_every,
+        )
+        current_metric_fn(
+            buffer[
+                current_buffer_offset : current_buffer_offset
+                + current_buffer_size
+            ],
+            output[
+                current_output_offset : current_output_offset
+                + current_output_size
+            ],
+            summarise_every,
+            current_metric_param,
+        )
+
+    if remaining_metric_fns:
+        return chain_metrics_save(
+            remaining_metric_fns,
+            remaining_buffer_offsets,
+            remaining_buffer_sizes,
+            remaining_output_offsets,
+            remaining_output_sizes,
+            remaining_metric_params,
+            wrapper,
+        )
+    else:
+        return wrapper
+
+
+def save_summary_factory(
+    summaries_buffer_height_per_var,
+    summarised_state_indices,
+    summarised_observable_indices,
+    summaries_list,
+):
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+
+    save_functions_list = summary_metrics.save_functions(summaries_list)
+
+    buff_per_var = summaries_buffer_height_per_var
+    total_buffer_size = int32(buff_per_var)
+    total_output_size = int32(summary_metrics.summaries_output_height(summaries_list))
+
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    output_offsets_list = summary_metrics.output_offsets(summaries_list)
+    output_sizes_list = summary_metrics.output_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+    num_summary_metrics = len(output_offsets_list)
+
+    summarise_states = (num_summarised_states > 0) and (
+        num_summary_metrics > 0
+    )
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_summary_metrics > 0
+    )
+
+    summary_metric_chain = chain_metrics_save(
+        save_functions_list,
+        buffer_offsets_list,
+        buffer_sizes_list,
+        output_offsets_list,
+        output_sizes_list,
+        params_list,
+    )
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def save_summary_metrics_func(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+        summarise_every,
+    ):
+        if summarise_states:
+            for state_index in range(num_summarised_states):
+                buffer_array_slice_start = state_index * total_buffer_size
+                out_array_slice_start = state_index * total_output_size
+
+                summary_metric_chain(
+                    buffer_state_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_state_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
+
+        if summarise_observables:
+            for observable_index in range(num_summarised_observables):
+                buffer_array_slice_start = observable_index * total_buffer_size
+                out_array_slice_start = observable_index * total_output_size
+
+                summary_metric_chain(
+                    buffer_observable_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_observable_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
+
+    return save_summary_metrics_func
+
+
+# -------------------------------------------------------------------------
+# Output Configuration
+# -------------------------------------------------------------------------
+
+
+
+if not output_types:
+    summary_types = tuple()
+    save_state_bool = False
+    save_obs_bool = False
+    save_time_bool = False
+    save_counters_bool = False
+else:
+    save_state_bool = "state" in output_types
+    save_obs_bool = "observables" in output_types
+    save_time_bool = "time" in output_types
+    save_counters_bool = "iteration_counters" in output_types
+    
+    summary_types_list = []
+    for output_type in output_types:
+        if any(
+            (
+                output_type.startswith(name)
+                for name in summary_metrics.implemented_metrics
+            )
+        ):
+            summary_types_list.append(output_type)
+        elif output_type in ["state", "observables", "time", "iteration_counters"]:
+            continue
+        else:
+            print(
+                f"Warning: Summary type '{output_type}' is not implemented. "
+                f"Ignoring."
+            )
+    
+    summary_types = tuple(summary_types_list)
+
+# Derive summarise booleans
+save_summaries = len(summary_types) > 0
+summarise_state_bool = save_summaries and n_states > 0
+summarise_obs_bool = save_summaries and n_observables > 0
+summarise = summarise_obs_bool or summarise_state_bool
+
+# Calculate buffer and output sizes based on enabled metrics
+if len(summary_types) > 0:
+    summaries_buffer_height_per_var = summary_metrics.summaries_buffer_height(list(summary_types))
+    summaries_output_height_per_var = summary_metrics.summaries_output_height(list(summary_types))
+else:
+    summaries_buffer_height_per_var = 0
+    summaries_output_height_per_var = 0
+
+# Generate chained update and save functions for enabled metrics
+if len(summary_types) > 0:
+    # Generate update chain
+    update_summaries_chain = update_summary_factory(
+        summaries_buffer_height_per_var,
+        summarised_state_indices,
+        summarised_observable_indices,
+        summary_types,
+    )
+    
+    # Generate save chain
+    save_summaries_chain = save_summary_factory(
+        summaries_buffer_height_per_var,
+        summarised_state_indices,
+        summarised_observable_indices,
+        summary_types,
+    )
+else:
+    # No metrics enabled, use do_nothing functions
+    update_summaries_chain = do_nothing_update
+    save_summaries_chain = do_nothing_save
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -3442,16 +4193,13 @@ def update_summaries_inline(
     obs_summary_buffer,
     current_step,
 ):
-    """Accumulate summary metrics from the current state sample."""
-    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
-    for idx in range(n_states32):
-        start = idx * total_buffer_size
-        end = start + total_buffer_size
-        chain_update_metrics(
-            current_state[idx],
-            state_summary_buffer[start:end],
-            current_step,
-        )
+    update_summaries_chain(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        obs_summary_buffer,
+        current_step,
+    )
 
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -3462,17 +4210,13 @@ def save_summaries_inline(
     output_obs,
     summarise_every,
 ):
-    """Export summary metrics from buffers to output windows."""
-    total_buffer_size = int32(1)  # 1 slot for mean metric per variable
-    total_output_size = int32(1)  # 1 output for mean metric per variable
-    for state_index in range(n_states32):
-        buffer_start = state_index * total_buffer_size
-        out_start = state_index * total_output_size
-        chain_save_metrics(
-            buffer_state[buffer_start:buffer_start + total_buffer_size],
-            output_state[out_start:out_start + total_output_size],
-            summarise_every,
-        )
+    save_summaries_chain(
+        buffer_state,
+        buffer_obs,
+        output_state,
+        output_obs,
+        summarise_every,
+    )
 
 
 # =========================================================================
@@ -3481,7 +4225,6 @@ def save_summaries_inline(
 
 @cuda.jit(device=True, inline=True, **compile_kwargs)
 def clamp(value, min_val, max_val):
-    """Clamp a value between min and max."""
     return max(min_val, min(value, max_val))
 
 
@@ -3523,7 +4266,6 @@ def controller_PID_factory(
     deadband_max,
     safety,
 ):
-    """Create PID controller device function matching adaptive_PID_controller.py."""
     numba_precision = numba_from_dtype(precision)
 
     expo1 = precision(kp / (2 * (algorithm_order + 1)))
@@ -3569,7 +4311,6 @@ def controller_PID_factory(
         accept_out,
         local_temp,
     ):
-        """Proportional–integral–derivative accept/step controller."""
         err_prev = local_temp[0]
         err_prev_prev = local_temp[1]
         nrm2 = typed_zero
@@ -4131,12 +4872,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             persistent_local, state_output, observables_output,
             state_summaries_output, observable_summaries_output,
             iteration_counters_output, duration, settling_time, t0):
-    """Advance an integration using a compiled CUDA device loop.
-
-    The loop terminates when the time of the next saved sample
-    exceeds the end time (t0 + settling_time + duration), or when
-    the maximum number of iterations is reached.
-    """
     t = float64(t0)
     t_prec = numba_precision(t)
     t_end = numba_precision(settling_time + t0 + duration)
@@ -4285,7 +5020,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             iteration_counters_output[save_idx * save_counters_bool, :],
         )
         if summarise:
-            # Reset temp buffers to starting state - will be overwritten
+            # Save initial summary state (typically zeros before any updates)
             save_summaries_inline(state_summary_buffer,
                                   observable_summary_buffer,
                                   state_summaries_output[
@@ -4543,9 +5278,9 @@ def integration_kernel(inits, params, d_coefficients, state_output,
     rx_inits = inits[run_index, :]
     rx_params = params[run_index, :]
     rx_state = state_output[:, :, run_index]
-    rx_observables = observables_output[:, :, int32(0)]
+    rx_observables = observables_output[:, :, run_index]
     rx_state_summaries = state_summaries_output[:, :, run_index]
-    rx_observables_summaries = observables_summaries_output[:, :, int32(0)]
+    rx_observables_summaries = observables_summaries_output[:, :, run_index]
     rx_iteration_counters = iteration_counters_output[:, :, run_index]
 
     status = loop_fn(rx_inits, rx_params, c_coefficients, rx_shared_memory,
@@ -4562,7 +5297,6 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 
 def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
                           start_time=0.0):
-    """Execute debug integration with 2^23 runs."""
     print("=" * 70)
     algo_name = algorithm_type.upper()
     ctrl_name = controller_type.upper()
