@@ -1173,33 +1173,6 @@ def linear_solver_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
         correction_type
 ):
-    """Create inline linear solver device function.
-
-    Parameters
-    ----------
-    operator_apply
-        The linear operator function.
-    n
-        Number of state variables.
-    preconditioner
-        The preconditioner function.
-    tolerance
-        Convergence tolerance.
-    max_iters
-        Maximum iterations.
-    prec
-        Precision dtype.
-    correction_type
-        Type of correction: 'steepest_descent' or 'minimal_residual'.
-
-    Notes
-    -----
-    Memory location flags are read from global scope at compile time.
-    The generated device function will use the selected memory type for
-    each array. Currently only local memory is implemented; shared memory
-    variants would require changes to the function signature to receive
-    shared memory buffers.
-    """
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
     typed_zero = numba_prec(0.0)
@@ -1322,7 +1295,6 @@ def linear_solver_cached_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
         correction_type
 ):
-    """Create cached linear solver device function."""
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
     n_arraysize = n
@@ -1442,7 +1414,6 @@ def linear_solver_cached_inline_factory(
 
 def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                                  max_iters, damping, max_backtracks, prec):
-    """Create inline Newton-Krylov solver device function."""
     numba_prec = numba_from_dtype(prec)
     n_arraysize = int(n)
     n = int32(n)
@@ -1635,31 +1606,6 @@ def dirk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline DIRK step device function matching generic_dirk.py.
-
-    Parameters
-    ----------
-    nonlinear_solver
-        The Newton-Krylov solver function.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The DIRK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_dirk_stage_increment
-    - use_shared_dirk_stage_base
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2109,29 +2055,6 @@ def erk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline ERK step device function matching generic_erk.py.
-
-    Parameters
-    ----------
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The ERK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_erk_stage_rhs
-    - use_shared_erk_stage_accumulator
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2472,33 +2395,6 @@ def firk_step_inline_factory(
     prec,
     tableau,
 ):
-    """Create inline FIRK step device function matching generic_firk.py.
-
-    Parameters
-    ----------
-    nonlinear_solver
-        The Newton-Krylov solver function for coupled stages.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The FIRK tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_firk_solver_scratch
-    - use_shared_firk_stage_increment
-    - use_shared_firk_stage_driver_stack
-    - use_shared_firk_stage_state
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -2789,45 +2685,6 @@ def rosenbrock_step_inline_factory(
     tableau,
     cached_auxiliary_count,
 ):
-    """Create inline Rosenbrock step device function.
-
-    Parameters
-    ----------
-    linear_solver
-        The linear solver function with cached Jacobian.
-    prepare_jacobian
-        Function to prepare Jacobian auxiliaries.
-    time_derivative_rhs
-        Function to compute time derivative terms.
-    dxdt_fn
-        The derivative function.
-    observables_function
-        The observables function.
-    driver_function
-        The driver evaluation function (or None if no drivers).
-    driver_del_t
-        The driver time derivative function (or None if no drivers).
-    n
-        Number of state variables.
-    prec
-        Precision dtype.
-    tableau
-        The Rosenbrock tableau.
-
-    Notes
-    -----
-    Memory location flags are read from global scope:
-    - use_shared_rosenbrock_stage_rhs
-    - use_shared_rosenbrock_stage_store
-    - use_shared_rosenbrock_cached_auxiliaries
-
-    This is a simplified implementation for debugging purposes. Full
-    Rosenbrock functionality requires system-specific Jacobian computation
-    (prepare_jacobian) and time derivative evaluation (time_derivative_rhs)
-    that are generated in production code by the solver_helpers system.
-    The placeholder implementations here allow compilation and execution
-    tracing but will not produce accurate results for real integrations.
-    """
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
 
@@ -3271,23 +3128,6 @@ def update_mean(
     current_index,
     customisable_variable,
 ):
-    """Update the running sum with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to add to the running sum.
-    buffer
-        device array. Location containing the running sum.
-    current_index
-        int. Current integration step index (unused for mean).
-    customisable_variable
-        int. Metric parameter placeholder (unused for mean).
-
-    Notes
-    -----
-    Adds the new value to ``buffer[0]`` to maintain the running sum.
-    """
     buffer[0] += value
 
 @cuda.jit(
@@ -3305,24 +3145,6 @@ def save_mean(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate the mean and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Location containing the running sum of values.
-    output_array
-        device array. Location for saving the mean value.
-    summarise_every
-        int. Number of integration steps contributing to each summary.
-    customisable_variable
-        int. Metric parameter placeholder (unused for mean).
-
-    Notes
-    -----
-    Divides the accumulated sum by ``summarise_every`` and saves the
-    result to ``output_array[0]`` before resetting ``buffer[0]``.
-    """
     output_array[0] = buffer[0] / summarise_every
     buffer[0] = precision(0.0)
 
@@ -3341,23 +3163,6 @@ def update_max(
     current_index,
     customisable_variable,
 ):
-    """Update the running maximum with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compare against the current maximum.
-    buffer
-        device array. Storage for the current maximum value.
-    current_index
-        int. Current integration step index (unused for this metric).
-    customisable_variable
-        int. Metric parameter placeholder (unused for max).
-
-    Notes
-    -----
-    Updates ``buffer[0]`` if the new value exceeds the current maximum.
-    """
     if value > buffer[0]:
         buffer[0] = value
 
@@ -3376,24 +3181,6 @@ def save_max(
     summarise_every,
     customisable_variable,
 ):
-    """Save the maximum value to output and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing the current maximum value.
-    output_array
-        device array. Output location for saving the maximum value.
-    summarise_every
-        int. Number of steps between saves (unused for max).
-    customisable_variable
-        int. Metric parameter placeholder (unused for max).
-
-    Notes
-    -----
-    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
-    sentinel to ``-1.0e30`` for the next period.
-    """
     output_array[0] = buffer[0]
     buffer[0] = precision(-1.0e30)
 
@@ -3412,24 +3199,6 @@ def update_min(
     current_index,
     customisable_variable,
 ):
-    """Update the running minimum with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compare against the current minimum.
-    buffer
-        device array. Storage for the current minimum value.
-    current_index
-        int. Current integration step index (unused for this metric).
-    customisable_variable
-        int. Metric parameter placeholder (unused for min).
-
-    Notes
-    -----
-    Updates ``buffer[0]`` if the new value is less than the current
-    minimum.
-    """
     if value < buffer[0]:
         buffer[0] = value
 
@@ -3448,24 +3217,6 @@ def save_min(
     summarise_every,
     customisable_variable,
 ):
-    """Save the minimum value to output and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing the current minimum value.
-    output_array
-        device array. Output location for saving the minimum value.
-    summarise_every
-        int. Number of steps between saves (unused for min).
-    customisable_variable
-        int. Metric parameter placeholder (unused for min).
-
-    Notes
-    -----
-    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
-    sentinel to ``1.0e30`` for the next period.
-    """
     output_array[0] = buffer[0]
     buffer[0] = precision(1.0e30)
 
@@ -3484,24 +3235,6 @@ def update_rms(
     current_index,
     customisable_variable,
 ):
-    """Update the running sum of squares with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to square and add to the running sum.
-    buffer
-        device array. Storage containing the running sum of squares.
-    current_index
-        int. Current integration step index, used to reset the sum.
-    customisable_variable
-        int. Metric parameter placeholder (unused for RMS).
-
-    Notes
-    -----
-    Resets ``buffer[0]`` on the first step of a period before adding
-    the squared value.
-    """
     sum_of_squares = buffer[0]
     if current_index == 0:
         sum_of_squares = precision(0.0)
@@ -3523,25 +3256,6 @@ def save_rms(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate the RMS from the running sum of squares.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing the running sum of squares.
-    output_array
-        device array. Output array location for saving the RMS value.
-    summarise_every
-        int. Number of steps contributing to each summary window.
-    customisable_variable
-        int. Metric parameter placeholder (unused for RMS).
-
-    Notes
-    -----
-    Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
-    and resets ``buffer[0]`` for the next summary period.
-    """
-
     output_array[0] = sqrt(buffer[0] / summarise_every)
     buffer[0] = precision(0.0)
 
@@ -3560,27 +3274,6 @@ def update_std(
     current_index,
     customisable_variable,
 ):
-    """Update the running sum and sum of squares with shifted values.
-
-    Parameters
-    ----------
-    value
-        float. New value to add to the running statistics.
-    buffer
-        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
-    current_index
-        int. Current integration step index within the summary period.
-    customisable_variable
-        int. Metric parameter placeholder (unused for std).
-
-    Notes
-    -----
-    On first sample (current_index == 0), stores the value as shift
-    and resets accumulators. For all samples including the first,
-    computes shifted_value = value - shift and adds it to buffer[1]
-    (sum) and shifted_value^2 to buffer[2] (sum of squares). This
-    shifting improves numerical stability.
-    """
     if current_index == 0:
         buffer[0] = value  # Store shift value
         buffer[1] = precision(0.0)    # Reset sum
@@ -3605,26 +3298,6 @@ def save_std(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate the standard deviation from shifted running statistics.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
-    output_array
-        device array. Output array location for saving the std value.
-    summarise_every
-        int. Number of steps contributing to each summary window.
-    customisable_variable
-        int. Metric parameter placeholder (unused for std).
-
-    Notes
-    -----
-    Calculates variance using the shifted data algorithm:
-    variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-    Then computes std = sqrt(variance) and saves to output_array[0].
-    Resets buffer for the next summary period.
-    """
     mean_shifted = buffer[1] / summarise_every
     mean_of_squares_shifted = buffer[2] / summarise_every
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
@@ -3649,25 +3322,6 @@ def update_mean_std(
     current_index,
     customisable_variable,
 ):
-    """Update running sums with a new value using shifted data.
-
-    Parameters
-    ----------
-    value
-        float. New value to add to the running statistics.
-    buffer
-        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
-    current_index
-        int. Current integration step index within summary period.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    On first sample (current_index == 0), stores value as shift.
-    Computes shifted_value = value - shift and adds it to buffer[1]
-    (sum) and shifted_value^2 to buffer[2] (sum of squares).
-    """
     if current_index == 0:
         buffer[0] = value
         buffer[1] = precision(0.0)
@@ -3692,28 +3346,6 @@ def save_mean_std(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate mean and std from shifted running sums.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
-    output_array
-        device array. Output location for [mean, std].
-    summarise_every
-        int. Number of steps contributing to each summary window.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Calculates:
-    - mean = shift + sum_shifted / n
-    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-    - std = sqrt(variance)
-    
-    Saves to output_array[0:2] and resets buffer for next period.
-    """
     shift = buffer[0]
     mean_shifted = buffer[1] / summarise_every
     mean_of_squares_shifted = buffer[2] / summarise_every
@@ -3743,25 +3375,6 @@ def update_mean_std_rms(
     current_index,
     customisable_variable,
 ):
-    """Update running sums with a new value using shifted data.
-
-    Parameters
-    ----------
-    value
-        float. New value to add to the running statistics.
-    buffer
-        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
-    current_index
-        int. Current integration step index within summary period.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    On first sample (current_index == 0), stores value as shift.
-    Computes shifted_value = value - shift and adds it to buffer[1]
-    (sum) and shifted_value^2 to buffer[2] (sum of squares).
-    """
     if current_index == 0:
         buffer[0] = value
         buffer[1] = precision(0.0)
@@ -3786,29 +3399,6 @@ def save_mean_std_rms(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate mean, std, and rms from shifted running sums.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
-    output_array
-        device array. Output location for [mean, std, rms].
-    summarise_every
-        int. Number of steps contributing to each summary window.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Calculates:
-    - mean = shift + sum_shifted / n
-    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-    - std = sqrt(variance)
-    - rms = sqrt((sum_sq_shifted + 2*shift*sum_shifted + n*shift^2) / n)
-    
-    Saves to output_array[0:3] and resets buffer for next period.
-    """
     shift = buffer[0]
     mean_shifted = buffer[1] / summarise_every
     mean_of_squares_shifted = buffer[2] / summarise_every
@@ -3848,25 +3438,6 @@ def update_std_rms(
     current_index,
     customisable_variable,
 ):
-    """Update running sums with a new value using shifted data.
-
-    Parameters
-    ----------
-    value
-        float. New value to add to the running statistics.
-    buffer
-        device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
-    current_index
-        int. Current integration step index within summary period.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    On first sample (current_index == 0), stores value as shift.
-    Computes shifted_value = value - shift and adds it to buffer[1]
-    (sum) and shifted_value^2 to buffer[2] (sum of squares).
-    """
     if current_index == 0:
         buffer[0] = value
         buffer[1] = precision(0.0)
@@ -3891,28 +3462,6 @@ def save_std_rms(
     summarise_every,
     customisable_variable,
 ):
-    """Calculate std and rms from shifted running sums.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
-    output_array
-        device array. Output location for [std, rms].
-    summarise_every
-        int. Number of steps contributing to each summary window.
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Calculates:
-    - variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-    - std = sqrt(variance)
-    - rms = sqrt((sum_sq_shifted + 2*shift*sum_shifted + n*shift^2) / n)
-    
-    Saves to output_array[0:2] and resets buffer for next period.
-    """
     shift = buffer[0]
     mean_shifted = buffer[1] / summarise_every
     mean_of_squares_shifted = buffer[2] / summarise_every
@@ -3947,24 +3496,6 @@ def update_extrema(
     current_index,
     customisable_variable,
 ):
-    """Update the running maximum and minimum with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compare against current extrema.
-    buffer
-        device array. Storage for [max, min] values.
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Updates ``buffer[0]`` (max) if value exceeds it, and
-    ``buffer[1]`` (min) if value is less than it.
-    """
     if value > buffer[0]:
         buffer[0] = value
     if value < buffer[1]:
@@ -3985,24 +3516,6 @@ def save_extrema(
     summarise_every,
     customisable_variable,
 ):
-    """Save both extrema to output and reset the buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [max, min] values.
-    output_array
-        device array. Output location for [max, min] values.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Saves max to ``output_array[0]`` and min to ``output_array[1]``,
-    then resets buffers to their sentinel values.
-    """
     output_array[0] = buffer[0]
     output_array[1] = buffer[1]
     buffer[0] = precision(-1.0e30)
@@ -4023,25 +3536,6 @@ def update_peaks(
     current_index,
     customisable_variable,
 ):
-    """Update peak detection with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to analyse for peak detection.
-    buffer
-        device array. Layout ``[prev, prev_prev, counter, times...]``.
-    current_index
-        int. Current integration step index, used to record peaks.
-    customisable_variable
-        int. Maximum number of peaks to detect.
-
-    Notes
-    -----
-    Detects peaks when the prior value exceeds both the current and
-    second-prior values. Peak indices are stored from ``buffer[3]``
-    onward.
-    """
     npeaks = customisable_variable
     prev = buffer[0]
     prev_prev = buffer[1]
@@ -4074,24 +3568,6 @@ def save_peaks(
     summarise_every,
     customisable_variable,
 ):
-    """Save detected peak time indices and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing detected peak time indices.
-    output_array
-        device array. Output array for saving peak time indices.
-    summarise_every
-        int. Number of steps between saves (unused for peak detection).
-    customisable_variable
-        int. Maximum number of peaks to detect.
-
-    Notes
-    -----
-    Copies peak indices from ``buffer[3:]`` to the output array then
-    clears the storage for the next summary interval.
-    """
     n_peaks = int32(customisable_variable)
     for p in range(n_peaks):
         output_array[p] = buffer[3 + p]
@@ -4113,25 +3589,6 @@ def update_negative_peaks(
     current_index,
     customisable_variable,
 ):
-    """Update negative peak detection with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to analyse for negative peak detection.
-    buffer
-        device array. Layout ``[prev, prev_prev, counter, times...]``.
-    current_index
-        int. Current integration step index, used to record peaks.
-    customisable_variable
-        int. Maximum number of negative peaks to detect.
-
-    Notes
-    -----
-    Detects negative peaks (local minima) when the prior value is
-    less than both the current and second-prior values. Peak indices
-    are stored from ``buffer[3]`` onward.
-    """
     npeaks = customisable_variable
     prev = buffer[0]
     prev_prev = buffer[1]
@@ -4163,24 +3620,6 @@ def save_negative_peaks(
     summarise_every,
     customisable_variable,
 ):
-    """Save detected negative peak time indices and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer with detected negative peak time indices.
-    output_array
-        device array. Output array for saving peak time indices.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Maximum number of negative peaks to detect.
-
-    Notes
-    -----
-    Copies peak indices from ``buffer[3:]`` to the output array then
-    clears the storage for the next summary interval.
-    """
     n_peaks = int32(customisable_variable)
     for p in range(n_peaks):
         output_array[p] = buffer[3 + p]
@@ -4202,24 +3641,6 @@ def update_max_magnitude(
     current_index,
     customisable_variable,
 ):
-    """Update the running maximum magnitude with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value whose absolute value is compared.
-    buffer
-        device array. Storage for the current maximum magnitude.
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Updates ``buffer[0]`` if ``abs(value)`` exceeds the current
-    maximum magnitude.
-    """
     abs_value = fabs(value)
     if abs_value > buffer[0]:
         buffer[0] = abs_value
@@ -4239,24 +3660,6 @@ def save_max_magnitude(
     summarise_every,
     customisable_variable,
 ):
-    """Save the maximum magnitude to output and reset the buffer.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing the current max magnitude.
-    output_array
-        device array. Output location for saving the max magnitude.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
-    to ``0.0`` for the next period.
-    """
     output_array[0] = buffer[0]
     buffer[0] = precision(0.0)
 
@@ -4275,25 +3678,6 @@ def update_dxdt_max(
     current_index,
     customisable_variable,
 ):
-    """Update the maximum first derivative with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute derivative from.
-    buffer
-        device array. Storage for [prev_value, max_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled derivative as (value - buffer[0]) and updates
-    buffer[1] if larger. Uses predicated commit pattern to avoid
-    warp divergence.
-    """
     derivative_unscaled = value - buffer[0]
     update_flag = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
     buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
@@ -4314,24 +3698,6 @@ def save_dxdt_max(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled maximum derivative and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, max_unscaled].
-    output_array
-        device array. Output location for maximum derivative.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the maximum unscaled derivative by dt_save and saves to
-    output_array[0], then resets buffers to sentinel values.
-    """
     output_array[0] = buffer[1] / precision(dt_save)
     buffer[1] = precision(-1.0e30)
 
@@ -4350,25 +3716,6 @@ def update_dxdt_min(
     current_index,
     customisable_variable,
 ):
-    """Update the minimum first derivative with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute derivative from.
-    buffer
-        device array. Storage for [prev_value, min_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled derivative as (value - buffer[0]) and updates
-    buffer[1] if smaller. Uses predicated commit pattern to avoid
-    warp divergence.
-    """
     derivative_unscaled = value - buffer[0]
     update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
     buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
@@ -4389,24 +3736,6 @@ def save_dxdt_min(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled minimum derivative and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, min_unscaled].
-    output_array
-        device array. Output location for minimum derivative.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the minimum unscaled derivative by dt_save and saves to
-    output_array[0], then resets buffers to sentinel values.
-    """
     output_array[0] = buffer[1] / precision(dt_save)
     buffer[1] = precision(1.0e30)
 
@@ -4425,25 +3754,6 @@ def update_dxdt_extrema(
     current_index,
     customisable_variable,
 ):
-    """Update maximum and minimum first derivatives with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute derivative from.
-    buffer
-        device array. Storage for [prev_value, max_unscaled, min_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled derivative as (value - buffer[0]) and updates
-    buffer[1] if larger and buffer[2] if smaller. Uses predicated
-    commit pattern to avoid warp divergence.
-    """
     derivative_unscaled = value - buffer[0]
     update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
     update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
@@ -4466,24 +3776,6 @@ def save_dxdt_extrema(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled derivative extrema and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, max_unscaled, min_unscaled].
-    output_array
-        device array. Output location for [max_derivative, min_derivative].
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the extrema by dt_save and saves to output_array[0] (max)
-    and output_array[1] (min), then resets buffers to sentinel values.
-    """
     output_array[0] = buffer[1] / precision(dt_save)
     output_array[1] = buffer[2] / precision(dt_save)
     buffer[1] = precision(-1.0e30)
@@ -4504,26 +3796,6 @@ def update_d2xdt2_max(
     current_index,
     customisable_variable,
 ):
-    """Update the maximum second derivative with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute second derivative from.
-    buffer
-        device array. Storage for [prev_value, prev_prev_value, max_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled second derivative using central difference formula
-    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger.
-    Uses predicated commit pattern to avoid warp divergence. Guard on
-    buffer[1] ensures two previous values are available.
-    """
     second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
     update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
     buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
@@ -4545,24 +3817,6 @@ def save_d2xdt2_max(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled maximum second derivative and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, prev_prev_value, max_unscaled].
-    output_array
-        device array. Output location for maximum second derivative.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the maximum unscaled second derivative by dt_save² and saves
-    to output_array[0], then resets buffers to sentinel values.
-    """
     output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
     buffer[2] = precision(-1.0e30)
 
@@ -4581,26 +3835,6 @@ def update_d2xdt2_min(
     current_index,
     customisable_variable,
 ):
-    """Update the minimum second derivative with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute second derivative from.
-    buffer
-        device array. Storage for [prev_value, prev_prev_value, min_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled second derivative using central difference formula
-    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if smaller.
-    Uses predicated commit pattern to avoid warp divergence. Guard on
-    buffer[1] ensures two previous values are available.
-    """
     second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
     update_flag = (second_derivative_unscaled < buffer[2]) and (buffer[1] != precision(0.0))
     buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
@@ -4622,24 +3856,6 @@ def save_d2xdt2_min(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled minimum second derivative and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, prev_prev_value, min_unscaled].
-    output_array
-        device array. Output location for minimum second derivative.
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the minimum unscaled second derivative by dt_save² and saves
-    to output_array[0], then resets buffers to sentinel values.
-    """
     output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
     buffer[2] = precision(1.0e30)
 
@@ -4658,28 +3874,6 @@ def update_d2xdt2_extrema(
     current_index,
     customisable_variable,
 ):
-    """Update maximum and minimum second derivatives with a new value.
-
-    Parameters
-    ----------
-    value
-        float. New value to compute second derivative from.
-    buffer
-        device array. Storage for [prev_value, prev_prev_value,
-        max_unscaled, min_unscaled].
-    current_index
-        int. Current integration step index (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Computes unscaled second derivative using central difference formula
-    (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger
-    and buffer[3] if smaller. Uses predicated commit pattern to avoid
-    warp divergence. Guard on buffer[1] ensures two previous values
-    are available.
-    """
     second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
     update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
     update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
@@ -4703,26 +3897,6 @@ def save_d2xdt2_extrema(
     summarise_every,
     customisable_variable,
 ):
-    """Save scaled second derivative extrema and reset buffers.
-
-    Parameters
-    ----------
-    buffer
-        device array. Buffer containing [prev_value, prev_prev_value,
-        max_unscaled, min_unscaled].
-    output_array
-        device array. Output location for [max_second_derivative,
-        min_second_derivative].
-    summarise_every
-        int. Number of steps between saves (unused).
-    customisable_variable
-        int. Metric parameter placeholder (unused).
-
-    Notes
-    -----
-    Scales the extrema by dt_save² and saves to output_array[0] (max)
-    and output_array[1] (min), then resets buffers to sentinel values.
-    """
     dt_save_sq = precision(dt_save) * precision(dt_save)
     output_array[0] = buffer[2] / dt_save_sq
     output_array[1] = buffer[3] / dt_save_sq
@@ -4740,28 +3914,6 @@ def do_nothing_update(
     buffer,
     current_step,
 ):
-    """Provide a no-op device function for empty metric chains.
-
-    Parameters
-    ----------
-    values
-        device array containing the current scalar value (unused).
-    buffer
-        device array slice reserved for summary accumulation (unused).
-    current_step
-        Integer or scalar step identifier (unused).
-
-    Returns
-    -------
-    None
-        The device function intentionally performs no operations.
-
-    Notes
-    -----
-    This function serves as the base case for the recursive chain when no
-    summary metrics are configured or as the initial ``inner_chain`` function
-    for update operations.
-    """
     pass
 
 
@@ -4772,37 +3924,6 @@ def chain_metrics_update(
     function_params,
     inner_chain=do_nothing_update,
 ):
-    """Recursively chain summary metric update functions for CUDA execution.
-
-    This function builds a recursive chain of summary metric update functions,
-    where each function in the sequence is wrapped with the previous
-    functions to create a single callable that updates all metrics.
-
-    Parameters
-    ----------
-    metric_functions
-        Sequence of CUDA device functions for updating summary metrics.
-    buffer_offsets
-        Sequence of offsets into the metric buffer for each function.
-    buffer_sizes
-        Sequence of per-metric buffer lengths.
-    function_params
-        Sequence of parameter payloads passed to each metric function.
-    inner_chain
-        Callable executed before the current metric; defaults to ``do_nothing_update``.
-
-    Returns
-    -------
-    Callable
-        CUDA device function that executes all chained metric updates.
-
-    Notes
-    -----
-    The function uses recursion to build a chain where each level executes
-    the inner chain first, then the current metric update function. This
-    ensures all requested metrics are updated in the correct order during
-    each integration step.
-    """
     if len(metric_functions) == 0:
         return do_nothing_update
 
@@ -4826,22 +3947,6 @@ def chain_metrics_update(
         buffer,
         current_step,
     ):
-        """Apply the accumulated metric chain before invoking the current metric.
-
-        Parameters
-        ----------
-        value
-            device array element being summarised.
-        buffer
-            device array slice containing the metric working storage.
-        current_step
-            Integer or scalar step identifier passed through the chain.
-
-        Returns
-        -------
-        None
-            The device function mutates the metric buffer in place.
-        """
         inner_chain(value, buffer, current_step)
         current_fn(
             value,
@@ -4868,34 +3973,6 @@ def update_summary_factory(
     summarised_observable_indices,
     summaries_list,
 ):
-    """Factory function for creating CUDA device functions to update summary metrics.
-
-    This factory generates an optimized CUDA device function that applies
-    chained summary metric updates to all requested state and observable
-    variables during each integration step.
-
-    Parameters
-    ----------
-    summaries_buffer_height_per_var
-        Number of buffer slots required per tracked variable.
-    summarised_state_indices
-        Sequence of state indices to include in summary calculations.
-    summarised_observable_indices
-        Sequence of observable indices to include in summary calculations.
-    summaries_list
-        Ordered list of summary metric identifiers.
-
-    Returns
-    -------
-    Callable
-        CUDA device function for updating summary metrics.
-
-    Notes
-    -----
-    The generated function iterates through all specified state and observable
-    variables, applying the chained summary metric updates to accumulate data
-    in the appropriate buffer locations during each integration step.
-    """
     num_summarised_states = int32(len(summarised_state_indices))
     num_summarised_observables = int32(len(summarised_observable_indices))
     buff_per_var = summaries_buffer_height_per_var
@@ -4927,32 +4004,6 @@ def update_summary_factory(
         observable_summary_buffer,
         current_step,
     ):
-        """Accumulate summary metrics from the current state sample.
-
-        Parameters
-        ----------
-        current_state
-            device array holding the latest integrator state values.
-        current_observables
-            device array holding the latest observable values.
-        state_summary_buffer
-            device array slice used to accumulate state summary data.
-        observable_summary_buffer
-            device array slice used to accumulate observable summary data.
-        current_step
-            Integer or scalar step identifier associated with the sample.
-
-        Returns
-        -------
-        None
-            The device function mutates the supplied summary buffers in place.
-
-        Notes
-        -----
-        The chained metric function is executed for each selected state or
-        observable entry, writing into the contiguous buffer segment assigned
-        to that variable.
-        """
         if summarise_states:
             for idx in range(num_summarised_states):
                 start = idx * total_buffer_size
@@ -4986,27 +4037,6 @@ def do_nothing_save(
     output,
     summarise_every,
 ):
-    """Provide a no-op device function for empty metric chains.
-
-    Parameters
-    ----------
-    buffer
-        device array slice containing accumulated metric values (unused).
-    output
-        device array slice that would receive saved results (unused).
-    summarise_every
-        Integer interval between summary exports (unused).
-
-    Returns
-    -------
-    None
-        The device function intentionally performs no operations.
-
-    Notes
-    -----
-    This function serves as the base case for the recursive chain when no
-    summary metrics are configured or as the initial ``inner_chain`` function.
-    """
     pass
 
 
@@ -5019,40 +4049,6 @@ def chain_metrics_save(
     function_params,
     inner_chain=do_nothing_save,
 ):
-    """Recursively chain summary metric functions for CUDA execution.
-
-    This function builds a recursive chain of summary metric functions,
-    where each function in the sequence is wrapped with the previous
-    functions to create a single callable that executes all metrics.
-
-    Parameters
-    ----------
-    metric_functions
-        Sequence of CUDA device functions that save summary metrics.
-    buffer_offsets_list
-        Sequence of offsets into the accumulation buffer for each metric.
-    buffer_sizes_list
-        Sequence of per-metric buffer lengths.
-    output_offsets_list
-        Sequence of offsets into the output window for each metric.
-    output_sizes_list
-        Sequence of per-metric output lengths.
-    function_params
-        Sequence of parameter payloads passed to each metric function.
-    inner_chain
-        Callable executed before the current metric; defaults to ``do_nothing_save``.
-
-    Returns
-    -------
-    Callable
-        CUDA device function that executes all chained metrics.
-
-    Notes
-    -----
-    The function uses recursion to build a chain where each level executes
-    the inner chain first, then the current metric function. This ensures
-    all requested metrics are computed in the correct order.
-    """
     if len(metric_functions) == 0:
         return do_nothing_save
     current_metric_fn = metric_functions[0]
@@ -5079,22 +4075,6 @@ def chain_metrics_save(
         output,
         summarise_every,
     ):
-        """Apply the accumulated metric chain before invoking the current metric.
-
-        Parameters
-        ----------
-        buffer
-            device array slice holding accumulated metric state.
-        output
-            device array slice that receives exported summary values.
-        summarise_every
-            Integer interval between summary exports passed along the chain.
-
-        Returns
-        -------
-        None
-            The device function mutates the provided output window in place.
-        """
         inner_chain(
             buffer,
             output,
@@ -5133,34 +4113,6 @@ def save_summary_factory(
     summarised_observable_indices,
     summaries_list,
 ):
-    """Factory function for creating CUDA device functions to save summary metrics.
-
-    This factory generates a CUDA device function that applies chained
-    summary metric calculations to all requested state and observable
-    variables.
-
-    Parameters
-    ----------
-    summaries_buffer_height_per_var
-        Number of buffer slots required per tracked variable.
-    summarised_state_indices
-        Sequence of state indices to include in summary calculations.
-    summarised_observable_indices
-        Sequence of observable indices to include in summary calculations.
-    summaries_list
-        Ordered list of summary metric identifiers.
-
-    Returns
-    -------
-    Callable
-        CUDA device function for saving summary metrics.
-
-    Notes
-    -----
-    The generated function iterates through all specified state and observable
-    variables, applying the chained summary metrics to each variable's buffer
-    and saving results to the appropriate output arrays.
-    """
     num_summarised_states = int32(len(summarised_state_indices))
     num_summarised_observables = int32(len(summarised_observable_indices))
 
@@ -5205,32 +4157,6 @@ def save_summary_factory(
         output_observable_summaries_window,
         summarise_every,
     ):
-        """Export summary metrics from accumulation buffers to output windows.
-
-        Parameters
-        ----------
-        buffer_state_summaries
-            device array slice holding accumulated state summary data.
-        buffer_observable_summaries
-            device array slice holding accumulated observable summary data.
-        output_state_summaries_window
-            device array slice that receives state summary results.
-        output_observable_summaries_window
-            device array slice that receives observable summary results.
-        summarise_every
-            Integer interval between summary exports.
-
-        Returns
-        -------
-        None
-            The device function mutates the provided output windows in place.
-
-        Notes
-        -----
-        The chained metric function is executed for each selected state or
-        observable entry, writing the requested metric results into contiguous
-        regions of the output arrays.
-        """
         if summarise_states:
             for state_index in range(num_summarised_states):
                 buffer_array_slice_start = state_index * total_buffer_size
@@ -5283,6 +4209,19 @@ output_types = ['state', 'mean', 'max', 'rms']
 # output_types = ['state', 'dxdt_max', 'd2xdt2_extrema']  # Derivative metrics
 # output_types = []  # No outputs (valid but not useful)
 
+# -------------------------------------------------------------------------
+# Index Arrays for Output Selection
+# -------------------------------------------------------------------------
+# These must be ndarrays (not lists) to avoid closure issues in device functions
+# Indices of states to save in time-domain output
+saved_state_indices = np.arange(n_states, dtype=np.int_)  # All states
+# Indices of observables to save in time-domain output
+saved_observable_indices = np.arange(n_observables, dtype=np.int_)  # All observables
+# Indices of states for summary calculations (will be set based on summaries enabled)
+# These are set later in the configuration section after summary_types is known
+# Indices of observables for summary calculations (will be set based on summaries enabled)
+# These are set later in the configuration section after summary_types is known
+
 # Derive boolean toggles from output_types list
 if not output_types:
     summary_types = tuple()
@@ -5316,8 +4255,9 @@ else:
     summary_types = tuple(summary_types_list)
 
 # Derive summarise booleans
-summarise_state_bool = len(summary_types) > 0 and save_state_bool
-summarise_obs_bool = len(summary_types) > 0 and save_obs_bool
+save_summaries = len(summary_types) > 0
+summarise_state_bool = save_summaries and n_states > 0
+summarise_obs_bool = save_summaries and n_observables > 0
 summarise = summarise_obs_bool or summarise_state_bool
 
 # Calculate buffer and output sizes based on enabled metrics
@@ -5330,9 +4270,9 @@ else:
 
 # Generate chained update and save functions for enabled metrics
 if len(summary_types) > 0:
-    # Create indices for all state variables (all summarised)
-    summarised_state_indices = list(range(n_states))
-    summarised_observable_indices = list(range(n_observables))
+    # Create indices as ndarrays (not lists) to avoid closure issues in device functions
+    summarised_state_indices = np.arange(n_states, dtype=np.int_)
+    summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
     
     # Generate update chain
     update_summaries_chain = update_summary_factory(
@@ -5363,26 +4303,6 @@ def update_summaries_inline(
     obs_summary_buffer,
     current_step,
 ):
-    """Accumulate summary metrics from the current state sample.
-
-    Parameters
-    ----------
-    current_state
-        device array. Current state vector.
-    current_observables
-        device array. Current observable vector.
-    state_summary_buffer
-        device array. Buffer for state summary accumulation.
-    obs_summary_buffer
-        device array. Buffer for observable summary accumulation.
-    current_step
-        int. Current integration step index.
-
-    Notes
-    -----
-    Delegates to factory-generated chained update function for all
-    enabled summary metrics.
-    """
     update_summaries_chain(
         current_state,
         current_observables,
@@ -5400,26 +4320,6 @@ def save_summaries_inline(
     output_obs,
     summarise_every,
 ):
-    """Export summary metrics from buffers to output windows.
-
-    Parameters
-    ----------
-    buffer_state
-        device array. State summary accumulation buffer.
-    buffer_obs
-        device array. Observable summary accumulation buffer.
-    output_state
-        device array. State summary output array.
-    output_obs
-        device array. Observable summary output array.
-    summarise_every
-        int. Number of integration steps in each summary window.
-
-    Notes
-    -----
-    Delegates to factory-generated chained save function for all
-    enabled summary metrics.
-    """
     save_summaries_chain(
         buffer_state,
         buffer_obs,
@@ -5476,7 +4376,6 @@ def controller_PID_factory(
     deadband_max,
     safety,
 ):
-    """Create PID controller device function matching adaptive_PID_controller.py."""
     numba_precision = numba_from_dtype(precision)
 
     expo1 = precision(kp / (2 * (algorithm_order + 1)))
@@ -5522,7 +4421,6 @@ def controller_PID_factory(
         accept_out,
         local_temp,
     ):
-        """Proportional–integral–derivative accept/step controller."""
         err_prev = local_temp[0]
         err_prev_prev = local_temp[1]
         nrm2 = typed_zero
@@ -6084,12 +4982,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             persistent_local, state_output, observables_output,
             state_summaries_output, observable_summaries_output,
             iteration_counters_output, duration, settling_time, t0):
-    """Advance an integration using a compiled CUDA device loop.
-
-    The loop terminates when the time of the next saved sample
-    exceeds the end time (t0 + settling_time + duration), or when
-    the maximum number of iterations is reached.
-    """
     t = float64(t0)
     t_prec = numba_precision(t)
     t_end = numba_precision(settling_time + t0 + duration)
@@ -6515,7 +5407,6 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 
 def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
                           start_time=0.0):
-    """Execute debug integration with 2^23 runs."""
     print("=" * 70)
     algo_name = algorithm_type.upper()
     ctrl_name = controller_type.upper()
