@@ -346,6 +346,10 @@ class IVPLoop(CUDAFactory):
         
         fixed_mode = not config.is_adaptive
 
+        # Compute fallback shared memory size for cross-location aliasing
+        shared_fallback_size = buffer_registry.shared_fallback_buffer_size(
+            self
+        )
 
         @cuda.jit(
             # [
@@ -432,39 +436,68 @@ class IVPLoop(CUDAFactory):
 
             shared_scratch[:] = precision(0.0)
 
+            # Create fallback shared memory for cross-location aliasing
+            if shared_fallback_size > 0:
+                shared_fallback = cuda.shared.array(
+                    shared_fallback_size, precision
+                )
+            else:
+                # Create minimal array even if not needed
+                shared_fallback = cuda.shared.array(1, precision)
+
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
-            state_buffer = alloc_state(shared_scratch, persistent_local)
+            state_buffer = alloc_state(
+                shared_scratch, persistent_local, shared_fallback
+            )
             state_proposal_buffer = alloc_proposed_state(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
             observables_buffer = alloc_observables(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
             observables_proposal_buffer = alloc_proposed_observables(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
-            parameters_buffer = alloc_parameters(shared_scratch, persistent_local)
-            drivers_buffer = alloc_drivers(shared_scratch, persistent_local)
+            parameters_buffer = alloc_parameters(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            drivers_buffer = alloc_drivers(
+                shared_scratch, persistent_local, shared_fallback
+            )
             drivers_proposal_buffer = alloc_proposed_drivers(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
             state_summary_buffer = alloc_state_summary(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
             observable_summary_buffer = alloc_observable_summary(
-                shared_scratch, persistent_local
+                shared_scratch, persistent_local, shared_fallback
             )
-            counters_since_save = alloc_counters(shared_scratch, persistent_local)
-            error = alloc_error(shared_scratch, persistent_local)
+            counters_since_save = alloc_counters(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            error = alloc_error(
+                shared_scratch, persistent_local, shared_fallback
+            )
 
             # Allocate child buffers for algorithm step
-            algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
-            algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
-            controller_temp = alloc_controller_persistent(shared_scratch, persistent_local)
-            dt = alloc_dt(shared_scratch, persistent_local)
-            accept_step = alloc_accept_step(shared_scratch, persistent_local)
+            algo_shared = alloc_algo_shared(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            algo_persistent = alloc_algo_persistent(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            controller_temp = alloc_controller_persistent(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            dt = alloc_dt(
+                shared_scratch, persistent_local, shared_fallback
+            )
+            accept_step = alloc_accept_step(
+                shared_scratch, persistent_local, shared_fallback
+            )
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)

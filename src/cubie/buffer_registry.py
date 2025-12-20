@@ -76,6 +76,7 @@ class CUDABuffer:
         self,
         shared_slice: Optional[slice],
         persistent_slice: Optional[slice],
+        shared_fallback_slice: Optional[slice],
         local_size: Optional[int],
     ) -> Callable:
         """Compile CUDA device function for buffer allocation.
@@ -87,34 +88,47 @@ class CUDABuffer:
         Parameters
         ----------
         shared_slice
-            Slice into shared memory, or None if not shared.
+            Slice into shared memory for aliasing shared parent, or None.
         persistent_slice
-            Slice into persistent local memory, or None if not persistent.
+            Slice into persistent local memory for aliasing persistent
+            parent, or None.
+        shared_fallback_slice
+            Slice into shared memory for new shared allocation when parent
+            cannot be aliased, or None.
         local_size
             Size for local array allocation, or None if not local.
 
         Returns
         -------
         Callable
-            CUDA device function: (shared_parent, persistent_parent) -> array
+            CUDA device function:
+            (shared_parent, persistent_parent, shared_fallback) -> array
         """
         # Compile-time constants captured in closure
         _use_shared = shared_slice is not None
         _use_persistent = persistent_slice is not None
+        _use_shared_fallback = shared_fallback_slice is not None
         _shared_slice = shared_slice if _use_shared else slice(0, 0)
         _persistent_slice = (
             persistent_slice if _use_persistent else slice(0, 0)
+        )
+        _shared_fallback_slice = (
+            shared_fallback_slice if _use_shared_fallback else slice(0, 0)
         )
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def allocate_buffer(shared_parent, persistent_parent):
+        def allocate_buffer(
+            shared_parent, persistent_parent, shared_fallback
+        ):
             """Allocate buffer from appropriate memory region."""
             if _use_shared:
                 array = shared_parent[_shared_slice]
             elif _use_persistent:
                 array = persistent_parent[_persistent_slice]
+            elif _use_shared_fallback:
+                array = shared_fallback[_shared_fallback_slice]
             else:
                 array = cuda.local.array(_local_size, _precision)
             return array
@@ -132,8 +146,9 @@ class BufferGroup:
         Parent instance that owns this group.
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
-    _shared_layout : Dict[str, slice] or None
-        Cached shared memory slices (None when invalid).
+    _shared_layout : Tuple[Dict[str, slice], Dict[str, slice]] or None
+        Cached shared memory slices as (primary, fallback) tuple
+        (None when invalid).
     _persistent_layout : Dict[str, slice] or None
         Cached persistent_local slices (None when invalid).
     _local_sizes : Dict[str, int] or None
@@ -144,8 +159,8 @@ class BufferGroup:
 
     parent: object = attrs.field()
     entries: Dict[str, CUDABuffer] = attrs.field(factory=dict)
-    _shared_layout: Optional[Dict[str, slice]] = attrs.field(
-        default=None, init=False
+    _shared_layout: Optional[Tuple[Dict[str, slice], Dict[str, slice]]] = (
+        attrs.field(default=None, init=False)
     )
     _persistent_layout: Optional[Dict[str, slice]] = attrs.field(
         default=None, init=False
@@ -264,33 +279,42 @@ class BufferGroup:
 
         return recognized, changed
 
-    def build_shared_layout(self) -> Dict[str, slice]:
+    def build_shared_layout(
+        self
+    ) -> Tuple[Dict[str, slice], Dict[str, slice]]:
         """Compute slice indices for shared memory buffers.
 
         Implements cross-location aliasing:
         - If parent is shared and has sufficient remaining space, alias
-          slices within parent
-        - If parent is shared but too small, allocate per buffer's own
-          settings
-        - If parent is local, allocate per buffer's own settings
+          slices within parent (returned in first dict)
+        - If parent is shared but too small, allocate new shared space
+          (returned in second dict as fallback)
+        - If parent is local, allocate new shared space
+          (returned in second dict as fallback)
         - Multiple aliases consume parent space first-come-first-serve
 
         Returns
         -------
-        Dict[str, slice]
-            Mapping of buffer names to shared memory slices.
+        Tuple[Dict[str, slice], Dict[str, slice]]
+            (aliased_layout, fallback_layout) - two mappings of buffer
+            names to shared memory slices. A buffer appears in exactly
+            one of the two dicts if it's shared.
         """
         offset = 0
         layout = {}
+        fallback_layout = {}
         self._alias_consumption.clear()
 
-        # Process non-aliased shared buffers first
+        # Process non-aliased shared buffers first (primary layout)
         for name, entry in self.entries.items():
             if entry.location != 'shared' or entry.aliases is not None:
                 continue
             layout[name] = slice(offset, offset + entry.size)
             self._alias_consumption[name] = 0
             offset += entry.size
+
+        # Track fallback offset separately
+        fallback_offset = 0
 
         # Process aliased buffers
         for name, entry in self.entries.items():
@@ -300,12 +324,12 @@ class BufferGroup:
             parent_entry = self.entries[entry.aliases]
 
             if parent_entry.is_shared:
-                # Parent is shared - check if space available AND buffer is shared
+                # Parent shared - check if space available AND buffer shared
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
                 if entry.is_shared and entry.size <= available:
-                    # Alias fits within parent and buffer is shared
+                    # Alias fits within parent - use primary layout
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
@@ -313,17 +337,35 @@ class BufferGroup:
                         consumed + entry.size
                     )
                 elif entry.is_shared:
-                    # Parent too small or buffer not shared, allocate new shared space
-                    layout[name] = slice(offset, offset + entry.size)
-                    offset += entry.size
+                    # Parent too small - allocate in fallback layout
+                    fallback_layout[name] = slice(
+                        fallback_offset, fallback_offset + entry.size
+                    )
+                    fallback_offset += entry.size
                 # else: not shared, will be handled by persistent/local
             elif entry.is_shared:
-                # Parent is local, allocate new shared space
-                layout[name] = slice(offset, offset + entry.size)
-                offset += entry.size
+                # Parent local, child shared - use fallback layout
+                fallback_layout[name] = slice(
+                    fallback_offset, fallback_offset + entry.size
+                )
+                fallback_offset += entry.size
             # else: buffer not shared, skip
 
-        return layout
+        return layout, fallback_layout
+
+    @property
+    def shared_primary_layout(self) -> Dict[str, slice]:
+        """Return primary (aliased) shared memory layout."""
+        if self._shared_layout is None:
+            self._shared_layout = self.build_shared_layout()
+        return self._shared_layout[0]
+
+    @property
+    def shared_fallback_layout(self) -> Dict[str, slice]:
+        """Return fallback shared memory layout."""
+        if self._shared_layout is None:
+            self._shared_layout = self.build_shared_layout()
+        return self._shared_layout[1]
 
     def build_persistent_layout(self) -> Dict[str, slice]:
         """Compute slice indices for persistent local buffers.
@@ -397,11 +439,14 @@ class BufferGroup:
         if self._persistent_layout is None:
             self._persistent_layout = self.build_persistent_layout()
 
+        primary_layout, fallback_layout = self._shared_layout
+
         sizes = {}
         for name, entry in self.entries.items():
             if entry.is_local:
-                # Check if this buffer was already allocated via aliasing
-                if name in self._shared_layout or name in self._persistent_layout:
+                # Check if buffer already allocated via aliasing
+                if (name in primary_layout or name in fallback_layout
+                        or name in self._persistent_layout):
                     # Already allocated elsewhere, skip local allocation
                     continue
                 # cuda.local.array requires size >= 1
@@ -411,6 +456,8 @@ class BufferGroup:
     def shared_buffer_size(self) -> int:
         """Return total shared memory elements.
 
+        Includes both primary (aliased) and fallback shared allocations.
+
         Returns
         -------
         int
@@ -419,9 +466,17 @@ class BufferGroup:
         if self._shared_layout is None:
             self._shared_layout = self.build_shared_layout()
 
-        if not self._shared_layout:
-            return 0
-        return max(s.stop for s in self._shared_layout.values())
+        primary_layout, fallback_layout = self._shared_layout
+
+        primary_size = 0
+        if primary_layout:
+            primary_size = max(s.stop for s in primary_layout.values())
+
+        fallback_size = 0
+        if fallback_layout:
+            fallback_size = max(s.stop for s in fallback_layout.values())
+
+        return primary_size + fallback_size
 
     def local_buffer_size(self) -> int:
         """Return total local memory elements.
@@ -450,6 +505,26 @@ class BufferGroup:
         if not self._persistent_layout:
             return 0
         return max(s.stop for s in self._persistent_layout.values())
+
+    def shared_fallback_buffer_size(self) -> int:
+        """Return fallback shared memory elements for this parent.
+
+        Returns size of shared_fallback array needed for cross-location
+        aliasing scenarios.
+
+        Returns
+        -------
+        int
+            Fallback shared memory elements needed.
+        """
+        if self._shared_layout is None:
+            self._shared_layout = self.build_shared_layout()
+
+        primary_layout, fallback_layout = self._shared_layout
+
+        if not fallback_layout:
+            return 0
+        return max(s.stop for s in fallback_layout.values())
 
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.
@@ -483,12 +558,15 @@ class BufferGroup:
             self._local_sizes = self.build_local_sizes()
 
         # Determine allocation source
-        shared_slice = self._shared_layout.get(name)
+        primary_layout, fallback_layout = self._shared_layout
+
+        shared_slice = primary_layout.get(name)
+        shared_fallback_slice = fallback_layout.get(name)
         persistent_slice = self._persistent_layout.get(name)
         local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
-            shared_slice, persistent_slice, local_size
+            shared_slice, persistent_slice, shared_fallback_slice, local_size
         )
 
 
@@ -739,6 +817,23 @@ class BufferRegistry:
         if parent not in self._groups:
             return 0
         return self._groups[parent].persistent_local_buffer_size()
+
+    def shared_fallback_buffer_size(self, parent: object) -> int:
+        """Return fallback shared memory elements for a parent.
+
+        Parameters
+        ----------
+        parent
+            Parent instance to query.
+
+        Returns
+        -------
+        int
+            Fallback shared memory elements needed.
+        """
+        if parent not in self._groups:
+            return 0
+        return self._groups[parent].shared_fallback_buffer_size()
 
     def get_allocator(
         self,

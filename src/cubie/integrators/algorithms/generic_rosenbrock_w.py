@@ -498,9 +498,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
-            stage_rhs = alloc_stage_rhs(shared, persistent_local)
-            stage_store = alloc_stage_store(shared, persistent_local)
-            cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+            stage_rhs = alloc_stage_rhs(
+                shared, persistent_local, shared
+            )
+            stage_store = alloc_stage_store(
+                shared, persistent_local, shared
+            )
+            cached_auxiliaries = alloc_cached_auxiliaries(
+                shared, persistent_local, shared
+            )
 
             # Initialize arrays
             for _i in range(n):

@@ -575,7 +575,7 @@ Successfully removed all special handling for buffer location parameters. Locati
 ---
 
 ## Task Group 4: Three-Parameter Allocator Implementation - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 3 (location parameters must flow naturally first)
 **Priority**: HIGH
 
@@ -586,6 +586,71 @@ Successfully removed all special handling for buffer location parameters. Locati
 - File: /home/runner/work/cubie/cubie/.github/context/cubie_internal_structure.md (CUDAFactory pattern section)
 
 **Input Validation Required**: None (internal refactor)
+
+**Outcomes**:
+- [x] CUDABuffer.build_allocator() accepts shared_fallback_slice
+- [x] Allocator device function has three-parameter signature
+- [x] build_shared_layout() returns (primary, fallback) tuple
+- [x] shared_buffer_size() accounts for both layouts
+- [x] shared_fallback_buffer_size() method added to BufferGroup and BufferRegistry
+- [x] Helper properties added: shared_primary_layout, shared_fallback_layout
+- [x] get_allocator() provides correct slices (shared, persistent, shared_fallback)
+- [x] IVPLoop.build() updated for three-parameter allocators (16 allocator calls)
+- [x] All algorithm build() methods updated (generic_dirk, generic_erk, generic_firk, generic_rosenbrock_w, backwards_euler, crank_nicolson)
+- [x] All solver build() methods updated (newton_krylov, linear_solver)
+- [x] Step controllers verified - no allocator calls
+
+**Files Modified**:
+- src/cubie/buffer_registry.py (120 lines changed)
+  * Updated CUDABuffer.build_allocator signature to accept shared_fallback_slice
+  * Modified allocate_buffer device function to handle three parameters
+  * Changed build_shared_layout to return (primary, fallback) tuple
+  * Updated BufferGroup._shared_layout type to Tuple[Dict, Dict]
+  * Added shared_primary_layout and shared_fallback_layout properties
+  * Updated build_local_sizes to unpack shared layout tuple
+  * Modified shared_buffer_size to sum primary + fallback sizes
+  * Added shared_fallback_buffer_size method to BufferGroup
+  * Updated get_allocator to pass three slices to build_allocator
+  * Added shared_fallback_buffer_size method to BufferRegistry
+- src/cubie/integrators/loops/ode_loop.py (35 lines changed)
+  * Added shared_fallback_size calculation before @cuda.jit
+  * Created shared_fallback array allocation in loop_fn
+  * Updated 16 allocator calls to pass shared_fallback parameter
+- src/cubie/integrators/algorithms/generic_dirk.py (8 allocator calls updated)
+  * stage_increment, accumulator, stage_base, solver_shared, solver_persistent, rhs_cache, increment_cache, stage_rhs
+- src/cubie/integrators/algorithms/generic_erk.py (3 allocator calls updated)
+  * stage_rhs, stage_accumulator, stage_cache
+- src/cubie/integrators/algorithms/generic_firk.py (5 allocator calls updated)
+  * stage_state, solver_shared, solver_persistent, stage_increment, stage_driver_stack
+- src/cubie/integrators/algorithms/generic_rosenbrock_w.py (3 allocator calls updated)
+  * stage_rhs, stage_store, cached_auxiliaries
+- src/cubie/integrators/algorithms/backwards_euler.py (2 allocator calls updated)
+  * solver_scratch, solver_persistent
+- src/cubie/integrators/algorithms/crank_nicolson.py (2 allocator calls updated)
+  * solver_scratch, solver_persistent
+- src/cubie/integrators/matrix_free_solvers/newton_krylov.py (6 allocator calls updated)
+  * delta, residual, residual_temp, stage_base_bt, lin_shared, lin_persistent
+- src/cubie/integrators/matrix_free_solvers/linear_solver.py (4 allocator calls updated)
+  * preconditioned_vec, temp (in two device function variants)
+
+**Implementation Summary**:
+Successfully implemented three-parameter allocator architecture enabling cross-location aliasing. All allocators now accept (shared_parent, persistent_parent, shared_fallback) parameters. The build_shared_layout method now returns separate primary and fallback layouts, allowing buffers to fall back to fresh shared allocations when parent-child aliasing is not possible.
+
+Total allocator call sites updated: 49 across 10 files
+
+**Pattern Used**:
+All allocator calls updated from:
+```python
+buffer = allocator(shared, persistent_local)
+```
+To:
+```python
+buffer = allocator(shared, persistent_local, shared)
+```
+
+Note: shared_fallback uses the same shared array but different slices computed by the fallback layout.
+
+**Issues Flagged**: None - all changes were surgical additions following the established pattern
 
 **Tasks**:
 
