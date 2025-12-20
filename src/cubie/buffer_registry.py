@@ -76,7 +76,7 @@ class CUDABuffer:
         self,
         shared_slice: Optional[slice],
         persistent_slice: Optional[slice],
-        shared_fallback_slice: Optional[slice],
+        aliased_parent_slice: Optional[slice],
         local_size: Optional[int],
     ) -> Callable:
         """Compile CUDA device function for buffer allocation.
@@ -88,13 +88,11 @@ class CUDABuffer:
         Parameters
         ----------
         shared_slice
-            Slice into shared memory for aliasing shared parent, or None.
+            Slice into shared memory for fresh shared allocation, or None.
         persistent_slice
-            Slice into persistent local memory for aliasing persistent
-            parent, or None.
-        shared_fallback_slice
-            Slice into shared memory for new shared allocation when parent
-            cannot be aliased, or None.
+            Slice into persistent local memory, or None.
+        aliased_parent_slice
+            Slice into parent buffer when aliasing succeeds, or None.
         local_size
             Size for local array allocation, or None if not local.
 
@@ -102,33 +100,33 @@ class CUDABuffer:
         -------
         Callable
             CUDA device function:
-            (shared_parent, persistent_parent, shared_fallback) -> array
+            (shared, persistent, aliased_parent) -> array
         """
         # Compile-time constants captured in closure
         _use_shared = shared_slice is not None
         _use_persistent = persistent_slice is not None
-        _use_shared_fallback = shared_fallback_slice is not None
+        _use_aliased_parent = aliased_parent_slice is not None
         _shared_slice = shared_slice if _use_shared else slice(0, 0)
         _persistent_slice = (
             persistent_slice if _use_persistent else slice(0, 0)
         )
-        _shared_fallback_slice = (
-            shared_fallback_slice if _use_shared_fallback else slice(0, 0)
+        _aliased_parent_slice = (
+            aliased_parent_slice if _use_aliased_parent else slice(0, 0)
         )
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def allocate_buffer(
-            shared_parent, persistent_parent, shared_fallback
+            shared, persistent, aliased_parent
         ):
             """Allocate buffer from appropriate memory region."""
-            if _use_shared:
-                array = shared_parent[_shared_slice]
+            if _use_aliased_parent:
+                array = aliased_parent[_aliased_parent_slice]
             elif _use_persistent:
-                array = persistent_parent[_persistent_slice]
-            elif _use_shared_fallback:
-                array = shared_fallback[_shared_fallback_slice]
+                array = persistent[_persistent_slice]
+            elif _use_shared:
+                array = shared[_shared_slice]
             else:
                 array = cuda.local.array(_local_size, _precision)
             return array
@@ -592,12 +590,12 @@ class BufferGroup:
         primary_layout, fallback_layout = self._shared_layout
 
         shared_slice = primary_layout.get(name)
-        shared_fallback_slice = fallback_layout.get(name)
+        aliased_parent_slice = fallback_layout.get(name)
         persistent_slice = self._persistent_layout.get(name)
         local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
-            shared_slice, persistent_slice, shared_fallback_slice,
+            shared_slice, persistent_slice, aliased_parent_slice,
             local_size
         )
 

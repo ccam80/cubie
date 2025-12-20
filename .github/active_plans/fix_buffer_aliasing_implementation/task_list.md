@@ -17,7 +17,7 @@ Parallel Execution: TG5 can run independently before TG4
 ---
 
 ## Task Group 1: Rename Parameters in build_allocator - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -145,10 +145,25 @@ None (parameter renaming only, no runtime validation needed)
 **Outcomes**:
 ```
 After TG1 completion:
-- build_allocator signature uses aliased_parent_slice
-- Allocator device function uses (shared, persistent, aliased_parent)
-- Internal variables renamed for consistency
-- Docstring updated to match
+- Files Modified:
+  * src/cubie/buffer_registry.py (57 lines changed in build_allocator method)
+  * src/cubie/buffer_registry.py (4 lines changed in get_allocator method)
+- Functions/Methods Modified:
+  * CUDABuffer.build_allocator() - signature parameter renamed
+  * allocate_buffer device function - parameter names updated
+  * BufferGroup.get_allocator() - call site updated
+- Implementation Summary:
+  * TG1.1: Renamed parameter shared_fallback_slice → aliased_parent_slice (line 79)
+  * TG1.2: Renamed device function parameters: shared_parent → shared, 
+    persistent_parent → persistent, shared_fallback → aliased_parent (lines 120-122)
+  * TG1.3: Renamed internal flags: _use_shared_fallback → _use_aliased_parent,
+    _shared_fallback_slice → _aliased_parent_slice (lines 108, 113-115)
+  * TG1.4: Updated docstring to reflect new parameter names and semantics (lines 82-103)
+  * TG1.5: Updated device function logic: changed conditional from 
+    _use_shared_fallback to _use_aliased_parent and reordered priority 
+    (aliased_parent now has highest priority) (lines 124-132)
+  * Additional: Updated get_allocator call site to use aliased_parent_slice (lines 593, 598)
+- Issues Flagged: None
 ```
 
 ---
