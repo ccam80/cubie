@@ -31,12 +31,12 @@ from cubie.integrators.step_control import get_controller
 # shared or local memory within CUDA device functions.
 ALL_BUFFER_LOCATION_PARAMETERS = {
     "state_location",
-    "state_proposal_location",
+    "proposed_state_location",
     "parameters_location",
     "drivers_location",
-    "drivers_proposal_location",
+    "proposed_drivers_location",
     "observables_location",
-    "observables_proposal_location",
+    "proposed_observables_location",
     "error_location",
     "counters_location",
     "state_summary_location",

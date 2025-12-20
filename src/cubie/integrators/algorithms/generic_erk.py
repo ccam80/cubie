@@ -232,11 +232,11 @@ class ERKStep(ODEExplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'erk_stage_rhs', self, n, config.stage_rhs_location,
+            'stage_rhs', self, n, config.stage_rhs_location,
             precision=precision
         )
         buffer_registry.register(
-            'erk_stage_accumulator', self, accumulator_length,
+            'stage_accumulator', self, accumulator_length,
             config.stage_accumulator_location, precision=precision
         )
 
@@ -245,17 +245,17 @@ class ERKStep(ODEExplicitStep):
         use_shared_acc = config.stage_accumulator_location == 'shared'
         if use_shared_rhs:
             buffer_registry.register(
-                'erk_stage_cache', self, n, 'shared',
-                aliases='erk_stage_rhs', precision=precision
+                'stage_cache', self, n, 'shared',
+                aliases='stage_rhs', precision=precision
             )
         elif use_shared_acc:
             buffer_registry.register(
-                'erk_stage_cache', self, n, 'shared',
-                aliases='erk_stage_accumulator', precision=precision
+                'stage_cache', self, n, 'shared',
+                aliases='stage_accumulator', precision=precision
             )
         else:
             buffer_registry.register(
-                'erk_stage_cache', self, n, 'local',
+                'stage_cache', self, n, 'local',
                 persistent=True, precision=precision
             )
 
@@ -316,12 +316,12 @@ class ERKStep(ODEExplicitStep):
             b_hat_row = int32(b_hat_row)
 
         # Get allocators from buffer registry
-        alloc_stage_rhs = buffer_registry.get_allocator('erk_stage_rhs', self)
+        alloc_stage_rhs = buffer_registry.get_allocator('stage_rhs', self)
         alloc_stage_accumulator = buffer_registry.get_allocator(
-            'erk_stage_accumulator', self
+            'stage_accumulator', self
         )
         alloc_stage_cache = buffer_registry.get_allocator(
-            'erk_stage_cache', self
+            'stage_cache', self
         )
 
         # no cover: start

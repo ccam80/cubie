@@ -226,28 +226,28 @@ class NewtonKrylov(CUDAFactory):
         
         # Register buffers with buffer_registry
         buffer_registry.register(
-            'newton_delta',
+            'delta',
             self,
             n,
             delta_location,
             precision=precision
         )
         buffer_registry.register(
-            'newton_residual',
+            'residual',
             self,
             n,
             residual_location,
             precision=precision
         )
         buffer_registry.register(
-            'newton_residual_temp',
+            'residual_temp',
             self,
             n,
             residual_temp_location,
             precision=precision
         )
         buffer_registry.register(
-            'newton_stage_base_bt',
+            'stage_base_bt',
             self,
             n,
             stage_base_bt_location,
@@ -294,13 +294,13 @@ class NewtonKrylov(CUDAFactory):
         max_backtracks_val = int32(newton_max_backtracks + 1)
         
         # Get allocators from buffer_registry
-        alloc_delta = buffer_registry.get_allocator('newton_delta', self)
-        alloc_residual = buffer_registry.get_allocator('newton_residual', self)
+        alloc_delta = buffer_registry.get_allocator('delta', self)
+        alloc_residual = buffer_registry.get_allocator('residual', self)
         alloc_residual_temp = buffer_registry.get_allocator(
-            'newton_residual_temp', self
+            'residual_temp', self
         )
         alloc_stage_base_bt = buffer_registry.get_allocator(
-            'newton_stage_base_bt', self
+            'stage_base_bt', self
         )
         
         # Get child allocators for linear solver

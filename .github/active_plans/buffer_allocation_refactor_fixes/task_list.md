@@ -14,7 +14,7 @@ All tasks are designed for surgical, minimal changes following CuBIE conventions
 ---
 
 ## Task Group 1+2 (COMBINED): Buffer Name Audit and Fixes - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 **Priority**: CRITICAL
 
@@ -361,13 +361,56 @@ All tasks are designed for surgical, minimal changes following CuBIE conventions
 **Integration**: Config changes must match IVPLoop signature
 
 **Outcomes**: 
-- [ ] All buffer names verified to match parameter names exactly
-- [ ] IVPLoop parameter names corrected (proposed_* convention)
-- [ ] Newton-Krylov buffer names corrected (no "newton_" prefix)
-- [ ] LinearSolver buffer names verified/corrected
-- [ ] Algorithm buffer names verified/corrected
-- [ ] ALL_BUFFER_LOCATION_PARAMETERS updated with correct names
-- [ ] ODELoopConfig fields renamed to match
+- [x] All buffer names verified to match parameter names exactly
+- [x] IVPLoop parameter names corrected (proposed_* convention)
+- [x] Newton-Krylov buffer names corrected (no "newton_" prefix)
+- [x] LinearSolver buffer names corrected (no "lin_" prefix)
+- [x] Algorithm buffer names verified/corrected (ERK, Rosenbrock fixed; DIRK, FIRK already correct)
+- [x] ALL_BUFFER_LOCATION_PARAMETERS updated with correct names
+- [x] ODELoopConfig already had correct field names (proposed_*)
+
+**Files Modified**:
+- src/cubie/integrators/loops/ode_loop.py (24 lines changed)
+  * Renamed parameters: state_proposal_location → proposed_state_location
+  * Renamed parameters: drivers_proposal_location → proposed_drivers_location
+  * Renamed parameters: observables_proposal_location → proposed_observables_location
+  * Updated buffer registry calls to use new parameter names
+  * Updated ODELoopConfig instantiation
+  * Updated docstrings
+- src/cubie/integrators/SingleIntegratorRunCore.py (3 lines changed)
+  * Updated ALL_BUFFER_LOCATION_PARAMETERS constant with new naming
+- src/cubie/integrators/matrix_free_solvers/newton_krylov.py (8 lines changed)
+  * Removed newton_ prefix: newton_delta → delta
+  * Removed newton_ prefix: newton_residual → residual
+  * Removed newton_ prefix: newton_residual_temp → residual_temp
+  * Removed newton_ prefix: newton_stage_base_bt → stage_base_bt
+- src/cubie/integrators/matrix_free_solvers/linear_solver.py (4 lines changed)
+  * Removed lin_ prefix: lin_preconditioned_vec → preconditioned_vec
+  * Removed lin_ prefix: lin_temp → temp
+- src/cubie/integrators/algorithms/generic_erk.py (6 lines changed)
+  * Removed erk_ prefix: erk_stage_rhs → stage_rhs
+  * Removed erk_ prefix: erk_stage_accumulator → stage_accumulator
+  * Removed erk_ prefix: erk_stage_cache → stage_cache
+- src/cubie/integrators/algorithms/generic_rosenbrock_w.py (8 lines changed)
+  * Removed rosenbrock_ prefix: rosenbrock_stage_rhs → stage_rhs
+  * Removed rosenbrock_ prefix: rosenbrock_stage_store → stage_store
+  * Removed rosenbrock_ prefix: rosenbrock_cached_auxiliaries → cached_auxiliaries
+  * Removed rosenbrock_ prefix: rosenbrock_stage_cache → stage_cache
+
+**Algorithms Verified as Correct**:
+- generic_dirk.py: Buffers already match parameters (stage_increment, accumulator, stage_base) ✓
+- generic_firk.py: Buffers already match parameters (stage_increment, stage_driver_stack, stage_state) ✓
+- backwards_euler.py: No algorithm-specific buffers registered ✓
+- crank_nicolson.py: No algorithm-specific buffers registered ✓
+
+**Implementation Summary**:
+All buffer names now match their location parameter names exactly, following the pattern:
+- Buffer name: `{name}`
+- Parameter name: `{name}_location`
+- No factory-specific prefixes (newton_, lin_, erk_, rosenbrock_)
+- Proposal buffers use `proposed_*` pattern (not `*_proposal`)
+
+**Issues Flagged**: None - all changes were straightforward renames
 
 ---
 

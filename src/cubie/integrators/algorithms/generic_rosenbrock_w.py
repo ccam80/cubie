@@ -236,30 +236,30 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'rosenbrock_stage_rhs', self, n, config.stage_rhs_location,
+            'stage_rhs', self, n, config.stage_rhs_location,
             precision=precision
         )
         buffer_registry.register(
-            'rosenbrock_stage_store', self, stage_store_elements,
+            'stage_store', self, stage_store_elements,
             config.stage_store_location, precision=precision
         )
         # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
         buffer_registry.register(
-            'rosenbrock_cached_auxiliaries', self, 0,
+            'cached_auxiliaries', self, 0,
             config.cached_auxiliaries_location, precision=precision
         )
 
         # stage_cache: persistent when stage_store is local
         if config.stage_store_location == 'local':
             buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'local',
+                'stage_cache', self, n, 'local',
                 persistent=True, precision=precision
             )
         else:
             # Aliases stage_store when shared
             buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'shared',
-                aliases='rosenbrock_stage_store', precision=precision
+                'stage_cache', self, n, 'shared',
+                aliases='stage_store', precision=precision
             )
 
         if tableau.has_error_estimate:
@@ -322,7 +322,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self._cached_auxiliary_count = get_fn("cached_aux_count")
         # Update buffer registry with the actual cached_auxiliary_count
         buffer_registry.update_buffer(
-            'rosenbrock_cached_auxiliaries', self,
+            'cached_auxiliaries', self,
             size=self._cached_auxiliary_count
         )
         
@@ -421,16 +421,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Get allocators from buffer registry
         alloc_stage_rhs = buffer_registry.get_allocator(
-            'rosenbrock_stage_rhs', self
+            'stage_rhs', self
         )
         alloc_stage_store = buffer_registry.get_allocator(
-            'rosenbrock_stage_store', self
+            'stage_store', self
         )
         alloc_cached_auxiliaries = buffer_registry.get_allocator(
-            'rosenbrock_cached_auxiliaries', self
+            'cached_auxiliaries', self
         )
         alloc_stage_cache = buffer_registry.get_allocator(
-            'rosenbrock_stage_cache', self
+            'stage_cache', self
         )
 
         # Stage store size for initialization
