@@ -573,6 +573,21 @@ class NewtonKrylov(CUDAFactory):
         return self.compile_settings.newton_max_backtracks
     
     @property
+    def krylov_tolerance(self) -> float:
+        """Return krylov tolerance from nested linear solver."""
+        return self.linear_solver.krylov_tolerance
+    
+    @property
+    def max_linear_iters(self) -> int:
+        """Return max linear iterations from nested linear solver."""
+        return self.linear_solver.max_linear_iters
+    
+    @property
+    def correction_type(self) -> str:
+        """Return correction type from nested linear solver."""
+        return self.linear_solver.correction_type
+    
+    @property
     def linear_solver(self) -> Optional['LinearSolver']:
         """Return nested LinearSolver instance."""
         return self.compile_settings.linear_solver

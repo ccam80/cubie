@@ -164,14 +164,20 @@ class LinearSolver(CUDAFactory):
         super().__init__()
         
         # Create and setup configuration with explicit parameters
+        linear_kwargs = {}
+        if correction_type is not None:
+            linear_kwargs['correction_type'] = correction_type
+        if krylov_tolerance is not None:
+            linear_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            linear_kwargs['max_linear_iters'] = max_linear_iters
+        
         config = LinearSolverConfig(
             precision=precision,
             n=n,
-            correction_type=correction_type if correction_type is not None else "minimal_residual",
-            krylov_tolerance=krylov_tolerance if krylov_tolerance is not None else 1e-6,
-            max_linear_iters=max_linear_iters if max_linear_iters is not None else 100,
             preconditioned_vec_location=preconditioned_vec_location,
             temp_location=temp_location,
+            **linear_kwargs
         )
         self.setup_compile_settings(config)
         
@@ -535,25 +541,14 @@ class LinearSolver(CUDAFactory):
         if not all_updates:
             return set()
         
-        # Extract linear solver parameters
-        linear_keys = {
-            'krylov_tolerance', 'max_linear_iters',
-            'linear_correction_type', 'correction_type',
-            'operator_apply', 'preconditioner',
-            'use_cached_auxiliaries'
-        }
-        linear_params = {k: all_updates[k] for k in linear_keys & all_updates.keys()}
-        
         recognized = set()
+        # No delegation to child solvers (LinearSolver has no children)
+        # No device function update (LinearSolver has no child device functions)
         
-        # Update buffer registry with full dict (extracts buffer location params)
+        recognized |= self.update_compile_settings(updates_dict=all_updates, silent=True)
+        
+        # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
-        
-        # Update compile settings with recognized params only
-        if linear_params:
-            recognized = self.update_compile_settings(
-                updates_dict=linear_params, silent=silent
-            )
         
         return recognized
     

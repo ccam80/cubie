@@ -347,59 +347,36 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def krylov_tolerance(self) -> float:
         """Return the tolerance used for the linear solve."""
-        if hasattr(self.solver, 'krylov_tolerance'):
-            return self.solver.krylov_tolerance
-        # For NewtonKrylov, forward to nested linear_solver
-        return self.solver.linear_solver.krylov_tolerance
+        return self.solver.krylov_tolerance
 
     @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
-        if hasattr(self.solver, 'max_linear_iters'):
-            return int(self.solver.max_linear_iters)
-        # For NewtonKrylov, forward to nested linear_solver
-        return int(self.solver.linear_solver.max_linear_iters)
+        return int(self.solver.max_linear_iters)
 
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
-        if hasattr(self.solver, 'correction_type'):
-            return self.solver.correction_type
-        # For NewtonKrylov, forward to nested linear_solver
-        return self.solver.linear_solver.correction_type
+        return self.solver.correction_type
 
     @property
-    def newton_tolerance(self) -> float:
+    def newton_tolerance(self) -> Optional[float]:
         """Return the Newton solve tolerance."""
-        if hasattr(self.solver, 'newton_tolerance'):
-            return self.solver.newton_tolerance
-        raise AttributeError(
-            f"{type(self.solver).__name__} does not have newton_tolerance"
-        )
+        return getattr(self.solver, 'newton_tolerance', None)
 
     @property
-    def max_newton_iters(self) -> int:
+    def max_newton_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
-        if hasattr(self.solver, 'max_newton_iters'):
-            return int(self.solver.max_newton_iters)
-        raise AttributeError(
-            f"{type(self.solver).__name__} does not have max_newton_iters"
-        )
+        val = getattr(self.solver, 'max_newton_iters', None)
+        return int(val) if val is not None else None
 
     @property
-    def newton_damping(self) -> float:
+    def newton_damping(self) -> Optional[float]:
         """Return the Newton damping factor."""
-        if hasattr(self.solver, 'newton_damping'):
-            return self.solver.newton_damping
-        raise AttributeError(
-            f"{type(self.solver).__name__} does not have newton_damping"
-        )
+        return getattr(self.solver, 'newton_damping', None)
 
     @property
-    def newton_max_backtracks(self) -> int:
+    def newton_max_backtracks(self) -> Optional[int]:
         """Return the maximum number of Newton backtracking steps."""
-        if hasattr(self.solver, 'newton_max_backtracks'):
-            return int(self.solver.newton_max_backtracks)
-        raise AttributeError(
-            f"{type(self.solver).__name__} does not have newton_max_backtracks"
-        )
+        val = getattr(self.solver, 'newton_max_backtracks', None)
+        return int(val) if val is not None else None
