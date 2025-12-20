@@ -789,23 +789,6 @@ class BufferRegistry:
             return 0
         return self._groups[parent].persistent_local_buffer_size()
 
-    def shared_fallback_buffer_size(self, parent: object) -> int:
-        """Return fallback shared memory elements for a parent.
-
-        Parameters
-        ----------
-        parent
-            Parent instance to query.
-
-        Returns
-        -------
-        int
-            Fallback shared memory elements needed.
-        """
-        if parent not in self._groups:
-            return 0
-        return self._groups[parent].shared_fallback_buffer_size()
-
     def get_allocator(
         self,
         name: str,
