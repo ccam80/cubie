@@ -227,36 +227,43 @@ class NewtonKrylov(CUDAFactory):
 
         self.setup_compile_settings(config)
         
+
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
         # Register buffers with buffer_registry
+        config = self.compile_settings
+        precision = config.precision
+
         buffer_registry.register(
             'newton_delta',
             self,
-            n,
-            delta_location,
+            self.n,
+            config.delta_location,
             precision=precision
         )
         buffer_registry.register(
             'newton_residual',
             self,
-            n,
-            residual_location,
+            self.nn,
+            config.residual_location,
             precision=precision
         )
         buffer_registry.register(
             'newton_residual_temp',
             self,
-            n,
-            residual_temp_location,
+            self.n,
+            config.residual_temp_location,
             precision=precision
         )
         buffer_registry.register(
             'newton_stage_base_bt',
             self,
-            n,
-            stage_base_bt_location,
+            self.n,
+            config.stage_base_bt_location,
             precision=precision
         )
-    
+
     def build(self) -> NewtonKrylovCache:
         """Compile Newton-Krylov solver device function.
         
@@ -274,20 +281,15 @@ class NewtonKrylov(CUDAFactory):
         
         # Extract parameters from config
         residual_function = config.residual_function
-        linear_solver = config.linear_solver
+        linear_solver_fn = config.linear_solver_function
+
         n = config.n
         newton_tolerance = config.newton_tolerance
         max_newton_iters = config.max_newton_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
-        precision = config.precision
-        
-        # Get linear solver device function (may trigger LinearSolver.build())
-        linear_solver_fn = linear_solver.device_function
-        
-        # Convert types for device function
-        precision_dtype = np.dtype(precision)
-        numba_precision = from_dtype(precision_dtype)
+
+        numba_precision = from_dtype(config.precision)
         tol_squared = numba_precision(newton_tolerance * newton_tolerance)
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
@@ -297,18 +299,15 @@ class NewtonKrylov(CUDAFactory):
         max_backtracks_val = int32(newton_max_backtracks + 1)
         
         # Get allocators from buffer_registry
-        alloc_delta = buffer_registry.get_allocator('newton_delta', self)
-        alloc_residual = buffer_registry.get_allocator('newton_residual', self)
-        alloc_residual_temp = buffer_registry.get_allocator(
-            'newton_residual_temp', self
-        )
-        alloc_stage_base_bt = buffer_registry.get_allocator(
-            'newton_stage_base_bt', self
-        )
+        get_alloc = buffer_registry.get_allocator
+        alloc_delta = get_alloc('newton_delta', self)
+        alloc_residual = get_alloc('newton_residual', self)
+        alloc_residual_temp =get_alloc('newton_residual_temp', self)
+        alloc_stage_base_bt = get_alloc('newton_stage_base_bt', self)
         
         # Get child allocators for linear solver
         alloc_lin_shared, alloc_lin_persistent = (
-            buffer_registry.get_child_allocators(self, linear_solver)
+            buffer_registry.get_child_allocators(self, self.linear_solver)
         )
         
         # no cover: start
@@ -368,11 +367,6 @@ class NewtonKrylov(CUDAFactory):
             stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
-
-            # Initialize local arrays
-            for _i in range(n_val):
-                delta[_i] = typed_zero
-                residual[_i] = typed_zero
             
             residual_function(
                 stage_increment,
@@ -532,13 +526,13 @@ class NewtonKrylov(CUDAFactory):
         recognized = set()
         recognized |= self.linear_solver.update(all_updates, silent=True)
 
-        # Update Newton parameters
-        newton_recognized = self.update_compile_settings(
-                updates_dict=newton_params, silent=True
+        # Update device function, so that cache invalidates if it's changed
+        all_updates['linear_solver_function'] = self.linear_solver.device_function
+        recognized |= self.update_compile_settings(
+                updates_dict=all_updates, silent=True
             )
-            recognized.update(newton_recognized)
-        
-        # Update buffer registry with full dict (extracts buffer location params)
+
+        # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
         
         return recognized

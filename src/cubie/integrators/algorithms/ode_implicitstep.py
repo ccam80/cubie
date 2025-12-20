@@ -51,7 +51,7 @@ class ImplicitStepConfig(BaseStepConfig):
         default=1,
         validator=inrangetype_validator(int, 1, 32)
     )
-    solver_fn = attrs.field(
+    solver_function = attrs.field(
         default=None,
         validator=attrs.validators.optional(Callable)
     )
@@ -124,14 +124,15 @@ class ODEImplicitStep(BaseAlgorithmStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
-        # Validate solver_type
+
+        
+        super().__init__(config, _controller_defaults)
+
         if solver_type not in ['newton', 'linear']:
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
-        
-        super().__init__(config, _controller_defaults)
-        
+
         linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
@@ -186,9 +187,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         recognized = set()
         recognized |= self.solver.update(all_updates, silent=True)
 
-        # Check if solver cache was invalidated
-        if not self.solver.cache_valid:
-            self._invalidate_cache()
+        all_updates["solver_function"] = self.solver.device_function
         
         recognized |= buffer_registry.update(
             self, updates_dict=all_updates, silent=True
@@ -207,23 +206,22 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-        solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        self.build_implicit_helpers()
 
-        # checking if a build is required while building is pretty dumb
-        self.update_compile_settings(solver_device_function=solver_fn)
-        
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
         driver_function = config.driver_function
         n_drivers = config.n_drivers
-        
+        solver_function = config.solver_function
+
         return self.build_step(
             dxdt_fn,
             observables_function,
             driver_function,
+            solver_function,
             numba_precision,
             n,
             n_drivers,
@@ -235,6 +233,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -246,9 +245,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
-            Device observable computation helper.
+            Device function for evaluating observables.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for running internal solver
         numba_precision
             Numba precision for compiled device buffers.
         n
@@ -310,8 +311,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
             residual_function=residual,
         )
         
-        # Return device function
-        return self.solver.device_function
+        self.update_compile_settings(
+                solver_function=self.solver.device_function
+        )
 
     @property
     def is_implicit(self) -> bool:
