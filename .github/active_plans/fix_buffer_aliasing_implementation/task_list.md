@@ -169,7 +169,7 @@ After TG1 completion:
 ---
 
 ## Task Group 2: Fix build_shared_layout to Return Single Dict - SEQUENTIAL
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -294,10 +294,28 @@ None (internal layout computation, validated at registration time)
 **Outcomes**:
 ```
 After TG2 completion:
-- build_shared_layout returns single Dict[str, slice]
-- Aliased buffers slice parent WITH OVERLAP when parent is shared
-- Fresh allocations when parent is local or full
-- _alias_consumption tracks how much of parent is used
+- Files Modified:
+  * src/cubie/buffer_registry.py (3 lines changed in type annotation, lines 160-162)
+  * src/cubie/buffer_registry.py (67 lines changed in build_shared_layout method, lines 281-344)
+  * src/cubie/buffer_registry.py (4 lines changed in BufferGroup docstring, lines 147-155)
+- Functions/Methods Modified:
+  * BufferGroup._shared_layout type annotation - changed from Tuple to Dict
+  * BufferGroup.build_shared_layout() - complete rewrite with correct aliasing semantics
+  * BufferGroup class docstring - updated to reflect single layout
+- Implementation Summary:
+  * TG2.1: Changed _shared_layout type annotation from Optional[Tuple[Dict[str, slice], Dict[str, slice]]] 
+    to Optional[Dict[str, slice]] (lines 160-162)
+  * TG2.2: Completely rewrote build_shared_layout method (lines 281-344):
+    - Changed return type from Tuple to single Dict[str, slice]
+    - Removed fallback_layout and fallback_offset variables
+    - Implemented correct aliasing: aliased children OVERLAP parent when parent is shared
+    - Aliased children get fresh allocation when parent is local or full
+    - All buffers use SAME shared array (no separate fallback array)
+    - Updated docstring to explain correct aliasing semantics
+  * TG2.3: Updated BufferGroup class docstring (lines 147-155):
+    - Changed _shared_layout description from "Tuple...as (primary, fallback)" to "Dict...unified layout"
+    - Clarified _alias_consumption purpose in layout computation
+- Issues Flagged: None
 ```
 
 ---

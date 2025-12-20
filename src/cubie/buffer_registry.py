@@ -144,21 +144,21 @@ class BufferGroup:
         Parent instance that owns this group.
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
-    _shared_layout : Tuple[Dict[str, slice], Dict[str, slice]] or None
-        Cached shared memory slices as (primary, fallback) tuple
-        (None when invalid).
+    _shared_layout : Dict[str, slice] or None
+        Cached unified shared memory layout (None when invalid).
     _persistent_layout : Dict[str, slice] or None
         Cached persistent_local slices (None when invalid).
     _local_sizes : Dict[str, int] or None
         Cached local sizes (None when invalid).
     _alias_consumption : Dict[str, int]
-        Tracks consumed space in aliased buffers.
+        Tracks consumed space in aliased buffers for layout
+        computation.
     """
 
     parent: object = attrs.field()
     entries: Dict[str, CUDABuffer] = attrs.field(factory=dict)
-    _shared_layout: Optional[Tuple[Dict[str, slice], Dict[str, slice]]] = (
-        attrs.field(default=None, init=False)
+    _shared_layout: Optional[Dict[str, slice]] = attrs.field(
+        default=None, init=False
     )
     _persistent_layout: Optional[Dict[str, slice]] = attrs.field(
         default=None, init=False
@@ -277,37 +277,34 @@ class BufferGroup:
 
         return recognized, changed
 
-    def build_shared_layout(
-        self
-    ) -> Tuple[Dict[str, slice], Dict[str, slice]]:
+    def build_shared_layout(self) -> Dict[str, slice]:
         """Compute slice indices for shared memory buffers.
 
-        Implements cross-location aliasing:
-        - If parent is shared and has sufficient remaining space, alias
-          slices within parent (returned in first dict)
-        - If parent is shared but too small, allocate new shared space
-          (returned in second dict as fallback)
-        - If parent is local, allocate new shared space
-          (returned in second dict as fallback)
-        - Multiple aliases consume parent space first-come-first-serve
+        Implements correct aliasing semantics where aliased children
+        deliberately OVERLAP their parent buffers to reuse memory.
+        When a child aliases a shared parent with sufficient space,
+        the child slices directly into the parent's memory region.
 
-        IMPORTANT: Both primary and fallback layouts use slices into
-        the SAME shared array. Fallback slices start immediately after
-        the primary layout ends to prevent overlap.
+        Aliasing behavior:
+        - Child aliases shared parent with space: child OVERLAPS parent
+        - Child aliases shared parent without space: fresh allocation
+        - Child aliases local parent: fresh shared allocation
+        - Non-aliased buffer: fresh allocation
+
+        All allocations use the SAME shared array; aliased buffers
+        reuse parent memory via deliberate overlap.
 
         Returns
         -------
-        Tuple[Dict[str, slice], Dict[str, slice]]
-            (aliased_layout, fallback_layout) - two mappings of buffer
-            names to shared memory slices. A buffer appears in exactly
-            one of the two dicts if it's shared.
+        Dict[str, slice]
+            Single unified mapping of buffer names to shared memory
+            slices.
         """
         offset = 0
         layout = {}
-        fallback_layout = {}
         self._alias_consumption.clear()
 
-        # Process non-aliased shared buffers first (primary layout)
+        # Step 1: Allocate non-aliased shared buffers
         for name, entry in self.entries.items():
             if entry.location != 'shared' or entry.aliases is not None:
                 continue
@@ -315,48 +312,36 @@ class BufferGroup:
             self._alias_consumption[name] = 0
             offset += entry.size
 
-        # Fallback slices start after all primary shared buffers
-        fallback_offset = offset
-
-        # Process aliased buffers
-        # Aliased buffers consume space from their parent if possible,
-        # otherwise allocate new space in fallback layout
+        # Step 2: Process aliased buffers
         for name, entry in self.entries.items():
-            if entry.aliases is None:
+            if entry.aliases is None or entry.location != 'shared':
                 continue
 
             parent_entry = self.entries[entry.aliases]
 
             if parent_entry.is_shared:
-                # Parent is shared - attempt to alias within parent's space
-                # Track how much of parent has been consumed by other aliases
+                # Parent is shared - check if we can alias it
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
-                if entry.is_shared and entry.size <= available:
-                    # Child is shared and fits - alias within parent (primary)
+                if entry.size <= available:
+                    # Alias within parent (WITH OVERLAP - reuse memory)
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
                     self._alias_consumption[entry.aliases] = (
                         consumed + entry.size
                     )
-                elif entry.is_shared:
-                    # Child is shared but doesn't fit - new allocation (fallback)
-                    fallback_layout[name] = slice(
-                        fallback_offset, fallback_offset + entry.size
-                    )
-                    fallback_offset += entry.size
-                # else: child not shared, handled by persistent/local layout
-            elif entry.is_shared:
-                # Parent is local, child is shared - new allocation (fallback)
-                fallback_layout[name] = slice(
-                    fallback_offset, fallback_offset + entry.size
-                )
-                fallback_offset += entry.size
-            # else: buffer not shared, skip
+                else:
+                    # Parent full, allocate fresh shared space
+                    layout[name] = slice(offset, offset + entry.size)
+                    offset += entry.size
+            else:
+                # Parent is local, allocate fresh shared space for child
+                layout[name] = slice(offset, offset + entry.size)
+                offset += entry.size
 
-        return layout, fallback_layout
+        return layout
 
     @property
     def shared_primary_layout(self) -> Dict[str, slice]:
