@@ -69,6 +69,7 @@ class DxdtExtrema(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -79,7 +80,9 @@ class DxdtExtrema(SummaryMetric):
             value
                 float. New value to compute derivative from.
             buffer
-                device array. Storage for [prev_value, max_unscaled, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused).
             customisable_variable
@@ -87,16 +90,24 @@ class DxdtExtrema(SummaryMetric):
 
             Notes
             -----
-            Computes unscaled derivative as (value - buffer[0]) and updates
-            buffer[1] if larger and buffer[2] if smaller. Uses predicated
-            commit pattern to avoid warp divergence.
+            Computes unscaled derivative as (value - buffer[offset + 0]) and
+            updates buffer[offset + 1] if larger and buffer[offset + 2] if
+            smaller. Uses predicated commit pattern to avoid warp divergence.
             """
-            derivative_unscaled = value - buffer[0]
-            update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
-            update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
-            buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
-            buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
-            buffer[0] = value
+            derivative_unscaled = value - buffer[offset + 0]
+            update_max = (derivative_unscaled > buffer[offset + 1]) and (
+                buffer[offset + 0] != precision(0.0)
+            )
+            update_min = (derivative_unscaled < buffer[offset + 2]) and (
+                buffer[offset + 0] != precision(0.0)
+            )
+            buffer[offset + 1] = selp(
+                update_max, derivative_unscaled, buffer[offset + 1]
+            )
+            buffer[offset + 2] = selp(
+                update_min, derivative_unscaled, buffer[offset + 2]
+            )
+            buffer[offset + 0] = value
 
         @cuda.jit(
             # [

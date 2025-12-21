@@ -8,6 +8,7 @@ minimum values encountered during integration for each variable.
 
 from numba import cuda
 
+from cubie.cuda_simsafe import selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -54,16 +55,13 @@ class Extrema(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
         )
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -74,7 +72,9 @@ class Extrema(SummaryMetric):
             value
                 float. New value to compare against current extrema.
             buffer
-                device array. Storage for [max, min] values.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused).
             customisable_variable
@@ -82,13 +82,14 @@ class Extrema(SummaryMetric):
 
             Notes
             -----
-            Updates ``buffer[0]`` (max) if value exceeds it, and
-            ``buffer[1]`` (min) if value is less than it.
+            Uses predicated commit to update ``buffer[offset + 0]`` (max) if
+            value exceeds it, and ``buffer[offset + 1]`` (min) if value is
+            less than it, avoiding warp divergence.
             """
-            if value > buffer[0]:
-                buffer[0] = value
-            if value < buffer[1]:
-                buffer[1] = value
+            update_max = value > buffer[offset + 0]
+            update_min = value < buffer[offset + 1]
+            buffer[offset + 0] = selp(update_max, value, buffer[offset + 0])
+            buffer[offset + 1] = selp(update_min, value, buffer[offset + 1])
 
         @cuda.jit(
             # [

@@ -55,10 +55,6 @@ class RMS(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -66,6 +62,7 @@ class RMS(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -76,7 +73,9 @@ class RMS(SummaryMetric):
             value
                 float. New value to square and add to the running sum.
             buffer
-                device array. Storage containing the running sum of squares.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index, used to reset the sum.
             customisable_variable
@@ -84,14 +83,14 @@ class RMS(SummaryMetric):
 
             Notes
             -----
-            Resets ``buffer[0]`` on the first step of a period before adding
-            the squared value.
+            Resets ``buffer[offset + 0]`` on the first step of a period before
+            adding the squared value.
             """
-            sum_of_squares = buffer[0]
+            sum_of_squares = buffer[offset + 0]
             if current_index == 0:
                 sum_of_squares = precision(0.0)
             sum_of_squares += value * value
-            buffer[0] = sum_of_squares
+            buffer[offset + 0] = sum_of_squares
 
         @cuda.jit(
             # [

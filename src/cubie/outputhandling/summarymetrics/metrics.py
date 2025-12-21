@@ -124,10 +124,14 @@ class SummaryMetric(CUDAFactory):
     Notes
     -----
     Subclasses must implement :meth:`build` to provide CUDA device callbacks
-    with the signatures ``update(value, buffer, current_index,
+    with the signatures ``update(value, buffer, offset, current_index,
     customisable_variable)`` and ``save(buffer, output_array, summarise_every,
-    customisable_variable)``. Metrics need to be imported only after the global
-    registry has been created so that decoration registers the implementation.
+    customisable_variable)``. The ``offset`` parameter indicates the starting
+    position within the full buffer for this metric's storage, eliminating
+    the need for buffer slicing. Metrics should use explicit indexing
+    patterns like ``buffer[offset + 0]`` for optimal register efficiency.
+    Metrics need to be imported only after the global registry has been
+    created so that decoration registers the implementation.
     """
 
     def __init__(

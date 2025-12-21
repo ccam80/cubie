@@ -32,18 +32,21 @@ from cubie.outputhandling.summarymetrics import summary_metrics
     **compile_kwargs,
 )
 def do_nothing(
-    values,
+    value,
     buffer,
+    buffer_offset,
     current_step,
 ):
     """Provide a no-op device function for empty metric chains.
 
     Parameters
     ----------
-    values
-        device array containing the current scalar value (unused).
+    value
+        device array element being summarised (unused).
     buffer
-        device array slice reserved for summary accumulation (unused).
+        device array containing metric working storage (unused).
+    buffer_offset
+        Integer offset into the buffer for this variable (unused).
     current_step
         Integer or scalar step identifier (unused).
 
@@ -55,8 +58,8 @@ def do_nothing(
     Notes
     -----
     This function serves as the base case for the recursive chain when no
-    summary metrics are configured or as the initial ``inner_chain`` function
-    for update operations.
+    summary metrics are configured or as the initial ``inner_chain``
+    function for update operations.
     """
     pass
 
@@ -86,7 +89,8 @@ def chain_metrics(
     function_params
         Sequence of parameter payloads passed to each metric function.
     inner_chain
-        Callable executed before the current metric; defaults to ``do_nothing``.
+        Callable executed before the current metric; defaults to
+        ``do_nothing``.
 
     Returns
     -------
@@ -96,16 +100,15 @@ def chain_metrics(
     Notes
     -----
     The function uses recursion to build a chain where each level executes
-    the inner chain first, then the current metric update function. This
-    ensures all requested metrics are updated in the correct order during
-    each integration step.
+    the inner chain first, then the current metric update function. Each
+    wrapper passes the full buffer plus the computed offset (base_offset +
+    metric_offset) to the metric function, eliminating array slicing.
     """
     if len(metric_functions) == 0:
         return do_nothing
 
     current_fn = metric_functions[0]
     current_offset = buffer_offsets[0]
-    current_size = buffer_sizes[0]
     current_param = function_params[0]
 
     remaining_functions = metric_functions[1:]
@@ -122,16 +125,20 @@ def chain_metrics(
     def wrapper(
         value,
         buffer,
+        buffer_offset,
         current_step,
     ):
-        """Apply the accumulated metric chain before invoking the current metric.
+        """Apply the accumulated metric chain before invoking the
+        current metric.
 
         Parameters
         ----------
         value
             device array element being summarised.
         buffer
-            device array slice containing the metric working storage.
+            device array containing the full metric working storage.
+        buffer_offset
+            Integer base offset for this variable's buffer segment.
         current_step
             Integer or scalar step identifier passed through the chain.
 
@@ -140,10 +147,11 @@ def chain_metrics(
         None
             The device function mutates the metric buffer in place.
         """
-        inner_chain(value, buffer, current_step)
+        inner_chain(value, buffer, buffer_offset, current_step)
         current_fn(
             value,
-            buffer[current_offset : current_offset + current_size],
+            buffer,
+            buffer_offset + current_offset,
             current_step,
             current_param,
         )
@@ -194,9 +202,11 @@ def update_summary_factory(
 
     Notes
     -----
-    The generated function iterates through all specified state and observable
-    variables, applying the chained summary metric updates to accumulate data
-    in the appropriate buffer locations during each integration step.
+    The generated function iterates through all specified state and
+    observable variables, applying the chained summary metric updates to
+    accumulate data in the appropriate buffer locations during each
+    integration step. Uses explicit offset parameters instead of buffer
+    slicing to improve register efficiency.
     """
     num_summarised_states = int32(len(summarised_state_indices))
     num_summarised_observables = int32(len(summarised_observable_indices))
@@ -239,40 +249,43 @@ def update_summary_factory(
         current_observables
             device array holding the latest observable values.
         state_summary_buffer
-            device array slice used to accumulate state summary data.
+            device array used to accumulate state summary data.
         observable_summary_buffer
-            device array slice used to accumulate observable summary data.
+            device array used to accumulate observable summary data.
         current_step
             Integer or scalar step identifier associated with the sample.
 
         Returns
         -------
         None
-            The device function mutates the supplied summary buffers in place.
+            The device function mutates the supplied summary buffers in
+            place.
 
         Notes
         -----
         The chained metric function is executed for each selected state or
-        observable entry, writing into the contiguous buffer segment assigned
-        to that variable.
+        observable entry, passing the full buffer with a base offset for
+        that variable's segment.
         """
         if summarise_states:
             for idx in range(num_summarised_states):
-                start = idx * total_buffer_size
-                end = start + total_buffer_size
+                base_offset = idx * total_buffer_size
                 chain_fn(
                     current_state[summarised_state_indices[idx]],
-                    state_summary_buffer[start:end],
+                    state_summary_buffer,
+                    base_offset,
                     current_step,
                 )
 
         if summarise_observables:
             for idx in range(num_summarised_observables):
-                start = idx * total_buffer_size
-                end = start + total_buffer_size
+                base_offset = idx * total_buffer_size
                 chain_fn(
-                    current_observables[summarised_observable_indices[idx]],
-                    observable_summary_buffer[start:end],
+                    current_observables[
+                        summarised_observable_indices[idx]
+                    ],
+                    observable_summary_buffer,
+                    base_offset,
                     current_step,
                 )
 

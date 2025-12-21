@@ -6,7 +6,7 @@ of local minima (negative peaks) in variable values during integration.
 """
 
 from numba import cuda, int32
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, selp
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -56,10 +56,6 @@ class NegativePeaks(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -67,6 +63,7 @@ class NegativePeaks(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -77,7 +74,10 @@ class NegativePeaks(SummaryMetric):
             value
                 float. New value to analyse for negative peak detection.
             buffer
-                device array. Layout ``[prev, prev_prev, counter, times...]``.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
+                Layout at offset: ``[prev, prev_prev, counter, times...]``.
             current_index
                 int. Current integration step index, used to record peaks.
             customisable_variable
@@ -87,23 +87,34 @@ class NegativePeaks(SummaryMetric):
             -----
             Detects negative peaks (local minima) when the prior value is
             less than both the current and second-prior values. Peak indices
-            are stored from ``buffer[3]`` onward.
+            are stored from ``buffer[offset + 3]`` onward. Uses predicated
+            commit pattern for all buffer writes to avoid warp divergence.
             """
             npeaks = customisable_variable
-            prev = buffer[0]
-            prev_prev = buffer[1]
-            peak_counter = int32(buffer[2])
+            prev = buffer[offset + 0]
+            prev_prev = buffer[offset + 1]
+            peak_counter = int32(buffer[offset + 2])
 
-            if (
+            is_valid = (
                 (current_index >= 2)
                 and (peak_counter < npeaks)
                 and (prev_prev != precision(0.0))
-            ):
-                if prev < value and prev_prev > prev:
-                    buffer[3 + peak_counter] = (current_index - 1)
-                    buffer[2] = precision(int32(buffer[2]) + 1)
-            buffer[0] = value
-            buffer[1] = prev
+            )
+            is_peak = prev < value and prev_prev > prev
+            should_record = is_valid and is_peak
+
+            # Predicated commit for peak recording
+            new_counter = precision(int32(buffer[offset + 2]) + 1)
+            buffer[offset + 3 + peak_counter] = selp(
+                should_record,
+                precision(current_index - 1),
+                buffer[offset + 3 + peak_counter],
+            )
+            buffer[offset + 2] = selp(
+                should_record, new_counter, buffer[offset + 2]
+            )
+            buffer[offset + 0] = value
+            buffer[offset + 1] = prev
 
         @cuda.jit(
             # [

@@ -72,6 +72,7 @@ class MeanStdRms(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -82,7 +83,9 @@ class MeanStdRms(SummaryMetric):
             value
                 float. New value to add to the running statistics.
             buffer
-                device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index within summary period.
             customisable_variable
@@ -91,17 +94,18 @@ class MeanStdRms(SummaryMetric):
             Notes
             -----
             On first sample (current_index == 0), stores value as shift.
-            Computes shifted_value = value - shift and adds it to buffer[1]
-            (sum) and shifted_value^2 to buffer[2] (sum of squares).
+            Computes shifted_value = value - shift and adds it to
+            buffer[offset + 1] (sum) and shifted_value^2 to
+            buffer[offset + 2] (sum of squares).
             """
             if current_index == 0:
-                buffer[0] = value
-                buffer[1] = precision(0.0)
-                buffer[2] = precision(0.0)
-            
-            shifted_value = value - buffer[0]
-            buffer[1] += shifted_value
-            buffer[2] += shifted_value * shifted_value
+                buffer[offset + 0] = value
+                buffer[offset + 1] = precision(0.0)
+                buffer[offset + 2] = precision(0.0)
+
+            shifted_value = value - buffer[offset + 0]
+            buffer[offset + 1] += shifted_value
+            buffer[offset + 2] += shifted_value * shifted_value
 
         @cuda.jit(
             # [

@@ -7,6 +7,7 @@ encountered during integration for each variable.
 
 from numba import cuda
 
+from cubie.cuda_simsafe import selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -53,16 +54,13 @@ class Max(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
         )
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -73,7 +71,9 @@ class Max(SummaryMetric):
             value
                 float. New value to compare against the current maximum.
             buffer
-                device array. Storage for the current maximum value.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused for this metric).
             customisable_variable
@@ -81,10 +81,11 @@ class Max(SummaryMetric):
 
             Notes
             -----
-            Updates ``buffer[0]`` if the new value exceeds the current maximum.
+            Uses predicated commit to update ``buffer[offset + 0]`` if the new
+            value exceeds the current maximum, avoiding warp divergence.
             """
-            if value > buffer[0]:
-                buffer[0] = value
+            update_flag = value > buffer[offset + 0]
+            buffer[offset + 0] = selp(update_flag, value, buffer[offset + 0])
 
         @cuda.jit(
             # [
