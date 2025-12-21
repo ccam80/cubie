@@ -102,6 +102,12 @@ class IVPLoop(CUDAFactory):
     observable_summary_location
         Memory location for observable summary buffer: 'local' or 'shared'.
         If None, defaults to 'local'.
+    dt_location
+        Memory location for dt buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
+    accept_step_location
+        Memory location for accept_step buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     controller_local_len
         Number of persistent local memory elements for the controller.
     algorithm_local_len
@@ -172,62 +178,10 @@ class IVPLoop(CUDAFactory):
         counters_location: Optional[str] = None,
         state_summary_location: Optional[str] = None,
         observable_summary_location: Optional[str] = None,
+        dt_location: Optional[str] = None,
+        accept_step_location: Optional[str] = None,
     ) -> None:
         super().__init__()
-
-        # Register all loop buffers with central registry
-        buffer_registry.clear_parent(self)
-
-        buffer_registry.register(
-            'state', self, n_states, state_location or 'local',
-            precision=precision
-        )
-        buffer_registry.register(
-            'proposed_state', self, n_states, proposed_state_location or 'local',
-            precision=precision
-        )
-        buffer_registry.register(
-            'parameters', self, n_parameters,
-            parameters_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-            'drivers', self, n_drivers, drivers_location or 'local',
-            precision=precision
-        )
-        buffer_registry.register(
-            'proposed_drivers', self, n_drivers,
-            proposed_drivers_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-            'observables', self, n_observables,
-            observables_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-            'proposed_observables', self, n_observables,
-            proposed_observables_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-            'error', self, n_error, error_location or 'local',
-            precision=precision
-        )
-        buffer_registry.register(
-            'counters', self, n_counters, counters_location or 'local',
-            precision=precision
-        )
-        buffer_registry.register(
-            'state_summary', self, state_summary_buffer_height,
-            state_summary_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-            'observable_summary', self, observable_summary_buffer_height,
-            observable_summary_location or 'local', precision=precision
-        )
-        buffer_registry.register(
-                'dt', self, 1, 'local', precision=precision
-        )
-        buffer_registry.register(
-                'accept_step', self, 1, 'local', precision=precision
-        )
 
         config_kwargs = {
             'n_states': n_states,
@@ -272,6 +226,10 @@ class IVPLoop(CUDAFactory):
             config_kwargs['state_summary_location'] = state_summary_location
         if observable_summary_location is not None:
             config_kwargs['observable_summary_location'] = observable_summary_location
+        if dt_location is not None:
+            config_kwargs['dt_location'] = dt_location
+        if accept_step_location is not None:
+            config_kwargs['accept_step_location'] = accept_step_location
         if dt0 is not None:
             config_kwargs['dt0'] = dt0
         if dt_min is not None:
@@ -283,6 +241,75 @@ class IVPLoop(CUDAFactory):
 
         config = ODELoopConfig(**config_kwargs)
         self.setup_compile_settings(config)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
+        config = self.compile_settings
+        precision = config.precision
+        n_states = config.n_states
+        n_parameters = config.n_parameters
+        n_drivers = config.n_drivers
+        n_observables = config.n_observables
+        n_error = config.n_error
+        n_counters = config.n_counters
+        state_summary_buffer_height = config.state_summary_buffer_height
+        observable_summary_buffer_height = config.observable_summary_buffer_height
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_parent(self)
+
+        # Register all loop buffers with central registry
+        buffer_registry.register(
+            'state', self, n_states, config.state_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'proposed_state', self, n_states, config.proposed_state_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'parameters', self, n_parameters,
+            config.parameters_location, precision=precision
+        )
+        buffer_registry.register(
+            'drivers', self, n_drivers, config.drivers_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'proposed_drivers', self, n_drivers,
+            config.proposed_drivers_location, precision=precision
+        )
+        buffer_registry.register(
+            'observables', self, n_observables,
+            config.observables_location, precision=precision
+        )
+        buffer_registry.register(
+            'proposed_observables', self, n_observables,
+            config.proposed_observables_location, precision=precision
+        )
+        buffer_registry.register(
+            'error', self, n_error, config.error_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'counters', self, n_counters, config.counters_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'state_summary', self, state_summary_buffer_height,
+            config.state_summary_location, precision=precision
+        )
+        buffer_registry.register(
+            'observable_summary', self, observable_summary_buffer_height,
+            config.observable_summary_location, precision=precision
+        )
+        buffer_registry.register(
+            'dt', self, 1, config.dt_location, precision=precision
+        )
+        buffer_registry.register(
+            'accept_step', self, 1, config.accept_step_location, precision=precision
+        )
 
     @property
     def precision(self) -> PrecisionDType:
