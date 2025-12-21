@@ -8,7 +8,6 @@ from numba import cuda, int32
 
 from cubie.cuda_simsafe import compile_kwargs
 from cubie._utils import PrecisionDType
-from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -21,15 +20,10 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
+from cubie.buffer_registry import buffer_registry
 from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
     InstrumentedLinearSolver,
     InstrumentedNewtonKrylov,
-)
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverConfig
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylovConfig
 )
 
 
@@ -38,12 +32,12 @@ FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
-        "kp": 0.7,
+        "kp": 0.6,
         "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
-        "min_gain": 0.1,
-        "max_gain": 5.0,
+        "min_gain": 0.5,
+        "max_gain": 2.0,
     }
 )
 
@@ -62,9 +56,18 @@ class FIRKStepConfig(ImplicitStepConfig):
     tableau: FIRKTableau = attrs.field(
         default=DEFAULT_FIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(default='local')
-    stage_driver_stack_location: str = attrs.field(default='local')
-    stage_state_location: str = attrs.field(default='local')
+    stage_increment_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_driver_stack_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_state_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
     @property
     def stage_count(self) -> int:
@@ -90,14 +93,14 @@ class FIRKStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 2,
-        krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 200,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 100,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
         stage_increment_location: Optional[str] = None,
@@ -118,13 +121,6 @@ class FIRKStep(ODEImplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
-            "krylov_tolerance": krylov_tolerance,
-            "max_linear_iters": max_linear_iters,
-            "linear_correction_type": linear_correction_type,
-            "newton_tolerance": newton_tolerance,
-            "max_newton_iters": max_newton_iters,
-            "newton_damping": newton_damping,
-            "newton_max_backtracks": newton_max_backtracks,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -138,49 +134,94 @@ class FIRKStep(ODEImplicitStep):
             config_kwargs["stage_state_location"] = stage_state_location
 
         config = FIRKStepConfig(**config_kwargs)
+        
+        # Select defaults based on error estimate
+        if tableau.has_error_estimate:
+            controller_defaults = FIRK_ADAPTIVE_DEFAULTS
+        else:
+            controller_defaults = FIRK_FIXED_DEFAULTS
+        
+        # Build kwargs dict conditionally
+        solver_kwargs = {}
+        if krylov_tolerance is not None:
+            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            solver_kwargs['max_linear_iters'] = max_linear_iters
+        if linear_correction_type is not None:
+            solver_kwargs['linear_correction_type'] = linear_correction_type
+        if newton_tolerance is not None:
+            solver_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            solver_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            solver_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        
+        # Call parent __init__ to create solver instances
+        super().__init__(config, controller_defaults, **solver_kwargs)
 
+        # Replace solver with instrumented version
+        self._replace_with_instrumented_solvers()
+
+        self.register_buffers()
+
+    def _replace_with_instrumented_solvers(self) -> None:
+        """Replace parent's solver with instrumented version."""
+        config = self.compile_settings
+        parent_solver = self.solver
+        parent_linear = parent_solver.linear_solver
+        
+        # Create instrumented linear solver with same settings
+        instrumented_linear = InstrumentedLinearSolver(
+            precision=config.precision,
+            n=config.all_stages_n,
+            correction_type=parent_linear.correction_type,
+            krylov_tolerance=parent_linear.krylov_tolerance,
+            max_linear_iters=parent_linear.max_iters,
+        )
+        
+        # Create instrumented Newton solver with same settings
+        self.solver = InstrumentedNewtonKrylov(
+            precision=config.precision,
+            n=config.all_stages_n,
+            linear_solver=instrumented_linear,
+            newton_tolerance=parent_solver.newton_tolerance,
+            max_newton_iters=parent_solver.max_newton_iters,
+            newton_damping=parent_solver.newton_damping,
+            newton_max_backtracks=parent_solver.newton_max_backtracks,
+        )
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+        
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
         # Calculate buffer sizes
         all_stages_n = tableau.stage_count * n
-        stage_driver_stack_elements = tableau.stage_count * n_drivers
-
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * all_stages_n
-        buffer_registry.register(
-            'firk_solver_scratch', self, solver_shared_size, 'shared',
-            precision=precision
-        )
+        stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'firk_stage_increment', self, all_stages_n,
-            config.stage_increment_location, precision=precision
+            'stage_increment',
+            self,
+            all_stages_n,
+            config.stage_increment_location,
+            persistent=True,
+            precision=precision
         )
         buffer_registry.register(
-            'firk_stage_driver_stack', self, stage_driver_stack_elements,
+            'stage_driver_stack', self, stage_driver_stack_elements,
             config.stage_driver_stack_location, precision=precision
         )
         buffer_registry.register(
-            'firk_stage_state', self, n, config.stage_state_location,
+            'stage_state', self, n, config.stage_state_location,
             precision=precision
-        )
-
-        if tableau.has_error_estimate:
-            defaults = FIRK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = FIRK_FIXED_DEFAULTS
-
-        super().__init__(
-            config, defaults,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
 
     def build_implicit_helpers(
@@ -188,14 +229,11 @@ class FIRKStep(ODEImplicitStep):
     ) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
 
-        precision = self.precision
         config = self.compile_settings
         tableau = config.tableau
         beta = config.beta
         gamma = config.gamma
         mass = config.M
-        stage_count = config.stage_count
-        all_stages_n = config.all_stages_n
 
         get_fn = config.get_solver_helper_fn
 
@@ -229,65 +267,34 @@ class FIRKStep(ODEImplicitStep):
             stage_nodes=stage_nodes,
         )
 
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver_config = LinearSolverConfig(
-            precision=precision,
-            n=all_stages_n,
+        # Update solvers with device functions
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
-            use_cached_auxiliaries=False,
-        )
-        linear_solver_instance = InstrumentedLinearSolver(
-            linear_solver_config
-        )
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        newton_config = NewtonKrylovConfig(
-            precision=precision,
-            n=all_stages_n,
             residual_function=residual,
-            linear_solver=linear_solver_instance,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
         )
-        newton_instance = InstrumentedNewtonKrylov(newton_config)
-        
-        # Replace parent solver with instrumented version
-        self.solver = newton_instance
 
-        return newton_instance.device_function
+        self.update_compile_settings(
+                {'solver_function':self.solver.device_function}
+        )
 
     def build_step(
         self,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
-        n_drivers: int = 0,
+        n_drivers: int,
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the FIRK device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
         
-        # Access solver device function from owned instance
-        solver_fn = self.solver.device_function
-        nonlinear_solver = solver_fn
-        
+        nonlinear_solver = solver_function
+
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
@@ -307,7 +314,6 @@ class FIRKStep(ODEImplicitStep):
         # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
-        # accumulates_output = 1
         accumulates_output = tableau.accumulates_output
         accumulates_error = tableau.accumulates_error
         b_row = tableau.b_matches_a_row
@@ -320,17 +326,14 @@ class FIRKStep(ODEImplicitStep):
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         # Get allocators from buffer registry
-        alloc_solver_scratch = buffer_registry.get_allocator(
-            'firk_solver_scratch', self
-        )
-        alloc_stage_increment = buffer_registry.get_allocator(
-            'firk_stage_increment', self
-        )
-        alloc_stage_driver_stack = buffer_registry.get_allocator(
-            'firk_stage_driver_stack', self
-        )
-        alloc_stage_state = buffer_registry.get_allocator(
-            'firk_stage_state', self
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_stage_driver_stack = getalloc('stage_driver_stack', self)
+        alloc_stage_state = getalloc('stage_state', self)
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, nonlinear_solver)
         )
         # no cover: start
         @cuda.jit(
@@ -412,20 +415,13 @@ class FIRKStep(ODEImplicitStep):
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_state = alloc_stage_state(shared, persistent_local)
-            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
-            # Initialize local arrays
-            for _i in range(n):
-                stage_state[_i] = typed_zero
-            for _i in range(all_stages_n):
-                stage_increment[_i] = typed_zero
-            for _i in range(stage_count * n_drivers):
-                stage_driver_stack[_i] = typed_zero
             # ----------------------------------------------------------- #
 
-            observable_count = proposed_observables.shape[0]
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
@@ -448,13 +444,10 @@ class FIRKStep(ODEImplicitStep):
                     driver_slice = stage_driver_stack[
                         driver_offset:driver_offset + n_drivers
                     ]
-                    driver_function(
-                            stage_time,
-                            driver_coeffs,
-                            driver_slice
-                    )
+                    driver_function(stage_time, driver_coeffs, driver_slice)
 
-            solver_ret = nonlinear_solver(
+            # Solve n-stage nonlinear problem for all stages
+            solver_status = nonlinear_solver(
                 stage_increment,
                 parameters,
                 stage_driver_stack,
@@ -462,9 +455,9 @@ class FIRKStep(ODEImplicitStep):
                 dt_scalar,
                 typed_zero,
                 state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
-                int32(0),
                 newton_initial_guesses,
                 newton_iteration_guesses,
                 newton_residuals,
@@ -476,7 +469,7 @@ class FIRKStep(ODEImplicitStep):
                 linear_squared_norms,
                 linear_preconditioned_vectors,
             )
-            status_code = int32(status_code | solver_ret)
+            status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
                 if has_driver_function:
@@ -577,6 +570,11 @@ class FIRKStep(ODEImplicitStep):
         """Return ``True`` when the tableau supplies an error estimate."""
 
         return self.tableau.has_error_estimate
+
+    @property
+    def persistent_local_required(self) -> int:
+        """Return the number of persistent local entries required."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def stage_count(self) -> int:
