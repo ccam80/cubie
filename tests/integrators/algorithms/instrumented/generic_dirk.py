@@ -516,18 +516,8 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[0],
                         stage_base,
                         solver_shared,
+                        solver_persistent,
                         counters,
-                        int32(0),
-                        newton_initial_guesses,
-                        newton_iteration_guesses,
-                        newton_residuals,
-                        newton_squared_norms,
-                        newton_iteration_scale,
-                        linear_initial_guesses,
-                        linear_iteration_guesses,
-                        linear_residuals,
-                        linear_squared_norms,
-                        linear_preconditioned_vectors,
                     )
                     status_code = int32(status_code | solver_status)
 
@@ -653,18 +643,8 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_shared,
+                        solver_persistent,
                         counters,
-                        int32(stage_idx),
-                        newton_initial_guesses,
-                        newton_iteration_guesses,
-                        newton_residuals,
-                        newton_squared_norms,
-                        newton_iteration_scale,
-                        linear_initial_guesses,
-                        linear_iteration_guesses,
-                        linear_residuals,
-                        linear_squared_norms,
-                        linear_preconditioned_vectors,
                     )
                     status_code = int32(status_code | solver_status)
 

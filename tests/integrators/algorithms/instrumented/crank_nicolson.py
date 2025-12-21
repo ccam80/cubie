@@ -216,12 +216,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
         n = int32(n)
-        stage_count = self.stage_count
-        newton_iters = int(config.max_newton_iters)
-        newton_backtracks = int(config.newton_max_backtracks)
-        newton_slots = newton_iters * (newton_backtracks + 1) + 1
-        linear_iters = int(self.max_linear_iters)
-        linear_slots = max(1, stage_count * newton_iters)
 
         # Get allocators for Newton solver (registered in register_buffers)
         alloc_solver_shared = buffer_registry.get_allocator('solver_scratch_shared', self)
@@ -306,46 +300,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             status_mask = int32(0xFFFF)
             stage_rhs = cuda.local.array(n, numba_precision)
             cn_increment = cuda.local.array(n, numba_precision)
-            dummy_newton_initial_guesses = cuda.local.array(
-                (stage_count, n),
-                numba_precision,
-            )
-            dummy_newton_iteration_guesses = cuda.local.array(
-                (stage_count, newton_slots, n),
-                numba_precision,
-            )
-            dummy_newton_residuals = cuda.local.array(
-                (stage_count, newton_slots, n),
-                numba_precision,
-            )
-            dummy_newton_squared_norms = cuda.local.array(
-                (stage_count, newton_slots),
-                numba_precision,
-            )
-            dummy_newton_iteration_scale = cuda.local.array(
-                (stage_count, newton_iters),
-                numba_precision,
-            )
-            dummy_linear_initial_guesses = cuda.local.array(
-                (linear_slots, n),
-                numba_precision,
-            )
-            dummy_linear_iteration_guesses = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
-            dummy_linear_residuals = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
-            dummy_linear_squared_norms = cuda.local.array(
-                (linear_slots, linear_iters),
-                numba_precision,
-            )
-            dummy_linear_preconditioned_vectors = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
 
             observable_count = proposed_observables.shape[0]
 
@@ -364,6 +318,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_drivers[0, driver_idx] = typed_zero
 
             solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             dxdt = alloc_dxdt(shared, persistent_local)
             # error buffer tracks the stage base during setup.
             base_state = error
@@ -404,18 +359,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                solver_persistent,
                 counters,
-                int32(0),
-                newton_initial_guesses,
-                newton_iteration_guesses,
-                newton_residuals,
-                newton_squared_norms,
-                newton_iteration_scale,
-                linear_initial_guesses,
-                linear_iteration_guesses,
-                linear_residuals,
-                linear_squared_norms,
-                linear_preconditioned_vectors,
             )
 
             # LOGGING: capture final residual from solver scratch
@@ -442,18 +387,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
-                int32(0),
-                dummy_newton_initial_guesses,
-                dummy_newton_iteration_guesses,
-                dummy_newton_residuals,
-                dummy_newton_squared_norms,
-                dummy_newton_iteration_scale,
-                dummy_linear_initial_guesses,
-                dummy_linear_iteration_guesses,
-                dummy_linear_residuals,
-                dummy_linear_squared_norms,
-                dummy_linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
 

@@ -328,17 +328,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                 solver_scratch,
                 solver_persistent,
                 counters,
-                int32(0),
-                newton_initial_guesses,
-                newton_iteration_guesses,
-                newton_residuals,
-                newton_squared_norms,
-                newton_iteration_scale,
-                linear_initial_guesses,
-                linear_iteration_guesses,
-                linear_residuals,
-                linear_squared_norms,
-                linear_preconditioned_vectors,
             )
 
             # LOGGING: Record increment, residual, and state values

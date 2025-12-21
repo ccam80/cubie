@@ -495,7 +495,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             krylov_iters_out[0] = int32(0)
 
             # Use stored copy as the initial guess for the first stage.
-            initial_linear_slot = int32(0)
             status_code |= linear_solver(
                 state,
                 parameters,
@@ -508,14 +507,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs,
                 stage_increment,
                 shared,
+                persistent_local,
                 krylov_iters_out,
-                # LOGGING parameters
-                initial_linear_slot,
-                linear_initial_guesses,
-                linear_iteration_guesses,
-                linear_residuals,
-                linear_squared_norms,
-                linear_preconditioned_vectors,
             )
 
             for idx in range(n):
@@ -660,7 +653,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     stage_increment[idx] = stage_store[previous_base + idx]
 
-                stage_linear_slot = int32(stage_idx)
                 status_code |= linear_solver(
                     state,
                     parameters,
@@ -673,14 +665,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_increment,
                     shared,
+                    persistent_local,
                     krylov_iters_out,
-                    # LOGGING parameters
-                    stage_linear_slot,
-                    linear_initial_guesses,
-                    linear_iteration_guesses,
-                    linear_residuals,
-                    linear_squared_norms,
-                    linear_preconditioned_vectors,
                 )
 
                 if accumulates_output:

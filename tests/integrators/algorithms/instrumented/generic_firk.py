@@ -563,16 +563,6 @@ class FIRKStep(ODEImplicitStep):
                 solver_shared,
                 solver_persistent,
                 counters,
-                newton_initial_guesses,
-                newton_iteration_guesses,
-                newton_residuals,
-                newton_squared_norms,
-                newton_iteration_scale,
-                linear_initial_guesses,
-                linear_iteration_guesses,
-                linear_residuals,
-                linear_squared_norms,
-                linear_preconditioned_vectors,
             )
             status_code = int32(status_code | solver_status)
 
