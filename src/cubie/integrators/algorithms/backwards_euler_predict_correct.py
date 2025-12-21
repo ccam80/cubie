@@ -2,7 +2,6 @@
 
 from typing import Callable, Optional
 
-import attrs
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
@@ -10,16 +9,6 @@ from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, StepControlDefaults
 from cubie.integrators.algorithms import ImplicitStepConfig
-
-
-@attrs.define
-class BackwardsEulerPCStepConfig(ImplicitStepConfig):
-    """Configuration for Backward Euler Predictor-Corrector step."""
-    
-    predictor_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
@@ -40,7 +29,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
-        predictor_location: Optional[str] = None,
+        predictor_location: str = 'local',
     ) -> None:
         """Initialize the Backward Euler predictor-corrector step.
         
@@ -83,55 +72,27 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Maximum number of backtracking steps within the Newton solver. If
             None, uses default from NewtonKrylovConfig.
         predictor_location
-            Memory location for predictor buffer: 'local' or 'shared'. If
-            None, defaults to 'local'.
+            Memory location for predictor buffer: 'local' or 'shared'.
+            Defaults to 'local'.
         """
-        import numpy as np
-        from cubie.integrators.algorithms.backwards_euler import ALGO_CONSTANTS, BE_DEFAULTS
+        self._predictor_location = predictor_location
         
-        beta = ALGO_CONSTANTS['beta']
-        gamma = ALGO_CONSTANTS['gamma']
-        M = ALGO_CONSTANTS['M'](n, dtype=precision)
-        
-        # Build config kwargs conditionally
-        config_kwargs = {
-            'precision': precision,
-            'n': n,
-            'get_solver_helper_fn': get_solver_helper_fn,
-            'beta': beta,
-            'gamma': gamma,
-            'M': M,
-            'dxdt_function': dxdt_function,
-            'observables_function': observables_function,
-            'driver_function': driver_function,
-        }
-        if preconditioner_order is not None:
-            config_kwargs['preconditioner_order'] = preconditioner_order
-        if predictor_location is not None:
-            config_kwargs['predictor_location'] = predictor_location
-        
-        config = BackwardsEulerPCStepConfig(**config_kwargs)
-        
-        # Build solver kwargs dict conditionally
-        solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
-        if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
-        if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        
-        # Initialize parent with config directly (skip BackwardsEulerStep.__init__)
-        from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
-        ODEImplicitStep.__init__(self, config, BE_DEFAULTS.copy(), **solver_kwargs)
+        super().__init__(
+            precision=precision,
+            n=n,
+            dxdt_function=dxdt_function,
+            observables_function=observables_function,
+            driver_function=driver_function,
+            get_solver_helper_fn=get_solver_helper_fn,
+            preconditioner_order=preconditioner_order,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
         
         self.register_buffers()
 
@@ -142,7 +103,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             'predictor',
             self,
             config.n,
-            config.predictor_location,
+            self._predictor_location,
             aliases='solver_scratch_shared',
             precision=config.precision
         )

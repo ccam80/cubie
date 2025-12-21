@@ -175,76 +175,52 @@ class IVPLoop(CUDAFactory):
     ) -> None:
         super().__init__()
 
-        # Set defaults for buffer locations
-        if state_location is None:
-            state_location = "local"
-        if proposed_state_location is None:
-            proposed_state_location = "local"
-        if parameters_location is None:
-            parameters_location = "local"
-        if drivers_location is None:
-            drivers_location = "local"
-        if proposed_drivers_location is None:
-            proposed_drivers_location = "local"
-        if observables_location is None:
-            observables_location = "local"
-        if proposed_observables_location is None:
-            proposed_observables_location = "local"
-        if error_location is None:
-            error_location = "local"
-        if counters_location is None:
-            counters_location = "local"
-        if state_summary_location is None:
-            state_summary_location = "local"
-        if observable_summary_location is None:
-            observable_summary_location = "local"
-
         # Register all loop buffers with central registry
         buffer_registry.clear_parent(self)
 
         buffer_registry.register(
-            'state', self, n_states, state_location,
+            'state', self, n_states, state_location or 'local',
             precision=precision
         )
         buffer_registry.register(
-            'proposed_state', self, n_states, proposed_state_location,
+            'proposed_state', self, n_states, proposed_state_location or 'local',
             precision=precision
         )
         buffer_registry.register(
             'parameters', self, n_parameters,
-            parameters_location, precision=precision
+            parameters_location or 'local', precision=precision
         )
         buffer_registry.register(
-            'drivers', self, n_drivers, drivers_location,
+            'drivers', self, n_drivers, drivers_location or 'local',
             precision=precision
         )
         buffer_registry.register(
             'proposed_drivers', self, n_drivers,
-            proposed_drivers_location, precision=precision
+            proposed_drivers_location or 'local', precision=precision
         )
         buffer_registry.register(
             'observables', self, n_observables,
-            observables_location, precision=precision
+            observables_location or 'local', precision=precision
         )
         buffer_registry.register(
             'proposed_observables', self, n_observables,
-            proposed_observables_location, precision=precision
+            proposed_observables_location or 'local', precision=precision
         )
         buffer_registry.register(
-            'error', self, n_error, error_location,
+            'error', self, n_error, error_location or 'local',
             precision=precision
         )
         buffer_registry.register(
-            'counters', self, n_counters, counters_location,
+            'counters', self, n_counters, counters_location or 'local',
             precision=precision
         )
         buffer_registry.register(
             'state_summary', self, state_summary_buffer_height,
-            state_summary_location, precision=precision
+            state_summary_location or 'local', precision=precision
         )
         buffer_registry.register(
             'observable_summary', self, observable_summary_buffer_height,
-            observable_summary_location, precision=precision
+            observable_summary_location or 'local', precision=precision
         )
         buffer_registry.register(
                 'dt', self, 1, 'local', precision=precision
@@ -262,36 +238,40 @@ class IVPLoop(CUDAFactory):
             'n_counters': n_counters,
             'state_summary_buffer_height': state_summary_buffer_height,
             'observable_summary_buffer_height': observable_summary_buffer_height,
-            'state_location': state_location,
-            'proposed_state_location': proposed_state_location,
-            'parameters_location': parameters_location,
-            'drivers_location': drivers_location,
-            'proposed_drivers_location': proposed_drivers_location,
-            'observables_location': observables_location,
-            'proposed_observables_location': proposed_observables_location,
-            'error_location': error_location,
-            'counters_location': counters_location,
-            'state_summary_location': state_summary_location,
-            'observable_summary_location': observable_summary_location,
             'precision': precision,
             'compile_flags': compile_flags,
             'dt_save': dt_save,
             'dt_summarise': dt_summarise,
+            'save_state_fn': save_state_func,
+            'update_summaries_fn': update_summaries_func,
+            'save_summaries_fn': save_summaries_func,
+            'step_controller_fn': step_controller_fn,
+            'step_function': step_function,
+            'driver_function': driver_function,
+            'observables_fn': observables_fn,
         }
-        if save_state_func is not None:
-            config_kwargs['save_state_fn'] = save_state_func
-        if update_summaries_func is not None:
-            config_kwargs['update_summaries_fn'] = update_summaries_func
-        if save_summaries_func is not None:
-            config_kwargs['save_summaries_fn'] = save_summaries_func
-        if step_controller_fn is not None:
-            config_kwargs['step_controller_fn'] = step_controller_fn
-        if step_function is not None:
-            config_kwargs['step_function'] = step_function
-        if driver_function is not None:
-            config_kwargs['driver_function'] = driver_function
-        if observables_fn is not None:
-            config_kwargs['observables_fn'] = observables_fn
+        if state_location is not None:
+            config_kwargs['state_location'] = state_location
+        if proposed_state_location is not None:
+            config_kwargs['proposed_state_location'] = proposed_state_location
+        if parameters_location is not None:
+            config_kwargs['parameters_location'] = parameters_location
+        if drivers_location is not None:
+            config_kwargs['drivers_location'] = drivers_location
+        if proposed_drivers_location is not None:
+            config_kwargs['proposed_drivers_location'] = proposed_drivers_location
+        if observables_location is not None:
+            config_kwargs['observables_location'] = observables_location
+        if proposed_observables_location is not None:
+            config_kwargs['proposed_observables_location'] = proposed_observables_location
+        if error_location is not None:
+            config_kwargs['error_location'] = error_location
+        if counters_location is not None:
+            config_kwargs['counters_location'] = counters_location
+        if state_summary_location is not None:
+            config_kwargs['state_summary_location'] = state_summary_location
+        if observable_summary_location is not None:
+            config_kwargs['observable_summary_location'] = observable_summary_location
         if dt0 is not None:
             config_kwargs['dt0'] = dt0
         if dt_min is not None:
