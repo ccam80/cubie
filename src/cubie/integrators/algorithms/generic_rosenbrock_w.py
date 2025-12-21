@@ -37,8 +37,7 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
-from cubie import is_device_validator
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, is_device_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
