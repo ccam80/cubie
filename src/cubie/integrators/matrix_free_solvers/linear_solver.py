@@ -175,16 +175,16 @@ class LinearSolver(CUDAFactory):
         )
         self.setup_compile_settings(config)
         
-        # Register buffers with buffer_registry (same names for cached/non-cached)
+        # Register buffers with buffer_registry
         buffer_registry.register(
-            'lin_preconditioned_vec',
+            'preconditioned_vec',
             self,
             n,
             preconditioned_vec_location,
             precision=precision
         )
         buffer_registry.register(
-            'lin_temp',
+            'temp',
             self,
             n,
             temp_location,
@@ -228,11 +228,11 @@ class LinearSolver(CUDAFactory):
         typed_zero = precision_numba(0.0)
         tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
         
-        # Get allocators from buffer_registry (same names for all variants)
+        # Get allocators from buffer_registry
         alloc_precond = buffer_registry.get_allocator(
-            'lin_preconditioned_vec', self
+            'preconditioned_vec', self
         )
-        alloc_temp = buffer_registry.get_allocator('lin_temp', self)
+        alloc_temp = buffer_registry.get_allocator('temp', self)
         
         # Define device function with appropriate signature
         if use_cached_auxiliaries:

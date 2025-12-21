@@ -241,7 +241,11 @@ class DIRKStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'stage_increment', self, n, config.stage_increment_location,
+            'stage_increment',
+            self,
+            n,
+            config.stage_increment_location,
+            persistent=True,
             precision=precision
         )
         buffer_registry.register(
@@ -249,34 +253,16 @@ class DIRKStep(ODEImplicitStep):
             config.accumulator_location, precision=precision
         )
 
-        # stage_base aliasing: can alias accumulator when both are shared
-        # and method has multiple stages
-        stage_base_aliases_acc = (
-            multistage
-            and config.accumulator_location == 'shared'
-            and config.stage_base_location == 'shared'
-        )
-        if stage_base_aliases_acc:
-            buffer_registry.register(
-                'stage_base', self, n, 'local',
-                aliases='accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'stage_base', self, n, config.stage_base_location,
-                precision=precision
-            )
 
-        # FSAL caches for first-same-as-last optimization
         buffer_registry.register(
-                'rhs_cache',
-                self,
-                n,
-                'local',
-                aliases='solver_shared',
-                persistent=True,
-                precision=precision
+            'stage_base',
+            self,
+            n,
+            config.stage_base_location,
+            aliases='accumulator',
+            precision=precision
         )
+
         buffer_registry.register(
             'increment_cache',
             self,
@@ -287,7 +273,11 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
         buffer_registry.register(
-            'stage_rhs', self, n, 'local',
+            'stage_rhs',
+            self,
+            n,
+            'local',
+            persistent=True,
             precision=precision
         )
 
@@ -423,12 +413,6 @@ class DIRKStep(ODEImplicitStep):
         alloc_stage_base = buffer_registry.get_allocator(
             'stage_base', self
         )
-        alloc_rhs_cache = buffer_registry.get_allocator(
-            'rhs_cache', self
-        )
-        alloc_increment_cache = buffer_registry.get_allocator(
-            'increment_cache', self
-        )
         alloc_stage_rhs = buffer_registry.get_allocator(
             'stage_rhs', self
         )
@@ -526,8 +510,6 @@ class DIRKStep(ODEImplicitStep):
             stage_base = alloc_stage_base(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
-            rhs_cache = alloc_rhs_cache(shared, persistent_local)
-            increment_cache = alloc_increment_cache(shared, persistent_local)
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
             # Initialize local arrays
@@ -544,7 +526,6 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
-                stage_increment[idx] = increment_cache[idx]
 
             status_code = int32(0)
             # --------------------------------------------------------------- #
@@ -555,7 +536,9 @@ class DIRKStep(ODEImplicitStep):
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
+            # Compile-time branch: guarded by static configuration flags
             if first_same_as_last and multistage:
+                # Runtime branch: depends on previous step acceptance
                 if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
@@ -571,12 +554,8 @@ class DIRKStep(ODEImplicitStep):
                 if accumulates_output:
                     proposed_state[idx] = typed_zero
 
-            if use_cached_rhs:
-                # Load cached RHS from persistent storage
-                for idx in range(n):
-                    stage_rhs[idx] = rhs_cache[idx]
-
-            else:
+            # Recompute if not FSAL cached
+            if not use_cached_rhs:
                 if can_reuse_accepted_start:
                     for idx in range(int32(drivers_buffer.shape[0])):
                         # Use step-start driver values
@@ -769,11 +748,6 @@ class DIRKStep(ODEImplicitStep):
                 proposed_observables,
                 end_time,
             )
-
-            # Cache increment and RHS for FSAL optimization
-            for idx in range(n):
-                increment_cache[idx] = stage_increment[idx]
-                rhs_cache[idx] = stage_rhs[idx]
 
             return int32(status_code)
         # no cover: end

@@ -72,17 +72,17 @@ class IVPLoop(CUDAFactory):
         Height of observable summary buffer.
     state_location
         Memory location for state buffer: 'local' or 'shared'.
-    state_proposal_location
+    proposed_state_location
         Memory location for proposed state buffer.
     parameters_location
         Memory location for parameters buffer.
     drivers_location
         Memory location for drivers buffer.
-    drivers_proposal_location
+    proposed_drivers_location
         Memory location for proposed drivers buffer.
     observables_location
         Memory location for observables buffer.
-    observables_proposal_location
+    proposed_observables_location
         Memory location for proposed observables buffer.
     error_location
         Memory location for error buffer.
@@ -139,12 +139,12 @@ class IVPLoop(CUDAFactory):
         state_summary_buffer_height: int = 0,
         observable_summary_buffer_height: int = 0,
         state_location: str = 'local',
-        state_proposal_location: str = 'local',
+        proposed_state_location: str = 'local',
         parameters_location: str = 'local',
         drivers_location: str = 'local',
-        drivers_proposal_location: str = 'local',
+        proposed_drivers_location: str = 'local',
         observables_location: str = 'local',
-        observables_proposal_location: str = 'local',
+        proposed_observables_location: str = 'local',
         error_location: str = 'local',
         counters_location: str = 'local',
         state_summary_location: str = 'local',
@@ -173,8 +173,8 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'proposed_state', self, n_states,
-            state_proposal_location, precision=precision
+            'proposed_state', self, n_states, proposed_state_location,
+            precision=precision
         )
         buffer_registry.register(
             'parameters', self, n_parameters,
@@ -186,7 +186,7 @@ class IVPLoop(CUDAFactory):
         )
         buffer_registry.register(
             'proposed_drivers', self, n_drivers,
-            drivers_proposal_location, precision=precision
+            proposed_drivers_location, precision=precision
         )
         buffer_registry.register(
             'observables', self, n_observables,
@@ -194,7 +194,7 @@ class IVPLoop(CUDAFactory):
         )
         buffer_registry.register(
             'proposed_observables', self, n_observables,
-            observables_proposal_location, precision=precision
+            proposed_observables_location, precision=precision
         )
         buffer_registry.register(
             'error', self, n_error, error_location,
@@ -229,12 +229,12 @@ class IVPLoop(CUDAFactory):
             state_summary_buffer_height=state_summary_buffer_height,
             observable_summary_buffer_height=observable_summary_buffer_height,
             state_location=state_location,
-            proposed_state_location=state_proposal_location,
+            proposed_state_location=proposed_state_location,
             parameters_location=parameters_location,
             drivers_location=drivers_location,
-            proposed_drivers_location=drivers_proposal_location,
+            proposed_drivers_location=proposed_drivers_location,
             observables_location=observables_location,
-            proposed_observables_location=observables_proposal_location,
+            proposed_observables_location=proposed_observables_location,
             error_location=error_location,
             counters_location=counters_location,
             state_summary_location=state_summary_location,
@@ -346,7 +346,6 @@ class IVPLoop(CUDAFactory):
         
         fixed_mode = not config.is_adaptive
 
-
         @cuda.jit(
             # [
             #     (
@@ -431,7 +430,6 @@ class IVPLoop(CUDAFactory):
             stagnant_counts = int32(0)
 
             shared_scratch[:] = precision(0.0)
-
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
@@ -439,9 +437,7 @@ class IVPLoop(CUDAFactory):
             state_proposal_buffer = alloc_proposed_state(
                 shared_scratch, persistent_local
             )
-            observables_buffer = alloc_observables(
-                shared_scratch, persistent_local
-            )
+            observables_buffer = alloc_observables(shared_scratch, persistent_local)
             observables_proposal_buffer = alloc_proposed_observables(
                 shared_scratch, persistent_local
             )
@@ -462,7 +458,9 @@ class IVPLoop(CUDAFactory):
             # Allocate child buffers for algorithm step
             algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
             algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
-            controller_temp = alloc_controller_persistent(shared_scratch, persistent_local)
+            controller_temp = alloc_controller_persistent(
+                shared_scratch, persistent_local
+            )
             dt = alloc_dt(shared_scratch, persistent_local)
             accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
