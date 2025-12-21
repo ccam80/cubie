@@ -105,6 +105,28 @@ class LinearSolverConfig:
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
         return simsafe_dtype(np.dtype(self.precision))
+    
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return linear solver configuration as dictionary.
+        
+        Returns
+        -------
+        dict
+            Configuration dictionary containing:
+            - krylov_tolerance: Convergence tolerance for linear solver
+            - max_linear_iters: Maximum iterations permitted
+            - correction_type: Line-search strategy
+            - preconditioned_vec_location: Buffer location for preconditioned vector
+            - temp_location: Buffer location for temporary vector
+        """
+        return {
+            'krylov_tolerance': self.krylov_tolerance,
+            'max_linear_iters': self.max_linear_iters,
+            'correction_type': self.correction_type,
+            'preconditioned_vec_location': self.preconditioned_vec_location,
+            'temp_location': self.temp_location,
+        }
 
 
 @attrs.define
@@ -605,3 +627,16 @@ class LinearSolver(CUDAFactory):
     def persistent_local_buffer_size(self) -> int:
         """Return total persistent local memory elements required."""
         return buffer_registry.persistent_local_buffer_size(self)
+    
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return linear solver configuration as dictionary.
+        
+        Delegates to compile_settings for configuration state.
+        
+        Returns
+        -------
+        dict
+            Configuration dictionary from LinearSolverConfig.settings_dict
+        """
+        return self.compile_settings.settings_dict

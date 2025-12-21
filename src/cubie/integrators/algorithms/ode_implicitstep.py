@@ -380,3 +380,25 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the maximum number of Newton backtracking steps."""
         val = getattr(self.solver, 'newton_max_backtracks', None)
         return int(val) if val is not None else None
+    
+    @property
+    def settings_dict(self) -> dict:
+        """Return merged algorithm and solver settings.
+        
+        Combines implicit step configuration (beta, gamma, M, etc.)
+        with solver settings (Newton and linear solver parameters).
+        
+        Returns
+        -------
+        dict
+            Merged configuration dictionary containing:
+            - Base step settings (n, n_drivers, precision) from BaseStepConfig
+            - Implicit step settings (beta, gamma, M, preconditioner_order,
+              get_solver_helper_fn) from ImplicitStepConfig
+            - Solver settings (newton_tolerance, krylov_tolerance, etc.)
+              from NewtonKrylov or LinearSolver
+            - All buffer location parameters from solver hierarchy
+        """
+        settings = super().settings_dict
+        settings.update(self.solver.settings_dict)
+        return settings
