@@ -249,10 +249,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             config.cached_auxiliaries_location, precision=precision
         )
 
-        # Stage cache aliases stage_store for memory reuse.
-        # persistent=True ensures state is kept between calls.
+        # Stage increment should persist between steps for initial guess
         buffer_registry.register(
-            'stage_cache', self, n,
+            'stage_increment', self, n,
             config.stage_store_location,
             aliases='stage_store',
             persistent=True,
@@ -272,7 +271,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             correction_type=linear_correction_type,
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
-            use_cached_auxiliaries=True,  # Rosenbrock uses cached auxiliaries
+            use_cached_auxiliaries=True,
         )
 
     def build_implicit_helpers(
@@ -426,8 +425,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         alloc_cached_auxiliaries = buffer_registry.get_allocator(
             'cached_auxiliaries', self
         )
-        alloc_stage_cache = buffer_registry.get_allocator(
-            'stage_cache', self
+        alloc_stage_increment = buffer_registry.get_allocator(
+            'stage_increment', self
         )
 
         # Stage store size for initialization
@@ -498,12 +497,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+            stage_increment = alloc_stage_increment(shared, persistent_local)
 
-            # Initialize arrays
-            for _i in range(n):
-                stage_rhs[_i] = typed_zero
-            for _i in range(stage_store_elements):
-                stage_store[_i] = typed_zero
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -532,21 +527,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
             else:
                 proposed_drivers[:] = numba_precision(0.0)
-
-            # Stage 0 uses cached value as initial guess.
-            # When stage_store is shared, time_derivative persists between steps.
-            # When stage_store is local, use persistent_local for caching.
-            # On first step, no cached value exists - use zero initialization.
-            stage_increment = stage_store[:n]
-            first_step = first_step_flag != int32(0)
-
-            if stage_store_shared:
-                # When shared, time_derivative persists automatically
-                for idx in range(n):
-                    stage_increment[idx] = time_derivative[idx]
-            else:
-                for idx in range(n):
-                    stage_increment[idx] = persistent_local[idx]
 
             time_derivative_rhs(
                 state,
@@ -784,12 +764,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 end_time,
             )
 
-            # Cache time_derivative for next step's initial guess.
-            # When stage_store is shared, time_derivative persists automatically.
-            # When local, save to persistent_local for next step.
-            if not stage_store_shared:
-                for idx in range(n):
-                    persistent_local[idx] = time_derivative[idx]
+            # Cache final indices of stage store (time_derivative is an
+            # alias for this for next step's initial guess.
+            for idx in range(n):
+                stage_increment[idx] = time_derivative[idx]
 
             return status_code
         # no cover: end

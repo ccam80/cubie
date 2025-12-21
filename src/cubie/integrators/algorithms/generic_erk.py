@@ -30,7 +30,7 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 from typing import Callable, Optional
 
 import attrs
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
@@ -236,6 +236,7 @@ class ERKStep(ODEExplicitStep):
             self,
             n,
             config.stage_rhs_location,
+            persistent=True,
             precision=precision
         )
         buffer_registry.register(
@@ -243,16 +244,6 @@ class ERKStep(ODEExplicitStep):
             self,
             accumulator_length,
             config.stage_accumulator_location,
-            precision=precision
-        )
-
-        # Stage cache aliases stage_accumulator for memory reuse.
-        # persistent=True ensures state is kept between calls.
-        buffer_registry.register(
-            'stage_cache', self, n,
-            config.stage_accumulator_location,
-            aliases='stage_accumulator',
-            persistent=True,
             precision=precision
         )
 
@@ -317,11 +308,6 @@ class ERKStep(ODEExplicitStep):
         alloc_stage_accumulator = buffer_registry.get_allocator(
             'stage_accumulator', self
         )
-        alloc_stage_cache = buffer_registry.get_allocator(
-            'stage_cache', self
-        )
-
-
         # no cover: start
         @cuda.jit(
             # (
@@ -394,19 +380,9 @@ class ERKStep(ODEExplicitStep):
             #       - Cleared at loop entry so prior steps cannot leak in.
             # ----------------------------------------------------------- #
 
-            # ----------------------------------------------------------- #
-            # Selective allocation from local or shared memory
-            # ----------------------------------------------------------- #
+
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
-            stage_cache = alloc_stage_cache(shared, persistent_local)
-
-            # Initialize arrays
-            for _i in range(n):
-                stage_rhs[_i] = typed_zero
-            for _i in range(accumulator_length):
-                stage_accumulator[_i] = typed_zero
-            # ----------------------------------------------------------- # #
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
@@ -432,20 +408,8 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            if multistage:
-                if use_cached_rhs:
-                    for idx in range(n):
-                        stage_rhs[idx] = stage_cache[idx]
-                else:
-                    dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        current_time,
-                    )
-            else:
+            # if multistage and cached rhs is available, don't overwrite it
+            if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,
                     parameters,
@@ -572,10 +536,6 @@ class ERKStep(ODEExplicitStep):
                     proposed_observables,
                     end_time,
             )
-
-            if first_same_as_last:
-                for idx in range(n):
-                    stage_cache[idx] = stage_rhs[idx]
 
             return int32(0)
 
