@@ -57,10 +57,6 @@ class Std(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -68,6 +64,7 @@ class Std(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -78,7 +75,9 @@ class Std(SummaryMetric):
             value
                 float. New value to add to the running statistics.
             buffer
-                device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index within the summary period.
             customisable_variable
@@ -88,18 +87,18 @@ class Std(SummaryMetric):
             -----
             On first sample (current_index == 0), stores the value as shift
             and resets accumulators. For all samples including the first,
-            computes shifted_value = value - shift and adds it to buffer[1]
-            (sum) and shifted_value^2 to buffer[2] (sum of squares). This
-            shifting improves numerical stability.
+            computes shifted_value = value - shift and adds it to
+            buffer[offset + 1] (sum) and shifted_value^2 to buffer[offset + 2]
+            (sum of squares). This shifting improves numerical stability.
             """
             if current_index == 0:
-                buffer[0] = value  # Store shift value
-                buffer[1] = precision(0.0)    # Reset sum
-                buffer[2] = precision(0.0)    # Reset sum of squares
-            
-            shifted_value = value - buffer[0]
-            buffer[1] += shifted_value
-            buffer[2] += shifted_value * shifted_value
+                buffer[offset + 0] = value  # Store shift value
+                buffer[offset + 1] = precision(0.0)    # Reset sum
+                buffer[offset + 2] = precision(0.0)    # Reset sum of squares
+
+            shifted_value = value - buffer[offset + 0]
+            buffer[offset + 1] += shifted_value
+            buffer[offset + 2] += shifted_value * shifted_value
 
         @cuda.jit(
             # [
@@ -112,7 +111,9 @@ class Std(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -121,9 +122,13 @@ class Std(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output array location for saving the std value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps contributing to each summary window.
             customisable_variable
@@ -133,17 +138,18 @@ class Std(SummaryMetric):
             -----
             Calculates variance using the shifted data algorithm:
             variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-            Then computes std = sqrt(variance) and saves to output_array[0].
+            Then computes std = sqrt(variance) and saves to
+            output_array[output_offset + 0].
             Resets buffer for the next summary period.
             """
-            mean_shifted = buffer[1] / summarise_every
-            mean_of_squares_shifted = buffer[2] / summarise_every
+            mean_shifted = buffer[buffer_offset + 1] / summarise_every
+            mean_of_squares_shifted = buffer[buffer_offset + 2] / summarise_every
             variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
-            output_array[0] = sqrt(variance)
-            mean = buffer[0] + mean_shifted
-            buffer[0] = mean
-            buffer[1] = precision(0.0)
-            buffer[2] = precision(0.0)
+            output_array[output_offset + 0] = sqrt(variance)
+            mean = buffer[buffer_offset + 0] + mean_shifted
+            buffer[buffer_offset + 0] = mean
+            buffer[buffer_offset + 1] = precision(0.0)
+            buffer[buffer_offset + 2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

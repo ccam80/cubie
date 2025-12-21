@@ -72,6 +72,7 @@ class MeanStdRms(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -82,7 +83,9 @@ class MeanStdRms(SummaryMetric):
             value
                 float. New value to add to the running statistics.
             buffer
-                device array. Storage containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index within summary period.
             customisable_variable
@@ -91,17 +94,18 @@ class MeanStdRms(SummaryMetric):
             Notes
             -----
             On first sample (current_index == 0), stores value as shift.
-            Computes shifted_value = value - shift and adds it to buffer[1]
-            (sum) and shifted_value^2 to buffer[2] (sum of squares).
+            Computes shifted_value = value - shift and adds it to
+            buffer[offset + 1] (sum) and shifted_value^2 to
+            buffer[offset + 2] (sum of squares).
             """
             if current_index == 0:
-                buffer[0] = value
-                buffer[1] = precision(0.0)
-                buffer[2] = precision(0.0)
-            
-            shifted_value = value - buffer[0]
-            buffer[1] += shifted_value
-            buffer[2] += shifted_value * shifted_value
+                buffer[offset + 0] = value
+                buffer[offset + 1] = precision(0.0)
+                buffer[offset + 2] = precision(0.0)
+
+            shifted_value = value - buffer[offset + 0]
+            buffer[offset + 1] += shifted_value
+            buffer[offset + 2] += shifted_value * shifted_value
 
         @cuda.jit(
             # [
@@ -114,7 +118,9 @@ class MeanStdRms(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -123,9 +129,13 @@ class MeanStdRms(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for [mean, std, rms].
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps contributing to each summary window.
             customisable_variable
@@ -139,11 +149,11 @@ class MeanStdRms(SummaryMetric):
             - std = sqrt(variance)
             - rms = sqrt((sum_sq_shifted + 2*shift*sum_shifted + n*shift^2) / n)
             
-            Saves to output_array[0:3] and resets buffer for next period.
+            Saves to output_array and resets buffer for next period.
             """
-            shift = buffer[0]
-            mean_shifted = buffer[1] / summarise_every
-            mean_of_squares_shifted = buffer[2] / summarise_every
+            shift = buffer[buffer_offset + 0]
+            mean_shifted = buffer[buffer_offset + 1] / summarise_every
+            mean_of_squares_shifted = buffer[buffer_offset + 2] / summarise_every
             
             # Mean: shift back to original scale
             mean = shift + mean_shifted
@@ -154,16 +164,20 @@ class MeanStdRms(SummaryMetric):
             
             # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
             # = mean_of_squares_shifted + 2*shift*mean_shifted + shift^2
-            mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+            mean_of_squares = (
+                mean_of_squares_shifted
+                + precision(2.0) * shift * mean_shifted
+                + shift * shift
+            )
             rms = sqrt(mean_of_squares)
             
-            output_array[0] = mean
-            output_array[1] = std
-            output_array[2] = rms
+            output_array[output_offset + 0] = mean
+            output_array[output_offset + 1] = std
+            output_array[output_offset + 2] = rms
             
-            buffer[0] = mean
-            buffer[1] = precision(0.0)
-            buffer[2] = precision(0.0)
+            buffer[buffer_offset + 0] = mean
+            buffer[buffer_offset + 1] = precision(0.0)
+            buffer[buffer_offset + 2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

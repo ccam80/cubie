@@ -70,6 +70,7 @@ class D2xdt2Extrema(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -80,8 +81,9 @@ class D2xdt2Extrema(SummaryMetric):
             value
                 float. New value to compute second derivative from.
             buffer
-                device array. Storage for [prev_value, prev_prev_value,
-                max_unscaled, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused).
             customisable_variable
@@ -89,19 +91,34 @@ class D2xdt2Extrema(SummaryMetric):
 
             Notes
             -----
-            Computes unscaled second derivative using central difference formula
-            (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger
-            and buffer[3] if smaller. Uses predicated commit pattern to avoid
-            warp divergence. Guard on buffer[1] ensures two previous values
-            are available.
+            Computes unscaled second derivative using central difference
+            formula (value - 2*buffer[offset + 0] + buffer[offset + 1]) and
+            updates buffer[offset + 2] if larger and buffer[offset + 3] if
+            smaller. Uses predicated commit pattern to avoid warp divergence.
+            Guard on buffer[offset + 1] ensures two previous values are
+            available.
             """
-            second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-            update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
-            update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
-            buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
-            buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
-            buffer[1] = buffer[0]
-            buffer[0] = value
+            second_derivative_unscaled = (
+                value
+                - precision(2.0) * buffer[offset + 0]
+                + buffer[offset + 1]
+            )
+            update_max = (
+                (second_derivative_unscaled > buffer[offset + 2])
+                and (buffer[offset + 1] != precision(0.0))
+            )
+            update_min = (
+                (second_derivative_unscaled < buffer[offset + 3])
+                and (buffer[offset + 1] != precision(0.0))
+            )
+            buffer[offset + 2] = selp(
+                update_max, second_derivative_unscaled, buffer[offset + 2]
+            )
+            buffer[offset + 3] = selp(
+                update_min, second_derivative_unscaled, buffer[offset + 3]
+            )
+            buffer[offset + 1] = buffer[offset + 0]
+            buffer[offset + 0] = value
 
         @cuda.jit(
             # [
@@ -113,7 +130,9 @@ class D2xdt2Extrema(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -122,11 +141,13 @@ class D2xdt2Extrema(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [prev_value, prev_prev_value,
-                max_unscaled, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for [max_second_derivative,
-                min_second_derivative].
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -134,14 +155,20 @@ class D2xdt2Extrema(SummaryMetric):
 
             Notes
             -----
-            Scales the extrema by dt_save² and saves to output_array[0] (max)
-            and output_array[1] (min), then resets buffers to sentinel values.
+            Scales the extrema by dt_save² and saves to
+            output_array[output_offset + 0] (max) and
+            output_array[output_offset + 1] (min), then resets buffers to
+            sentinel values.
             """
             dt_save_sq = precision(dt_save) * precision(dt_save)
-            output_array[0] = buffer[2] / dt_save_sq
-            output_array[1] = buffer[3] / dt_save_sq
-            buffer[2] = precision(-1.0e30)
-            buffer[3] = precision(1.0e30)
+            output_array[output_offset + 0] = (
+                buffer[buffer_offset + 2] / dt_save_sq
+            )
+            output_array[output_offset + 1] = (
+                buffer[buffer_offset + 3] / dt_save_sq
+            )
+            buffer[buffer_offset + 2] = precision(-1.0e30)
+            buffer[buffer_offset + 3] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

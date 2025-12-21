@@ -69,6 +69,7 @@ class DxdtExtrema(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -79,7 +80,9 @@ class DxdtExtrema(SummaryMetric):
             value
                 float. New value to compute derivative from.
             buffer
-                device array. Storage for [prev_value, max_unscaled, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused).
             customisable_variable
@@ -87,16 +90,24 @@ class DxdtExtrema(SummaryMetric):
 
             Notes
             -----
-            Computes unscaled derivative as (value - buffer[0]) and updates
-            buffer[1] if larger and buffer[2] if smaller. Uses predicated
-            commit pattern to avoid warp divergence.
+            Computes unscaled derivative as (value - buffer[offset + 0]) and
+            updates buffer[offset + 1] if larger and buffer[offset + 2] if
+            smaller. Uses predicated commit pattern to avoid warp divergence.
             """
-            derivative_unscaled = value - buffer[0]
-            update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
-            update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
-            buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
-            buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
-            buffer[0] = value
+            derivative_unscaled = value - buffer[offset + 0]
+            update_max = (derivative_unscaled > buffer[offset + 1]) and (
+                buffer[offset + 0] != precision(0.0)
+            )
+            update_min = (derivative_unscaled < buffer[offset + 2]) and (
+                buffer[offset + 0] != precision(0.0)
+            )
+            buffer[offset + 1] = selp(
+                update_max, derivative_unscaled, buffer[offset + 1]
+            )
+            buffer[offset + 2] = selp(
+                update_min, derivative_unscaled, buffer[offset + 2]
+            )
+            buffer[offset + 0] = value
 
         @cuda.jit(
             # [
@@ -108,7 +119,9 @@ class DxdtExtrema(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -117,9 +130,13 @@ class DxdtExtrema(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [prev_value, max_unscaled, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for [max_derivative, min_derivative].
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -127,13 +144,19 @@ class DxdtExtrema(SummaryMetric):
 
             Notes
             -----
-            Scales the extrema by dt_save and saves to output_array[0] (max)
-            and output_array[1] (min), then resets buffers to sentinel values.
+            Scales the extrema by dt_save and saves to
+            output_array[output_offset + 0] (max) and
+            output_array[output_offset + 1] (min), then resets buffers to
+            sentinel values.
             """
-            output_array[0] = buffer[1] / precision(dt_save)
-            output_array[1] = buffer[2] / precision(dt_save)
-            buffer[1] = precision(-1.0e30)
-            buffer[2] = precision(1.0e30)
+            output_array[output_offset + 0] = (
+                buffer[buffer_offset + 1] / precision(dt_save)
+            )
+            output_array[output_offset + 1] = (
+                buffer[buffer_offset + 2] / precision(dt_save)
+            )
+            buffer[buffer_offset + 1] = precision(-1.0e30)
+            buffer[buffer_offset + 2] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

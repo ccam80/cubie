@@ -55,10 +55,6 @@ class RMS(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -66,6 +62,7 @@ class RMS(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -76,7 +73,9 @@ class RMS(SummaryMetric):
             value
                 float. New value to square and add to the running sum.
             buffer
-                device array. Storage containing the running sum of squares.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index, used to reset the sum.
             customisable_variable
@@ -84,14 +83,14 @@ class RMS(SummaryMetric):
 
             Notes
             -----
-            Resets ``buffer[0]`` on the first step of a period before adding
-            the squared value.
+            Resets ``buffer[offset + 0]`` on the first step of a period before
+            adding the squared value.
             """
-            sum_of_squares = buffer[0]
+            sum_of_squares = buffer[offset + 0]
             if current_index == 0:
                 sum_of_squares = precision(0.0)
             sum_of_squares += value * value
-            buffer[0] = sum_of_squares
+            buffer[offset + 0] = sum_of_squares
 
         @cuda.jit(
             # [
@@ -104,7 +103,9 @@ class RMS(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -113,9 +114,13 @@ class RMS(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing the running sum of squares.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output array location for saving the RMS value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps contributing to each summary window.
             customisable_variable
@@ -123,12 +128,15 @@ class RMS(SummaryMetric):
 
             Notes
             -----
-            Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
-            and resets ``buffer[0]`` for the next summary period.
+            Saves ``sqrt(buffer[buffer_offset + 0] / summarise_every)`` to
+            ``output_array[output_offset + 0]`` and resets
+            ``buffer[buffer_offset + 0]`` for the next summary period.
             """
 
-            output_array[0] = sqrt(buffer[0] / summarise_every)
-            buffer[0] = precision(0.0)
+            output_array[output_offset + 0] = sqrt(
+                buffer[buffer_offset + 0] / summarise_every
+            )
+            buffer[buffer_offset + 0] = precision(0.0)
 
         # no cover: end
-        return MetricFuncCache(update = update, save = save)
+        return MetricFuncCache(update=update, save=save)

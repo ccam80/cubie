@@ -30,7 +30,7 @@ class Mean(SummaryMetric):
         """Initialise the Mean summary metric with fixed buffer sizes."""
         super().__init__(
             name="mean",
-            precision = precision,
+            precision=precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
@@ -54,16 +54,13 @@ class Mean(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
         )
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -74,7 +71,9 @@ class Mean(SummaryMetric):
             value
                 float. New value to add to the running sum.
             buffer
-                device array. Location containing the running sum.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused for mean).
             customisable_variable
@@ -82,9 +81,10 @@ class Mean(SummaryMetric):
 
             Notes
             -----
-            Adds the new value to ``buffer[0]`` to maintain the running sum.
+            Adds the new value to ``buffer[offset + 0]`` to maintain the
+            running sum.
             """
-            buffer[0] += value
+            buffer[offset + 0] += value
 
         @cuda.jit(
             # [
@@ -96,7 +96,9 @@ class Mean(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -105,9 +107,13 @@ class Mean(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Location containing the running sum of values.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Location for saving the mean value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of integration steps contributing to each summary.
             customisable_variable
@@ -116,10 +122,13 @@ class Mean(SummaryMetric):
             Notes
             -----
             Divides the accumulated sum by ``summarise_every`` and saves the
-            result to ``output_array[0]`` before resetting ``buffer[0]``.
+            result to ``output_array[output_offset + 0]`` before resetting
+            ``buffer[buffer_offset + 0]``.
             """
-            output_array[0] = buffer[0] / summarise_every
-            buffer[0] = precision(0.0)
+            output_array[output_offset + 0] = (
+                buffer[buffer_offset + 0] / summarise_every
+            )
+            buffer[buffer_offset + 0] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

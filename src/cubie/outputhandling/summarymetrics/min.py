@@ -6,8 +6,8 @@ encountered during integration for each variable.
 """
 
 from numba import cuda
-from cubie.cuda_simsafe import compile_kwargs
 
+from cubie.cuda_simsafe import selp, compile_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -54,10 +54,6 @@ class Min(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            # [
-            #     "float32, float32[::1], int32, int32",
-            #     "float64, float64[::1], int32, int32",
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -65,6 +61,7 @@ class Min(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -75,7 +72,9 @@ class Min(SummaryMetric):
             value
                 float. New value to compare against the current minimum.
             buffer
-                device array. Storage for the current minimum value.
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused for this metric).
             customisable_variable
@@ -83,11 +82,11 @@ class Min(SummaryMetric):
 
             Notes
             -----
-            Updates ``buffer[0]`` if the new value is less than the current
-            minimum.
+            Uses predicated commit to update ``buffer[offset + 0]`` if the new
+            value is less than the current minimum, avoiding warp divergence.
             """
-            if value < buffer[0]:
-                buffer[0] = value
+            update_flag = value < buffer[offset + 0]
+            buffer[offset + 0] = selp(update_flag, value, buffer[offset + 0])
 
         @cuda.jit(
             # [
@@ -100,7 +99,9 @@ class Min(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -109,9 +110,13 @@ class Min(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing the current minimum value.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for saving the minimum value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused for min).
             customisable_variable
@@ -119,11 +124,12 @@ class Min(SummaryMetric):
 
             Notes
             -----
-            Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
+            Copies ``buffer[buffer_offset + 0]`` to
+            ``output_array[output_offset + 0]`` and resets the buffer
             sentinel to ``1.0e30`` for the next period.
             """
-            output_array[0] = buffer[0]
-            buffer[0] = precision(1.0e30)
+            output_array[output_offset + 0] = buffer[buffer_offset + 0]
+            buffer[buffer_offset + 0] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

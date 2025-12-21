@@ -69,6 +69,7 @@ class DxdtMin(SummaryMetric):
         def update(
             value,
             buffer,
+            offset,
             current_index,
             customisable_variable,
         ):
@@ -79,7 +80,9 @@ class DxdtMin(SummaryMetric):
             value
                 float. New value to compute derivative from.
             buffer
-                device array. Storage for [prev_value, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            offset
+                int. Offset to this metric's storage within the buffer.
             current_index
                 int. Current integration step index (unused).
             customisable_variable
@@ -87,14 +90,18 @@ class DxdtMin(SummaryMetric):
 
             Notes
             -----
-            Computes unscaled derivative as (value - buffer[0]) and updates
-            buffer[1] if smaller. Uses predicated commit pattern to avoid
-            warp divergence.
+            Computes unscaled derivative as (value - buffer[offset + 0]) and
+            updates buffer[offset + 1] if smaller. Uses predicated commit
+            pattern to avoid warp divergence.
             """
-            derivative_unscaled = value - buffer[0]
-            update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
-            buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
-            buffer[0] = value
+            derivative_unscaled = value - buffer[offset + 0]
+            update_flag = (derivative_unscaled < buffer[offset + 1]) and (
+                buffer[offset + 0] != precision(0.0)
+            )
+            buffer[offset + 1] = selp(
+                update_flag, derivative_unscaled, buffer[offset + 1]
+            )
+            buffer[offset + 0] = value
 
         @cuda.jit(
             # [
@@ -106,7 +113,9 @@ class DxdtMin(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -115,9 +124,13 @@ class DxdtMin(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [prev_value, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for minimum derivative.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -126,10 +139,13 @@ class DxdtMin(SummaryMetric):
             Notes
             -----
             Scales the minimum unscaled derivative by dt_save and saves to
-            output_array[0], then resets buffers to sentinel values.
+            output_array[output_offset + 0], then resets buffers to sentinel
+            values.
             """
-            output_array[0] = buffer[1] / precision(dt_save)
-            buffer[1] = precision(1.0e30)
+            output_array[output_offset + 0] = (
+                buffer[buffer_offset + 1] / precision(dt_save)
+            )
+            buffer[buffer_offset + 1] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)
