@@ -310,7 +310,7 @@ class NewtonKrylov(CUDAFactory):
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
-        newton_tolerance = config.newton_tolerance
+        newton_tolerance = self.newton_tolerance
         max_newton_iters = config.max_newton_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks

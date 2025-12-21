@@ -376,13 +376,6 @@ class IVPLoop(CUDAFactory):
         alloc_dt = getalloc('dt', self)
         alloc_accept_step = getalloc('accept_step', self)
 
-        # Local memory indices for non-allocated persistent local storage
-        local_indices = config.local_indices
-        dt_slice = local_indices.dt
-        accept_slice = local_indices.accept
-        controller_slice = local_indices.controller
-        algorithm_slice = local_indices.algorithm
-
         # Timing values
         saves_per_summary = config.saves_per_summary
         dt_save = precision(config.dt_save)

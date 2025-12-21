@@ -217,9 +217,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
+        krylov_tolerance = self.krylov_tolerance
+        max_linear_iters = self.max_linear_iters
+        correction_type = self.linear_correction_type
 
         linear_solver_config = LinearSolverConfig(
             precision=precision,
@@ -227,15 +227,15 @@ class CrankNicolsonStep(ODEImplicitStep):
             operator_apply=operator,
             preconditioner=preconditioner,
             correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
             use_cached_auxiliaries=False,
         )
         linear_solver_instance = InstrumentedLinearSolver(
             linear_solver_config
         )
 
-        newton_tolerance = config.newton_tolerance
+        newton_tolerance = self.newton_tolerance
         max_newton_iters = config.max_newton_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
@@ -245,10 +245,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             n=n,
             residual_function=residual,
             linear_solver=linear_solver_instance,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_linear_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
         
@@ -304,7 +304,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         newton_iters = int(config.max_newton_iters)
         newton_backtracks = int(config.newton_max_backtracks)
         newton_slots = newton_iters * (newton_backtracks + 1) + 1
-        linear_iters = int(config.max_linear_iters)
+        linear_iters = int(self.max_linear_iters)
         linear_slots = max(1, stage_count * newton_iters)
 
         # Get child allocators for Newton solver

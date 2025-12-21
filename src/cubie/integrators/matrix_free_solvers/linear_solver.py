@@ -245,8 +245,8 @@ class LinearSolver(CUDAFactory):
         preconditioner = config.preconditioner
         n = config.n
         correction_type = config.correction_type
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
+        krylov_tolerance = self.krylov_tolerance
+        max_linear_iters = self.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
