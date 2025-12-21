@@ -536,8 +536,10 @@ class DIRKStep(ODEImplicitStep):
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
-            if first_same_as_last and multistage: # compile-time branch
-                if not first_step: # runtime branch
+            # Compile-time branch: guarded by static configuration flags
+            if first_same_as_last and multistage:
+                # Runtime branch: depends on previous step acceptance
+                if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted
