@@ -765,7 +765,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Cache final indices of stage store (time_derivative is an
-            # alias for this for next step's initial guess.
+            # alias for this for next step's initial guess).
             for idx in range(n):
                 stage_increment[idx] = time_derivative[idx]
 
