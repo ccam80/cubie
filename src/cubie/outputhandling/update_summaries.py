@@ -67,7 +67,6 @@ def do_nothing(
 def chain_metrics(
     metric_functions: Sequence[Callable],
     buffer_offsets: Sequence[int],
-    buffer_sizes: Sequence[int],
     function_params: Sequence[object],
     inner_chain: Callable = do_nothing,
 ) -> Callable:
@@ -84,8 +83,6 @@ def chain_metrics(
         Sequence of CUDA device functions for updating summary metrics.
     buffer_offsets
         Sequence of offsets into the metric buffer for each function.
-    buffer_sizes
-        Sequence of per-metric buffer lengths.
     function_params
         Sequence of parameter payloads passed to each metric function.
     inner_chain
@@ -113,7 +110,6 @@ def chain_metrics(
 
     remaining_functions = metric_functions[1:]
     remaining_offsets = buffer_offsets[1:]
-    remaining_sizes = buffer_sizes[1:]
     remaining_params = function_params[1:]
 
     # no cover: start
@@ -160,7 +156,6 @@ def chain_metrics(
         return chain_metrics(
             remaining_functions,
             remaining_offsets,
-            remaining_sizes,
             remaining_params,
             wrapper,
         )
@@ -221,11 +216,8 @@ def update_summary_factory(
     )
 
     update_fns = summary_metrics.update_functions(summaries_list)
-    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
-    chain_fn = chain_metrics(
-        update_fns, buffer_offsets, buffer_sizes_list, params
-    )
+    chain_fn = chain_metrics(update_fns, buffer_offsets, params)
 
     # no cover: start
     @cuda.jit(

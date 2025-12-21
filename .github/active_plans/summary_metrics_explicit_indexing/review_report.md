@@ -140,16 +140,17 @@ However, there are several issues that should be addressed. The most significant
 
 ### High Priority (Architectural Consistency)
 
-1. **Remove Unused `buffer_sizes` Parameter**
+1. **Remove Unused `buffer_sizes` Parameter** ✅ COMPLETED
    - Task Group: 1 (Core Infrastructure)
    - File: src/cubie/outputhandling/update_summaries.py
    - Issue: `buffer_sizes` parameter is accepted but never used
    - Fix: Remove the parameter from function signature and all calls, or document why it's kept for future use
    - Rationale: Dead code causes confusion
+   - **Outcome**: Removed `buffer_sizes` from `chain_metrics` signature, docstring, body, recursive call, and caller in `update_summary_factory`
 
 ### Medium Priority (Quality/Style)
 
-2. **Fix Spacing in MetricFuncCache Returns**
+2. **Fix Spacing in MetricFuncCache Returns** ✅ COMPLETED
    - Task Group: 2, 8 (Simple Accumulator, Peak Detection)
    - Files: 
      - src/cubie/outputhandling/summarymetrics/rms.py line 133
@@ -157,17 +158,27 @@ However, there are several issues that should be addressed. The most significant
    - Issue: `update = update` should be `update=update` (PEP8)
    - Fix: Remove spaces around `=` in keyword arguments
    - Rationale: PEP8 compliance
+   - **Outcome**: Fixed spacing in both rms.py and peaks.py
 
-3. **Fix Spacing in mean.py Constructor**
+3. **Fix Spacing in mean.py Constructor** ✅ COMPLETED
    - Task Group: 2 (Simple Accumulator)
    - File: src/cubie/outputhandling/summarymetrics/mean.py line 32
    - Issue: `precision = precision,` has space before comma
    - Fix: Change to `precision=precision,`
    - Rationale: PEP8 compliance
+   - **Outcome**: Fixed spacing in mean.py
+
+### Documentation Updates
+
+4. **Update abstract `build()` docstring in metrics.py** ✅ COMPLETED
+   - File: src/cubie/outputhandling/summarymetrics/metrics.py
+   - Issue: Abstract `build()` method docstring referenced old signature
+   - Fix: Updated from `update(value, buffer, current_index, customisable_variable)` to `update(value, buffer, offset, current_index, customisable_variable)`
+   - **Outcome**: Docstring now matches actual implementation signature
 
 ### Low Priority (Nice-to-have)
 
-4. **Consider Updating Save Functions for Consistency**
+5. **Consider Updating Save Functions for Consistency** (DEFERRED)
    - Task Group: All metric groups
    - Files: All 19 metric files
    - Issue: Save functions don't use offset pattern like update functions
@@ -176,9 +187,10 @@ However, there are several issues that should be addressed. The most significant
 
 ## Recommendations
 
-- **Immediate Actions**: 
-  1. Remove the unused `buffer_sizes` parameter from `chain_metrics` to eliminate dead code
-  2. Fix the minor PEP8 spacing issues in 3 files
+- **Immediate Actions**: ✅ ALL COMPLETED
+  1. ✅ Remove the unused `buffer_sizes` parameter from `chain_metrics` to eliminate dead code
+  2. ✅ Fix the minor PEP8 spacing issues in 3 files
+  3. ✅ Update the abstract `build()` method docstring to match new signature
 
 - **Future Refactoring**: 
   1. Consider updating save functions to use offset pattern in a follow-up PR for architectural consistency
@@ -188,14 +200,15 @@ However, there are several issues that should be addressed. The most significant
   2. Consider adding a test that specifically validates buffer offset calculations
 
 - **Documentation Needs**: 
-  1. The metrics.py docstring was updated correctly (lines 127-134)
-  2. The abstract `build()` method docstring (lines 192-196) still references the old signature `update(value, buffer, current_index, customisable_variable)` - should be updated
+  1. ✅ The metrics.py docstring was updated correctly (lines 127-134)
+  2. ✅ The abstract `build()` method docstring updated to reference new signature with `offset` parameter
 
 ## Overall Rating
 
-**Implementation Quality**: Good
+**Implementation Quality**: Good → Excellent (after review edits)
 - Core refactoring is solid and consistent
-- Minor issues with unused parameters and style
+- All minor issues with unused parameters and style have been fixed
+- Documentation now fully consistent with implementation
 
 **User Story Achievement**: 90%
 - 3 of 4 user stories fully met
@@ -205,8 +218,6 @@ However, there are several issues that should be addressed. The most significant
 - All stated goals achieved for the update path
 - Save path not updated (not explicitly required but mentioned in agent_plan.md)
 
-**Recommended Action**: **Approve with Minor Revisions**
+**Recommended Action**: **Approved**
 - The core implementation is correct and meets the user stories
-- Remove the unused `buffer_sizes` parameter to clean up dead code
-- Fix minor PEP8 spacing issues for code quality
-- Update the abstract `build()` method docstring to match the new signature
+- All review edits have been applied

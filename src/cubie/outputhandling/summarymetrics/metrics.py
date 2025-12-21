@@ -190,10 +190,11 @@ class SummaryMetric(CUDAFactory):
         Notes
         -----
         Implementations must return functions with the signatures
-        ``update(value, buffer, current_index, customisable_variable)`` and
-        ``save(buffer, output_array, summarise_every, customisable_variable)``.
-        Each callback needs ``@cuda.jit(..., device=True, inline=True)``
-        decoration supporting both single- and double-precision input.
+        ``update(value, buffer, offset, current_index,
+        customisable_variable)`` and ``save(buffer, output_array,
+        summarise_every, customisable_variable)``. Each callback needs
+        ``@cuda.jit(..., device=True, inline=True)`` decoration supporting
+        both single- and double-precision input.
         """
 
         pass

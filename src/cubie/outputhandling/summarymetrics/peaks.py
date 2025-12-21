@@ -156,4 +156,4 @@ class Peaks(SummaryMetric):
             buffer[2] = precision(0.0)
 
         # no cover: end
-        return MetricFuncCache(update = update, save = save)
+        return MetricFuncCache(update=update, save=save)
