@@ -161,9 +161,9 @@ class BackwardsEulerStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
+        krylov_tolerance = self.krylov_tolerance
+        max_linear_iters = self.max_linear_iters
+        correction_type = self.linear_correction_type
 
         linear_solver_config = LinearSolverConfig(
             precision=precision,
