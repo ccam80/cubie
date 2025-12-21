@@ -100,16 +100,26 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
+        stage_increment_location: Optional[str] = None,
+        stage_driver_stack_location: Optional[str] = None,
+        stage_state_location: Optional[str] = None,
     ) -> None:
         """Initialise the FIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        # Create buffer_settings
-        buffer_settings = FIRKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-            n_drivers=n_drivers,
-        )
+        # Create buffer_settings - only pass locations if explicitly provided
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+            'n_drivers': n_drivers,
+        }
+        if stage_increment_location is not None:
+            buffer_kwargs['stage_increment_location'] = stage_increment_location
+        if stage_driver_stack_location is not None:
+            buffer_kwargs['stage_driver_stack_location'] = stage_driver_stack_location
+        if stage_state_location is not None:
+            buffer_kwargs['stage_state_location'] = stage_state_location
+        buffer_settings = FIRKBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,

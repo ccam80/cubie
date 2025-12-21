@@ -83,18 +83,28 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
         time_derivative_function: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
+        stage_rhs_location: Optional[str] = None,
+        stage_store_location: Optional[str] = None,
+        cached_auxiliaries_location: Optional[str] = None,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration."""
 
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
-        # Create buffer_settings - cached_auxiliary_count is 0 at init;
-        # updated when helpers are built
-        buffer_settings = RosenbrockBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-            cached_auxiliary_count=0,
-        )
+        # Create buffer_settings - only pass locations if explicitly provided
+        # cached_auxiliary_count is 0 at init; updated when helpers are built
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+            'cached_auxiliary_count': 0,
+        }
+        if stage_rhs_location is not None:
+            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
+        if stage_store_location is not None:
+            buffer_kwargs['stage_store_location'] = stage_store_location
+        if cached_auxiliaries_location is not None:
+            buffer_kwargs['cached_auxiliaries_location'] = cached_auxiliaries_location
+        buffer_settings = RosenbrockBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,

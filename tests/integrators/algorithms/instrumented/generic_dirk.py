@@ -87,15 +87,25 @@ class DIRKStep(ODEImplicitStep):
         newton_max_backtracks: int = 8,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
+        stage_increment_location: Optional[str] = None,
+        stage_base_location: Optional[str] = None,
+        accumulator_location: Optional[str] = None,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        # Create buffer_settings
-        buffer_settings = DIRKBufferSettings(
-            n=n,
-            stage_count=tableau.stage_count,
-        )
+        # Create buffer_settings - only pass locations if explicitly provided
+        buffer_kwargs = {
+            'n': n,
+            'stage_count': tableau.stage_count,
+        }
+        if stage_increment_location is not None:
+            buffer_kwargs['stage_increment_location'] = stage_increment_location
+        if stage_base_location is not None:
+            buffer_kwargs['stage_base_location'] = stage_base_location
+        if accumulator_location is not None:
+            buffer_kwargs['accumulator_location'] = accumulator_location
+        buffer_settings = DIRKBufferSettings(**buffer_kwargs)
         config_kwargs = {
             "precision": precision,
             "n": n,
