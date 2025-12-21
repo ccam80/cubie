@@ -150,6 +150,14 @@ class ODELoopConfig:
         default='local',
         validator=validators.in_(['shared', 'local'])
     )
+    dt_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
+    accept_step_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
 
     precision: PrecisionDType = field(
         default=float32,

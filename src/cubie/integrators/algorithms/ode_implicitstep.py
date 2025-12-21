@@ -7,8 +7,7 @@ import attrs
 import numpy as np
 import sympy as sp
 
-from cubie import is_device_validator
-from cubie._utils import inrangetype_validator
+from cubie._utils import inrangetype_validator, is_device_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,

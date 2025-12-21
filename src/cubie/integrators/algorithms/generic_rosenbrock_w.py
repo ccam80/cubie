@@ -37,8 +37,7 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
-from cubie import is_device_validator
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, is_device_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -127,9 +126,18 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
             default=None,
             validator=attrs.validators.optional(is_device_validator)
     )
-    stage_rhs_location: str = attrs.field(default='local')
-    stage_store_location: str = attrs.field(default='local')
-    cached_auxiliaries_location: str = attrs.field(default='local')
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_store_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    cached_auxiliaries_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -194,6 +202,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
+        stage_rhs_location
+            Memory location for stage RHS buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        stage_store_location
+            Memory location for stage store buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        cached_auxiliaries_location
+            Memory location for cached auxiliaries buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
         
         Notes
         -----

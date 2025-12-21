@@ -108,8 +108,14 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    stage_rhs_location: str = attrs.field(default='local')
-    stage_accumulator_location: str = attrs.field(default='local')
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
     @property
     def first_same_as_last(self) -> bool:
@@ -166,6 +172,12 @@ class ERKStep(ODEExplicitStep):
             (Dormand-Prince 5(4)).
         n_drivers
             Number of driver variables in the system.
+        stage_rhs_location
+            Memory location for stage RHS buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        stage_accumulator_location
+            Memory location for stage accumulator buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
         
         Notes
         -----
@@ -220,6 +232,21 @@ class ERKStep(ODEExplicitStep):
 
         config = ERKStepConfig(**config_kwargs)
 
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -242,13 +269,6 @@ class ERKStep(ODEExplicitStep):
             config.stage_accumulator_location,
             precision=precision
         )
-
-        if tableau.has_error_estimate:
-            defaults = ERK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = ERK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
 
     def build_step(
         self,
