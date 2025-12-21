@@ -8,13 +8,11 @@ import numpy as np
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import (
-    StepCache,
-    StepControlDefaults,
-)
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
-from .matrix_free_solvers import (
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
     InstrumentedLinearSolver,
     InstrumentedNewtonKrylov,
 )
@@ -73,21 +71,29 @@ class BackwardsEulerStep(ODEImplicitStep):
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
-            Order of the truncated Neumann preconditioner.
+            Order of the truncated Neumann preconditioner. If None, uses
+            default from ImplicitStepConfig.
         krylov_tolerance
-            Tolerance used by the linear solver.
+            Tolerance used by the linear solver. If None, uses default from
+            LinearSolverConfig.
         max_linear_iters
-            Maximum iterations permitted for the linear solver.
+            Maximum iterations permitted for the linear solver. If None, uses
+            default from LinearSolverConfig.
         linear_correction_type
-            Identifier for the linear correction strategy.
+            Identifier for the linear correction strategy. If None, uses
+            default from LinearSolverConfig.
         newton_tolerance
-            Convergence tolerance for the Newton iteration.
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
         max_newton_iters
-            Maximum iterations permitted for the Newton solver.
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
         newton_damping
-            Damping factor applied within Newton updates.
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
         newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
@@ -98,14 +104,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
+            preconditioner_order=preconditioner_order,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
             precision=precision,
         )
         
-        # Build kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
             solver_kwargs['krylov_tolerance'] = krylov_tolerance
@@ -161,9 +166,9 @@ class BackwardsEulerStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        krylov_tolerance = self.krylov_tolerance
-        max_linear_iters = self.max_linear_iters
-        correction_type = self.linear_correction_type
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
+        correction_type = config.linear_correction_type
 
         linear_solver_config = LinearSolverConfig(
             precision=precision,
@@ -198,6 +203,10 @@ class BackwardsEulerStep(ODEImplicitStep):
         
         # Replace parent solver with instrumented version
         self.solver = newton_instance
+        
+        self.update_compile_settings(
+            solver_function=self.solver.device_function
+        )
 
         return newton_instance.device_function
 
@@ -358,11 +367,11 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            solver_scratch = alloc_solver_shared(shared, persistent_local)
-            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             observable_count = proposed_observables.shape[0]
 
             # LOGGING: Initialize instrumentation arrays

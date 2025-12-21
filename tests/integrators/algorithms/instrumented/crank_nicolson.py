@@ -9,10 +9,8 @@ import numpy as np
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import (
-    StepCache,
-    StepControlDefaults,
-)
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 from .matrix_free_solvers import (
@@ -93,21 +91,29 @@ class CrankNicolsonStep(ODEImplicitStep):
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
-            Order of the truncated Neumann preconditioner.
+            Order of the truncated Neumann preconditioner. If None, uses
+            default from ImplicitStepConfig.
         krylov_tolerance
-            Tolerance used by the linear solver.
+            Tolerance used by the linear solver. If None, uses default from
+            LinearSolverConfig.
         max_linear_iters
-            Maximum iterations permitted for the linear solver.
+            Maximum iterations permitted for the linear solver. If None, uses
+            default from LinearSolverConfig.
         linear_correction_type
-            Identifier for the linear correction strategy.
+            Identifier for the linear correction strategy. If None, uses
+            default from LinearSolverConfig.
         newton_tolerance
-            Convergence tolerance for the Newton iteration.
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
         max_newton_iters
-            Maximum iterations permitted for the Newton solver.
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
         newton_damping
-            Damping factor applied within Newton updates.
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
         newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
         dxdt_location
             Memory location for dxdt buffer: 'local' or 'shared'. If None,
             defaults to 'local'.
@@ -261,10 +267,32 @@ class CrankNicolsonStep(ODEImplicitStep):
         n: int,
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
-        """Build the device function for the Crank–Nicolson step."""
+        """Build the device function for the Crank–Nicolson step.
 
+        Parameters
+        ----------
+        dxdt_fn
+            Device derivative function for the ODE system.
+        observables_function
+            Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
+        numba_precision
+            Numba precision corresponding to the configured precision.
+        n
+            Dimension of the state vector.
+        n_drivers
+            Number of driver signals provided to the system.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step function and solver.
+        """
         config = self.compile_settings
-        
+
         solver_fn = solver_function
 
         stage_coefficient = numba_precision(0.5)
@@ -420,26 +448,30 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = typed_zero
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
+
             solver_scratch = alloc_solver_shared(shared, persistent_local)
-            solver_persistent = alloc_solver_persistent(shared, persistent_local)
-            dxdt_buffer = alloc_dxdt(shared, persistent_local)
+            dxdt = alloc_dxdt(shared, persistent_local)
+            # error buffer tracks the stage base during setup.
             base_state = error
 
+            # Evaluate f(state)
             dxdt_fn(
                 state,
                 parameters,
                 drivers_buffer,
                 observables,
-                dxdt_buffer,
+                dxdt,
                 time_scalar,
             )
 
             half_dt = dt_scalar * numba_precision(0.5)
             end_time = time_scalar + dt_scalar
 
+            # Form the Crank-Nicolson stage base
             for idx in range(n):
-                base_state[idx] = state[idx] + half_dt * dxdt_buffer[idx]
+                base_state[idx] = state[idx] + half_dt * dxdt[idx]
 
+            # Solve Crank-Nicolson step (main solution)
             if has_driver_function:
                 driver_function(
                     end_time,
@@ -458,7 +490,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
-                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,
@@ -473,6 +504,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_preconditioned_vectors,
             )
 
+            # LOGGING: capture final residual from solver scratch
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
@@ -496,7 +528,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
-                solver_persistent,
                 counters,
                 int32(0),
                 dummy_newton_initial_guesses,
@@ -512,6 +543,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             )
             status |= be_status & status_mask
 
+            # Compute error as difference between Crank-Nicolson and Backward Euler
             for idx in range(n):
                 error[idx] = (
                     proposed_state[idx] - (state[idx] + base_state[idx])
@@ -525,9 +557,11 @@ class CrankNicolsonStep(ODEImplicitStep):
                 end_time,
             )
 
+            # LOGGING: capture stage observables
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
+            # LOGGING: capture stage derivatives
             dxdt_fn(
                 proposed_state,
                 parameters,

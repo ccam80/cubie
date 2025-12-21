@@ -7,7 +7,6 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
-from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -21,15 +20,10 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
+from cubie.buffer_registry import buffer_registry
 from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
     InstrumentedLinearSolver,
     InstrumentedNewtonKrylov,
-)
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverConfig
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylovConfig
 )
 
 
@@ -42,8 +36,8 @@ DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "ki": -0.4,
         "deadband_min": 1.0,
         "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "min_gain": 0.1,
+        "max_gain": 5.0,
     }
 )
 
@@ -134,7 +128,6 @@ class DIRKStep(ODEImplicitStep):
             config_kwargs["stage_rhs_location"] = stage_rhs_location
 
         config = DIRKStepConfig(**config_kwargs)
-        self._cached_auxiliary_count = 0
 
         # Select defaults based on error estimate
         if tableau.has_error_estimate:
@@ -161,6 +154,26 @@ class DIRKStep(ODEImplicitStep):
 
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
+
+        # Replace solver with instrumented version that has logging
+        original_linear_solver = self.solver.linear_solver
+        instrumented_linear = InstrumentedLinearSolver(
+            precision=config.precision,
+            n=config.n,
+            krylov_tolerance=original_linear_solver.krylov_tolerance,
+            max_linear_iters=original_linear_solver.max_linear_iters,
+            correction_type=original_linear_solver.correction_type,
+        )
+        instrumented_newton = InstrumentedNewtonKrylov(
+            precision=config.precision,
+            n=config.n,
+            linear_solver=instrumented_linear,
+            newton_tolerance=self.solver.newton_tolerance,
+            max_newton_iters=self.solver.max_newton_iters,
+            newton_damping=self.solver.newton_damping,
+            newton_max_backtracks=self.solver.newton_max_backtracks,
+        )
+        self.solver = instrumented_newton
 
         self.register_buffers()
 
@@ -226,13 +239,11 @@ class DIRKStep(ODEImplicitStep):
     ) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
 
-        precision = self.precision
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        n = config.n
 
         get_fn = config.get_solver_helper_fn
 
@@ -253,61 +264,30 @@ class DIRKStep(ODEImplicitStep):
         )
 
         operator = get_fn(
-            "linear_operator", # linear operator cached?
+            "linear_operator",
             beta=beta,
             gamma=gamma,
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        # Check if solver helpers use cached auxiliaries
-        use_cached = self._cached_auxiliary_count > 0
-
-        linear_solver_config = LinearSolverConfig(
-            precision=precision,
-            n=n,
+        # Update solvers with device functions
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
-            use_cached_auxiliaries=use_cached,
-        )
-        linear_solver_instance = InstrumentedLinearSolver(
-            linear_solver_config
-        )
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        newton_config = NewtonKrylovConfig(
-            precision=precision,
-            n=n,
             residual_function=residual,
-            linear_solver=linear_solver_instance,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
         )
-        newton_instance = InstrumentedNewtonKrylov(newton_config)
         
-        # Replace parent solver with instrumented version
-        self.solver = newton_instance
-
-        return newton_instance.device_function
+        self.update_compile_settings(
+                {'solver_function': self.solver.device_function}
+        )
 
     def build_step(
         self,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -315,13 +295,9 @@ class DIRKStep(ODEImplicitStep):
         """Compile the DIRK device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
-        
-        # Access solver device function from owned instance
-        solver_fn = self.solver.device_function
-        nonlinear_solver = solver_fn
-        
+        nonlinear_solver = solver_function
+
         n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
@@ -361,7 +337,7 @@ class DIRKStep(ODEImplicitStep):
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver')
         )
 
@@ -523,7 +499,9 @@ class DIRKStep(ODEImplicitStep):
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
+            # Compile-time branch: guarded by static configuration flags
             if first_same_as_last and multistage:
+                # Runtime branch: depends on previous step acceptance
                 if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
@@ -553,6 +531,7 @@ class DIRKStep(ODEImplicitStep):
                             driver_coeffs,
                             proposed_drivers,
                         )
+
                 if stage_implicit[0]:
                     solver_status = nonlinear_solver(
                         stage_increment,
@@ -563,7 +542,6 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[0],
                         stage_base,
                         solver_shared,
-                        solver_persistent,
                         counters,
                         int32(0),
                         newton_initial_guesses,
@@ -586,26 +564,27 @@ class DIRKStep(ODEImplicitStep):
 
                 # Get obs->dxdt from stage_base
                 observables_function(
-                        stage_base,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_time,
+                    stage_base,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_time,
                 )
 
                 dxdt_fn(
-                        stage_base,
-                        parameters,
-                        proposed_drivers,
-                        proposed_observables,
-                        stage_rhs,
-                        stage_time,
+                    stage_base,
+                    parameters,
+                    proposed_drivers,
+                    proposed_observables,
+                    stage_rhs,
+                    stage_time,
                 )
 
+            # LOGGING: Record stage 0 data
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 stage_states[0, idx] = stage_base[idx]
-                residuals[0, idx] = solver_shared[idx]
+                residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = (stage_increment[idx] *
                                             diagonal_coeff)
@@ -639,23 +618,22 @@ class DIRKStep(ODEImplicitStep):
                 stage_accumulator[idx] = typed_zero
 
             # --------------------------------------------------------------- #
-            #            Stages 1-s: must refresh obs/drivers                 #
+            #            Stages 1-s: must refresh all qtys                    #
             # --------------------------------------------------------------- #
             mask = activemask()
             for prev_idx in range(stages_except_first):
-
-                #DIRK is missing the instruction cache. The unrolled stage loop
+                # DIRK is missing the instruction cache. The unrolled loop
                 # is instruction dense, taking up most of the instruction space.
-                # Try syncing block-wide per-stage to see whether this will help
-                # the whole block stay in one cache chunk. Play with block size
-                # to enforce the number of blocks per SM.
+                # A block-wide sync hangs indefinitely, as some warps will
+                # finish early and never reach it. We sync a warp to minimal
+                # effect (it's a wash in the profiler) in case of divergence in
+                # big systems.
                 syncwarp(mask)
-                stage_offset = int32(prev_idx * n)
+                stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
                 matrix_col = explicit_a_coeffs[prev_idx]
 
                 # Stream previous stage's RHS into accumulators for successors
-                # Only stream to current stage and later (not already-processed)
                 for successor_idx in range(stages_except_first):
                     coeff = matrix_col[successor_idx + int32(1)]
                     row_offset = successor_idx * n
@@ -674,24 +652,25 @@ class DIRKStep(ODEImplicitStep):
                         proposed_drivers,
                     )
 
+                # LOGGING: Record driver values
                 for driver_idx in range(proposed_drivers_out.shape[1]):
-                    proposed_drivers_out[stage_idx, driver_idx] = proposed_drivers[driver_idx]
+                    proposed_drivers_out[stage_idx, driver_idx] = (
+                        proposed_drivers[driver_idx]
+                    )
 
                 # Convert accumulator slice to state by adding y_n
                 for idx in range(n):
-                    stage_base[idx] = (
-                            stage_accumulator[stage_offset + idx]* dt_scalar
-                            + state[idx]
-                    )
-
+                    stage_base[idx] = (stage_accumulator[stage_offset + idx]
+                                       * dt_scalar + state[idx])
 
                 diagonal_coeff = diagonal_coeffs[stage_idx]
 
+                # LOGGING: Snapshot base state
                 for idx in range(n):
                     base_state_snapshot[idx] = stage_base[idx]
 
                 if stage_implicit[stage_idx]:
-                    solver_ret = nonlinear_solver(
+                    solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -700,7 +679,6 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_shared,
-                        solver_persistent,
                         counters,
                         int32(stage_idx),
                         newton_initial_guesses,
@@ -714,11 +692,12 @@ class DIRKStep(ODEImplicitStep):
                         linear_squared_norms,
                         linear_preconditioned_vectors,
                     )
-                    status_code = int32(status_code | solver_ret)
+                    status_code = int32(status_code | solver_status)
 
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
+                # LOGGING: Record stage state and increment
                 for idx in range(n):
                     stage_states[stage_idx, idx] = stage_base[idx]
                     scaled_increment = diagonal_coeff * stage_increment[idx]
@@ -733,8 +712,11 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
+                # LOGGING: Record observables
                 for obs_idx in range(observable_count):
-                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[stage_idx, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
                 dxdt_fn(
                     stage_base,
@@ -745,9 +727,10 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
+                # LOGGING: Record derivatives and residuals
                 for idx in range(n):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                    residuals[stage_idx, idx] = solver_shared[idx]
+                    residuals[stage_idx, idx] = typed_zero
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
@@ -776,7 +759,6 @@ class DIRKStep(ODEImplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            # --------------------------------------------------------------- #
             if has_driver_function:
                 driver_function(
                     end_time,
