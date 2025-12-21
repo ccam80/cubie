@@ -459,25 +459,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         """
         config = self.compile_settings
         
-        # Validate required components are set
-        if config.residual_function is None:
-            raise ValueError(
-                "residual_function must be set before building "
-                "InstrumentedNewtonKrylov"
-            )
-        if self.linear_solver is None:
-            raise ValueError(
-                "linear_solver must be set before building "
-                "InstrumentedNewtonKrylov"
-            )
-        
-        # Validate linear_solver is InstrumentedLinearSolver
-        if not isinstance(self.linear_solver, InstrumentedLinearSolver):
-            raise TypeError(
-                "InstrumentedNewtonKrylov requires linear_solver to be "
-                "InstrumentedLinearSolver instance"
-            )
-        
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver = self.linear_solver

@@ -289,7 +289,7 @@ class FIRKStep(ODEImplicitStep):
         
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
-
+        self.solver.update({'n': self.tableau.stage_count * self.n})
         self.register_buffers()
 
     def register_buffers(self) -> None:

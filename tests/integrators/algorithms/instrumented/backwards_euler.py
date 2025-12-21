@@ -115,7 +115,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             solver_kwargs['newton_damping'] = newton_damping
         if newton_max_backtracks is not None:
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        
+
+
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
 
     def build_step(
@@ -160,6 +161,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
+        #ANTI-PATTER registration, move to register_buffers and add a config
+        # subclass with this location
+        buffer_registry.register('increment_cache', n,
+                                        precision=self.precision,
+                                        location='local',
+                                        aliases='solver_shared',
+                                        persistent=True)
         
         solver_fn = solver_function
 
