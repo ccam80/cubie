@@ -6,6 +6,7 @@ from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -234,8 +235,14 @@ class BackwardsEulerStep(ODEImplicitStep):
         """
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
-        solver_shared_elements = self.solver_shared_elements
+        driver_function = driver_function
         n = int32(n)
+        
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver_scratch')
+        )
         
         solver_fn = solver_function
 
@@ -354,7 +361,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            solver_scratch = shared[: solver_shared_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
             observable_count = proposed_observables.shape[0]
 
             # LOGGING: Initialize instrumentation arrays
@@ -392,6 +400,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,

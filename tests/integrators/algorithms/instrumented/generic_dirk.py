@@ -61,9 +61,22 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(default='local')
-    stage_base_location: str = attrs.field(default='local')
-    accumulator_location: str = attrs.field(default='local')
+    stage_increment_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_base_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
 
 class DIRKStep(ODEImplicitStep):
@@ -77,19 +90,20 @@ class DIRKStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 2,
-        krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 200,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 100,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
         stage_increment_location: Optional[str] = None,
         stage_base_location: Optional[str] = None,
         accumulator_location: Optional[str] = None,
+        stage_rhs_location: Optional[str] = None,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
@@ -105,13 +119,6 @@ class DIRKStep(ODEImplicitStep):
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
-            "krylov_tolerance": krylov_tolerance,
-            "max_linear_iters": max_linear_iters,
-            "linear_correction_type": linear_correction_type,
-            "newton_tolerance": newton_tolerance,
-            "max_newton_iters": max_newton_iters,
-            "newton_damping": newton_damping,
-            "newton_max_backtracks": newton_max_backtracks,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -123,76 +130,95 @@ class DIRKStep(ODEImplicitStep):
             config_kwargs["stage_base_location"] = stage_base_location
         if accumulator_location is not None:
             config_kwargs["accumulator_location"] = accumulator_location
+        if stage_rhs_location is not None:
+            config_kwargs["stage_rhs_location"] = stage_rhs_location
 
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
+
+        # Select defaults based on error estimate
+        if tableau.has_error_estimate:
+            controller_defaults = DIRK_ADAPTIVE_DEFAULTS
+        else:
+            controller_defaults = DIRK_FIXED_DEFAULTS
+
+        # Build kwargs dict conditionally
+        solver_kwargs = {}
+        if krylov_tolerance is not None:
+            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            solver_kwargs['max_linear_iters'] = max_linear_iters
+        if linear_correction_type is not None:
+            solver_kwargs['linear_correction_type'] = linear_correction_type
+        if newton_tolerance is not None:
+            solver_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            solver_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            solver_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+
+        # Call parent __init__ to create solver instances
+        super().__init__(config, controller_defaults, **solver_kwargs)
+
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
 
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
-        multistage = tableau.stage_count > 1
 
-        # Register algorithm buffers using config values
+        # Register solver scratch and solver persistent buffers so they can
+        # be aliased
+        _ = buffer_registry.get_child_allocators(
+                self,
+                self.solver,
+                name='solver'
+        )
+
+        # Register buffers
         buffer_registry.register(
-            'dirk_stage_increment', self, n, config.stage_increment_location,
+            'stage_increment',
+            self,
+            n,
+            config.stage_increment_location,
+            persistent=True,
             precision=precision
         )
         buffer_registry.register(
-            'dirk_accumulator', self, accumulator_length,
-            config.accumulator_location, precision=precision
-        )
-
-        # stage_base aliasing: can alias accumulator when both are shared
-        # and method has multiple stages
-        stage_base_aliases_acc = (
-            multistage
-            and config.accumulator_location == 'shared'
-            and config.stage_base_location == 'shared'
-        )
-        if stage_base_aliases_acc:
-            buffer_registry.register(
-                'dirk_stage_base', self, n, 'shared',
-                aliases='dirk_accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'dirk_stage_base', self, n, config.stage_base_location,
-                precision=precision
-            )
-
-        # solver_scratch is always shared (Newton delta + residual)
-        solver_shared_size = 2 * n
-        buffer_registry.register(
-            'dirk_solver_scratch', self, solver_shared_size, 'shared',
+            'accumulator',
+            self,
+            accumulator_length,
+            config.accumulator_location,
             precision=precision
         )
 
-        # FSAL caches alias solver_scratch
+
         buffer_registry.register(
-            'dirk_rhs_cache', self, n, 'shared',
-            aliases='dirk_solver_scratch', precision=precision
-        )
-        buffer_registry.register(
-            'dirk_increment_cache', self, n, 'shared',
-            aliases='dirk_solver_scratch', precision=precision
+            'stage_base',
+            self,
+            n,
+            config.stage_base_location,
+            aliases='accumulator',
+            precision=precision
         )
 
-        if tableau.has_error_estimate:
-            defaults = DIRK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = DIRK_FIXED_DEFAULTS
-
-        super().__init__(
-            config, defaults,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
+        buffer_registry.register(
+            'stage_rhs',
+            self,
+            n,
+            config.stage_rhs_location,
+            persistent=True,
+            precision=precision
         )
 
     def build_implicit_helpers(
@@ -333,29 +359,18 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Get allocators from buffer registry
-        alloc_stage_increment = buffer_registry.get_allocator(
-            'dirk_stage_increment', self
-        )
-        alloc_accumulator = buffer_registry.get_allocator(
-            'dirk_accumulator', self
-        )
-        alloc_stage_base = buffer_registry.get_allocator(
-            'dirk_stage_base', self
-        )
-        alloc_solver_scratch = buffer_registry.get_allocator(
-            'dirk_solver_scratch', self
-        )
-        alloc_rhs_cache = buffer_registry.get_allocator(
-            'dirk_rhs_cache', self
-        )
-        alloc_increment_cache = buffer_registry.get_allocator(
-            'dirk_increment_cache', self
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self._newton_solver,
+                                                 name='solver')
         )
 
-        # FSAL scratch allocation flags (solver_scratch >= 2n always)
-        has_rhs_in_scratch = True
-        has_increment_in_scratch = True
+        # Get allocators from buffer registry
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_accumulator = getalloc('accumulator', self)
+        alloc_stage_base = getalloc('stage_base', self)
+        alloc_stage_rhs = getalloc('stage_rhs', self)
 
         # no cover: start
         @cuda.jit(
@@ -476,7 +491,9 @@ class DIRKStep(ODEImplicitStep):
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_accumulator = alloc_accumulator(shared, persistent_local)
             stage_base = alloc_stage_base(shared, persistent_local)
-            solver_scratch = alloc_solver_scratch(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
             # Initialize local arrays
             for _i in range(n):
@@ -493,19 +510,9 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
 
-            # stage_rhs is used during Newton iterations and overwritten.
-            # slice from solver_scratch (size 2n always provides space)
-            stage_rhs = solver_scratch[:n]
-
-            # increment_cache and rhs_cache persist between steps for FSAL.
-            # Both fit in solver_scratch (size 2n)
-            increment_cache = solver_scratch[n:int32(2)*n]
-            rhs_cache = solver_scratch[:n]  # Aliases stage_rhs
-
             for idx in range(n):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
-                stage_increment[idx] = increment_cache[idx]  # cache spent
 
             status_code = int32(0)
             # --------------------------------------------------------------- #
@@ -532,15 +539,8 @@ class DIRKStep(ODEImplicitStep):
                 if accumulates_output:
                     proposed_state[idx] = typed_zero
 
-            if use_cached_rhs:
-                # Load cached RHS from persistent storage.
-                # When rhs_cache aliases stage_rhs (has_rhs_in_scratch=True),
-                # this is a no-op. Otherwise, copy from persistent_local.
-                if not has_rhs_in_scratch:
-                    for idx in range(n):
-                        stage_rhs[idx] = rhs_cache[idx]
-
-            else:
+            # Recompute if not FSAL cached
+            if not use_cached_rhs:
                 if can_reuse_accepted_start:
                     for idx in range(int32(drivers_buffer.shape[0])):
                         # Use step-start driver values
@@ -554,7 +554,7 @@ class DIRKStep(ODEImplicitStep):
                             proposed_drivers,
                         )
                 if stage_implicit[0]:
-                    status_code |= nonlinear_solver(
+                    solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,
                         proposed_drivers,
@@ -562,7 +562,8 @@ class DIRKStep(ODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[0],
                         stage_base,
-                        solver_scratch,
+                        solver_shared,
+                        solver_persistent,
                         counters,
                         int32(0),
                         newton_initial_guesses,
@@ -576,6 +577,7 @@ class DIRKStep(ODEImplicitStep):
                         linear_squared_norms,
                         linear_preconditioned_vectors,
                     )
+                    status_code = int32(status_code | solver_status)
 
                     for idx in range(n):
                         stage_base[idx] += (
@@ -603,7 +605,7 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 stage_states[0, idx] = stage_base[idx]
-                residuals[0, idx] = solver_scratch[idx + n]
+                residuals[0, idx] = solver_shared[idx]
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = (stage_increment[idx] *
                                             diagonal_coeff)
@@ -697,7 +699,8 @@ class DIRKStep(ODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[stage_idx],
                         stage_base,
-                        solver_scratch,
+                        solver_shared,
+                        solver_persistent,
                         counters,
                         int32(stage_idx),
                         newton_initial_guesses,
@@ -711,7 +714,7 @@ class DIRKStep(ODEImplicitStep):
                         linear_squared_norms,
                         linear_preconditioned_vectors,
                     )
-                    status_code |= solver_ret
+                    status_code = int32(status_code | solver_ret)
 
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
@@ -744,7 +747,7 @@ class DIRKStep(ODEImplicitStep):
 
                 for idx in range(n):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                    residuals[stage_idx, idx] = solver_scratch[idx + n]
+                    residuals[stage_idx, idx] = solver_shared[idx]
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
@@ -789,16 +792,7 @@ class DIRKStep(ODEImplicitStep):
                 end_time,
             )
 
-            #Cache end-step values as appropriate
-            # Cache increment and RHS for FSAL optimization
-            for idx in range(n):
-                increment_cache[idx] = stage_increment[idx]
-                # rhs_cache aliases stage_rhs when has_rhs_in_scratch=True,
-                # so no explicit copy needed. Otherwise, copy to persistent_local.
-                if not has_rhs_in_scratch:
-                    rhs_cache[idx] = stage_rhs[idx]
-
-            return status_code
+            return int32(status_code)
         # no cover: end
         return StepCache(step=step, nonlinear_solver=nonlinear_solver)
 

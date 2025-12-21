@@ -49,8 +49,14 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    stage_rhs_location: str = attrs.field(default='local')
-    stage_accumulator_location: str = attrs.field(default='local')
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
     @property
     def first_same_as_last(self) -> bool:
@@ -101,6 +107,21 @@ class ERKStep(ODEExplicitStep):
 
         config = ERKStepConfig(**config_kwargs)
 
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -109,39 +130,20 @@ class ERKStep(ODEExplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'erk_stage_rhs', self, n, config.stage_rhs_location,
+            'stage_rhs',
+            self,
+            n,
+            config.stage_rhs_location,
+            persistent=True,
             precision=precision
         )
         buffer_registry.register(
-            'erk_stage_accumulator', self, accumulator_length,
-            config.stage_accumulator_location, precision=precision
+            'stage_accumulator',
+            self,
+            accumulator_length,
+            config.stage_accumulator_location,
+            precision=precision
         )
-
-        # stage_cache aliasing logic for FSAL optimization
-        use_shared_rhs = config.stage_rhs_location == 'shared'
-        use_shared_acc = config.stage_accumulator_location == 'shared'
-        if use_shared_rhs:
-            buffer_registry.register(
-                'erk_stage_cache', self, n, 'shared',
-                aliases='erk_stage_rhs', precision=precision
-            )
-        elif use_shared_acc:
-            buffer_registry.register(
-                'erk_stage_cache', self, n, 'shared',
-                aliases='erk_stage_accumulator', precision=precision
-            )
-        else:
-            buffer_registry.register(
-                'erk_stage_cache', self, n, 'local',
-                persistent=True, precision=precision
-            )
-
-        if tableau.has_error_estimate:
-            defaults = ERK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = ERK_FIXED_DEFAULTS
-        
-        super().__init__(config, defaults)
 
     def build_step(
         self,
@@ -192,15 +194,10 @@ class ERKStep(ODEExplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        # Buffer settings from compile_settings for selective shared/local
         # Get allocators from buffer registry
-        alloc_stage_rhs = buffer_registry.get_allocator('erk_stage_rhs', self)
-        alloc_stage_accumulator = buffer_registry.get_allocator(
-            'erk_stage_accumulator', self
-        )
-        alloc_stage_cache = buffer_registry.get_allocator(
-            'erk_stage_cache', self
-        )
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+        alloc_stage_accumulator = getalloc('stage_accumulator', self)
 
         # no cover: start
         @cuda.jit(
@@ -313,9 +310,6 @@ class ERKStep(ODEExplicitStep):
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
 
-            if multistage:
-                stage_cache = alloc_stage_cache(shared, persistent_local)
-
             # Initialize arrays
             for _i in range(n):
                 stage_rhs[_i] = typed_zero
@@ -358,20 +352,8 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            if multistage:
-                if use_cached_rhs:
-                    for idx in range(n):
-                        stage_rhs[idx] = stage_cache[idx]
-                else:
-                    dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        current_time,
-                    )
-            else:
+            # Deep cached rhs if able to, otherwise recalculate.
+            if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,
                     parameters,
@@ -520,10 +502,8 @@ class ERKStep(ODEExplicitStep):
                 proposed_observables,
                 end_time,
             )
-            if first_same_as_last:
-                for idx in range(n):
-                    stage_cache[idx] = stage_rhs[idx]
-            return status_code
+
+            return int32(0)
 
         return StepCache(step=step)
 

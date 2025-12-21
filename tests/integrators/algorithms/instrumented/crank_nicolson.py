@@ -2,10 +2,12 @@
 
 from typing import Callable, Optional
 
+import attrs
 from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -41,6 +43,18 @@ CN_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+
+
+@attrs.define
+class CrankNicolsonStepConfig(ImplicitStepConfig):
+    """Configuration for Crank-Nicolson step."""
+    
+    dxdt_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
+
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
@@ -60,6 +74,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        dxdt_location: Optional[str] = None,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -93,6 +108,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             Damping factor applied within Newton updates.
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
+        dxdt_location
+            Memory location for dxdt buffer: 'local' or 'shared'. If None,
+            defaults to 'local'.
 
         Returns
         -------
@@ -103,21 +121,27 @@ class CrankNicolsonStep(ODEImplicitStep):
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
-
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
-        )
         
-        # Build kwargs dict conditionally
+        # Build config kwargs conditionally
+        config_kwargs = {
+            'precision': precision,
+            'n': n,
+            'get_solver_helper_fn': get_solver_helper_fn,
+            'beta': beta,
+            'gamma': gamma,
+            'M': M,
+            'dxdt_function': dxdt_function,
+            'observables_function': observables_function,
+            'driver_function': driver_function,
+        }
+        if preconditioner_order is not None:
+            config_kwargs['preconditioner_order'] = preconditioner_order
+        if dxdt_location is not None:
+            config_kwargs['dxdt_location'] = dxdt_location
+        
+        config = CrankNicolsonStepConfig(**config_kwargs)
+        
+        # Build solver kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
             solver_kwargs['krylov_tolerance'] = krylov_tolerance
@@ -135,6 +159,20 @@ class CrankNicolsonStep(ODEImplicitStep):
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
         
         super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
+        
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        buffer_registry.register(
+            'cn_dxdt',
+            self,
+            config.n,
+            config.dxdt_location,
+            aliases='solver_scratch_shared',
+            precision=config.precision
+        )
 
     def build_implicit_helpers(self) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
@@ -232,13 +270,21 @@ class CrankNicolsonStep(ODEImplicitStep):
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None
-        solver_shared_elements = self.solver_shared_elements
+        driver_function = driver_function
+        n = int32(n)
         stage_count = self.stage_count
         newton_iters = int(config.max_newton_iters)
         newton_backtracks = int(config.newton_max_backtracks)
         newton_slots = newton_iters * (newton_backtracks + 1) + 1
         linear_iters = int(config.max_linear_iters)
         linear_slots = max(1, stage_count * newton_iters)
+
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver_scratch')
+        )
+        alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
         @cuda.jit(
             # (
@@ -374,8 +420,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = typed_zero
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
-            solver_scratch = shared[:solver_shared_elements]
-            dxdt_buffer = solver_scratch[:n]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            dxdt_buffer = alloc_dxdt(shared, persistent_local)
             base_state = error
 
             dxdt_fn(
@@ -411,6 +458,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,
@@ -448,6 +496,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
                 int32(0),
                 dummy_newton_initial_guesses,
