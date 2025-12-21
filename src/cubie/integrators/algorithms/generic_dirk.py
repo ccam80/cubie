@@ -231,13 +231,13 @@ class DIRKStep(ODEImplicitStep):
 
         config = DIRKStepConfig(**config_kwargs)
         self._cached_auxiliary_count = 0
-        
+
         # Select defaults based on error estimate
         if tableau.has_error_estimate:
             controller_defaults = DIRK_ADAPTIVE_DEFAULTS
         else:
             controller_defaults = DIRK_FIXED_DEFAULTS
-        
+
         # Build kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
@@ -254,7 +254,7 @@ class DIRKStep(ODEImplicitStep):
             solver_kwargs['newton_damping'] = newton_damping
         if newton_max_backtracks is not None:
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        
+
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
 
@@ -266,7 +266,7 @@ class DIRKStep(ODEImplicitStep):
         precision = config.precision
         n = config.n
         tableau = config.tableau
-        
+
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -386,10 +386,10 @@ class DIRKStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
-        
+
         solver_fn = solver_function
         nonlinear_solver = solver_fn
-        
+
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
@@ -559,8 +559,10 @@ class DIRKStep(ODEImplicitStep):
 
             # Only use cache if all threads in warp can - otherwise no gain
             use_cached_rhs = False
-            if first_same_as_last and multistage: # compile-time branch
-                if not first_step: # runtime branch
+            # Compile-time branch: guarded by static configuration flags
+            if first_same_as_last and multistage:
+                # Runtime branch: depends on previous step acceptance
+                if not first_step:
                     mask = activemask()
                     all_threads_accepted = all_sync(mask, accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted

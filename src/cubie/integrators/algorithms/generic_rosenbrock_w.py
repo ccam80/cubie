@@ -327,8 +327,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             'prepare_jac',
             preconditioner_order=preconditioner_order,
         )
+
+        prepare_jacobian = get_fn(
+            "prepare_jac",
+            preconditioner_order=preconditioner_order,
+        )
+        self._cached_auxiliary_count = get_fn("cached_aux_count")
+        # Update buffer registry with the actual cached_auxiliary_count
+        buffer_registry.update_buffer(
+            'cached_auxiliaries', self,
+            size=self._cached_auxiliary_count
+        )
         self._time_derivative_rhs = get_fn('time_derivative_rhs')
-        
+
         # Update linear solver with device functions
         self.solver.update(
             operator_apply=operator,
@@ -740,7 +751,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Cache final indices of stage store (time_derivative is an
-            # alias for this for next step's initial guess.
+            # alias for this for next step's initial guess).
             for idx in range(n):
                 stage_increment[idx] = time_derivative[idx]
 
