@@ -51,6 +51,9 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    InstrumentedLinearSolver,
+)
 
 
 
@@ -220,7 +223,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def build_implicit_helpers(
         self,
     ) -> Callable:
-        """Construct the linear solver used by Rosenbrock methods.
+        """Construct instrumented linear solver chain for Rosenbrock methods.
 
         Returns
         -------
@@ -232,6 +235,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
+        n = config.n
+        precision = config.precision
 
         get_fn = config.get_solver_helper_fn
 
@@ -265,7 +270,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         time_derivative_function = get_fn('time_derivative_rhs')
 
-        # Update linear solver with device functions
+        # Create instrumented linear solver to replace the standard one
+        self.solver = InstrumentedLinearSolver(
+            precision=precision,
+            n=n,
+        )
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
@@ -507,8 +516,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs,
                 stage_increment,
                 shared,
-                persistent_local,
                 krylov_iters_out,
+                # LOGGING parameters
+                int32(0),
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
             for idx in range(n):
@@ -665,8 +680,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_increment,
                     shared,
-                    persistent_local,
                     krylov_iters_out,
+                    # LOGGING parameters
+                    stage_idx,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
 
                 if accumulates_output:

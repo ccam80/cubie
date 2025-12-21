@@ -21,6 +21,10 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    InstrumentedLinearSolver,
+    InstrumentedNewtonKrylov,
+)
 
 
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -210,12 +214,15 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
 
-    def build_implicit_helpers(
-        self,
-    ) -> Callable:
-        """Construct the nonlinear solver chain used by implicit methods."""
+    def build_implicit_helpers(self) -> None:
+        """Construct the nonlinear solver chain used by implicit methods.
 
+        Overrides the parent method to use instrumented solvers that record
+        logging data for each Newton and linear solver iteration.
+        """
         config = self.compile_settings
+        precision = config.precision
+        n = config.n
         beta = config.beta
         gamma = config.gamma
         mass = config.M
@@ -224,14 +231,14 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner", # neumann preconditioner cached?
+            "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
-        residual = get_fn(
+        residual_fn = get_fn(
             "stage_residual",
             beta=beta,
             gamma=gamma,
@@ -239,7 +246,7 @@ class DIRKStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        operator = get_fn(
+        linear_operator = get_fn(
             "linear_operator",
             beta=beta,
             gamma=gamma,
@@ -247,15 +254,33 @@ class DIRKStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        # Update solvers with device functions
-        self.solver.update(
-            operator_apply=operator,
-            preconditioner=preconditioner,
-            residual_function=residual,
+        # Create instrumented linear solver
+        linear_solver = InstrumentedLinearSolver(
+            precision=precision,
+            n=n,
+            correction_type=self.linear_correction_type,
+            krylov_tolerance=self.krylov_tolerance,
+            max_linear_iters=self.max_linear_iters,
         )
-        
+        linear_solver.update(
+            operator_apply=linear_operator,
+            preconditioner=preconditioner,
+        )
+
+        # Create instrumented Newton-Krylov solver
+        self.solver = InstrumentedNewtonKrylov(
+            precision=precision,
+            n=n,
+            linear_solver=linear_solver,
+            newton_tolerance=self.newton_tolerance,
+            max_newton_iters=self.max_newton_iters,
+            newton_damping=self.newton_damping,
+            newton_max_backtracks=self.newton_max_backtracks,
+        )
+        self.solver.update(residual_function=residual_fn)
+
         self.update_compile_settings(
-                {'solver_function': self.solver.device_function}
+            solver_function=self.solver.device_function
         )
 
     def build_step(
@@ -516,8 +541,18 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[0],
                         stage_base,
                         solver_shared,
-                        solver_persistent,
                         counters,
+                        int32(0),
+                        newton_initial_guesses,
+                        newton_iteration_guesses,
+                        newton_residuals,
+                        newton_squared_norms,
+                        newton_iteration_scale,
+                        linear_initial_guesses,
+                        linear_iteration_guesses,
+                        linear_residuals,
+                        linear_squared_norms,
+                        linear_preconditioned_vectors,
                     )
                     status_code = int32(status_code | solver_status)
 
@@ -643,8 +678,18 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_shared,
-                        solver_persistent,
                         counters,
+                        int32(stage_idx),
+                        newton_initial_guesses,
+                        newton_iteration_guesses,
+                        newton_residuals,
+                        newton_squared_norms,
+                        newton_iteration_scale,
+                        linear_initial_guesses,
+                        linear_iteration_guesses,
+                        linear_residuals,
+                        linear_squared_norms,
+                        linear_preconditioned_vectors,
                     )
                     status_code = int32(status_code | solver_status)
 

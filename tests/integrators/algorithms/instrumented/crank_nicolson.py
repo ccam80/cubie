@@ -12,6 +12,10 @@ from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    InstrumentedLinearSolver,
+    InstrumentedNewtonKrylov,
+)
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -169,6 +173,40 @@ class CrankNicolsonStep(ODEImplicitStep):
             config.dxdt_location,
             precision=config.precision
         )
+
+    def build_implicit_helpers(self) -> Callable:
+        """Construct instrumented nonlinear solver chain."""
+        config = self.compile_settings
+        get_fn = config.get_solver_helper_fn
+        n = config.n
+        precision = config.precision
+
+        preconditioner = get_fn(
+            'neumann_preconditioner',
+            order=config.preconditioner_order
+        )
+        residual_fn = get_fn('stage_residual', coeff=1.0, mass=config.M)
+        linear_operator = get_fn('linear_operator', mass=config.M)
+
+        # Create instrumented linear solver
+        linear_solver = InstrumentedLinearSolver(
+            precision=precision,
+            n=n,
+        )
+        linear_solver.update(
+            operator_apply=linear_operator,
+            preconditioner=preconditioner
+        )
+
+        # Create instrumented newton solver
+        self.solver = InstrumentedNewtonKrylov(
+            precision=precision,
+            n=n,
+            linear_solver=linear_solver
+        )
+        self.solver.update(residual_function=residual_fn)
+
+        self.update_compile_settings(solver_function=self.solver.device_function)
 
     def build_step(
         self,
@@ -358,8 +396,18 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
-                solver_persistent,
                 counters,
+                int32(0),
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
             # LOGGING: capture final residual from solver scratch
@@ -386,8 +434,18 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
-                solver_persistent,
                 counters,
+                int32(1),
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
 

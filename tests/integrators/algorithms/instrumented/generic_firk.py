@@ -45,6 +45,10 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    InstrumentedLinearSolver,
+    InstrumentedNewtonKrylov,
+)
 
 
 
@@ -324,59 +328,79 @@ class FIRKStep(ODEImplicitStep):
             precision=precision
         )
 
-    def build_implicit_helpers(
-        self,
-    ) -> Callable:
-        """Construct the nonlinear solver chain used by implicit methods."""
+    def build_implicit_helpers(self) -> None:
+        """Construct instrumented nonlinear solver chain.
 
+        Overrides the parent method to use instrumented solvers that record
+        logging data for each Newton and linear solver iteration. FIRK uses
+        all_stages_n dimension for solver since all stages are solved
+        simultaneously as a coupled system.
+        """
         config = self.compile_settings
+        get_fn = config.get_solver_helper_fn
+        n = config.n
+        precision = config.precision
         tableau = config.tableau
+        all_stages_n = tableau.stage_count * n
+
         beta = config.beta
         gamma = config.gamma
         mass = config.M
 
-        get_fn = config.get_solver_helper_fn
-
         stage_coefficients = [list(row) for row in tableau.a]
         stage_nodes = list(tableau.c)
 
-        residual = get_fn(
-            "n_stage_residual",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            stage_coefficients=stage_coefficients,
-            stage_nodes=stage_nodes,
-        )
-
-        operator = get_fn(
-            "n_stage_linear_operator",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            stage_coefficients=stage_coefficients,
-            stage_nodes=stage_nodes,
-        )
-
         preconditioner = get_fn(
-            "n_stage_neumann_preconditioner",
+            'n_stage_neumann_preconditioner',
             beta=beta,
             gamma=gamma,
             preconditioner_order=config.preconditioner_order,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )
-
-        # Update solvers with device functions
-        self.solver.update(
-            operator_apply=operator,
-            preconditioner=preconditioner,
-            residual_function=residual,
+        residual_fn = get_fn(
+            'n_stage_residual',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            stage_coefficients=stage_coefficients,
+            stage_nodes=stage_nodes,
+        )
+        linear_operator = get_fn(
+            'n_stage_linear_operator',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            stage_coefficients=stage_coefficients,
+            stage_nodes=stage_nodes,
         )
 
-        self.update_compile_settings(
-                {'solver_function':self.solver.device_function}
+        # Create instrumented linear solver with full dimension
+        linear_solver = InstrumentedLinearSolver(
+            precision=precision,
+            n=all_stages_n,
+            correction_type=self.linear_correction_type,
+            krylov_tolerance=self.krylov_tolerance,
+            max_linear_iters=self.max_linear_iters,
         )
+        linear_solver.update(
+            operator_apply=linear_operator,
+            preconditioner=preconditioner
+        )
+
+        # Create instrumented newton solver
+        self.solver = InstrumentedNewtonKrylov(
+            precision=precision,
+            n=all_stages_n,
+            linear_solver=linear_solver,
+            newton_tolerance=self.newton_tolerance,
+            max_newton_iters=self.max_newton_iters,
+            newton_damping=self.newton_damping,
+            newton_max_backtracks=self.newton_max_backtracks,
+        )
+        self.solver.update(residual_function=residual_fn)
+
+        self.update_compile_settings(solver_function=self.solver.device_function)
 
     def build_step(
         self,
@@ -555,8 +579,18 @@ class FIRKStep(ODEImplicitStep):
                 typed_zero,
                 state,
                 solver_shared,
-                solver_persistent,
                 counters,
+                int32(0),  # stage index
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
             status_code = int32(status_code | solver_status)
 
