@@ -2,6 +2,7 @@
 
 from typing import Callable, Optional
 
+import attrs
 from numba import cuda, int32
 import numpy as np
 
@@ -29,6 +30,18 @@ CN_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+
+
+@attrs.define
+class CrankNicolsonStepConfig(ImplicitStepConfig):
+    """Configuration for Crank-Nicolson step."""
+    
+    dxdt_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
+
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
@@ -104,20 +117,26 @@ class CrankNicolsonStep(ODEImplicitStep):
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
         
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
-        )
+        # Build config kwargs conditionally
+        config_kwargs = {
+            'precision': precision,
+            'n': n,
+            'get_solver_helper_fn': get_solver_helper_fn,
+            'beta': beta,
+            'gamma': gamma,
+            'M': M,
+            'dxdt_function': dxdt_function,
+            'observables_function': observables_function,
+            'driver_function': driver_function,
+        }
+        if preconditioner_order is not None:
+            config_kwargs['preconditioner_order'] = preconditioner_order
+        if dxdt_location is not None:
+            config_kwargs['dxdt_location'] = dxdt_location
         
-        # Build kwargs dict conditionally
+        config = CrankNicolsonStepConfig(**config_kwargs)
+        
+        # Build solver kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
             solver_kwargs['krylov_tolerance'] = krylov_tolerance
@@ -136,7 +155,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         
         super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
         
-        self._dxdt_location = dxdt_location if dxdt_location is not None else 'local'
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -146,7 +164,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             'cn_dxdt',
             self,
             config.n,
-            self._dxdt_location,
+            config.dxdt_location,
             aliases='solver_scratch_shared',
             precision=config.precision
         )
