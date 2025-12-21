@@ -93,14 +93,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
+            preconditioner_order=preconditioner_order,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
             precision=precision,
         )
         
-        # Build kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
             solver_kwargs['krylov_tolerance'] = krylov_tolerance

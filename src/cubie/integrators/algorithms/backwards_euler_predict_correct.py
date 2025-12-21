@@ -11,6 +11,18 @@ from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
     """Backward Euler with a predictor-corrector refinement."""
+    def __init__(self, **backwardeulerkwargs):
+        super().__init__(**backwardeulerkwargs)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        buffer_registry.register('predictor',
+                                 self,
+                                 self.compile_settings.n,
+                                 location='local',
+                                 aliases='solver_scratch_shared',
+                                 precision=self.precision)
 
     def build_step(
         self,
@@ -53,10 +65,11 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
-        
+        alloc_predictor = buffer_registry.get_allocator('predictor', self)
+
         solver_fn = solver_function
 
         @cuda.jit(
@@ -138,7 +151,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Status code returned by the nonlinear solver.
             """
 
-            predictor = shared[:n]
+            predictor = alloc_predictor(shared, persistent_local)
             dxdt_fn(
                 state,
                 parameters,

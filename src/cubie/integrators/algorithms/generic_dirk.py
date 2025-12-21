@@ -112,7 +112,7 @@ class DIRKStepConfig(ImplicitStepConfig):
     stage_increment_location: str = attrs.field(default='local')
     stage_base_location: str = attrs.field(default='local')
     accumulator_location: str = attrs.field(default='local')
-
+    stage_rhs_location: str = attrs.field(default='local')
 
 class DIRKStep(ODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
@@ -138,6 +138,7 @@ class DIRKStep(ODEImplicitStep):
         stage_increment_location: Optional[str] = None,
         stage_base_location: Optional[str] = None,
         accumulator_location: Optional[str] = None,
+        stage_rhs_location: Optional[str] = None,
     ) -> None:
         """Initialise the DIRK step configuration.
         
@@ -216,7 +217,7 @@ class DIRKStep(ODEImplicitStep):
             "observables_function": observables_function,
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order if preconditioner_order is not None else 2,
+            "preconditioner_order": preconditioner_order,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -228,9 +229,10 @@ class DIRKStep(ODEImplicitStep):
             config_kwargs["stage_base_location"] = stage_base_location
         if accumulator_location is not None:
             config_kwargs["accumulator_location"] = accumulator_location
+        if stage_rhs_location is not None:
+            config_kwargs["stage_rhs_location"] = stage_rhs_location
 
         config = DIRKStepConfig(**config_kwargs)
-        self._cached_auxiliary_count = 0
 
         # Select defaults based on error estimate
         if tableau.has_error_estimate:
@@ -272,16 +274,16 @@ class DIRKStep(ODEImplicitStep):
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
-        multistage = tableau.stage_count > 1
 
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
-        _ = (
-            buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver')
+        _ = buffer_registry.get_child_allocators(
+                self,
+                self.solver,
+                name='solver'
         )
 
-        # Register algorithm buffers using config values
+        # Register buffers
         buffer_registry.register(
             'stage_increment',
             self,
@@ -291,8 +293,11 @@ class DIRKStep(ODEImplicitStep):
             precision=precision
         )
         buffer_registry.register(
-            'accumulator', self, accumulator_length,
-            config.accumulator_location, precision=precision
+            'accumulator',
+            self,
+            accumulator_length,
+            config.accumulator_location,
+            precision=precision
         )
 
 
@@ -306,19 +311,10 @@ class DIRKStep(ODEImplicitStep):
         )
 
         buffer_registry.register(
-            'increment_cache',
-            self,
-            n,
-            'local',
-            aliases='solver_shared',
-            persistent=True,
-            precision=precision
-        )
-        buffer_registry.register(
             'stage_rhs',
             self,
             n,
-            'local',
+            config.stage_rhs_location,
             persistent=True,
             precision=precision
         )
@@ -328,13 +324,11 @@ class DIRKStep(ODEImplicitStep):
     ) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
 
-        precision = self.precision
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        n = config.n
 
         get_fn = config.get_solver_helper_fn
 
@@ -369,7 +363,9 @@ class DIRKStep(ODEImplicitStep):
             residual_function=residual,
         )
         
-        return self.solver.device_function
+        self.update_compile_settings(
+                {'solver_function': self.solver.device_function}
+        )
 
     def build_step(
         self,
@@ -384,11 +380,8 @@ class DIRKStep(ODEImplicitStep):
         """Compile the DIRK device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
-
-        solver_fn = solver_function
-        nonlinear_solver = solver_fn
+        nonlinear_solver = solver_function
 
         n = int32(n)
         stage_count = int32(tableau.stage_count)
@@ -426,25 +419,20 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Get allocators from buffer registry
-        alloc_stage_increment = buffer_registry.get_allocator(
-            'stage_increment', self
-        )
-        alloc_accumulator = buffer_registry.get_allocator(
-            'accumulator', self
-        )
-        alloc_stage_base = buffer_registry.get_allocator(
-            'stage_base', self
-        )
-        alloc_stage_rhs = buffer_registry.get_allocator(
-            'stage_rhs', self
-        )
-        
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self._newton_solver,
                                                  name='solver')
         )
+
+        # Get allocators from buffer registry
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_accumulator = getalloc('accumulator', self)
+        alloc_stage_base = getalloc('stage_base', self)
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+
+
 
         # no cover: start
         @cuda.jit(

@@ -18,118 +18,12 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
-    opt_getype_validator,
     opt_gttype_validator,
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
-
-@define
-class LoopLocalIndices:
-    """Index layout for persistent local memory buffers.
-
-    Attributes
-    ----------
-    dt
-        Slice pointing to the timestep storage element.
-    accept
-        Slice pointing to the acceptance flag storage element.
-    controller
-        Slice covering scratch space reserved for the controller state.
-    algorithm
-        Slice covering scratch space reserved for the algorithm state.
-    loop_end
-        Offset of the end of loop-managed storage.
-    total_end
-        Offset of the end of the persistent local buffer.
-    all
-        Slice that spans the entire persistent local buffer.
-    """
-
-    dt: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    accept: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    controller: Optional[slice] = field(
-        default=None, validator=valid_opt_slice
-    )
-    algorithm: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    loop_end: Optional[int] = field(
-        default=None, validator=opt_getype_validator(int, 0)
-    )
-    total_end: Optional[int] = field(
-        default=None, validator=opt_getype_validator(int, 0)
-    )
-    all: Optional[slice] = field(default=None, validator=valid_opt_slice)
-
-    @classmethod
-    def empty(cls) -> "LoopLocalIndices":
-        """Build an empty local-memory layout.
-
-        Returns
-        -------
-        LoopLocalIndices
-            Layout with zero-length slices for all buffers.
-        """
-
-        zero = slice(0, 0)
-        return cls(
-            dt=zero,
-            accept=zero,
-            controller=zero,
-            algorithm=zero,
-            loop_end=0,
-            total_end=0,
-            all=slice(None),
-        )
-
-    @classmethod
-    def from_sizes(
-        cls, controller_len: int, algorithm_len: int
-    ) -> "LoopLocalIndices":
-        """Build index slices from component memory requirements.
-
-        Parameters
-        ----------
-        controller_len
-            Number of persistent elements reserved for the controller.
-        algorithm_len
-            Number of persistent elements reserved for the algorithm.
-
-        Returns
-        -------
-        LoopLocalIndices
-            Layout sized to cover the requested buffer lengths.
-        """
-
-        controller_len = max(int(controller_len), 0)
-        algorithm_len = max(int(algorithm_len), 0)
-
-        dt_slice = slice(0, 1)
-        accept_slice = slice(1, 2)
-        controller_start = accept_slice.stop
-        controller_stop = controller_start + controller_len
-        controller_slice = slice(controller_start, controller_stop)
-
-        algorithm_start = controller_stop
-        algorithm_stop = algorithm_start + algorithm_len
-        algorithm_slice = slice(algorithm_start, algorithm_stop)
-
-        return cls(
-            dt=dt_slice,
-            accept=accept_slice,
-            controller=controller_slice,
-            algorithm=algorithm_slice,
-            loop_end=accept_slice.stop,
-            total_end=algorithm_slice.stop,
-            all=slice(None),
-        )
-
-    @property
-    def loop_elements(self) -> int:
-        """Return the loop's intrinsic persistent local requirement."""
-        return int(self.loop_end or 0)
-
 
 @define
 class ODELoopConfig:
@@ -318,13 +212,6 @@ class ODELoopConfig:
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
 
-    @property
-    def local_indices(self) -> LoopLocalIndices:
-        """Return local memory indices computed from size hints."""
-        return LoopLocalIndices.from_sizes(
-            self.controller_local_len,
-            self.algorithm_local_len
-        )
 
     @property
     def saves_per_summary(self) -> int:
@@ -366,10 +253,5 @@ class ODELoopConfig:
         """Return the maximum allowable timestep."""
         return self.precision(self._dt_max)
 
-    @property
-    def loop_local_elements(self) -> int:
-        """Return the loop's persistent local-memory contribution."""
-
-        return self.local_indices.loop_elements
 
 

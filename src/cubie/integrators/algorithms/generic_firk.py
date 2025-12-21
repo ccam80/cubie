@@ -232,7 +232,7 @@ class FIRKStep(ODEImplicitStep):
             "observables_function": observables_function,
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order if preconditioner_order is not None else 2,
+            "preconditioner_order": preconditioner_order,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
@@ -312,14 +312,11 @@ class FIRKStep(ODEImplicitStep):
     ) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods."""
 
-        precision = self.precision
         config = self.compile_settings
         tableau = config.tableau
         beta = config.beta
         gamma = config.gamma
         mass = config.M
-        stage_count = config.stage_count
-        all_stages_n = config.all_stages_n
 
         get_fn = config.get_solver_helper_fn
 
@@ -359,7 +356,10 @@ class FIRKStep(ODEImplicitStep):
             preconditioner=preconditioner,
             residual_function=residual,
         )
-        return self.solver.device_function
+
+        self.update_compile_settings(
+                {'solver_function':self.solver.device_function}
+        )
 
     def build_step(
         self,
@@ -374,12 +374,10 @@ class FIRKStep(ODEImplicitStep):
         """Compile the FIRK device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
         
-        solver_fn = solver_function
-        nonlinear_solver = solver_fn
-        
+        nonlinear_solver = solver_function
+
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
@@ -411,15 +409,10 @@ class FIRKStep(ODEImplicitStep):
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
 
         # Get allocators from buffer registry
-        alloc_stage_increment = buffer_registry.get_allocator(
-            'stage_increment', self
-        )
-        alloc_stage_driver_stack = buffer_registry.get_allocator(
-            'stage_driver_stack', self
-        )
-        alloc_stage_state = buffer_registry.get_allocator(
-            'stage_state', self
-        )
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_stage_driver_stack = getalloc('stage_driver_stack', self)
+        alloc_stage_state = getalloc('stage_state', self)
         
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (

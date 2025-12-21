@@ -31,12 +31,13 @@ for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
 https://doi.org/10.1023/A:1021900219772
 """
 
-from typing import Callable, Optional, Tuple, Set
+from typing import Callable, Optional
 
 import attrs
 import numpy as np
 from numba import cuda, int32
 
+from cubie import is_device_validator
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -51,7 +52,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.matrix_free_solvers import LinearSolver
 
 
 
@@ -115,8 +115,18 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
     tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
-    time_derivative_fn: Optional[Callable] = attrs.field(default=None)
-    driver_del_t: Optional[Callable] = attrs.field(default=None)
+    time_derivative_function: Optional[Callable] = attrs.field(
+            default=None,
+            validator=attrs.validators.optional(is_device_validator)
+    )
+    prepare_jacobian_function: Optional[Callable] = attrs.field(
+            default=None,
+            validator=attrs.validators.optional(is_device_validator)
+    )
+    driver_del_t: Optional[Callable] = attrs.field(
+            default=None,
+            validator=attrs.validators.optional(is_device_validator)
+    )
     stage_rhs_location: str = attrs.field(default='local')
     stage_store_location: str = attrs.field(default='local')
     cached_auxiliaries_location: str = attrs.field(default='local')
@@ -215,7 +225,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "driver_function": driver_function,
             "driver_del_t": driver_del_t,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order if preconditioner_order is not None else 2,
+            "preconditioner_order": preconditioner_order,
             "tableau": tableau_value,
             "beta": 1.0,
             "gamma": tableau_value.gamma,
@@ -322,23 +332,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order
         )
 
-        # Store Rosenbrock-specific helpers as instance attributes
-        self._prepare_jacobian = get_fn(
-            'prepare_jac',
-            preconditioner_order=preconditioner_order,
-        )
-
         prepare_jacobian = get_fn(
             "prepare_jac",
             preconditioner_order=preconditioner_order,
         )
         self._cached_auxiliary_count = get_fn("cached_aux_count")
+
         # Update buffer registry with the actual cached_auxiliary_count
         buffer_registry.update_buffer(
             'cached_auxiliaries', self,
             size=self._cached_auxiliary_count
         )
-        self._time_derivative_rhs = get_fn('time_derivative_rhs')
+
+        time_derivative_function = get_fn('time_derivative_rhs')
 
         # Update linear solver with device functions
         self.solver.update(
@@ -348,7 +354,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         )
 
         # Return linear solver device function
-        return self.solver.device_function
+        self.update_compile_settings(
+                {'solver_function': self.solver.device_function,
+                 'time_derivative_function': time_derivative_function,
+                 'prepare_jacobian_function': prepare_jacobian}
+        )
 
     def build_step(
         self,
@@ -364,13 +374,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         """Compile the Rosenbrock-W device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
 
         # Access solver from parameter
         linear_solver = solver_function
-        prepare_jacobian = self._prepare_jacobian
-        time_derivative_rhs = self._time_derivative_rhs
+        prepare_jacobian = config.prepare_jacobian_function
+        time_derivative_rhs = config.time_derivative_function
 
         n = int32(n)
         stage_count = int32(self.stage_count)
@@ -402,24 +411,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             b_hat_row = int32(b_hat_row)
 
         # Get allocators from buffer registry
-        alloc_stage_rhs = buffer_registry.get_allocator(
-            'stage_rhs', self
-        )
-        alloc_stage_store = buffer_registry.get_allocator(
-            'stage_store', self
-        )
-        alloc_cached_auxiliaries = buffer_registry.get_allocator(
-            'cached_auxiliaries', self
-        )
-        alloc_stage_increment = buffer_registry.get_allocator(
-            'stage_increment', self
-        )
-
-        # Stage store size for initialization
-        stage_store_elements = tableau.stage_count * config.n
-
-        # Compile-time flag for stage_store memory location
-        stage_store_shared = config.stage_store_location == 'shared'
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+        alloc_stage_store = getalloc('stage_store', self)
+        alloc_cached_auxiliaries = getalloc('cached_auxiliaries', self)
+        alloc_stage_increment = getalloc('stage_increment', self)
 
         # no cover: start
         @cuda.jit(
@@ -484,7 +480,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
-
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -751,7 +746,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Cache final indices of stage store (time_derivative is an
-            # alias for this for next step's initial guess).
+            # alias for this) for next step's initial guess.
             for idx in range(n):
                 stage_increment[idx] = time_derivative[idx]
 

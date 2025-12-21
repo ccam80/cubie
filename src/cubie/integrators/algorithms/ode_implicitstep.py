@@ -7,6 +7,7 @@ import attrs
 import numpy as np
 import sympy as sp
 
+from cubie import is_device_validator
 from cubie._utils import inrangetype_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
@@ -53,7 +54,7 @@ class ImplicitStepConfig(BaseStepConfig):
     )
     solver_function = attrs.field(
         default=None,
-        validator=attrs.validators.optional(Callable)
+        validator=attrs.validators.optional(is_device_validator)
     )
 
     @property
@@ -69,7 +70,6 @@ class ImplicitStepConfig(BaseStepConfig):
     @property
     def settings_dict(self) -> dict:
         """Return configuration fields as a dictionary."""
-        
         settings_dict = super().settings_dict
         settings_dict.update(
             {
@@ -90,14 +90,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self,
         config: ImplicitStepConfig,
         _controller_defaults: StepControlDefaults,
-        solver_type: str = 'newton',
-        krylov_tolerance: float = 1e-3,
-        max_linear_iters: int = 100,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-3,
-        max_newton_iters: int = 100,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 10,
+        solver_type: str = "newton",
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
     ) -> None:
         """Initialise the implicit step with its configuration.
 
@@ -188,12 +188,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
         recognized |= self.solver.update(all_updates, silent=True)
 
         all_updates["solver_function"] = self.solver.device_function
-        
-        recognized |= buffer_registry.update(
-            self, updates_dict=all_updates, silent=True
-        )
+
         recognized |= self.update_compile_settings(
             updates_dict=all_updates, silent=silent
+        )
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
         )
 
         return recognized

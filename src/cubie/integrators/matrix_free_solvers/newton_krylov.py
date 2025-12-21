@@ -72,9 +72,7 @@ class NewtonKrylovConfig:
     )
     linear_solver_function: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(
-            validators.instance_of(is_device_validator)
-        )
+        validator=validators.optional(is_device_validator)
     )
     _newton_tolerance: float = attrs.field(
         default=1e-3,
@@ -200,7 +198,7 @@ class NewtonKrylov(CUDAFactory):
         super().__init__()
 
         self.linear_solver = linear_solver
-        # Create and setup configuration with explicit parameters
+
         newton_kwargs = {}
         if newton_tolerance is not None:
             newton_kwargs['newton_tolerance'] = newton_tolerance
@@ -226,7 +224,7 @@ class NewtonKrylov(CUDAFactory):
         )
 
         self.setup_compile_settings(config)
-        
+        self.register_buffers()
 
 
     def register_buffers(self) -> None:
@@ -238,28 +236,28 @@ class NewtonKrylov(CUDAFactory):
         buffer_registry.register(
             'delta',
             self,
-            self.n,
+            config.n,
             config.delta_location,
             precision=precision
         )
         buffer_registry.register(
             'residual',
             self,
-            self.n,
+            config.n,
             config.residual_location,
             precision=precision
         )
         buffer_registry.register(
             'residual_temp',
             self,
-            self.n,
+            config.n,
             config.residual_temp_location,
             precision=precision
         )
         buffer_registry.register(
             'stage_base_bt',
             self,
-            self.n,
+            config.n,
             config.stage_base_bt_location,
             precision=precision
         )
@@ -299,14 +297,11 @@ class NewtonKrylov(CUDAFactory):
         max_backtracks_val = int32(newton_max_backtracks + 1)
         
         # Get allocators from buffer_registry
-        alloc_delta = buffer_registry.get_allocator('delta', self)
-        alloc_residual = buffer_registry.get_allocator('residual', self)
-        alloc_residual_temp = buffer_registry.get_allocator(
-            'residual_temp', self
-        )
-        alloc_stage_base_bt = buffer_registry.get_allocator(
-            'stage_base_bt', self
-        )
+        get_alloc = buffer_registry.get_allocator
+        alloc_delta = get_alloc('delta', self)
+        alloc_residual = get_alloc('residual', self)
+        alloc_residual_temp =get_alloc('residual_temp', self)
+        alloc_stage_base_bt = get_alloc('stage_base_bt', self)
         
         # Get child allocators for linear solver
         alloc_lin_shared, alloc_lin_persistent = (
@@ -589,11 +584,6 @@ class NewtonKrylov(CUDAFactory):
     def correction_type(self) -> str:
         """Return correction type from nested linear solver."""
         return self.linear_solver.correction_type
-
-    @property
-    def linear_solver(self) -> Optional['LinearSolver']:
-        """Return nested LinearSolver instance."""
-        return self.compile_settings.linear_solver
     
     @property
     def shared_buffer_size(self) -> int:

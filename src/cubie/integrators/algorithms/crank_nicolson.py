@@ -106,7 +106,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
+            preconditioner_order=preconditioner_order,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
             driver_function=driver_function,
@@ -258,10 +258,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             """
             typed_zero = numba_precision(0.0)
 
-            # Initialize increment buffer
-            for i in range(n):
-                proposed_state[i] = typed_zero
-
             solver_scratch = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # Reuse solver scratch for the dx/dt evaluation buffer.
@@ -324,7 +320,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 solver_scratch,
                 solver_persistent,
                 counters,
-            ) & int32(0xFFFF)  # don't record Newton iterations for error check
+            )
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):

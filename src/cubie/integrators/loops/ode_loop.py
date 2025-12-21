@@ -16,8 +16,7 @@ from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import PrecisionDType, unpack_dict_values
-from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
-                                                     ODELoopConfig)
+from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
@@ -138,17 +137,6 @@ class IVPLoop(CUDAFactory):
         n_counters: int = 0,
         state_summary_buffer_height: int = 0,
         observable_summary_buffer_height: int = 0,
-        state_location: str = 'local',
-        proposed_state_location: str = 'local',
-        parameters_location: str = 'local',
-        drivers_location: str = 'local',
-        proposed_drivers_location: str = 'local',
-        observables_location: str = 'local',
-        proposed_observables_location: str = 'local',
-        error_location: str = 'local',
-        counters_location: str = 'local',
-        state_summary_location: str = 'local',
-        observable_summary_location: str = 'local',
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         dt0: Optional[float] = None,
@@ -162,6 +150,17 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
+        state_location: str = "local",
+        proposed_state_location: str = "local",
+        parameters_location: str = "local",
+        drivers_location: str = "local",
+        proposed_drivers_location: str = "local",
+        observables_location: str = "local",
+        proposed_observables_location: str = "local",
+        error_location: str = "local",
+        counters_location: str = "local",
+        state_summary_location: str = "local",
+        observable_summary_location: str = "local",
     ) -> None:
         super().__init__()
 
@@ -731,12 +730,12 @@ class IVPLoop(CUDAFactory):
             None,  # initial_states
             None,  # parameters
             None,  # driver_coefficients
-            None, # local persistent - not really used
+            None,  # local persistent - not really used
             None,  # persistent_local - arbitrary 32kb provided / float64
-            None, # state_output
-            None, # observables_output
+            None,  # state_output
+            None,  # observables_output
             None,  # state_summaries_output
-            None, # obs summ output
+            None,  # obs summ output
             None,  # iteration_counters_output
             self.dt_save + 0.01,  # duration - scalar
             0.0,  # settling_time - scalar
@@ -757,12 +756,6 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def local_indices(self) -> LoopLocalIndices:
-        """Return persistent local-memory indices."""
-
-        return self.compile_settings.local_indices
-
-    @property
     def shared_memory_elements(self) -> int:
         """Return the loop's shared-memory requirement."""
         return buffer_registry.shared_buffer_size(self)
@@ -770,7 +763,12 @@ class IVPLoop(CUDAFactory):
     @property
     def local_memory_elements(self) -> int:
         """Return the loop's persistent local-memory requirement."""
-        return self.compile_settings.loop_local_elements
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_memory_elements(self) -> int:
+        """Return the loop's persistent local-memory requirement."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def compile_flags(self) -> OutputCompileFlags:

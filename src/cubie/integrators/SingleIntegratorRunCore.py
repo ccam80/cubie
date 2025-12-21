@@ -441,17 +441,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 }
             )
 
-        #Recalculate settings derived from changes in children
-        system_sizes=self.system_sizes
-        
-       # TODO: Buffersettings object was here - this will need
-       #  updated to use the registry.
-
-        updates_dict.update({
-            'controller_local_len': self._step_controller.local_memory_elements,
-            'algorithm_local_len': self._algo_step.persistent_local_required,
-        })
-
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)
 
@@ -513,7 +502,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         updates_dict["step_controller"] = new_controller
         return set("step_controller")
 
-    def build(self) -> Callable:
+    def build(self) -> SingleIntegratorRunCache:
         """Instantiate the step controller, algorithm step, and loop.
 
         Returns

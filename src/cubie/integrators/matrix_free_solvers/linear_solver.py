@@ -136,8 +136,8 @@ class LinearSolver(CUDAFactory):
         correction_type: Optional[str] = None,
         krylov_tolerance: Optional[float] = None,
         max_linear_iters: Optional[int] = None,
-        preconditioned_vec_location: str = 'local',
-        temp_location: str = 'local',
+        preconditioned_vec_location: Optional[str] = None,
+        temp_location: Optional[str] = None,
     ) -> None:
         """Initialize LinearSolver with parameters.
         
@@ -171,30 +171,36 @@ class LinearSolver(CUDAFactory):
             linear_kwargs['krylov_tolerance'] = krylov_tolerance
         if max_linear_iters is not None:
             linear_kwargs['max_linear_iters'] = max_linear_iters
-        
+        if preconditioned_vec_location is not None:
+            linear_kwargs['preconditioned_vec_location'] = preconditioned_vec_location
+        if temp_location is not None:
+            linear_kwargs['temp_location'] = temp_location
+
         config = LinearSolverConfig(
             precision=precision,
             n=n,
-            preconditioned_vec_location=preconditioned_vec_location,
-            temp_location=temp_location,
             **linear_kwargs
         )
         self.setup_compile_settings(config)
-        
-        # Register buffers with buffer_registry
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register device buffers with buffer_registry."""
+
+        config = self.compile_settings
         buffer_registry.register(
             'preconditioned_vec',
             self,
-            n,
-            preconditioned_vec_location,
-            precision=precision
+            config.n,
+            config.preconditioned_vec_location,
+            precision=config.precision
         )
         buffer_registry.register(
             'temp',
             self,
-            n,
-            temp_location,
-            precision=precision
+            config.n,
+            config.temp_location,
+            precision=config.precision
         )
     
     def build(self) -> LinearSolverCache:
@@ -235,14 +241,12 @@ class LinearSolver(CUDAFactory):
         tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
         
         # Get allocators from buffer_registry
-        alloc_precond = buffer_registry.get_allocator(
-            'preconditioned_vec', self
-        )
-        alloc_temp = buffer_registry.get_allocator('temp', self)
+        get_alloc = buffer_registry.get_allocator
+        alloc_precond = get_alloc('preconditioned_vec', self)
+        alloc_temp = get_alloc('temp', self)
         
-        # Define device function with appropriate signature
+        # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
-            # Device function for cached auxiliaries variant
             # no cover: start
             @cuda.jit(
                 device=True,
@@ -353,6 +357,8 @@ class LinearSolver(CUDAFactory):
             
             # no cover: end
             return LinearSolverCache(linear_solver=linear_solver_cached)
+
+
         else:
             # Device function for non-cached variant
             # no cover: start
@@ -537,14 +543,12 @@ class LinearSolver(CUDAFactory):
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
-        
-        if not all_updates:
-            return set()
-        
+
         recognized = set()
-        # No delegation to child solvers (LinearSolver has no children)
-        # No device function update (LinearSolver has no child device functions)
-        
+
+        if not all_updates:
+            return recognized
+
         recognized |= self.update_compile_settings(updates_dict=all_updates, silent=True)
         
         # Buffer locations will trigger cache invalidation in compile settings

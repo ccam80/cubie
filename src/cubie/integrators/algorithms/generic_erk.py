@@ -48,10 +48,6 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERKTableau,
 )
 
-
-
-
-
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
@@ -266,7 +262,6 @@ class ERKStep(ODEExplicitStep):
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
@@ -304,10 +299,10 @@ class ERKStep(ODEExplicitStep):
             b_hat_row = int32(b_hat_row)
 
         # Get allocators from buffer registry
-        alloc_stage_rhs = buffer_registry.get_allocator('stage_rhs', self)
-        alloc_stage_accumulator = buffer_registry.get_allocator(
-            'stage_accumulator', self
-        )
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+        alloc_stage_accumulator = getalloc('stage_accumulator', self)
+
         # no cover: start
         @cuda.jit(
             # (
@@ -396,7 +391,7 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            # Only use cache if all threads in warp can - otherwise no gain
+            # Only use cache if all threads in warp can - otherwise no gain.
             use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step_flag:
@@ -408,7 +403,7 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            # if multistage and cached rhs is available, don't overwrite it
+            # Deep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,
