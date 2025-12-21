@@ -103,7 +103,9 @@ class RMS(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -112,9 +114,13 @@ class RMS(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing the running sum of squares.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output array location for saving the RMS value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps contributing to each summary window.
             customisable_variable
@@ -122,12 +128,15 @@ class RMS(SummaryMetric):
 
             Notes
             -----
-            Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
-            and resets ``buffer[0]`` for the next summary period.
+            Saves ``sqrt(buffer[buffer_offset + 0] / summarise_every)`` to
+            ``output_array[output_offset + 0]`` and resets
+            ``buffer[buffer_offset + 0]`` for the next summary period.
             """
 
-            output_array[0] = sqrt(buffer[0] / summarise_every)
-            buffer[0] = precision(0.0)
+            output_array[output_offset + 0] = sqrt(
+                buffer[buffer_offset + 0] / summarise_every
+            )
+            buffer[buffer_offset + 0] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

@@ -111,7 +111,9 @@ class Std(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -120,9 +122,13 @@ class Std(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [shift, sum_shifted, sum_sq_shifted].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output array location for saving the std value.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps contributing to each summary window.
             customisable_variable
@@ -132,17 +138,18 @@ class Std(SummaryMetric):
             -----
             Calculates variance using the shifted data algorithm:
             variance = (sum_sq_shifted/n) - (sum_shifted/n)^2
-            Then computes std = sqrt(variance) and saves to output_array[0].
+            Then computes std = sqrt(variance) and saves to
+            output_array[output_offset + 0].
             Resets buffer for the next summary period.
             """
-            mean_shifted = buffer[1] / summarise_every
-            mean_of_squares_shifted = buffer[2] / summarise_every
+            mean_shifted = buffer[buffer_offset + 1] / summarise_every
+            mean_of_squares_shifted = buffer[buffer_offset + 2] / summarise_every
             variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
-            output_array[0] = sqrt(variance)
-            mean = buffer[0] + mean_shifted
-            buffer[0] = mean
-            buffer[1] = precision(0.0)
-            buffer[2] = precision(0.0)
+            output_array[output_offset + 0] = sqrt(variance)
+            mean = buffer[buffer_offset + 0] + mean_shifted
+            buffer[buffer_offset + 0] = mean
+            buffer[buffer_offset + 1] = precision(0.0)
+            buffer[buffer_offset + 2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

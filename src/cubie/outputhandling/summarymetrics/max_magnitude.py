@@ -100,7 +100,9 @@ class MaxMagnitude(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -109,9 +111,13 @@ class MaxMagnitude(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing the current max magnitude.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for saving the max magnitude.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -119,11 +125,12 @@ class MaxMagnitude(SummaryMetric):
 
             Notes
             -----
-            Copies ``buffer[0]`` to ``output_array[0]`` and resets the buffer
+            Copies ``buffer[buffer_offset + 0]`` to
+            ``output_array[output_offset + 0]`` and resets the buffer
             to ``0.0`` for the next period.
             """
-            output_array[0] = buffer[0]
-            buffer[0] = precision(0.0)
+            output_array[output_offset + 0] = buffer[buffer_offset + 0]
+            buffer[buffer_offset + 0] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

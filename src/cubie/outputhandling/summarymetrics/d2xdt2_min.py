@@ -122,7 +122,9 @@ class D2xdt2Min(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -131,9 +133,13 @@ class D2xdt2Min(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [prev_value, prev_prev_value, min_unscaled].
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for minimum second derivative.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -142,10 +148,14 @@ class D2xdt2Min(SummaryMetric):
             Notes
             -----
             Scales the minimum unscaled second derivative by dt_save² and saves
-            to output_array[0], then resets buffers to sentinel values.
+            to output_array[output_offset + 0], then resets buffers to sentinel
+            values.
             """
-            output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-            buffer[2] = precision(1.0e30)
+            dt_save_sq = precision(dt_save) * precision(dt_save)
+            output_array[output_offset + 0] = (
+                buffer[buffer_offset + 2] / dt_save_sq
+            )
+            buffer[buffer_offset + 2] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

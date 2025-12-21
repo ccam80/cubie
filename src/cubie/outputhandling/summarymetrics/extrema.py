@@ -101,7 +101,9 @@ class Extrema(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -110,9 +112,13 @@ class Extrema(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing [max, min] values.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output location for [max, min] values.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused).
             customisable_variable
@@ -120,13 +126,14 @@ class Extrema(SummaryMetric):
 
             Notes
             -----
-            Saves max to ``output_array[0]`` and min to ``output_array[1]``,
-            then resets buffers to their sentinel values.
+            Saves max to ``output_array[output_offset + 0]`` and min to
+            ``output_array[output_offset + 1]``, then resets buffers to their
+            sentinel values.
             """
-            output_array[0] = buffer[0]
-            output_array[1] = buffer[1]
-            buffer[0] = precision(-1.0e30)
-            buffer[1] = precision(1.0e30)
+            output_array[output_offset + 0] = buffer[buffer_offset + 0]
+            output_array[output_offset + 1] = buffer[buffer_offset + 1]
+            buffer[buffer_offset + 0] = precision(-1.0e30)
+            buffer[buffer_offset + 1] = precision(1.0e30)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

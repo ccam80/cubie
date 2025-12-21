@@ -103,12 +103,15 @@ class Peaks(SummaryMetric):
             is_peak = prev > value and prev_prev < prev
             should_record = is_valid and is_peak
 
+            # Clamp index to valid range for predicated access
+            safe_idx = peak_counter if peak_counter < npeaks else npeaks - 1
+
             # Predicated commit for peak recording
             new_counter = precision(int32(buffer[offset + 2]) + 1)
-            buffer[offset + 3 + peak_counter] = selp(
+            buffer[offset + 3 + safe_idx] = selp(
                 should_record,
                 precision(current_index - 1),
-                buffer[offset + 3 + peak_counter],
+                buffer[offset + 3 + safe_idx],
             )
             buffer[offset + 2] = selp(
                 should_record, new_counter, buffer[offset + 2]
@@ -127,7 +130,9 @@ class Peaks(SummaryMetric):
         )
         def save(
             buffer,
+            buffer_offset,
             output_array,
+            output_offset,
             summarise_every,
             customisable_variable,
         ):
@@ -136,9 +141,13 @@ class Peaks(SummaryMetric):
             Parameters
             ----------
             buffer
-                device array. Buffer containing detected peak time indices.
+                device array. Full buffer containing metric working storage.
+            buffer_offset
+                int. Offset to this metric's storage within the buffer.
             output_array
-                device array. Output array for saving peak time indices.
+                device array. Full output array for saving results.
+            output_offset
+                int. Offset to this metric's storage within the output.
             summarise_every
                 int. Number of steps between saves (unused for peak detection).
             customisable_variable
@@ -146,14 +155,14 @@ class Peaks(SummaryMetric):
 
             Notes
             -----
-            Copies peak indices from ``buffer[3:]`` to the output array then
-            clears the storage for the next summary interval.
+            Copies peak indices from ``buffer[buffer_offset + 3:]`` to the
+            output array then clears the storage for the next summary interval.
             """
             n_peaks = int32(customisable_variable)
             for p in range(n_peaks):
-                output_array[p] = buffer[3 + p]
-                buffer[3 + p] = precision(0.0)
-            buffer[2] = precision(0.0)
+                output_array[output_offset + p] = buffer[buffer_offset + 3 + p]
+                buffer[buffer_offset + 3 + p] = precision(0.0)
+            buffer[buffer_offset + 2] = precision(0.0)
 
         # no cover: end
         return MetricFuncCache(update=update, save=save)

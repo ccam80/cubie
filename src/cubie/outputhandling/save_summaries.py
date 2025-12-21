@@ -33,7 +33,9 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 )
 def do_nothing(
     buffer,
+    buffer_offset,
     output,
+    output_offset,
     summarise_every,
 ):
     """Provide a no-op device function for empty metric chains.
@@ -41,9 +43,13 @@ def do_nothing(
     Parameters
     ----------
     buffer
-        device array slice containing accumulated metric values (unused).
+        device array containing accumulated metric values (unused).
+    buffer_offset
+        int. Offset into buffer for this chain segment (unused).
     output
-        device array slice that would receive saved results (unused).
+        device array that would receive saved results (unused).
+    output_offset
+        int. Offset into output for this chain segment (unused).
     summarise_every
         Integer interval between summary exports (unused).
 
@@ -128,7 +134,9 @@ def chain_metrics(
     )
     def wrapper(
         buffer,
+        buffer_offset,
         output,
+        output_offset,
         summarise_every,
     ):
         """Apply the accumulated metric chain before invoking the current metric.
@@ -136,9 +144,13 @@ def chain_metrics(
         Parameters
         ----------
         buffer
-            device array slice holding accumulated metric state.
+            device array holding accumulated metric state.
+        buffer_offset
+            int. Base offset into buffer for this chain segment.
         output
-            device array slice that receives exported summary values.
+            device array that receives exported summary values.
+        output_offset
+            int. Base offset into output for this chain segment.
         summarise_every
             Integer interval between summary exports passed along the chain.
 
@@ -149,18 +161,16 @@ def chain_metrics(
         """
         inner_chain(
             buffer,
+            buffer_offset,
             output,
+            output_offset,
             summarise_every,
         )
         current_metric_fn(
-            buffer[
-                current_buffer_offset : current_buffer_offset
-                + current_buffer_size
-            ],
-            output[
-                current_output_offset : current_output_offset
-                + current_output_size
-            ],
+            buffer,
+            buffer_offset + current_buffer_offset,
+            output,
+            output_offset + current_output_offset,
             summarise_every,
             current_metric_param,
         )
@@ -294,14 +304,10 @@ def save_summary_factory(
                 out_array_slice_start = state_index * total_output_size
 
                 summary_metric_chain(
-                    buffer_state_summaries[
-                        buffer_array_slice_start : buffer_array_slice_start
-                        + total_buffer_size
-                    ],
-                    output_state_summaries_window[
-                        out_array_slice_start : out_array_slice_start
-                        + total_output_size
-                    ],
+                    buffer_state_summaries,
+                    buffer_array_slice_start,
+                    output_state_summaries_window,
+                    out_array_slice_start,
                     summarise_every,
                 )
 
@@ -311,14 +317,10 @@ def save_summary_factory(
                 out_array_slice_start = observable_index * total_output_size
 
                 summary_metric_chain(
-                    buffer_observable_summaries[
-                        buffer_array_slice_start : buffer_array_slice_start
-                        + total_buffer_size
-                    ],
-                    output_observable_summaries_window[
-                        out_array_slice_start : out_array_slice_start
-                        + total_output_size
-                    ],
+                    buffer_observable_summaries,
+                    buffer_array_slice_start,
+                    output_observable_summaries_window,
+                    out_array_slice_start,
                     summarise_every,
                 )
 
