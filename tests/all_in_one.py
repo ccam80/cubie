@@ -3881,12 +3881,22 @@ def inline_update_functions(summaries_list):
     -------
     tuple[Callable, ...]
         Inline CUDA device update functions for the requested metrics.
+
+    Raises
+    ------
+    KeyError
+        If a metric in the parsed request is not in INLINE_UPDATE_FUNCTIONS.
     """
     parsed_request = summary_metrics.preprocess_request(list(summaries_list))
-    return tuple(
-        INLINE_UPDATE_FUNCTIONS[metric]
-        for metric in parsed_request
-    )
+    result = []
+    for metric in parsed_request:
+        if metric not in INLINE_UPDATE_FUNCTIONS:
+            raise KeyError(
+                f"Metric '{metric}' not found in INLINE_UPDATE_FUNCTIONS. "
+                f"Available: {list(INLINE_UPDATE_FUNCTIONS.keys())}"
+            )
+        result.append(INLINE_UPDATE_FUNCTIONS[metric])
+    return tuple(result)
 
 
 def inline_save_functions(summaries_list):
@@ -3901,12 +3911,22 @@ def inline_save_functions(summaries_list):
     -------
     tuple[Callable, ...]
         Inline CUDA device save functions for the requested metrics.
+
+    Raises
+    ------
+    KeyError
+        If a metric in the parsed request is not in INLINE_SAVE_FUNCTIONS.
     """
     parsed_request = summary_metrics.preprocess_request(list(summaries_list))
-    return tuple(
-        INLINE_SAVE_FUNCTIONS[metric]
-        for metric in parsed_request
-    )
+    result = []
+    for metric in parsed_request:
+        if metric not in INLINE_SAVE_FUNCTIONS:
+            raise KeyError(
+                f"Metric '{metric}' not found in INLINE_SAVE_FUNCTIONS. "
+                f"Available: {list(INLINE_SAVE_FUNCTIONS.keys())}"
+            )
+        result.append(INLINE_SAVE_FUNCTIONS[metric])
+    return tuple(result)
 
 
 @cuda.jit(
