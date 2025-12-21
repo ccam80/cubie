@@ -137,6 +137,13 @@ save_last = False
 # Saves per summary (for summary metric aggregation)
 saves_per_summary = int(dt_summarise/dt_save)
 
+# Summary save cadence (typed for device code)
+#
+# This is used by summary metric save functions to scale accumulated values.
+# Keeping it as an `int32` and also precomputing the reciprocal avoids
+# accidentally triggering fp64 division in device code.
+summarise_every = int32(int(dt_summarise / dt_save))
+inv_summarise_every = precision(1.0 / int(dt_summarise / dt_save))
 
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
@@ -945,16 +952,16 @@ def driver_function_inline_factory(interpolator):
             tau = prec(scaled - scaled_floor)
             in_range = True
         else:
-            in_range = (scaled >= 0.0) and (scaled <= num_segments)
-            seg = selp(idx < 0, int32(0), idx)
+            in_range = (scaled >= prec(0.0)) and (scaled <= num_segments)
+            seg = selp(idx < int32(0), int32(0), idx)
             seg = selp(seg >= num_segments,
                       int32(num_segments - 1), seg)
-            tau = scaled - float(seg)
+            tau = scaled - prec(seg)
 
         # Evaluate polynomials using Horner's rule
         for driver_idx in range(num_drivers):
             acc = zero_value
-            for k in range(order, -1, -1):
+            for k in range(order, int32(-1), int32(-1)):
                 acc = acc * tau + coefficients[seg, driver_idx, k]
             out[driver_idx] = acc if in_range else zero_value
 
@@ -993,16 +1000,16 @@ def driver_derivative_inline_factory(interpolator):
             tau = prec(scaled - scaled_floor)
             in_range = True
         else:
-            in_range = (scaled >= 0.0) and (scaled <= num_segments)
-            seg = selp(idx < 0, int32(0), idx)
+            in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+            seg = selp(idx < int32(0), int32(0), idx)
             seg = selp(seg >= num_segments,
-                      int32(num_segments - 1), seg)
-            tau = scaled - float(seg)
+                      int32(num_segments - int32(1)), seg)
+            tau = scaled - precision(seg)
 
         # Evaluate derivative using Horner's rule on derivative polynomial
         for driver_idx in range(num_drivers):
             acc = zero_value
-            for k in range(order, 0, -1):
+            for k in range(order, int32(0), int32(-1)):
                 acc = acc * tau + prec(k) * (
                     coefficients[seg, driver_idx, k]
                 )
@@ -3029,7 +3036,6 @@ def save_state_inline(current_state, current_observables, current_counters,
 # =========================================================================
 # SUMMARY METRIC FUNCTIONS (Mean metric with chained pattern)
 # =========================================================================
-
 @cuda.jit(
     # [
     #     "float32, float32[::1], int32, int32",
@@ -3037,6 +3043,7 @@ def save_state_inline(current_state, current_observables, current_counters,
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs
 )
 def update_mean(
@@ -3054,15 +3061,15 @@ def update_mean(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs
 )
 def save_mean(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
-    output_array[0] = buffer[0] / summarise_every
+    output_array[0] = buffer[0] * inv_summarise_every
     buffer[0] = precision(0.0)
 
 @cuda.jit(
@@ -3072,6 +3079,7 @@ def save_mean(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs
 )
 def update_max(
@@ -3090,12 +3098,12 @@ def update_max(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs
 )
 def save_max(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[0]
@@ -3108,7 +3116,8 @@ def save_max(
     # ],
     device=True,
     inline=True,
-    **compile_kwargs,
+    forceinline=True,
+    **compile_kwargs
 )
 def update_min(
     value,
@@ -3126,12 +3135,12 @@ def update_min(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_min(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[0]
@@ -3144,7 +3153,8 @@ def save_min(
     # ],
     device=True,
     inline=True,
-    **compile_kwargs,
+    forceinline=True,
+    **compile_kwargs
 )
 def update_rms(
     value,
@@ -3165,15 +3175,15 @@ def update_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_rms(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
-    output_array[0] = sqrt(buffer[0] / summarise_every)
+    output_array[0] = precision(sqrt(buffer[0] * inv_summarise_every))
     buffer[0] = precision(0.0)
 
 @cuda.jit(
@@ -3183,6 +3193,7 @@ def save_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_std(
@@ -3207,16 +3218,16 @@ def update_std(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_std(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
-    mean_shifted = buffer[1] / summarise_every
-    mean_of_squares_shifted = buffer[2] / summarise_every
+    mean_shifted = buffer[1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[2] * inv_summarise_every
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     output_array[0] = sqrt(variance)
     mean = buffer[0] + mean_shifted
@@ -3231,6 +3242,7 @@ def save_std(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_mean_std(
@@ -3255,18 +3267,18 @@ def update_mean_std(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_mean_std(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     shift = buffer[0]
-    mean_shifted = buffer[1] / summarise_every
-    mean_of_squares_shifted = buffer[2] / summarise_every
-    
+    mean_shifted = buffer[1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+
     mean = shift + mean_shifted
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     
@@ -3284,6 +3296,7 @@ def save_mean_std(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_mean_std_rms(
@@ -3308,18 +3321,18 @@ def update_mean_std_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_mean_std_rms(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     shift = buffer[0]
-    mean_shifted = buffer[1] / summarise_every
-    mean_of_squares_shifted = buffer[2] / summarise_every
-    
+    mean_shifted = buffer[1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+
     # Mean: shift back to original scale
     mean = shift + mean_shifted
     
@@ -3328,8 +3341,11 @@ def save_mean_std_rms(
     std = sqrt(variance)
     
     # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
-    # = mean_of_squares_shifted + 2*shift*mean_shifted + shift^2
-    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+    mean_of_squares = (
+        mean_of_squares_shifted
+        + precision(2.0) * shift * mean_shifted
+        + shift * shift
+    )
     rms = sqrt(mean_of_squares)
     
     output_array[0] = mean
@@ -3347,6 +3363,7 @@ def save_mean_std_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_std_rms(
@@ -3371,23 +3388,26 @@ def update_std_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_std_rms(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     shift = buffer[0]
-    mean_shifted = buffer[1] / summarise_every
-    mean_of_squares_shifted = buffer[2] / summarise_every
-    
+    mean_shifted = buffer[1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     std = sqrt(variance)
-    
-    # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
-    mean_of_squares = mean_of_squares_shifted + precision(2.0) * shift * mean_shifted + shift * shift
+
+    mean_of_squares = (
+        mean_of_squares_shifted
+        + precision(2.0) * shift * mean_shifted
+        + shift * shift
+    )
     rms = sqrt(mean_of_squares)
     
     output_array[0] = std
@@ -3405,6 +3425,7 @@ def save_std_rms(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_extrema(
@@ -3425,12 +3446,12 @@ def update_extrema(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_extrema(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[0]
@@ -3445,6 +3466,7 @@ def save_extrema(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_peaks(
@@ -3456,17 +3478,17 @@ def update_peaks(
     npeaks = customisable_variable
     prev = buffer[0]
     prev_prev = buffer[1]
-    peak_counter = int(buffer[2])
+    peak_counter = int32(buffer[2])
 
     if (
-        (current_index >= 2)
+        (current_index >= int32(2))
         and (peak_counter < npeaks)
         and (prev_prev != precision(0.0))
     ):
         if prev > value and prev_prev < prev:
             # Bingo
-            buffer[3 + peak_counter] = (current_index - 1)
-            buffer[2] = float(int(buffer[2]) + 1)
+            buffer[3 + peak_counter] = int32(current_index - 1)
+            buffer[2] = precision(int32(buffer[2]) + 1)
     buffer[0] = value  # Update previous value
     buffer[1] = prev  # Update previous previous value
 
@@ -3477,12 +3499,12 @@ def update_peaks(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_peaks(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     n_peaks = int32(customisable_variable)
@@ -3498,6 +3520,7 @@ def save_peaks(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_negative_peaks(
@@ -3509,16 +3532,16 @@ def update_negative_peaks(
     npeaks = customisable_variable
     prev = buffer[0]
     prev_prev = buffer[1]
-    peak_counter = int(buffer[2])
+    peak_counter = int32(buffer[2])
 
     if (
-        (current_index >= 2)
+        (current_index >= int32(2))
         and (peak_counter < npeaks)
         and (prev_prev != precision(0.0))
     ):
         if prev < value and prev_prev > prev:
-            buffer[3 + peak_counter] = (current_index - 1)
-            buffer[2] = float(int(buffer[2]) + 1)
+            buffer[3 + peak_counter] = int32(current_index - 1)
+            buffer[2] = precision(int32(buffer[2]) + 1)
     buffer[0] = value
     buffer[1] = prev
 
@@ -3529,12 +3552,12 @@ def update_negative_peaks(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_negative_peaks(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     n_peaks = int32(customisable_variable)
@@ -3550,6 +3573,7 @@ def save_negative_peaks(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_max_magnitude(
@@ -3569,12 +3593,12 @@ def update_max_magnitude(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_max_magnitude(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[0]
@@ -3587,6 +3611,7 @@ def save_max_magnitude(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_dxdt_max(
@@ -3607,12 +3632,12 @@ def update_dxdt_max(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_dxdt_max(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[1] / precision(dt_save)
@@ -3625,6 +3650,7 @@ def save_dxdt_max(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_dxdt_min(
@@ -3645,12 +3671,12 @@ def update_dxdt_min(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_dxdt_min(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[1] / precision(dt_save)
@@ -3663,6 +3689,7 @@ def save_dxdt_min(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_dxdt_extrema(
@@ -3685,12 +3712,12 @@ def update_dxdt_extrema(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_dxdt_extrema(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[1] / precision(dt_save)
@@ -3705,6 +3732,7 @@ def save_dxdt_extrema(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_d2xdt2_max(
@@ -3726,12 +3754,12 @@ def update_d2xdt2_max(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_d2xdt2_max(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
@@ -3744,6 +3772,7 @@ def save_d2xdt2_max(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_d2xdt2_min(
@@ -3765,12 +3794,12 @@ def update_d2xdt2_min(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_d2xdt2_min(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
     output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
@@ -3783,6 +3812,7 @@ def save_d2xdt2_min(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def update_d2xdt2_extrema(
@@ -3806,17 +3836,16 @@ def update_d2xdt2_extrema(
     # ],
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def save_d2xdt2_extrema(
     buffer,
     output_array,
-    summarise_every,
     customisable_variable,
 ):
-    dt_save_sq = precision(dt_save) * precision(dt_save)
-    output_array[0] = buffer[2] / dt_save_sq
-    output_array[1] = buffer[3] / dt_save_sq
+    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    output_array[1] = buffer[3] / (precision(dt_save) * precision(dt_save))
     buffer[2] = precision(-1.0e30)
     buffer[3] = precision(1.0e30)
 
@@ -3827,24 +3856,24 @@ def save_d2xdt2_extrema(
 
 # Mapping from metric names to their inline update and save functions
 INLINE_UPDATE_FUNCTIONS = {
-    'mean': update_mean,
-    'max': update_max,
-    'min': update_min,
-    'rms': update_rms,
-    'std': update_std,
-    'mean_std': update_mean_std,
-    'mean_std_rms': update_mean_std_rms,
-    'std_rms': update_std_rms,
-    'extrema': update_extrema,
-    'peaks': update_peaks,
-    'negative_peaks': update_negative_peaks,
-    'max_magnitude': update_max_magnitude,
-    'dxdt_max': update_dxdt_max,
-    'dxdt_min': update_dxdt_min,
-    'dxdt_extrema': update_dxdt_extrema,
-    'd2xdt2_max': update_d2xdt2_max,
-    'd2xdt2_min': update_d2xdt2_min,
-    'd2xdt2_extrema': update_d2xdt2_extrema,
+    "mean": update_mean,
+    "max": update_max,
+    "min": update_min,
+    "rms": update_rms,
+    "std": update_std,
+    "mean_std": update_mean_std,
+    "mean_std_rms": update_mean_std_rms,
+    "std_rms": update_std_rms,
+    "extrema": update_extrema,
+    "peaks": update_peaks,
+    "negative_peaks": update_negative_peaks,
+    "max_magnitude": update_max_magnitude,
+    "dxdt_max": update_dxdt_max,
+    "dxdt_min": update_dxdt_min,
+    "dxdt_extrema": update_dxdt_extrema,
+    "d2xdt2_max": update_d2xdt2_max,
+    "d2xdt2_min": update_d2xdt2_min,
+    "d2xdt2_extrema": update_d2xdt2_extrema,
 }
 
 INLINE_SAVE_FUNCTIONS = {
@@ -3941,55 +3970,81 @@ def do_nothing_update(
 ):
     pass
 
+def chain_metrics_update(metric_functions, buffer_offsets, buffer_sizes,
+                         function_params, inner_chain=do_nothing_update):
+    n = len(metric_functions)
 
-def chain_metrics_update(
-    metric_functions,
-    buffer_offsets,
-    buffer_sizes,
-    function_params,
-    inner_chain=do_nothing_update,
-):
-    if len(metric_functions) == 0:
-        return do_nothing_update
-
-    current_fn = metric_functions[0]
-    current_offset = buffer_offsets[0]
-    current_size = buffer_sizes[0]
-    current_param = function_params[0]
-
-    remaining_functions = metric_functions[1:]
-    remaining_offsets = buffer_offsets[1:]
-    remaining_sizes = buffer_sizes[1:]
-    remaining_params = function_params[1:]
-
-    @cuda.jit(
-        device=True,
-        inline=True,
-        **compile_kwargs,
-    )
-    def wrapper(
-        value,
-        buffer,
-        current_step,
-    ):
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def leaf(value, buffer, current_step):
         inner_chain(value, buffer, current_step)
-        current_fn(
-            value,
-            buffer[current_offset : current_offset + current_size],
-            current_step,
-            current_param,
-        )
 
-    if remaining_functions:
-        return chain_metrics_update(
-            remaining_functions,
-            remaining_offsets,
-            remaining_sizes,
-            remaining_params,
-            wrapper,
-        )
-    else:
-        return wrapper
+    fn_chain = leaf
+    for i in range(n - 1, -1, -1):
+        fn = metric_functions[i]
+        boff = int32(buffer_offsets[i])
+        bsz = int32(buffer_sizes[i])
+        param = int32(function_params[i])
+        prev = fn_chain
+
+        @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+        def wrapped(value, buffer, current_step, fn=fn, boff=boff, bsz=bsz,
+                   param=param, nxt=prev):
+            fn(value, buffer[boff:boff + bsz], current_step, param)
+            nxt(value, buffer, current_step)
+
+        fn_chain = wrapped
+
+    return fn_chain
+
+#
+# def chain_metrics_update(
+#     metric_functions,
+#     buffer_offsets,
+#     buffer_sizes,
+#     function_params,
+#     inner_chain=do_nothing_update,
+# ):
+#     if len(metric_functions) == 0:
+#         return do_nothing_update
+#
+#     current_fn = metric_functions[0]
+#     current_offset = buffer_offsets[0]
+#     current_size = buffer_sizes[0]
+#     current_param = function_params[0]
+#
+#     remaining_functions = metric_functions[1:]
+#     remaining_offsets = buffer_offsets[1:]
+#     remaining_sizes = buffer_sizes[1:]
+#     remaining_params = function_params[1:]
+#
+#     @cuda.jit(
+#         device=True,
+#         inline=True,
+#         **compile_kwargs,
+#     )
+#     def wrapper(
+#         value,
+#         buffer,
+#         current_step,
+#     ):
+#         inner_chain(value, buffer, current_step)
+#         current_fn(
+#             value,
+#             buffer[current_offset : current_offset + current_size],
+#             current_step,
+#             current_param,
+#         )
+#
+#     if remaining_functions:
+#         return chain_metrics_update(
+#             remaining_functions,
+#             remaining_offsets,
+#             remaining_sizes,
+#             remaining_params,
+#             wrapper,
+#         )
+#     else:
+#         return wrapper
 
 
 def update_summary_factory(
@@ -4020,6 +4075,7 @@ def update_summary_factory(
     @cuda.jit(
         device=True,
         inline=True,
+        forceinline=True,
         **compile_kwargs,
     )
     def update_summary_metrics_func(
@@ -4055,12 +4111,12 @@ def update_summary_factory(
 @cuda.jit(
     device=True,
     inline=True,
+    forceinline=True,
     **compile_kwargs,
 )
 def do_nothing_save(
     buffer,
     output,
-    summarise_every,
 ):
     pass
 
@@ -4098,12 +4154,10 @@ def chain_metrics_save(
     def wrapper(
         buffer,
         output,
-        summarise_every,
     ):
         inner_chain(
             buffer,
             output,
-            summarise_every,
         )
         current_metric_fn(
             buffer[
@@ -4114,7 +4168,6 @@ def chain_metrics_save(
                 current_output_offset : current_output_offset
                 + current_output_size
             ],
-            summarise_every,
             current_metric_param,
         )
 
@@ -4173,6 +4226,7 @@ def save_summary_factory(
     @cuda.jit(
         device=True,
         inline=True,
+        forceinline=True,
         **compile_kwargs,
     )
     def save_summary_metrics_func(
@@ -4180,7 +4234,6 @@ def save_summary_factory(
         buffer_observable_summaries,
         output_state_summaries_window,
         output_observable_summaries_window,
-        summarise_every,
     ):
         if summarise_states:
             for state_index in range(num_summarised_states):
@@ -4196,7 +4249,6 @@ def save_summary_factory(
                         out_array_slice_start : out_array_slice_start
                         + total_output_size
                     ],
-                    summarise_every,
                 )
 
         if summarise_observables:
@@ -4213,7 +4265,6 @@ def save_summary_factory(
                         out_array_slice_start : out_array_slice_start
                         + total_output_size
                     ],
-                    summarise_every,
                 )
 
     return save_summary_metrics_func
@@ -4223,7 +4274,10 @@ def save_summary_factory(
 # Output Configuration
 # -------------------------------------------------------------------------
 
-
+#TODO: summary metrics optimisations added:
+# forceinline to individual and chaining functions
+# wrap iterators in int32, floats in int32
+# summarise_every and inv_summarise_every made constant.
 
 if not output_types:
     summary_types = tuple()
@@ -4293,7 +4347,7 @@ else:
     save_summaries_chain = do_nothing_save
 
 
-@cuda.jit(device=True, inline=True, **compile_kwargs)
+@cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
 def update_summaries_inline(
     current_state,
     current_observables,
@@ -4310,20 +4364,18 @@ def update_summaries_inline(
     )
 
 
-@cuda.jit(device=True, inline=True, **compile_kwargs)
+@cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
 def save_summaries_inline(
     buffer_state,
     buffer_obs,
     output_state,
     output_obs,
-    summarise_every,
 ):
     save_summaries_chain(
         buffer_state,
         buffer_obs,
         output_state,
         output_obs,
-        summarise_every,
     )
 
 
@@ -4432,8 +4484,7 @@ def controller_PID_factory(
             nrm2 += ratio * ratio
 
         nrm2 = nrm2 * inv_n
-        accept = nrm2 <= typed_one
-        accept_out[0] = int32(1) if accept else int32(0)
+        accept_out[0] = int32(1) if nrm2 <= typed_one else int32(0)
         err_prev_safe = err_prev if err_prev > typed_zero else nrm2
         err_prev_prev_safe = (
             err_prev_prev if err_prev_prev > typed_zero else err_prev_safe
@@ -4970,6 +5021,7 @@ local_scratch_size = int(local_scratch_size)
     #         float64,
     #         float64,
     #         float64,
+    #         int32,
     #     )
     # ],
     device=True,
@@ -5136,8 +5188,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                                   ],
                                   observable_summaries_output[
                                       summary_idx * summarise_obs_bool, :
-                                  ],
-                                  saves_per_summary)
+                                  ])
         save_idx += int32(1)
 
     status = int32(0)
@@ -5309,7 +5360,6 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
                             observable_summaries_output[
                                 summary_idx * summarise_obs_bool, :
                             ],
-                            saves_per_summary,
                         )
                         summary_idx += int32(1)
                 save_idx += int32(1)

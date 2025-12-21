@@ -643,7 +643,7 @@ class DriverEvaluator:
         scaled = precision(
             (time_value - self._evaluation_start) * self._inv_dt
         )
-        scaled_floor = math.floor(float(scaled))
+        scaled_floor = math.floor(precision(scaled))
         idx = int(scaled_floor)
 
         if self.wrap:
