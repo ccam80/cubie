@@ -118,6 +118,17 @@ class BackwardsEulerStep(ODEImplicitStep):
         
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
 
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        # Register solver scratch and solver persistent buffers
+        _ = buffer_registry.get_child_allocators(
+                self,
+                self.solver,
+                name='solver_scratch'
+        )
+
     def build_step(
         self,
         dxdt_fn: Callable,
@@ -155,11 +166,9 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function = driver_function
         n = int32(n)
         
-        # Get child allocators for Newton solver
-        alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
-        )
+        # Get allocators for Newton solver (registered in register_buffers)
+        alloc_solver_shared = buffer_registry.get_allocator('solver_scratch_shared', self)
+        alloc_solver_persistent = buffer_registry.get_allocator('solver_scratch_persistent', self)
         
         solver_fn = solver_function
 

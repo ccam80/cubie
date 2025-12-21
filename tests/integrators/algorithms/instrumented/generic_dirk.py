@@ -311,11 +311,9 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Get child allocators for Newton solver
-        alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver')
-        )
+        # Get allocators for Newton solver (registered in register_buffers)
+        alloc_solver_shared = buffer_registry.get_allocator('solver_shared', self)
+        alloc_solver_persistent = buffer_registry.get_allocator('solver_persistent', self)
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
