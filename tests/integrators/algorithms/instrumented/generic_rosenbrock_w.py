@@ -285,7 +285,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         observables_function: Callable,
         driver_function: Optional[Callable],
         solver_function: Callable,
-        driver_del_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -294,6 +293,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
+        driver_del_t = config.driver_del_t
 
         # Access solver from parameter
         linear_solver = solver_function

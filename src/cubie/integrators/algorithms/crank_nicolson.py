@@ -160,16 +160,12 @@ class CrankNicolsonStep(ODEImplicitStep):
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         config = self.compile_settings
-        alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
-        )
+        # Register cn_dxdt buffer for dxdt storage
         buffer_registry.register(
             'cn_dxdt',
             self,
             config.n,
             config.dxdt_location,
-            aliases='solver_scratch_shared',
             precision=config.precision
         )
 
@@ -215,9 +211,11 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function = driver_function
         n = int32(n)
 
-        # Get allocators for Newton solver (registered in register_buffers)
-        alloc_solver_shared = buffer_registry.get_allocator('solver_scratch_shared', self)
-        alloc_solver_persistent = buffer_registry.get_allocator('solver_scratch_persistent', self)
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver_scratch')
+        )
         alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
         @cuda.jit(
