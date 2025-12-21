@@ -3821,6 +3821,114 @@ def save_d2xdt2_extrema(
     buffer[3] = precision(1.0e30)
 
 
+# =========================================================================
+# INLINE SUMMARY METRIC FUNCTION MAPPING
+# =========================================================================
+
+# Mapping from metric names to their inline update and save functions
+INLINE_UPDATE_FUNCTIONS = {
+    'mean': update_mean,
+    'max': update_max,
+    'min': update_min,
+    'rms': update_rms,
+    'std': update_std,
+    'mean_std': update_mean_std,
+    'mean_std_rms': update_mean_std_rms,
+    'std_rms': update_std_rms,
+    'extrema': update_extrema,
+    'peaks': update_peaks,
+    'negative_peaks': update_negative_peaks,
+    'max_magnitude': update_max_magnitude,
+    'dxdt_max': update_dxdt_max,
+    'dxdt_min': update_dxdt_min,
+    'dxdt_extrema': update_dxdt_extrema,
+    'd2xdt2_max': update_d2xdt2_max,
+    'd2xdt2_min': update_d2xdt2_min,
+    'd2xdt2_extrema': update_d2xdt2_extrema,
+}
+
+INLINE_SAVE_FUNCTIONS = {
+    'mean': save_mean,
+    'max': save_max,
+    'min': save_min,
+    'rms': save_rms,
+    'std': save_std,
+    'mean_std': save_mean_std,
+    'mean_std_rms': save_mean_std_rms,
+    'std_rms': save_std_rms,
+    'extrema': save_extrema,
+    'peaks': save_peaks,
+    'negative_peaks': save_negative_peaks,
+    'max_magnitude': save_max_magnitude,
+    'dxdt_max': save_dxdt_max,
+    'dxdt_min': save_dxdt_min,
+    'dxdt_extrema': save_dxdt_extrema,
+    'd2xdt2_max': save_d2xdt2_max,
+    'd2xdt2_min': save_d2xdt2_min,
+    'd2xdt2_extrema': save_d2xdt2_extrema,
+}
+
+
+def inline_update_functions(summaries_list):
+    """Get inline update functions for requested summary metrics.
+
+    Parameters
+    ----------
+    summaries_list
+        Metric names to get update functions for.
+
+    Returns
+    -------
+    tuple[Callable, ...]
+        Inline CUDA device update functions for the requested metrics.
+
+    Raises
+    ------
+    KeyError
+        If a metric in the parsed request is not in INLINE_UPDATE_FUNCTIONS.
+    """
+    parsed_request = summary_metrics.preprocess_request(list(summaries_list))
+    result = []
+    for metric in parsed_request:
+        if metric not in INLINE_UPDATE_FUNCTIONS:
+            raise KeyError(
+                f"Metric '{metric}' not found in INLINE_UPDATE_FUNCTIONS. "
+                f"Available: {list(INLINE_UPDATE_FUNCTIONS.keys())}"
+            )
+        result.append(INLINE_UPDATE_FUNCTIONS[metric])
+    return tuple(result)
+
+
+def inline_save_functions(summaries_list):
+    """Get inline save functions for requested summary metrics.
+
+    Parameters
+    ----------
+    summaries_list
+        Metric names to get save functions for.
+
+    Returns
+    -------
+    tuple[Callable, ...]
+        Inline CUDA device save functions for the requested metrics.
+
+    Raises
+    ------
+    KeyError
+        If a metric in the parsed request is not in INLINE_SAVE_FUNCTIONS.
+    """
+    parsed_request = summary_metrics.preprocess_request(list(summaries_list))
+    result = []
+    for metric in parsed_request:
+        if metric not in INLINE_SAVE_FUNCTIONS:
+            raise KeyError(
+                f"Metric '{metric}' not found in INLINE_SAVE_FUNCTIONS. "
+                f"Available: {list(INLINE_SAVE_FUNCTIONS.keys())}"
+            )
+        result.append(INLINE_SAVE_FUNCTIONS[metric])
+    return tuple(result)
+
+
 @cuda.jit(
     device=True,
     inline=True,
@@ -3902,7 +4010,7 @@ def update_summary_factory(
         num_metrics > 0
     )
 
-    update_fns = summary_metrics.update_functions(summaries_list)
+    update_fns = inline_update_functions(summaries_list)
     buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params_list = summary_metrics.params(summaries_list)
     chain_fn = chain_metrics_update(
@@ -4033,7 +4141,7 @@ def save_summary_factory(
     num_summarised_states = int32(len(summarised_state_indices))
     num_summarised_observables = int32(len(summarised_observable_indices))
 
-    save_functions_list = summary_metrics.save_functions(summaries_list)
+    save_functions_list = inline_save_functions(summaries_list)
 
     buff_per_var = summaries_buffer_height_per_var
     total_buffer_size = int32(buff_per_var)
