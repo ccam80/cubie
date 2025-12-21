@@ -48,10 +48,6 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     ERKTableau,
 )
 
-
-
-
-
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
@@ -112,8 +108,14 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    stage_rhs_location: str = attrs.field(default='local')
-    stage_accumulator_location: str = attrs.field(default='local')
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
     @property
     def first_same_as_last(self) -> bool:
@@ -170,6 +172,12 @@ class ERKStep(ODEExplicitStep):
             (Dormand-Prince 5(4)).
         n_drivers
             Number of driver variables in the system.
+        stage_rhs_location
+            Memory location for stage RHS buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        stage_accumulator_location
+            Memory location for stage accumulator buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
         
         Notes
         -----
@@ -224,6 +232,21 @@ class ERKStep(ODEExplicitStep):
 
         config = ERKStepConfig(**config_kwargs)
 
+        if tableau.has_error_estimate:
+            defaults = ERK_ADAPTIVE_DEFAULTS
+        else:
+            defaults = ERK_FIXED_DEFAULTS
+
+        super().__init__(config, defaults)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -247,13 +270,6 @@ class ERKStep(ODEExplicitStep):
             precision=precision
         )
 
-        if tableau.has_error_estimate:
-            defaults = ERK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = ERK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
-
     def build_step(
         self,
         dxdt_fn: Callable,
@@ -266,7 +282,6 @@ class ERKStep(ODEExplicitStep):
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
@@ -304,10 +319,10 @@ class ERKStep(ODEExplicitStep):
             b_hat_row = int32(b_hat_row)
 
         # Get allocators from buffer registry
-        alloc_stage_rhs = buffer_registry.get_allocator('stage_rhs', self)
-        alloc_stage_accumulator = buffer_registry.get_allocator(
-            'stage_accumulator', self
-        )
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+        alloc_stage_accumulator = getalloc('stage_accumulator', self)
+
         # no cover: start
         @cuda.jit(
             # (
@@ -396,7 +411,7 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            # Only use cache if all threads in warp can - otherwise no gain
+            # Only use cache if all threads in warp can - otherwise no gain.
             use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step_flag:
@@ -408,7 +423,7 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            # if multistage and cached rhs is available, don't overwrite it
+            # Deep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,

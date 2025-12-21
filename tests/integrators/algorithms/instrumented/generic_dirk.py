@@ -184,7 +184,16 @@ class DIRKStep(ODEImplicitStep):
         else:
             defaults = DIRK_FIXED_DEFAULTS
 
-        super().__init__(config, defaults)
+        super().__init__(
+            config, defaults,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
 
     def build_implicit_helpers(
         self,
@@ -262,12 +271,14 @@ class DIRKStep(ODEImplicitStep):
             max_backtracks=newton_max_backtracks,
         )
         newton_instance = InstrumentedNewtonKrylov(newton_config)
+        
+        # Replace parent solver with instrumented version
+        self.solver = newton_instance
 
         return newton_instance.device_function
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
@@ -280,7 +291,11 @@ class DIRKStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
+        
+        # Access solver device function from owned instance
+        solver_fn = self.solver.device_function
         nonlinear_solver = solver_fn
+        
         n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)

@@ -2,6 +2,7 @@
 
 from typing import Callable, Optional
 
+import attrs
 from numba import cuda, int32
 import numpy as np
 
@@ -29,6 +30,18 @@ CN_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+
+
+@attrs.define
+class CrankNicolsonStepConfig(ImplicitStepConfig):
+    """Configuration for Crank-Nicolson step."""
+    
+    dxdt_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
+
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
@@ -40,14 +53,15 @@ class CrankNicolsonStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 1,
-        krylov_tolerance: float = 1e-6,
-        max_linear_iters: int = 100,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-6,
-        max_newton_iters: int = 1000,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 10,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
+        dxdt_location: Optional[str] = None,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -66,21 +80,32 @@ class CrankNicolsonStep(ODEImplicitStep):
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
-            Order of the truncated Neumann preconditioner.
+            Order of the truncated Neumann preconditioner. If None, uses
+            default from ImplicitStepConfig.
         krylov_tolerance
-            Tolerance used by the linear solver.
+            Tolerance used by the linear solver. If None, uses default from
+            LinearSolverConfig.
         max_linear_iters
-            Maximum iterations permitted for the linear solver.
+            Maximum iterations permitted for the linear solver. If None, uses
+            default from LinearSolverConfig.
         linear_correction_type
-            Identifier for the linear correction strategy.
+            Identifier for the linear correction strategy. If None, uses
+            default from LinearSolverConfig.
         newton_tolerance
-            Convergence tolerance for the Newton iteration.
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
         max_newton_iters
-            Maximum iterations permitted for the Newton solver.
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
         newton_damping
-            Damping factor applied within Newton updates.
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
         newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
+        dxdt_location
+            Memory location for dxdt buffer: 'local' or 'shared'. If None,
+            defaults to 'local'.
 
         Returns
         -------
@@ -91,34 +116,65 @@ class CrankNicolsonStep(ODEImplicitStep):
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
+        
+        # Build config kwargs conditionally
+        config_kwargs = {
+            'precision': precision,
+            'n': n,
+            'get_solver_helper_fn': get_solver_helper_fn,
+            'beta': beta,
+            'gamma': gamma,
+            'M': M,
+            'dxdt_function': dxdt_function,
+            'observables_function': observables_function,
+            'driver_function': driver_function,
+        }
+        if preconditioner_order is not None:
+            config_kwargs['preconditioner_order'] = preconditioner_order
+        if dxdt_location is not None:
+            config_kwargs['dxdt_location'] = dxdt_location
+        
+        config = CrankNicolsonStepConfig(**config_kwargs)
+        
+        # Build solver kwargs dict conditionally
+        solver_kwargs = {}
+        if krylov_tolerance is not None:
+            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            solver_kwargs['max_linear_iters'] = max_linear_iters
+        if linear_correction_type is not None:
+            solver_kwargs['linear_correction_type'] = linear_correction_type
+        if newton_tolerance is not None:
+            solver_kwargs['newton_tolerance'] = newton_tolerance
+        if max_newton_iters is not None:
+            solver_kwargs['max_newton_iters'] = max_newton_iters
+        if newton_damping is not None:
+            solver_kwargs['newton_damping'] = newton_damping
+        if newton_max_backtracks is not None:
+            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        
+        super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
+        
+        self.register_buffers()
 
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        buffer_registry.register(
+            'cn_dxdt',
+            self,
+            config.n,
+            config.dxdt_location,
+            aliases='solver_scratch_shared',
+            precision=config.precision
         )
-        super().__init__(config, CN_DEFAULTS)
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -127,14 +183,14 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -147,6 +203,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         StepCache
             Container holding the compiled step function and solver.
         """
+        solver_fn = solver_function
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
@@ -156,9 +213,10 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
+        alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
         @cuda.jit(
             # (
@@ -238,14 +296,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             """
             typed_zero = numba_precision(0.0)
 
-            # Initialize increment buffer
-            for i in range(n):
-                proposed_state[i] = typed_zero
-
             solver_scratch = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
-            # Reuse solver scratch for the dx/dt evaluation buffer.
-            dxdt = solver_scratch[:n]
+            dxdt = alloc_dxdt(shared, persistent_local)
             # error buffer tracks the stage base during setup.
             base_state = error
 
@@ -304,7 +357,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 solver_scratch,
                 solver_persistent,
                 counters,
-            ) & int32(0xFFFF)  # don't record Newton iterations for error check
+            )
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):

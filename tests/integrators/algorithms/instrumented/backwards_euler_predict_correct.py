@@ -14,10 +14,10 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -26,8 +26,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -46,8 +44,12 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         StepCache
             Container holding the compiled predictor-corrector step.
         """
-
         a_ij = numba_precision(1.0)
+        has_driver_function = driver_function is not None
+        solver_shared_elements = self.solver_shared_elements
+        n = int32(n)
+        
+        solver_fn = solver_function
         has_driver_function = driver_function is not None
         n = int32(n)
 

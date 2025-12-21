@@ -4,20 +4,116 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
+from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, StepControlDefaults
+from cubie.integrators.algorithms import ImplicitStepConfig
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
     """Backward Euler with a predictor-corrector refinement."""
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n: int,
+        dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
+        driver_function: Optional[Callable] = None,
+        get_solver_helper_fn: Optional[Callable] = None,
+        preconditioner_order: Optional[int] = None,
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
+        predictor_location: str = 'local',
+    ) -> None:
+        """Initialize the Backward Euler predictor-corrector step.
+        
+        Parameters
+        ----------
+        precision
+            Precision applied to device buffers.
+        n
+            Number of state entries advanced per step.
+        dxdt_function
+            Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        get_solver_helper_fn
+            Callable returning device helpers used by the nonlinear solver.
+        preconditioner_order
+            Order of the truncated Neumann preconditioner. If None, uses
+            default from ImplicitStepConfig.
+        krylov_tolerance
+            Tolerance used by the linear solver. If None, uses default from
+            LinearSolverConfig.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver. If None, uses
+            default from LinearSolverConfig.
+        linear_correction_type
+            Identifier for the linear correction strategy. If None, uses
+            default from LinearSolverConfig.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
+        newton_damping
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
+        predictor_location
+            Memory location for predictor buffer: 'local' or 'shared'.
+            Defaults to 'local'.
+        """
+        self._predictor_location = predictor_location
+        
+        super().__init__(
+            precision=precision,
+            n=n,
+            dxdt_function=dxdt_function,
+            observables_function=observables_function,
+            driver_function=driver_function,
+            get_solver_helper_fn=get_solver_helper_fn,
+            preconditioner_order=preconditioner_order,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            newton_tolerance=newton_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+        )
+        
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        buffer_registry.register(
+            'predictor',
+            self,
+            config.n,
+            self._predictor_location,
+            aliases='solver_scratch_shared',
+            precision=config.precision
+        )
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -26,14 +122,14 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -46,7 +142,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         StepCache
             Container holding the compiled predictor-corrector step.
         """
-
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
@@ -54,9 +149,12 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, self._newton_solver,
+            buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
+        alloc_predictor = buffer_registry.get_allocator('predictor', self)
+
+        solver_fn = solver_function
 
         @cuda.jit(
             # (
@@ -137,7 +235,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Status code returned by the nonlinear solver.
             """
 
-            predictor = shared[:n]
+            predictor = alloc_predictor(shared, persistent_local)
             dxdt_fn(
                 state,
                 parameters,

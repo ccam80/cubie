@@ -1,13 +1,14 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Set
 
 import attrs
 import numpy as np
 import sympy as sp
 
-from cubie._utils import inrangetype_validator
+from cubie._utils import inrangetype_validator, is_device_validator
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
@@ -50,6 +51,10 @@ class ImplicitStepConfig(BaseStepConfig):
         default=1,
         validator=inrangetype_validator(int, 1, 32)
     )
+    solver_function = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(is_device_validator)
+    )
 
     @property
     def beta(self) -> float:
@@ -64,7 +69,6 @@ class ImplicitStepConfig(BaseStepConfig):
     @property
     def settings_dict(self) -> dict:
         """Return configuration fields as a dictionary."""
-
         settings_dict = super().settings_dict
         settings_dict.update(
             {
@@ -72,13 +76,6 @@ class ImplicitStepConfig(BaseStepConfig):
                 'gamma': self.gamma,
                 'M': self.M,
                 'preconditioner_order': self.preconditioner_order,
-                'krylov_tolerance': 1e-3,
-                'max_linear_iters': 100,
-                'linear_correction_type': "minimal_residual",
-                'newton_tolerance': 1e-3,
-                'max_newton_iters': 100,
-                'newton_damping': 0.5,
-                'newton_max_backtracks': 10,
                 'get_solver_helper_fn': self.get_solver_helper_fn,
             }
         )
@@ -88,9 +85,19 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    def __init__(self,
-                 config: ImplicitStepConfig,
-                 _controller_defaults: StepControlDefaults) -> None:
+    def __init__(
+        self,
+        config: ImplicitStepConfig,
+        _controller_defaults: StepControlDefaults,
+        solver_type: str = "newton",
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
+    ) -> None:
         """Initialise the implicit step with its configuration.
 
         Parameters
@@ -98,31 +105,97 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config
             Configuration describing the implicit step.
         _controller_defaults
-           Per-algorithm default runtime collaborators, such as step
-           controllers and matrix-free solvers.
+           Per-algorithm default runtime collaborators.
+        solver_type
+            Type of solver to create: 'newton' or 'linear'.
+        krylov_tolerance
+            Tolerance used by the linear solver.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver.
+        linear_correction_type
+            Identifier for the linear correction strategy.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver.
+        newton_damping
+            Damping factor applied within Newton updates.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver.
         """
 
+        
         super().__init__(config, _controller_defaults)
-        
-        # Create LinearSolver instance with explicit parameters including defaults
-        self._linear_solver = LinearSolver(
+
+        if solver_type not in ['newton', 'linear']:
+            raise ValueError(
+                f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
+            )
+
+        linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-            correction_type="minimal_residual",
-            krylov_tolerance=1e-3,
-            max_linear_iters=100,
+            correction_type=linear_correction_type,
+            krylov_tolerance=krylov_tolerance,
+            max_linear_iters=max_linear_iters,
         )
         
-        # Create NewtonKrylov instance with explicit parameters including defaults
-        self._newton_solver = NewtonKrylov(
-            precision=config.precision,
-            n=config.n,
-            linear_solver=self._linear_solver,
-            newton_tolerance=1e-3,
-            max_newton_iters=100,
-            newton_damping=0.5,
-            newton_max_backtracks=10,
+        if solver_type == 'newton':
+            self.solver = NewtonKrylov(
+                precision=config.precision,
+                n=config.n,
+                linear_solver=linear_solver,
+                newton_tolerance=newton_tolerance,
+                max_newton_iters=max_newton_iters,
+                newton_damping=newton_damping,
+                newton_max_backtracks=newton_max_backtracks,
+            )
+        else:  # solver_type == 'linear'
+            self.solver = linear_solver
+
+    def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
+        """Update algorithm and owned solver parameters.
+        
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of parameter names to new values.
+        silent : bool, default=False
+            Suppress warnings for unrecognized parameters.
+        **kwargs
+            Additional parameters to update.
+        
+        Returns
+        -------
+        set[str]
+            Names of parameters that were successfully recognized.
+        
+        Notes
+        -----
+        Delegates solver parameters to owned solver instance.
+        Invalidates step cache only if solver cache was invalidated.
+        """
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+        
+        if not all_updates:
+            return set()
+        
+        recognized = set()
+        recognized |= self.solver.update(all_updates, silent=True)
+
+        all_updates["solver_function"] = self.solver.device_function
+
+        recognized |= self.update_compile_settings(
+            updates_dict=all_updates, silent=silent
         )
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
+
+        return recognized
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -132,21 +205,22 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-
-        solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        self.build_implicit_helpers()
+
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
         driver_function = config.driver_function
         n_drivers = config.n_drivers
+        solver_function = config.solver_function
 
         return self.build_step(
-            solver_fn,
             dxdt_fn,
             observables_function,
             driver_function,
+            solver_function,
             numba_precision,
             n,
             n_drivers,
@@ -155,39 +229,38 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
-
+        
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by ``build_implicit_helpers``.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
-            Device observable computation helper.
+            Device function for evaluating observables.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for running internal solver
         numba_precision
             Numba precision for compiled device buffers.
         n
             Dimension of the state vector.
         n_drivers
             Number of driver signals provided to the system.
-
+        
         Returns
         -------
         StepCache
             Container holding the device step implementation.
         """
-
         raise NotImplementedError
 
     def build_implicit_helpers(self) -> Callable:
@@ -230,18 +303,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
             mass=mass,
             preconditioner_order=preconditioner_order
         )
-        
-        # Update solvers with device functions
-        self._linear_solver.update(
+
+        self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
-        )
-        self._newton_solver.update(
             residual_function=residual,
         )
         
-        # Return device function
-        return self._newton_solver.device_function
+        self.update_compile_settings(
+                solver_function=self.solver.device_function
+        )
 
     @property
     def is_implicit(self) -> bool:
@@ -275,41 +346,36 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def krylov_tolerance(self) -> float:
         """Return the tolerance used for the linear solve."""
-
-        return self._linear_solver.krylov_tolerance
+        return self.solver.krylov_tolerance
 
     @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
-
-        return int(self._linear_solver.max_linear_iters)
+        return int(self.solver.max_linear_iters)
 
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
-
-        return self._linear_solver.correction_type
+        return self.solver.correction_type
 
     @property
-    def newton_tolerance(self) -> float:
+    def newton_tolerance(self) -> Optional[float]:
         """Return the Newton solve tolerance."""
-
-        return self._newton_solver.newton_tolerance
+        return getattr(self.solver, 'newton_tolerance', None)
 
     @property
-    def max_newton_iters(self) -> int:
+    def max_newton_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
-
-        return int(self._newton_solver.max_newton_iters)
+        val = getattr(self.solver, 'max_newton_iters', None)
+        return int(val) if val is not None else None
 
     @property
-    def newton_damping(self) -> float:
+    def newton_damping(self) -> Optional[float]:
         """Return the Newton damping factor."""
-
-        return self._newton_solver.newton_damping
+        return getattr(self.solver, 'newton_damping', None)
 
     @property
-    def newton_max_backtracks(self) -> int:
+    def newton_max_backtracks(self) -> Optional[int]:
         """Return the maximum number of Newton backtracking steps."""
-
-        return int(self._newton_solver.newton_max_backtracks)
+        val = getattr(self.solver, 'newton_max_backtracks', None)
+        return int(val) if val is not None else None
