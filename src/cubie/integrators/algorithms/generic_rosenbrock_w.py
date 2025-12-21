@@ -236,7 +236,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             controller_defaults = ROSENBROCK_ADAPTIVE_DEFAULTS
         else:
             controller_defaults = ROSENBROCK_FIXED_DEFAULTS
-        
+
         # Build kwargs dict conditionally (only linear solver kwargs for Rosenbrock)
         solver_kwargs = {}
         if krylov_tolerance is not None:
@@ -245,7 +245,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             solver_kwargs['max_linear_iters'] = max_linear_iters
         if linear_correction_type is not None:
             solver_kwargs['linear_correction_type'] = linear_correction_type
-        
+
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, solver_type='linear', **solver_kwargs)
 
@@ -257,7 +257,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         precision = config.precision
         n = config.n
         tableau = config.tableau
-        
+
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
@@ -266,37 +266,33 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'rosenbrock_stage_rhs', self, n, config.stage_rhs_location,
+            'stage_rhs', self, n, config.stage_rhs_location,
             precision=precision
         )
         buffer_registry.register(
-            'rosenbrock_stage_store', self, stage_store_elements,
+            'stage_store', self, stage_store_elements,
             config.stage_store_location, precision=precision
         )
         # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
         buffer_registry.register(
-            'rosenbrock_cached_auxiliaries', self, 0,
+            'cached_auxiliaries', self, 0,
             config.cached_auxiliaries_location, precision=precision
         )
 
-        # stage_cache: persistent when stage_store is local
-        if config.stage_store_location == 'local':
-            buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'local',
-                persistent=True, precision=precision
-            )
-        else:
-            # Aliases stage_store when shared
-            buffer_registry.register(
-                'rosenbrock_stage_cache', self, n, 'shared',
-                aliases='rosenbrock_stage_store', precision=precision
-            )
+        # Stage increment should persist between steps for initial guess
+        buffer_registry.register(
+            'stage_increment', self, n,
+            config.stage_store_location,
+            aliases='stage_store',
+            persistent=True,
+            precision=precision
+        )
 
     def build_implicit_helpers(
         self,
     ) -> Callable:
         """Construct the linear solver used by Rosenbrock methods.
-        
+
         Returns
         -------
         Callable
@@ -307,9 +303,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        
+
         get_fn = config.get_solver_helper_fn
-        
+
         # Get device functions from ODE system
         preconditioner = get_fn(
             'neumann_preconditioner',
@@ -325,7 +321,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             mass=mass,
             preconditioner_order=preconditioner_order
         )
-        
+
         # Store Rosenbrock-specific helpers as instance attributes
         self._prepare_jacobian = get_fn(
             'prepare_jac',
@@ -339,7 +335,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner=preconditioner,
             use_cached_auxiliaries=True,
         )
-        
+
         # Return linear solver device function
         return self.solver.device_function
 
@@ -359,7 +355,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = self.compile_settings
         precision = self.precision
         tableau = config.tableau
-        
+
         # Access solver from parameter
         linear_solver = solver_function
         prepare_jacobian = self._prepare_jacobian
@@ -396,16 +392,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Get allocators from buffer registry
         alloc_stage_rhs = buffer_registry.get_allocator(
-            'rosenbrock_stage_rhs', self
+            'stage_rhs', self
         )
         alloc_stage_store = buffer_registry.get_allocator(
-            'rosenbrock_stage_store', self
+            'stage_store', self
         )
         alloc_cached_auxiliaries = buffer_registry.get_allocator(
-            'rosenbrock_cached_auxiliaries', self
+            'cached_auxiliaries', self
         )
-        alloc_stage_cache = buffer_registry.get_allocator(
-            'rosenbrock_stage_cache', self
+        alloc_stage_increment = buffer_registry.get_allocator(
+            'stage_increment', self
         )
 
         # Stage store size for initialization
@@ -476,12 +472,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+            stage_increment = alloc_stage_increment(shared, persistent_local)
 
-            # Initialize arrays
-            for _i in range(n):
-                stage_rhs[_i] = typed_zero
-            for _i in range(stage_store_elements):
-                stage_store[_i] = typed_zero
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -510,21 +502,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
             else:
                 proposed_drivers[:] = numba_precision(0.0)
-
-            # Stage 0 uses cached value as initial guess.
-            # When stage_store is shared, time_derivative persists between steps.
-            # When stage_store is local, use persistent_local for caching.
-            # On first step, no cached value exists - use zero initialization.
-            stage_increment = stage_store[:n]
-            first_step = first_step_flag != int32(0)
-
-            if stage_store_shared:
-                # When shared, time_derivative persists automatically
-                for idx in range(n):
-                    stage_increment[idx] = time_derivative[idx]
-            else:
-                for idx in range(n):
-                    stage_increment[idx] = persistent_local[idx]
 
             time_derivative_rhs(
                 state,
@@ -762,12 +739,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 end_time,
             )
 
-            # Cache time_derivative for next step's initial guess.
-            # When stage_store is shared, time_derivative persists automatically.
-            # When local, save to persistent_local for next step.
-            if not stage_store_shared:
-                for idx in range(n):
-                    persistent_local[idx] = time_derivative[idx]
+            # Cache final indices of stage store (time_derivative is an
+            # alias for this for next step's initial guess.
+            for idx in range(n):
+                stage_increment[idx] = time_derivative[idx]
 
             return status_code
         # no cover: end

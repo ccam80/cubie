@@ -81,22 +81,34 @@ class CUDABuffer:
         """Compile CUDA device function for buffer allocation.
 
         Generates an inlined device function that allocates this buffer
-        from the appropriate memory region based on which parameters are
-        provided.
+        from the appropriate memory region based on which slice parameters
+        are provided.
 
         Parameters
         ----------
         shared_slice
-            Slice into shared memory, or None if not shared.
+            Slice into shared memory, or None if not using shared.
         persistent_slice
-            Slice into persistent local memory, or None if not persistent.
+            Slice into persistent local memory, or None if not using
+            persistent.
         local_size
             Size for local array allocation, or None if not local.
 
         Returns
         -------
         Callable
-            CUDA device function: (shared_parent, persistent_parent) -> array
+            CUDA device function: (shared, persistent) -> array
+
+            The device function accepts shared and persistent memory
+            arrays and returns a view/slice into the appropriate memory
+            region, or allocates a fresh local array.
+
+        Notes
+        -----
+        When a buffer aliases another buffer and aliasing succeeds, both
+        buffers receive slices in the same memory region (shared or
+        persistent) that overlap. The allocator transparently provides
+        the correct view without needing a separate parent reference.
         """
         # Compile-time constants captured in closure
         _use_shared = shared_slice is not None
@@ -109,12 +121,12 @@ class CUDABuffer:
         _precision = self.precision
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def allocate_buffer(shared_parent, persistent_parent):
+        def allocate_buffer(shared, persistent):
             """Allocate buffer from appropriate memory region."""
             if _use_shared:
-                array = shared_parent[_shared_slice]
+                array = shared[_shared_slice]
             elif _use_persistent:
-                array = persistent_parent[_persistent_slice]
+                array = persistent[_persistent_slice]
             else:
                 array = cuda.local.array(_local_size, _precision)
             return array
@@ -133,13 +145,14 @@ class BufferGroup:
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
     _shared_layout : Dict[str, slice] or None
-        Cached shared memory slices (None when invalid).
+        Cached unified shared memory layout (None when invalid).
     _persistent_layout : Dict[str, slice] or None
         Cached persistent_local slices (None when invalid).
     _local_sizes : Dict[str, int] or None
         Cached local sizes (None when invalid).
     _alias_consumption : Dict[str, int]
-        Tracks consumed space in aliased buffers.
+        Tracks consumed space in aliased buffers for layout
+        computation.
     """
 
     parent: object = attrs.field()
@@ -267,24 +280,31 @@ class BufferGroup:
     def build_shared_layout(self) -> Dict[str, slice]:
         """Compute slice indices for shared memory buffers.
 
-        Implements cross-location aliasing:
-        - If parent is shared and has sufficient remaining space, alias
-          slices within parent
-        - If parent is shared but too small, allocate per buffer's own
-          settings
-        - If parent is local, allocate per buffer's own settings
-        - Multiple aliases consume parent space first-come-first-serve
+        Implements correct aliasing semantics where aliased children
+        deliberately OVERLAP their parent buffers to reuse memory.
+        When a child aliases a shared parent with sufficient space,
+        the child slices directly into the parent's memory region.
+
+        Aliasing behavior:
+        - Child aliases shared parent with space: child OVERLAPS parent
+        - Child aliases shared parent without space: fresh allocation
+        - Child aliases local parent: fresh shared allocation
+        - Non-aliased buffer: fresh allocation
+
+        All allocations use the SAME shared array; aliased buffers
+        reuse parent memory via deliberate overlap.
 
         Returns
         -------
         Dict[str, slice]
-            Mapping of buffer names to shared memory slices.
+            Single unified mapping of buffer names to shared memory
+            slices.
         """
         offset = 0
         layout = {}
         self._alias_consumption.clear()
 
-        # Process non-aliased shared buffers first
+        # Step 1: Allocate non-aliased shared buffers
         for name, entry in self.entries.items():
             if entry.location != 'shared' or entry.aliases is not None:
                 continue
@@ -292,38 +312,49 @@ class BufferGroup:
             self._alias_consumption[name] = 0
             offset += entry.size
 
-        # Process aliased buffers
+        # Step 2: Process aliased buffers
         for name, entry in self.entries.items():
-            if entry.aliases is None:
+            if entry.aliases is None or entry.location != 'shared':
                 continue
 
             parent_entry = self.entries[entry.aliases]
 
             if parent_entry.is_shared:
-                # Parent is shared - check if space available AND buffer is shared
+                # Parent is shared - check if we can alias it
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
-                if entry.is_shared and entry.size <= available:
-                    # Alias fits within parent and buffer is shared
+                if entry.size <= available:
+                    # Alias within parent (WITH OVERLAP - reuse memory)
                     parent_slice = layout[entry.aliases]
                     start = parent_slice.start + consumed
                     layout[name] = slice(start, start + entry.size)
                     self._alias_consumption[entry.aliases] = (
                         consumed + entry.size
                     )
-                elif entry.is_shared:
-                    # Parent too small or buffer not shared, allocate new shared space
+                else:
+                    # Parent full, allocate fresh shared space
                     layout[name] = slice(offset, offset + entry.size)
                     offset += entry.size
-                # else: not shared, will be handled by persistent/local
-            elif entry.is_shared:
-                # Parent is local, allocate new shared space
+            else:
+                # Parent is local, allocate fresh shared space for child
                 layout[name] = slice(offset, offset + entry.size)
                 offset += entry.size
-            # else: buffer not shared, skip
 
         return layout
+
+    @property
+    def shared_layout(self) -> Dict[str, slice]:
+        """Return shared memory layout.
+        
+        Returns
+        -------
+        Dict[str, slice]
+            Mapping of buffer names to shared memory slices.
+        """
+        if self._shared_layout is None:
+            self._shared_layout = self.build_shared_layout()
+        return self._shared_layout
 
     def build_persistent_layout(self) -> Dict[str, slice]:
         """Compute slice indices for persistent local buffers.
@@ -401,7 +432,8 @@ class BufferGroup:
         for name, entry in self.entries.items():
             if entry.is_local:
                 # Check if this buffer was already allocated via aliasing
-                if name in self._shared_layout or name in self._persistent_layout:
+                if (name in self._shared_layout
+                        or name in self._persistent_layout):
                     # Already allocated elsewhere, skip local allocation
                     continue
                 # cuda.local.array requires size >= 1
@@ -454,6 +486,10 @@ class BufferGroup:
     def get_allocator(self, name: str) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
+        Retrieves the pre-computed memory slice for this buffer from the
+        appropriate layout (shared, persistent, or local) and generates
+        an allocator that uses that slice.
+
         Parameters
         ----------
         name
@@ -463,11 +499,24 @@ class BufferGroup:
         -------
         Callable
             CUDA device function that allocates the buffer.
+            Signature: (shared, persistent) -> array
 
         Raises
         ------
         KeyError
             If buffer name not registered.
+
+        Notes
+        -----
+        The layout building phase (build_shared_layout and
+        build_persistent_layout) determines which memory region each
+        buffer uses and assigns slices accordingly. This method simply
+        retrieves those pre-computed slices and creates an allocator
+        that uses them.
+
+        For aliased buffers, the layout builder assigns slices that
+        overlap the parent buffer, implementing aliasing transparently
+        at the slice level.
         """
         if name not in self.entries:
             raise KeyError(f"Buffer '{name}' not registered for parent.")
@@ -482,7 +531,7 @@ class BufferGroup:
         if self._local_sizes is None:
             self._local_sizes = self.build_local_sizes()
 
-        # Determine allocation source
+        # Get slice from appropriate layout
         shared_slice = self._shared_layout.get(name)
         persistent_slice = self._persistent_layout.get(name)
         local_size = self._local_sizes.get(name)

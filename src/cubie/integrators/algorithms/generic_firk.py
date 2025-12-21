@@ -291,8 +291,12 @@ class FIRKStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'stage_increment', self, all_stages_n,
-            config.stage_increment_location, precision=precision
+            'stage_increment',
+            self,
+            all_stages_n,
+            config.stage_increment_location,
+            persistent=True,
+            precision=precision
         )
         buffer_registry.register(
             'stage_driver_stack', self, stage_driver_stack_elements,
@@ -472,13 +476,6 @@ class FIRKStep(ODEImplicitStep):
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
-            # Initialize local arrays
-            for _i in range(n):
-                stage_state[_i] = typed_zero
-            for _i in range(all_stages_n):
-                stage_increment[_i] = typed_zero
-            for _i in range(stage_count * n_drivers):
-                stage_driver_stack[_i] = typed_zero
             # ----------------------------------------------------------- #
 
 
