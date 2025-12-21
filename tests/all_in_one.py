@@ -3049,10 +3049,11 @@ def save_state_inline(current_state, current_observables, current_counters,
 def update_mean(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    buffer[0] += value
+    buffer[offset + 0] += value
 
 @cuda.jit(
     # [
@@ -3066,11 +3067,13 @@ def update_mean(
 )
 def save_mean(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[0] * inv_summarise_every
-    buffer[0] = precision(0.0)
+    output_array[output_offset + 0] = buffer[buffer_offset + 0] * inv_summarise_every
+    buffer[buffer_offset + 0] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3085,11 +3088,12 @@ def save_mean(
 def update_max(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    if value > buffer[0]:
-        buffer[0] = value
+    update_flag = value > buffer[offset + 0]
+    buffer[offset + 0] = selp(update_flag, value, buffer[offset + 0])
 
 @cuda.jit(
     # [
@@ -3103,11 +3107,13 @@ def update_max(
 )
 def save_max(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[0]
-    buffer[0] = precision(-1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 0]
+    buffer[buffer_offset + 0] = precision(-1.0e30)
 
 @cuda.jit(
     # [
@@ -3122,11 +3128,12 @@ def save_max(
 def update_min(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    if value < buffer[0]:
-        buffer[0] = value
+    update_flag = value < buffer[offset + 0]
+    buffer[offset + 0] = selp(update_flag, value, buffer[offset + 0])
 
 @cuda.jit(
     # [
@@ -3140,11 +3147,13 @@ def update_min(
 )
 def save_min(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[0]
-    buffer[0] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 0]
+    buffer[buffer_offset + 0] = precision(1.0e30)
 
 @cuda.jit(
     # [
@@ -3159,14 +3168,15 @@ def save_min(
 def update_rms(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    sum_of_squares = buffer[0]
+    sum_of_squares = buffer[offset + 0]
     if current_index == 0:
         sum_of_squares = precision(0.0)
     sum_of_squares += value * value
-    buffer[0] = sum_of_squares
+    buffer[offset + 0] = sum_of_squares
 
 @cuda.jit(
     # [
@@ -3180,11 +3190,13 @@ def update_rms(
 )
 def save_rms(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = precision(sqrt(buffer[0] * inv_summarise_every))
-    buffer[0] = precision(0.0)
+    output_array[output_offset + 0] = precision(sqrt(buffer[buffer_offset + 0] * inv_summarise_every))
+    buffer[buffer_offset + 0] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3199,17 +3211,18 @@ def save_rms(
 def update_std(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     if current_index == 0:
-        buffer[0] = value  # Store shift value
-        buffer[1] = precision(0.0)    # Reset sum
-        buffer[2] = precision(0.0)    # Reset sum of squares
+        buffer[offset + 0] = value  # Store shift value
+        buffer[offset + 1] = precision(0.0)    # Reset sum
+        buffer[offset + 2] = precision(0.0)    # Reset sum of squares
     
-    shifted_value = value - buffer[0]
-    buffer[1] += shifted_value
-    buffer[2] += shifted_value * shifted_value
+    shifted_value = value - buffer[offset + 0]
+    buffer[offset + 1] += shifted_value
+    buffer[offset + 2] += shifted_value * shifted_value
 
 @cuda.jit(
     # [
@@ -3223,17 +3236,19 @@ def update_std(
 )
 def save_std(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    mean_shifted = buffer[1] * inv_summarise_every
-    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+    mean_shifted = buffer[buffer_offset + 1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[buffer_offset + 2] * inv_summarise_every
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
-    output_array[0] = sqrt(variance)
-    mean = buffer[0] + mean_shifted
-    buffer[0] = mean
-    buffer[1] = precision(0.0)
-    buffer[2] = precision(0.0)
+    output_array[output_offset + 0] = sqrt(variance)
+    mean = buffer[buffer_offset + 0] + mean_shifted
+    buffer[buffer_offset + 0] = mean
+    buffer[buffer_offset + 1] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3248,17 +3263,18 @@ def save_std(
 def update_mean_std(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     if current_index == 0:
-        buffer[0] = value
-        buffer[1] = precision(0.0)
-        buffer[2] = precision(0.0)
+        buffer[offset + 0] = value
+        buffer[offset + 1] = precision(0.0)
+        buffer[offset + 2] = precision(0.0)
     
-    shifted_value = value - buffer[0]
-    buffer[1] += shifted_value
-    buffer[2] += shifted_value * shifted_value
+    shifted_value = value - buffer[offset + 0]
+    buffer[offset + 1] += shifted_value
+    buffer[offset + 2] += shifted_value * shifted_value
 
 @cuda.jit(
     # [
@@ -3272,22 +3288,24 @@ def update_mean_std(
 )
 def save_mean_std(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    shift = buffer[0]
-    mean_shifted = buffer[1] * inv_summarise_every
-    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+    shift = buffer[buffer_offset + 0]
+    mean_shifted = buffer[buffer_offset + 1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[buffer_offset + 2] * inv_summarise_every
 
     mean = shift + mean_shifted
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     
-    output_array[0] = mean
-    output_array[1] = sqrt(variance)
+    output_array[output_offset + 0] = mean
+    output_array[output_offset + 1] = sqrt(variance)
     
-    buffer[0] = mean
-    buffer[1] = precision(0.0)
-    buffer[2] = precision(0.0)
+    buffer[buffer_offset + 0] = mean
+    buffer[buffer_offset + 1] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3302,17 +3320,18 @@ def save_mean_std(
 def update_mean_std_rms(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     if current_index == 0:
-        buffer[0] = value
-        buffer[1] = precision(0.0)
-        buffer[2] = precision(0.0)
+        buffer[offset + 0] = value
+        buffer[offset + 1] = precision(0.0)
+        buffer[offset + 2] = precision(0.0)
     
-    shifted_value = value - buffer[0]
-    buffer[1] += shifted_value
-    buffer[2] += shifted_value * shifted_value
+    shifted_value = value - buffer[offset + 0]
+    buffer[offset + 1] += shifted_value
+    buffer[offset + 2] += shifted_value * shifted_value
 
 @cuda.jit(
     # [
@@ -3326,12 +3345,14 @@ def update_mean_std_rms(
 )
 def save_mean_std_rms(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    shift = buffer[0]
-    mean_shifted = buffer[1] * inv_summarise_every
-    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+    shift = buffer[buffer_offset + 0]
+    mean_shifted = buffer[buffer_offset + 1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[buffer_offset + 2] * inv_summarise_every
 
     # Mean: shift back to original scale
     mean = shift + mean_shifted
@@ -3348,13 +3369,13 @@ def save_mean_std_rms(
     )
     rms = sqrt(mean_of_squares)
     
-    output_array[0] = mean
-    output_array[1] = std
-    output_array[2] = rms
+    output_array[output_offset + 0] = mean
+    output_array[output_offset + 1] = std
+    output_array[output_offset + 2] = rms
     
-    buffer[0] = mean
-    buffer[1] = precision(0.0)
-    buffer[2] = precision(0.0)
+    buffer[buffer_offset + 0] = mean
+    buffer[buffer_offset + 1] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3369,17 +3390,18 @@ def save_mean_std_rms(
 def update_std_rms(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     if current_index == 0:
-        buffer[0] = value
-        buffer[1] = precision(0.0)
-        buffer[2] = precision(0.0)
+        buffer[offset + 0] = value
+        buffer[offset + 1] = precision(0.0)
+        buffer[offset + 2] = precision(0.0)
     
-    shifted_value = value - buffer[0]
-    buffer[1] += shifted_value
-    buffer[2] += shifted_value * shifted_value
+    shifted_value = value - buffer[offset + 0]
+    buffer[offset + 1] += shifted_value
+    buffer[offset + 2] += shifted_value * shifted_value
 
 @cuda.jit(
     # [
@@ -3393,12 +3415,14 @@ def update_std_rms(
 )
 def save_std_rms(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    shift = buffer[0]
-    mean_shifted = buffer[1] * inv_summarise_every
-    mean_of_squares_shifted = buffer[2] * inv_summarise_every
+    shift = buffer[buffer_offset + 0]
+    mean_shifted = buffer[buffer_offset + 1] * inv_summarise_every
+    mean_of_squares_shifted = buffer[buffer_offset + 2] * inv_summarise_every
 
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     std = sqrt(variance)
@@ -3410,13 +3434,13 @@ def save_std_rms(
     )
     rms = sqrt(mean_of_squares)
     
-    output_array[0] = std
-    output_array[1] = rms
+    output_array[output_offset + 0] = std
+    output_array[output_offset + 1] = rms
     
     mean = shift + mean_shifted
-    buffer[0] = mean
-    buffer[1] = precision(0.0)
-    buffer[2] = precision(0.0)
+    buffer[buffer_offset + 0] = mean
+    buffer[buffer_offset + 1] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3431,13 +3455,14 @@ def save_std_rms(
 def update_extrema(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    if value > buffer[0]:
-        buffer[0] = value
-    if value < buffer[1]:
-        buffer[1] = value
+    update_max = value > buffer[offset + 0]
+    update_min = value < buffer[offset + 1]
+    buffer[offset + 0] = selp(update_max, value, buffer[offset + 0])
+    buffer[offset + 1] = selp(update_min, value, buffer[offset + 1])
 
 @cuda.jit(
     # [
@@ -3451,13 +3476,15 @@ def update_extrema(
 )
 def save_extrema(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[0]
-    output_array[1] = buffer[1]
-    buffer[0] = precision(-1.0e30)
-    buffer[1] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 0]
+    output_array[output_offset + 1] = buffer[buffer_offset + 1]
+    buffer[buffer_offset + 0] = precision(-1.0e30)
+    buffer[buffer_offset + 1] = precision(1.0e30)
 
 @cuda.jit(
     # [
@@ -3472,25 +3499,38 @@ def save_extrema(
 def update_peaks(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     npeaks = customisable_variable
-    prev = buffer[0]
-    prev_prev = buffer[1]
-    peak_counter = int32(buffer[2])
+    prev = buffer[offset + 0]
+    prev_prev = buffer[offset + 1]
+    peak_counter = int32(buffer[offset + 2])
 
-    if (
+    is_valid = (
         (current_index >= int32(2))
         and (peak_counter < npeaks)
         and (prev_prev != precision(0.0))
-    ):
-        if prev > value and prev_prev < prev:
-            # Bingo
-            buffer[3 + peak_counter] = int32(current_index - 1)
-            buffer[2] = precision(int32(buffer[2]) + 1)
-    buffer[0] = value  # Update previous value
-    buffer[1] = prev  # Update previous previous value
+    )
+    is_peak = prev > value and prev_prev < prev
+    should_record = is_valid and is_peak
+
+    # Clamp index to valid range for predicated access
+    safe_idx = peak_counter if peak_counter < npeaks else npeaks - 1
+
+    # Predicated commit for peak recording
+    new_counter = precision(int32(buffer[offset + 2]) + 1)
+    buffer[offset + 3 + safe_idx] = selp(
+        should_record,
+        precision(current_index - 1),
+        buffer[offset + 3 + safe_idx],
+    )
+    buffer[offset + 2] = selp(
+        should_record, new_counter, buffer[offset + 2]
+    )
+    buffer[offset + 0] = value
+    buffer[offset + 1] = prev
 
 @cuda.jit(
     # [
@@ -3504,14 +3544,16 @@ def update_peaks(
 )
 def save_peaks(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
     n_peaks = int32(customisable_variable)
     for p in range(n_peaks):
-        output_array[p] = buffer[3 + p]
-        buffer[3 + p] = precision(0.0)
-    buffer[2] = precision(0.0)
+        output_array[output_offset + p] = buffer[buffer_offset + 3 + p]
+        buffer[buffer_offset + 3 + p] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3526,24 +3568,38 @@ def save_peaks(
 def update_negative_peaks(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     npeaks = customisable_variable
-    prev = buffer[0]
-    prev_prev = buffer[1]
-    peak_counter = int32(buffer[2])
+    prev = buffer[offset + 0]
+    prev_prev = buffer[offset + 1]
+    peak_counter = int32(buffer[offset + 2])
 
-    if (
+    is_valid = (
         (current_index >= int32(2))
         and (peak_counter < npeaks)
         and (prev_prev != precision(0.0))
-    ):
-        if prev < value and prev_prev > prev:
-            buffer[3 + peak_counter] = int32(current_index - 1)
-            buffer[2] = precision(int32(buffer[2]) + 1)
-    buffer[0] = value
-    buffer[1] = prev
+    )
+    is_peak = prev < value and prev_prev > prev
+    should_record = is_valid and is_peak
+
+    # Clamp index to valid range for predicated access
+    safe_idx = peak_counter if peak_counter < npeaks else npeaks - 1
+
+    # Predicated commit for peak recording
+    new_counter = precision(int32(buffer[offset + 2]) + 1)
+    buffer[offset + 3 + safe_idx] = selp(
+        should_record,
+        precision(current_index - 1),
+        buffer[offset + 3 + safe_idx],
+    )
+    buffer[offset + 2] = selp(
+        should_record, new_counter, buffer[offset + 2]
+    )
+    buffer[offset + 0] = value
+    buffer[offset + 1] = prev
 
 @cuda.jit(
     # [
@@ -3557,14 +3613,16 @@ def update_negative_peaks(
 )
 def save_negative_peaks(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
     n_peaks = int32(customisable_variable)
     for p in range(n_peaks):
-        output_array[p] = buffer[3 + p]
-        buffer[3 + p] = precision(0.0)
-    buffer[2] = precision(0.0)
+        output_array[output_offset + p] = buffer[buffer_offset + 3 + p]
+        buffer[buffer_offset + 3 + p] = precision(0.0)
+    buffer[buffer_offset + 2] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3579,12 +3637,13 @@ def save_negative_peaks(
 def update_max_magnitude(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
     abs_value = fabs(value)
-    if abs_value > buffer[0]:
-        buffer[0] = abs_value
+    update_flag = abs_value > buffer[offset + 0]
+    buffer[offset + 0] = selp(update_flag, abs_value, buffer[offset + 0])
 
 @cuda.jit(
     # [
@@ -3598,11 +3657,13 @@ def update_max_magnitude(
 )
 def save_max_magnitude(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[0]
-    buffer[0] = precision(0.0)
+    output_array[output_offset + 0] = buffer[buffer_offset + 0]
+    buffer[buffer_offset + 0] = precision(0.0)
 
 @cuda.jit(
     # [
@@ -3617,13 +3678,14 @@ def save_max_magnitude(
 def update_dxdt_max(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    derivative_unscaled = value - buffer[0]
-    update_flag = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
-    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
-    buffer[0] = value
+    derivative_unscaled = value - buffer[offset + 0]
+    update_flag = (derivative_unscaled > buffer[offset + 1]) and (buffer[offset + 0] != precision(0.0))
+    buffer[offset + 1] = selp(update_flag, derivative_unscaled, buffer[offset + 1])
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3637,11 +3699,13 @@ def update_dxdt_max(
 )
 def save_dxdt_max(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
-    buffer[1] = precision(-1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 1] / precision(dt_save)
+    buffer[buffer_offset + 1] = precision(-1.0e30)
 
 @cuda.jit(
     # [
@@ -3656,13 +3720,14 @@ def save_dxdt_max(
 def update_dxdt_min(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    derivative_unscaled = value - buffer[0]
-    update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
-    buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
-    buffer[0] = value
+    derivative_unscaled = value - buffer[offset + 0]
+    update_flag = (derivative_unscaled < buffer[offset + 1]) and (buffer[offset + 0] != precision(0.0))
+    buffer[offset + 1] = selp(update_flag, derivative_unscaled, buffer[offset + 1])
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3676,11 +3741,13 @@ def update_dxdt_min(
 )
 def save_dxdt_min(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
-    buffer[1] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 1] / precision(dt_save)
+    buffer[buffer_offset + 1] = precision(1.0e30)
 
 @cuda.jit(
     # [
@@ -3695,15 +3762,16 @@ def save_dxdt_min(
 def update_dxdt_extrema(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    derivative_unscaled = value - buffer[0]
-    update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
-    update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
-    buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
-    buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
-    buffer[0] = value
+    derivative_unscaled = value - buffer[offset + 0]
+    update_max = (derivative_unscaled > buffer[offset + 1]) and (buffer[offset + 0] != precision(0.0))
+    update_min = (derivative_unscaled < buffer[offset + 2]) and (buffer[offset + 0] != precision(0.0))
+    buffer[offset + 1] = selp(update_max, derivative_unscaled, buffer[offset + 1])
+    buffer[offset + 2] = selp(update_min, derivative_unscaled, buffer[offset + 2])
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3717,13 +3785,15 @@ def update_dxdt_extrema(
 )
 def save_dxdt_extrema(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
-    output_array[1] = buffer[2] / precision(dt_save)
-    buffer[1] = precision(-1.0e30)
-    buffer[2] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 1] / precision(dt_save)
+    output_array[output_offset + 1] = buffer[buffer_offset + 2] / precision(dt_save)
+    buffer[buffer_offset + 1] = precision(-1.0e30)
+    buffer[buffer_offset + 2] = precision(1.0e30)
 
 @cuda.jit(
     # [
@@ -3738,14 +3808,15 @@ def save_dxdt_extrema(
 def update_d2xdt2_max(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-    update_flag = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
-    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
-    buffer[1] = buffer[0]
-    buffer[0] = value
+    second_derivative_unscaled = value - precision(2.0) * buffer[offset + 0] + buffer[offset + 1]
+    update_flag = (second_derivative_unscaled > buffer[offset + 2]) and (buffer[offset + 1] != precision(0.0))
+    buffer[offset + 2] = selp(update_flag, second_derivative_unscaled, buffer[offset + 2])
+    buffer[offset + 1] = buffer[offset + 0]
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3759,11 +3830,13 @@ def update_d2xdt2_max(
 )
 def save_d2xdt2_max(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-    buffer[2] = precision(-1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 2] / (precision(dt_save) * precision(dt_save))
+    buffer[buffer_offset + 2] = precision(-1.0e30)
 
 @cuda.jit(
     # [
@@ -3778,14 +3851,15 @@ def save_d2xdt2_max(
 def update_d2xdt2_min(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-    update_flag = (second_derivative_unscaled < buffer[2]) and (buffer[1] != precision(0.0))
-    buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
-    buffer[1] = buffer[0]
-    buffer[0] = value
+    second_derivative_unscaled = value - precision(2.0) * buffer[offset + 0] + buffer[offset + 1]
+    update_flag = (second_derivative_unscaled < buffer[offset + 2]) and (buffer[offset + 1] != precision(0.0))
+    buffer[offset + 2] = selp(update_flag, second_derivative_unscaled, buffer[offset + 2])
+    buffer[offset + 1] = buffer[offset + 0]
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3799,11 +3873,13 @@ def update_d2xdt2_min(
 )
 def save_d2xdt2_min(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-    buffer[2] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 2] / (precision(dt_save) * precision(dt_save))
+    buffer[buffer_offset + 2] = precision(1.0e30)
 
 @cuda.jit(
     # [
@@ -3818,16 +3894,17 @@ def save_d2xdt2_min(
 def update_d2xdt2_extrema(
     value,
     buffer,
+    offset,
     current_index,
     customisable_variable,
 ):
-    second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-    update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
-    update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
-    buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
-    buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
-    buffer[1] = buffer[0]
-    buffer[0] = value
+    second_derivative_unscaled = value - precision(2.0) * buffer[offset + 0] + buffer[offset + 1]
+    update_max = (second_derivative_unscaled > buffer[offset + 2]) and (buffer[offset + 1] != precision(0.0))
+    update_min = (second_derivative_unscaled < buffer[offset + 3]) and (buffer[offset + 1] != precision(0.0))
+    buffer[offset + 2] = selp(update_max, second_derivative_unscaled, buffer[offset + 2])
+    buffer[offset + 3] = selp(update_min, second_derivative_unscaled, buffer[offset + 3])
+    buffer[offset + 1] = buffer[offset + 0]
+    buffer[offset + 0] = value
 
 @cuda.jit(
     # [
@@ -3841,13 +3918,15 @@ def update_d2xdt2_extrema(
 )
 def save_d2xdt2_extrema(
     buffer,
+    buffer_offset,
     output_array,
+    output_offset,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-    output_array[1] = buffer[3] / (precision(dt_save) * precision(dt_save))
-    buffer[2] = precision(-1.0e30)
-    buffer[3] = precision(1.0e30)
+    output_array[output_offset + 0] = buffer[buffer_offset + 2] / (precision(dt_save) * precision(dt_save))
+    output_array[output_offset + 1] = buffer[buffer_offset + 3] / (precision(dt_save) * precision(dt_save))
+    buffer[buffer_offset + 2] = precision(-1.0e30)
+    buffer[buffer_offset + 3] = precision(1.0e30)
 
 
 # =========================================================================
@@ -3964,33 +4043,34 @@ def inline_save_functions(summaries_list):
     **compile_kwargs,
 )
 def do_nothing_update(
-    values,
+    value,
     buffer,
+    buffer_offset,
     current_step,
 ):
     pass
 
-def chain_metrics_update(metric_functions, buffer_offsets, buffer_sizes,
+
+def chain_metrics_update(metric_functions, buffer_offsets,
                          function_params, inner_chain=do_nothing_update):
     n = len(metric_functions)
 
     @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-    def leaf(value, buffer, current_step):
-        inner_chain(value, buffer, current_step)
+    def leaf(value, buffer, buffer_offset, current_step):
+        inner_chain(value, buffer, buffer_offset, current_step)
 
     fn_chain = leaf
     for i in range(n - 1, -1, -1):
         fn = metric_functions[i]
         boff = int32(buffer_offsets[i])
-        bsz = int32(buffer_sizes[i])
         param = int32(function_params[i])
         prev = fn_chain
 
         @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-        def wrapped(value, buffer, current_step, fn=fn, boff=boff, bsz=bsz,
-                   param=param, nxt=prev):
-            fn(value, buffer[boff:boff + bsz], current_step, param)
-            nxt(value, buffer, current_step)
+        def wrapped(value, buffer, buffer_offset, current_step, fn=fn,
+                    boff=boff, param=param, nxt=prev):
+            fn(value, buffer, buffer_offset + boff, current_step, param)
+            nxt(value, buffer, buffer_offset, current_step)
 
         fn_chain = wrapped
 
@@ -4066,10 +4146,9 @@ def update_summary_factory(
     )
 
     update_fns = inline_update_functions(summaries_list)
-    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params_list = summary_metrics.params(summaries_list)
     chain_fn = chain_metrics_update(
-        update_fns, buffer_offsets_list, buffer_sizes_list, params_list
+        update_fns, buffer_offsets_list, params_list
     )
 
     @cuda.jit(
@@ -4087,21 +4166,21 @@ def update_summary_factory(
     ):
         if summarise_states:
             for idx in range(num_summarised_states):
-                start = idx * total_buffer_size
-                end = start + total_buffer_size
+                base_offset = idx * total_buffer_size
                 chain_fn(
                     current_state[summarised_state_indices[idx]],
-                    state_summary_buffer[start:end],
+                    state_summary_buffer,
+                    base_offset,
                     current_step,
                 )
 
         if summarise_observables:
             for idx in range(num_summarised_observables):
-                start = idx * total_buffer_size
-                end = start + total_buffer_size
+                base_offset = idx * total_buffer_size
                 chain_fn(
                     current_observables[summarised_observable_indices[idx]],
-                    observable_summary_buffer[start:end],
+                    observable_summary_buffer,
+                    base_offset,
                     current_step,
                 )
 
@@ -4116,7 +4195,9 @@ def update_summary_factory(
 )
 def do_nothing_save(
     buffer,
+    buffer_offset,
     output,
+    output_offset,
 ):
     pass
 
@@ -4124,9 +4205,7 @@ def do_nothing_save(
 def chain_metrics_save(
     metric_functions,
     buffer_offsets_list,
-    buffer_sizes_list,
     output_offsets_list,
-    output_sizes_list,
     function_params,
     inner_chain=do_nothing_save,
 ):
@@ -4134,16 +4213,12 @@ def chain_metrics_save(
         return do_nothing_save
     current_metric_fn = metric_functions[0]
     current_buffer_offset = buffer_offsets_list[0]
-    current_buffer_size = buffer_sizes_list[0]
     current_output_offset = output_offsets_list[0]
-    current_output_size = output_sizes_list[0]
     current_metric_param = function_params[0]
 
     remaining_metric_fns = metric_functions[1:]
     remaining_buffer_offsets = buffer_offsets_list[1:]
-    remaining_buffer_sizes = buffer_sizes_list[1:]
     remaining_output_offsets = output_offsets_list[1:]
-    remaining_output_sizes = output_sizes_list[1:]
     remaining_metric_params = function_params[1:]
 
     @cuda.jit(
@@ -4153,21 +4228,21 @@ def chain_metrics_save(
     )
     def wrapper(
         buffer,
+        buffer_offset,
         output,
+        output_offset,
     ):
         inner_chain(
             buffer,
+            buffer_offset,
             output,
+            output_offset,
         )
         current_metric_fn(
-            buffer[
-                current_buffer_offset : current_buffer_offset
-                + current_buffer_size
-            ],
-            output[
-                current_output_offset : current_output_offset
-                + current_output_size
-            ],
+            buffer,
+            buffer_offset + current_buffer_offset,
+            output,
+            output_offset + current_output_offset,
             current_metric_param,
         )
 
@@ -4175,9 +4250,7 @@ def chain_metrics_save(
         return chain_metrics_save(
             remaining_metric_fns,
             remaining_buffer_offsets,
-            remaining_buffer_sizes,
             remaining_output_offsets,
-            remaining_output_sizes,
             remaining_metric_params,
             wrapper,
         )
@@ -4201,9 +4274,7 @@ def save_summary_factory(
     total_output_size = int32(summary_metrics.summaries_output_height(summaries_list))
 
     buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
-    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     output_offsets_list = summary_metrics.output_offsets(summaries_list)
-    output_sizes_list = summary_metrics.output_sizes(summaries_list)
     params_list = summary_metrics.params(summaries_list)
     num_summary_metrics = len(output_offsets_list)
 
@@ -4217,9 +4288,7 @@ def save_summary_factory(
     summary_metric_chain = chain_metrics_save(
         save_functions_list,
         buffer_offsets_list,
-        buffer_sizes_list,
         output_offsets_list,
-        output_sizes_list,
         params_list,
     )
 
@@ -4237,34 +4306,26 @@ def save_summary_factory(
     ):
         if summarise_states:
             for state_index in range(num_summarised_states):
-                buffer_array_slice_start = state_index * total_buffer_size
-                out_array_slice_start = state_index * total_output_size
+                buffer_base_offset = state_index * total_buffer_size
+                output_base_offset = state_index * total_output_size
 
                 summary_metric_chain(
-                    buffer_state_summaries[
-                        buffer_array_slice_start : buffer_array_slice_start
-                        + total_buffer_size
-                    ],
-                    output_state_summaries_window[
-                        out_array_slice_start : out_array_slice_start
-                        + total_output_size
-                    ],
+                    buffer_state_summaries,
+                    buffer_base_offset,
+                    output_state_summaries_window,
+                    output_base_offset,
                 )
 
         if summarise_observables:
             for observable_index in range(num_summarised_observables):
-                buffer_array_slice_start = observable_index * total_buffer_size
-                out_array_slice_start = observable_index * total_output_size
+                buffer_base_offset = observable_index * total_buffer_size
+                output_base_offset = observable_index * total_output_size
 
                 summary_metric_chain(
-                    buffer_observable_summaries[
-                        buffer_array_slice_start : buffer_array_slice_start
-                        + total_buffer_size
-                    ],
-                    output_observable_summaries_window[
-                        out_array_slice_start : out_array_slice_start
-                        + total_output_size
-                    ],
+                    buffer_observable_summaries,
+                    buffer_base_offset,
+                    output_observable_summaries_window,
+                    output_base_offset,
                 )
 
     return save_summary_metrics_func
