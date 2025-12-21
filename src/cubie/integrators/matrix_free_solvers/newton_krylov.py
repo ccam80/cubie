@@ -126,6 +126,34 @@ class NewtonKrylovConfig:
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
         return simsafe_dtype(np.dtype(self.precision))
+    
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return Newton-Krylov configuration as dictionary.
+        
+        Returns
+        -------
+        dict
+            Configuration dictionary containing:
+            - newton_tolerance: Residual norm threshold for convergence
+            - max_newton_iters: Maximum Newton iterations permitted
+            - newton_damping: Step shrink factor for backtracking
+            - newton_max_backtracks: Maximum damping attempts per Newton step
+            - delta_location: Buffer location for delta
+            - residual_location: Buffer location for residual
+            - residual_temp_location: Buffer location for residual_temp
+            - stage_base_bt_location: Buffer location for stage_base_bt
+        """
+        return {
+            'newton_tolerance': self.newton_tolerance,
+            'max_newton_iters': self.max_newton_iters,
+            'newton_damping': self.newton_damping,
+            'newton_max_backtracks': self.newton_max_backtracks,
+            'delta_location': self.delta_location,
+            'residual_location': self.residual_location,
+            'residual_temp_location': self.residual_temp_location,
+            'stage_base_bt_location': self.stage_base_bt_location,
+        }
 
 
 @attrs.define
@@ -608,3 +636,20 @@ class NewtonKrylov(CUDAFactory):
         Includes both Newton buffers and nested LinearSolver buffers.
         """
         return buffer_registry.persistent_local_buffer_size(self)
+    
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return merged Newton and linear solver configuration.
+        
+        Combines Newton-level settings from compile_settings with
+        linear solver settings from nested linear_solver instance.
+        
+        Returns
+        -------
+        dict
+            Merged configuration dictionary containing both Newton
+            parameters and linear solver parameters
+        """
+        combined = dict(self.linear_solver.settings_dict)
+        combined.update(self.compile_settings.settings_dict)
+        return combined
