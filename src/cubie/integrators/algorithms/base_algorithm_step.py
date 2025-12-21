@@ -518,7 +518,6 @@ class BaseAlgorithmStep(CUDAFactory):
 
         # Update buffer locations in registry
 
-        # BUG: This won't invalidate cache
         recognised |= buffer_registry.update(self, updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
 
