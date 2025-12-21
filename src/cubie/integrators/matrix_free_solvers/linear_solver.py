@@ -575,7 +575,8 @@ class LinearSolver(CUDAFactory):
         
         # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
-        
+        self.register_buffers()
+
         return recognized
     
     @property

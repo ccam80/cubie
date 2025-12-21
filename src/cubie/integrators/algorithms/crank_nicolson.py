@@ -160,12 +160,12 @@ class CrankNicolsonStep(ODEImplicitStep):
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         config = self.compile_settings
-        # Register cn_dxdt buffer for dxdt storage
         buffer_registry.register(
             'cn_dxdt',
             self,
             config.n,
             config.dxdt_location,
+            aliases='solver_shared',
             precision=config.precision
         )
 
@@ -214,7 +214,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
+                                                 name='solver')
         )
         alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 

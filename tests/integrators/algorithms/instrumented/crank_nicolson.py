@@ -217,7 +217,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
+                                                 name='solver')
         )
         alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 

@@ -5,12 +5,17 @@ from typing import Callable, Optional
 from numba import cuda, int32
 import numpy as np
 
+from cubie import NewtonKrylovConfig
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+from integrators.algorithms.instrumented.matrix_free_solvers import (
+    InstrumentedLinearSolver,
+    InstrumentedNewtonKrylov,
+)
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -114,7 +119,78 @@ class BackwardsEulerStep(ODEImplicitStep):
         if newton_damping is not None:
             solver_kwargs['newton_damping'] = newton_damping
         if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
+
+        super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+
+        def build_implicit_helpers(self) -> Callable:
+            """Construct the nonlinear solver chain used by implicit methods."""
+
+            precision = self.precision
+            config = self.compile_settings
+            beta = config.beta
+            gamma = config.gamma
+            mass = config.M
+            preconditioner_order = config.preconditioner_order
+            n = config.n
+
+            get_fn = config.get_solver_helper_fn
+
+            preconditioner = get_fn(
+                "neumann_preconditioner",
+                beta=beta,
+                gamma=gamma,
+                mass=mass,
+                preconditioner_order=preconditioner_order,
+            )
+
+            residual = get_fn(
+                "stage_residual",
+                beta=beta,
+                gamma=gamma,
+                mass=mass,
+                preconditioner_order=preconditioner_order,
+            )
+
+            operator = get_fn(
+                "linear_operator",
+                beta=beta,
+                gamma=gamma,
+                mass=mass,
+                preconditioner_order=preconditioner_order,
+            )
+
+            krylov_tolerance = config.krylov_tolerance
+            max_linear_iters = config.max_linear_iters
+            correction_type = config.linear_correction_type
+
+            linear_solver_instance = InstrumentedLinearSolver(
+                    precision=precision,
+                    n=n,
+                    correction_type=correction_type,
+                    krylov_tolerance=krylov_tolerance,
+                    max_linear_iters=max_linear_iters,
+            )
+
+            newton_tolerance = config.newton_tolerance
+            max_newton_iters = config.max_newton_iters
+            newton_damping = config.newton_damping
+            newton_max_backtracks = config.newton_max_backtracks
+
+
+            newton_instance = InstrumentedNewtonKrylov(
+                precision=precision,
+                n=n,
+                residual_function=residual,
+                linear_solver=linear_solver_instance,
+                tolerance=newton_tolerance,
+                max_iters=max_newton_iters,
+                damping=newton_damping,
+                max_backtracks=newton_max_backtracks,
+            )
+
+            # Replace parent solver with instrumented version
+            self.solver = newton_instance
 
 
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
@@ -159,9 +235,9 @@ class BackwardsEulerStep(ODEImplicitStep):
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
+                                                 name='solver')
         )
-        #ANTI-PATTER registration, move to register_buffers and add a config
+        #ANTI-PATTERN registration, move to register_buffers and add a config
         # subclass with this location
         buffer_registry.register('increment_cache', n,
                                         precision=self.precision,
@@ -327,6 +403,17 @@ class BackwardsEulerStep(ODEImplicitStep):
                 solver_scratch,
                 solver_persistent,
                 counters,
+                int32(0),
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
             # LOGGING: Record increment, residual, and state values

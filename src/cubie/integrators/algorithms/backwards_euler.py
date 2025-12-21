@@ -160,7 +160,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
+                                                 name='solver')
         )
         
         solver_fn = solver_function
@@ -247,7 +247,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
 
             for i in range(n):
-                proposed_state[i] = solver_scratch[i]
+                proposed_state[i] = solver_scratch[i] #TODO: setup
+                # stage_increment_cache array
 
             next_time = time_scalar + dt_scalar
             if has_driver_function:

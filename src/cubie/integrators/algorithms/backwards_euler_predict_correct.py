@@ -104,7 +104,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             self,
             config.n,
             self._predictor_location,
-            aliases='solver_scratch_shared',
+            aliases='solver_shared',
             precision=config.precision
         )
 
@@ -150,7 +150,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
-                                                 name='solver_scratch')
+                                                 name='solver')
         )
         alloc_predictor = buffer_registry.get_allocator('predictor', self)
 

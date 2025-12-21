@@ -153,6 +153,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         else:  # solver_type == 'linear'
             self.solver = linear_solver
 
+    def register_buffers(self) -> None:
+        """ Register buffers with buffer_registry."""
+        pass
+
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
         
@@ -194,6 +198,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         recognized |= buffer_registry.update(
             self, updates_dict=all_updates, silent=True
         )
+        self.register_buffers()
 
         return recognized
 
