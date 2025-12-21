@@ -1,4 +1,29 @@
-"""Fully implicit Runge--Kutta integration step implementation."""
+"""Fully implicit Runge--Kutta integration step implementation.
+
+This module provides the :class:`FIRKStep` class, which implements fully
+implicit Runge--Kutta (FIRK) methods using configurable Butcher tableaus.
+Unlike DIRK methods, FIRK methods have a fully dense coefficient matrix,
+requiring all stages to be solved simultaneously as a coupled system.
+
+Key Features
+------------
+- Configurable tableaus via :class:`FIRKTableau`
+- Automatic controller defaults selection based on error estimate capability
+- Matrix-free Newton-Krylov solvers for coupled implicit stages
+- Support for high-order implicit methods (e.g., Gauss-Legendre)
+
+Notes
+-----
+The module defines two sets of default step controller settings:
+
+- :data:`FIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
+  error estimate. Defaults to PI controller with adaptive stepping.
+- :data:`FIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
+  estimate. Defaults to fixed-step controller.
+
+This dynamic selection ensures that users cannot accidentally pair an
+errorless tableau with an adaptive controller, which would fail at runtime.
+"""
 
 from typing import Callable, Optional
 
@@ -6,7 +31,6 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
-from cubie.cuda_simsafe import compile_kwargs
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -21,10 +45,8 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
-)
+
+
 
 
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -40,6 +62,21 @@ FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
+"""Default step controller settings for adaptive FIRK tableaus.
+
+This configuration is used when the FIRK tableau has an embedded error
+estimate (``tableau.has_error_estimate == True``).
+
+The PI controller provides robust adaptive stepping with proportional and
+derivative terms to smooth step size adjustments. The deadband prevents
+unnecessary step size changes for small variations in the error estimate.
+
+Notes
+-----
+These defaults are applied automatically when creating a :class:`FIRKStep`
+with an adaptive tableau. Users can override any of these settings by
+explicitly specifying step controller parameters.
+"""
 
 FIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -47,6 +84,21 @@ FIRK_FIXED_DEFAULTS = StepControlDefaults(
         "dt": 1e-3,
     }
 )
+"""Default step controller settings for errorless FIRK tableaus.
+
+This configuration is used when the FIRK tableau lacks an embedded error
+estimate (``tableau.has_error_estimate == False``).
+
+Fixed-step controllers maintain a constant step size throughout the
+integration. This is the only valid choice for errorless tableaus since
+adaptive stepping requires an error estimate to adjust the step size.
+
+Notes
+-----
+These defaults are applied automatically when creating a :class:`FIRKStep`
+with an errorless tableau. Users can override the step size ``dt`` by
+explicitly specifying it in the step controller settings.
+"""
 
 
 @attrs.define
@@ -107,7 +159,84 @@ class FIRKStep(ODEImplicitStep):
         stage_driver_stack_location: Optional[str] = None,
         stage_state_location: Optional[str] = None,
     ) -> None:
-        """Initialise the FIRK step configuration."""
+        """Initialise the FIRK step configuration.
+        
+        This constructor creates a FIRK step object and automatically selects
+        appropriate default step controller settings based on whether the
+        tableau has an embedded error estimate. Tableaus with error estimates
+        default to adaptive stepping (PI controller), while errorless tableaus
+        default to fixed stepping.
+
+        Parameters
+        ----------
+        precision
+            Floating-point precision for CUDA computations.
+        n
+            Number of state variables in the ODE system.
+        dxdt_function
+            Compiled CUDA device function computing state derivatives.
+        observables_function
+            Optional compiled CUDA device function computing observables.
+        driver_function
+            Optional compiled CUDA device function computing time-varying
+            drivers.
+        get_solver_helper_fn
+            Factory function returning solver helper for Jacobian operations.
+        preconditioner_order
+            Order of the truncated Neumann preconditioner. If None, uses
+            default value of 2.
+        krylov_tolerance
+            Convergence tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
+        max_linear_iters
+            Maximum iterations allowed for the Krylov solver. If None, uses
+            default from LinearSolverConfig.
+        linear_correction_type
+            Type of Krylov correction. If None, uses default from
+            LinearSolverConfig.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
+        newton_damping
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
+        tableau
+            FIRK tableau describing the coefficients. Defaults to
+            :data:`DEFAULT_FIRK_TABLEAU`.
+        n_drivers
+            Number of driver variables in the system.
+        stage_increment_location
+            Memory location for stage increment buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
+        stage_driver_stack_location
+            Memory location for stage driver stack buffer: 'local' or
+            'shared'. If None, defaults to 'local'.
+        stage_state_location
+            Memory location for stage state buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        
+        Notes
+        -----
+        The step controller defaults are selected dynamically:
+        
+        - If ``tableau.has_error_estimate`` is ``True``:
+          Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (PI controller)
+        - If ``tableau.has_error_estimate`` is ``False``:
+          Uses :data:`FIRK_FIXED_DEFAULTS` (fixed-step controller)
+        
+        This automatic selection prevents incompatible configurations where
+        an adaptive controller is paired with an errorless tableau.
+        
+        FIRK methods require solving a coupled system of all stages
+        simultaneously, which is more computationally expensive than DIRK
+        methods but can achieve higher orders of accuracy for stiff systems.
+        """
 
         mass = np.eye(n, dtype=precision)
 
@@ -161,36 +290,7 @@ class FIRKStep(ODEImplicitStep):
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
 
-        # Replace solver with instrumented version
-        self._replace_with_instrumented_solvers()
-
         self.register_buffers()
-
-    def _replace_with_instrumented_solvers(self) -> None:
-        """Replace parent's solver with instrumented version."""
-        config = self.compile_settings
-        parent_solver = self.solver
-        parent_linear = parent_solver.linear_solver
-        
-        # Create instrumented linear solver with same settings
-        instrumented_linear = InstrumentedLinearSolver(
-            precision=config.precision,
-            n=config.all_stages_n,
-            correction_type=parent_linear.correction_type,
-            krylov_tolerance=parent_linear.krylov_tolerance,
-            max_linear_iters=parent_linear.max_iters,
-        )
-        
-        # Create instrumented Newton solver with same settings
-        self.solver = InstrumentedNewtonKrylov(
-            precision=config.precision,
-            n=config.all_stages_n,
-            linear_solver=instrumented_linear,
-            newton_tolerance=parent_solver.newton_tolerance,
-            max_newton_iters=parent_solver.max_newton_iters,
-            newton_damping=parent_solver.newton_damping,
-            newton_max_backtracks=parent_solver.newton_max_backtracks,
-        )
 
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
@@ -373,7 +473,6 @@ class FIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
-            **compile_kwargs,
         )
         def step(
             state,

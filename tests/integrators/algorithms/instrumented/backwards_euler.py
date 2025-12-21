@@ -12,16 +12,6 @@ from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedNewtonKrylov,
-)
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverConfig
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylovConfig
-)
-
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
                   'M': np.eye}
@@ -127,84 +117,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
         
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
-
-    def build_implicit_helpers(self) -> Callable:
-        """Construct the nonlinear solver chain used by implicit methods."""
-
-        precision = self.precision
-        config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        mass = config.M
-        preconditioner_order = config.preconditioner_order
-        n = config.n
-
-        get_fn = config.get_solver_helper_fn
-
-        preconditioner = get_fn(
-            "neumann_preconditioner",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        residual = get_fn(
-            "stage_residual",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        operator = get_fn(
-            "linear_operator",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        krylov_tolerance = self.krylov_tolerance
-        max_linear_iters = self.max_linear_iters
-        correction_type = self.linear_correction_type
-
-        linear_solver_config = LinearSolverConfig(
-            precision=precision,
-            n=n,
-            operator_apply=operator,
-            preconditioner=preconditioner,
-            correction_type=correction_type,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            use_cached_auxiliaries=False,
-        )
-
-
-        newton_tolerance = self.newton_tolerance
-        max_newton_iters = self.max_newton_iters
-        newton_damping = self.newton_damping
-        newton_max_backtracks = self.newton_max_backtracks
-
-        newton_config = NewtonKrylovConfig(
-            precision=precision,
-            n=n,
-            residual_function=residual,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-        )
-        newton_instance = InstrumentedNewtonKrylov(newton_config)
-        
-        # Replace parent solver with instrumented version
-        self.solver = newton_instance
-        
-        self.update_compile_settings(
-            solver_function=self.solver.device_function
-        )
-
-        return newton_instance.device_function
 
     def build_step(
         self,

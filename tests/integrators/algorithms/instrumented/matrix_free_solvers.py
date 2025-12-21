@@ -1,12 +1,12 @@
 """Instrumented matrix-free solver factories for CUDA device kernels."""
 
 import attrs
-from typing import Callable, Optional
+from typing import Callable
 
 import numpy as np
 from numba import cuda, int32, from_dtype
 
-from cubie._utils import is_device_validator, PrecisionDType
+from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFunctionCache
 from cubie.cuda_simsafe import (
@@ -14,11 +14,9 @@ from cubie.cuda_simsafe import (
 )
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
-    LinearSolverConfig,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
-    NewtonKrylovConfig,
 )
 
 
@@ -45,16 +43,6 @@ class InstrumentedLinearSolver(LinearSolver):
     during iteration. Uses buffer_registry for production buffers
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
     """
-    
-    def __init__(self, config: LinearSolverConfig) -> None:
-        """Initialize InstrumentedLinearSolver with configuration.
-        
-        Parameters
-        ----------
-        config : LinearSolverConfig
-            Configuration containing all compile-time parameters.
-        """
-        super().__init__(config)
     
     def build(self) -> InstrumentedLinearSolverCache:
         """Compile instrumented linear solver device function.
@@ -99,8 +87,8 @@ class InstrumentedLinearSolver(LinearSolver):
         preconditioner = config.preconditioner
         n = config.n
         correction_type = config.correction_type
-        tolerance = config.tolerance
-        max_iters = config.max_iters
+        tolerance = config.krylov_tolerance
+        max_iters = config.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -427,17 +415,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     linear solve logging.
     """
     
-    def __init__(self, config: NewtonKrylovConfig) -> None:
-        """Initialize InstrumentedNewtonKrylov with configuration.
-        
-        Parameters
-        ----------
-        config : NewtonKrylovConfig
-            Configuration containing all compile-time parameters.
-            linear_solver must be InstrumentedLinearSolver instance.
-        """
-        super().__init__(config)
-    
     def build(self) -> InstrumentedNewtonKrylovCache:
         """Compile instrumented Newton-Krylov solver device function.
         
@@ -488,14 +465,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 "residual_function must be set before building "
                 "InstrumentedNewtonKrylov"
             )
-        if config.linear_solver is None:
+        if self.linear_solver is None:
             raise ValueError(
                 "linear_solver must be set before building "
                 "InstrumentedNewtonKrylov"
             )
         
         # Validate linear_solver is InstrumentedLinearSolver
-        if not isinstance(config.linear_solver, InstrumentedLinearSolver):
+        if not isinstance(self.linear_solver, InstrumentedLinearSolver):
             raise TypeError(
                 "InstrumentedNewtonKrylov requires linear_solver to be "
                 "InstrumentedLinearSolver instance"
@@ -503,12 +480,12 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         
         # Extract parameters from config
         residual_function = config.residual_function
-        linear_solver = config.linear_solver
+        linear_solver = self.linear_solver
         n = config.n
-        tolerance = config.tolerance
-        max_iters = config.max_iters
-        damping = config.damping
-        max_backtracks = config.max_backtracks
+        tolerance = config.newton_tolerance
+        max_iters = config.max_newton_iters
+        damping = config.newton_damping
+        max_backtracks = config.newton_max_backtracks
         precision = config.precision
         
         # Get linear solver device function (triggers build() if needed)

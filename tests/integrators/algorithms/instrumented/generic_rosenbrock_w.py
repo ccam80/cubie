@@ -38,7 +38,6 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, is_device_validator
-from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -51,9 +50,10 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     RosenbrockTableau,
 )
-from .matrix_free_solvers import (
-    InstrumentedLinearSolver,
-)
+from cubie.buffer_registry import buffer_registry
+
+
+
 
 
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -266,15 +266,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         time_derivative_function = get_fn('time_derivative_rhs')
 
         # Update linear solver with device functions
-        # Use InstrumentedLinearSolver instead of production LinearSolver
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
             use_cached_auxiliaries=True,
         )
-        # Replace parent solver with instrumented version
-        instrumented_solver = InstrumentedLinearSolver(self.solver.compile_settings)
-        self.solver = instrumented_solver
 
         # Return linear solver device function
         self.update_compile_settings(

@@ -21,10 +21,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
-)
 
 
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
@@ -154,26 +150,6 @@ class DIRKStep(ODEImplicitStep):
 
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
-
-        # Replace solver with instrumented version that has logging
-        original_linear_solver = self.solver.linear_solver
-        instrumented_linear = InstrumentedLinearSolver(
-            precision=config.precision,
-            n=config.n,
-            krylov_tolerance=original_linear_solver.krylov_tolerance,
-            max_linear_iters=original_linear_solver.max_linear_iters,
-            correction_type=original_linear_solver.correction_type,
-        )
-        instrumented_newton = InstrumentedNewtonKrylov(
-            precision=config.precision,
-            n=config.n,
-            linear_solver=instrumented_linear,
-            newton_tolerance=self.solver.newton_tolerance,
-            max_newton_iters=self.solver.max_newton_iters,
-            newton_damping=self.solver.newton_damping,
-            newton_max_backtracks=self.solver.newton_max_backtracks,
-        )
-        self.solver = instrumented_newton
 
         self.register_buffers()
 
