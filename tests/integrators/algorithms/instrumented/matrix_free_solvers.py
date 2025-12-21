@@ -44,6 +44,42 @@ class InstrumentedLinearSolver(LinearSolver):
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
     """
     
+    def register_buffers(self) -> None:
+        """Register device buffers with lin_ prefix for instrumented solver."""
+        config = self.compile_settings
+        use_cached = config.use_cached_auxiliaries
+        
+        if use_cached:
+            buffer_registry.register(
+                'lin_cached_preconditioned_vec',
+                self,
+                config.n,
+                config.preconditioned_vec_location,
+                precision=config.precision
+            )
+            buffer_registry.register(
+                'lin_cached_temp',
+                self,
+                config.n,
+                config.temp_location,
+                precision=config.precision
+            )
+        else:
+            buffer_registry.register(
+                'lin_preconditioned_vec',
+                self,
+                config.n,
+                config.preconditioned_vec_location,
+                precision=config.precision
+            )
+            buffer_registry.register(
+                'lin_temp',
+                self,
+                config.n,
+                config.temp_location,
+                precision=config.precision
+            )
+    
     def build(self) -> InstrumentedLinearSolverCache:
         """Compile instrumented linear solver device function.
         
@@ -414,6 +450,41 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     during Newton iteration. Embeds InstrumentedLinearSolver for nested
     linear solve logging.
     """
+    
+    def register_buffers(self) -> None:
+        """Register device buffers with newton_ prefix for instrumented solver."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        
+        buffer_registry.register(
+            'newton_delta',
+            self,
+            n,
+            config.delta_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'newton_residual',
+            self,
+            n,
+            config.residual_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'newton_residual_temp',
+            self,
+            n,
+            config.residual_temp_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'newton_stage_base_bt',
+            self,
+            n,
+            config.stage_base_bt_location,
+            precision=precision
+        )
     
     def build(self) -> InstrumentedNewtonKrylovCache:
         """Compile instrumented Newton-Krylov solver device function.
