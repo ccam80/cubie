@@ -109,10 +109,22 @@ class DIRKStepConfig(ImplicitStepConfig):
     tableau: DIRKTableau = attrs.field(
         default=DEFAULT_DIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(default='local')
-    stage_base_location: str = attrs.field(default='local')
-    accumulator_location: str = attrs.field(default='local')
-    stage_rhs_location: str = attrs.field(default='local')
+    stage_increment_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_base_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
 class DIRKStep(ODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
@@ -192,6 +204,18 @@ class DIRKStep(ODEImplicitStep):
             :data:`DEFAULT_DIRK_TABLEAU`.
         n_drivers
             Number of driver variables in the system.
+        stage_increment_location
+            Memory location for stage increment buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
+        stage_base_location
+            Memory location for stage base buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        accumulator_location
+            Memory location for accumulator buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        stage_rhs_location
+            Memory location for stage RHS buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
         
         Notes
         -----

@@ -70,27 +70,38 @@ class IVPLoop(CUDAFactory):
     observable_summary_buffer_height
         Height of observable summary buffer.
     state_location
-        Memory location for state buffer: 'local' or 'shared'.
+        Memory location for state buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     proposed_state_location
-        Memory location for proposed state buffer.
+        Memory location for proposed state buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     parameters_location
-        Memory location for parameters buffer.
+        Memory location for parameters buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     drivers_location
-        Memory location for drivers buffer.
+        Memory location for drivers buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     proposed_drivers_location
-        Memory location for proposed drivers buffer.
+        Memory location for proposed drivers buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     observables_location
-        Memory location for observables buffer.
+        Memory location for observables buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     proposed_observables_location
-        Memory location for proposed observables buffer.
+        Memory location for proposed observables buffer: 'local' or 'shared'.
+        If None, defaults to 'local'.
     error_location
-        Memory location for error buffer.
+        Memory location for error buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     counters_location
-        Memory location for counters buffer.
+        Memory location for counters buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     state_summary_location
-        Memory location for state summary buffer.
+        Memory location for state summary buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     observable_summary_location
-        Memory location for observable summary buffer.
+        Memory location for observable summary buffer: 'local' or 'shared'.
+        If None, defaults to 'local'.
     controller_local_len
         Number of persistent local memory elements for the controller.
     algorithm_local_len
@@ -150,19 +161,43 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
-        state_location: str = "local",
-        proposed_state_location: str = "local",
-        parameters_location: str = "local",
-        drivers_location: str = "local",
-        proposed_drivers_location: str = "local",
-        observables_location: str = "local",
-        proposed_observables_location: str = "local",
-        error_location: str = "local",
-        counters_location: str = "local",
-        state_summary_location: str = "local",
-        observable_summary_location: str = "local",
+        state_location: Optional[str] = None,
+        proposed_state_location: Optional[str] = None,
+        parameters_location: Optional[str] = None,
+        drivers_location: Optional[str] = None,
+        proposed_drivers_location: Optional[str] = None,
+        observables_location: Optional[str] = None,
+        proposed_observables_location: Optional[str] = None,
+        error_location: Optional[str] = None,
+        counters_location: Optional[str] = None,
+        state_summary_location: Optional[str] = None,
+        observable_summary_location: Optional[str] = None,
     ) -> None:
         super().__init__()
+
+        # Set defaults for buffer locations
+        if state_location is None:
+            state_location = "local"
+        if proposed_state_location is None:
+            proposed_state_location = "local"
+        if parameters_location is None:
+            parameters_location = "local"
+        if drivers_location is None:
+            drivers_location = "local"
+        if proposed_drivers_location is None:
+            proposed_drivers_location = "local"
+        if observables_location is None:
+            observables_location = "local"
+        if proposed_observables_location is None:
+            proposed_observables_location = "local"
+        if error_location is None:
+            error_location = "local"
+        if counters_location is None:
+            counters_location = "local"
+        if state_summary_location is None:
+            state_summary_location = "local"
+        if observable_summary_location is None:
+            observable_summary_location = "local"
 
         # Register all loop buffers with central registry
         buffer_registry.clear_parent(self)
@@ -218,42 +253,55 @@ class IVPLoop(CUDAFactory):
                 'accept_step', self, 1, 'local', precision=precision
         )
 
-        config = ODELoopConfig(
-            n_states=n_states,
-            n_parameters=n_parameters,
-            n_drivers=n_drivers,
-            n_observables=n_observables,
-            n_error=n_error,
-            n_counters=n_counters,
-            state_summary_buffer_height=state_summary_buffer_height,
-            observable_summary_buffer_height=observable_summary_buffer_height,
-            state_location=state_location,
-            proposed_state_location=proposed_state_location,
-            parameters_location=parameters_location,
-            drivers_location=drivers_location,
-            proposed_drivers_location=proposed_drivers_location,
-            observables_location=observables_location,
-            proposed_observables_location=proposed_observables_location,
-            error_location=error_location,
-            counters_location=counters_location,
-            state_summary_location=state_summary_location,
-            observable_summary_location=observable_summary_location,
-            save_state_fn=save_state_func,
-            update_summaries_fn=update_summaries_func,
-            save_summaries_fn=save_summaries_func,
-            step_controller_fn=step_controller_fn,
-            step_function=step_function,
-            driver_function=driver_function,
-            observables_fn=observables_fn,
-            precision=precision,
-            compile_flags=compile_flags,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
-            dt0=dt0,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            is_adaptive=is_adaptive,
-        )
+        config_kwargs = {
+            'n_states': n_states,
+            'n_parameters': n_parameters,
+            'n_drivers': n_drivers,
+            'n_observables': n_observables,
+            'n_error': n_error,
+            'n_counters': n_counters,
+            'state_summary_buffer_height': state_summary_buffer_height,
+            'observable_summary_buffer_height': observable_summary_buffer_height,
+            'state_location': state_location,
+            'proposed_state_location': proposed_state_location,
+            'parameters_location': parameters_location,
+            'drivers_location': drivers_location,
+            'proposed_drivers_location': proposed_drivers_location,
+            'observables_location': observables_location,
+            'proposed_observables_location': proposed_observables_location,
+            'error_location': error_location,
+            'counters_location': counters_location,
+            'state_summary_location': state_summary_location,
+            'observable_summary_location': observable_summary_location,
+            'precision': precision,
+            'compile_flags': compile_flags,
+            'dt_save': dt_save,
+            'dt_summarise': dt_summarise,
+        }
+        if save_state_func is not None:
+            config_kwargs['save_state_fn'] = save_state_func
+        if update_summaries_func is not None:
+            config_kwargs['update_summaries_fn'] = update_summaries_func
+        if save_summaries_func is not None:
+            config_kwargs['save_summaries_fn'] = save_summaries_func
+        if step_controller_fn is not None:
+            config_kwargs['step_controller_fn'] = step_controller_fn
+        if step_function is not None:
+            config_kwargs['step_function'] = step_function
+        if driver_function is not None:
+            config_kwargs['driver_function'] = driver_function
+        if observables_fn is not None:
+            config_kwargs['observables_fn'] = observables_fn
+        if dt0 is not None:
+            config_kwargs['dt0'] = dt0
+        if dt_min is not None:
+            config_kwargs['dt_min'] = dt_min
+        if dt_max is not None:
+            config_kwargs['dt_max'] = dt_max
+        if is_adaptive is not None:
+            config_kwargs['is_adaptive'] = is_adaptive
+
+        config = ODELoopConfig(**config_kwargs)
         self.setup_compile_settings(config)
 
     @property

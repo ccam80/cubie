@@ -109,9 +109,18 @@ class FIRKStepConfig(ImplicitStepConfig):
     tableau: FIRKTableau = attrs.field(
         default=DEFAULT_FIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(default='local')
-    stage_driver_stack_location: str = attrs.field(default='local')
-    stage_state_location: str = attrs.field(default='local')
+    stage_increment_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_driver_stack_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_state_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
 
     @property
     def stage_count(self) -> int:
@@ -203,6 +212,15 @@ class FIRKStep(ODEImplicitStep):
             :data:`DEFAULT_FIRK_TABLEAU`.
         n_drivers
             Number of driver variables in the system.
+        stage_increment_location
+            Memory location for stage increment buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
+        stage_driver_stack_location
+            Memory location for stage driver stack buffer: 'local' or
+            'shared'. If None, defaults to 'local'.
+        stage_state_location
+            Memory location for stage state buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
         
         Notes
         -----

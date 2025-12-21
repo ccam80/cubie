@@ -11,7 +11,18 @@ from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
     """Backward Euler with a predictor-corrector refinement."""
-    def __init__(self, **backwardeulerkwargs):
+    def __init__(self, predictor_location: Optional[str] = None, **backwardeulerkwargs):
+        """Initialize the Backward Euler predictor-corrector step.
+        
+        Parameters
+        ----------
+        predictor_location
+            Memory location for predictor buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        **backwardeulerkwargs
+            Additional keyword arguments passed to BackwardsEulerStep.__init__.
+        """
+        self._predictor_location = predictor_location if predictor_location is not None else 'local'
         super().__init__(**backwardeulerkwargs)
         self.register_buffers()
 
@@ -20,7 +31,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         buffer_registry.register('predictor',
                                  self,
                                  self.compile_settings.n,
-                                 location='local',
+                                 location=self._predictor_location,
                                  aliases='solver_scratch_shared',
                                  precision=self.precision)
 

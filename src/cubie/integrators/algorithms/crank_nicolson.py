@@ -48,6 +48,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        dxdt_location: Optional[str] = None,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -89,6 +90,9 @@ class CrankNicolsonStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver. If
             None, uses default from NewtonKrylovConfig.
+        dxdt_location
+            Memory location for dxdt buffer: 'local' or 'shared'. If None,
+            defaults to 'local'.
 
         Returns
         -------
@@ -131,6 +135,21 @@ class CrankNicolsonStep(ODEImplicitStep):
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
         
         super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
+        
+        self._dxdt_location = dxdt_location if dxdt_location is not None else 'local'
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        buffer_registry.register(
+            'cn_dxdt',
+            self,
+            config.n,
+            self._dxdt_location,
+            aliases='solver_scratch_shared',
+            precision=config.precision
+        )
 
     def build_step(
         self,
@@ -179,6 +198,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
         )
+        alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
         @cuda.jit(
             # (
@@ -260,8 +280,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             solver_scratch = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
-            # Reuse solver scratch for the dx/dt evaluation buffer.
-            dxdt = solver_scratch[:n]
+            dxdt = alloc_dxdt(shared, persistent_local)
             # error buffer tracks the stage base during setup.
             base_state = error
 
