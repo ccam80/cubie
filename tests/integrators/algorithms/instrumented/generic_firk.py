@@ -306,6 +306,11 @@ class FIRKStep(ODEImplicitStep):
         # Clear any existing buffer registrations
         buffer_registry.clear_parent(self)
 
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver'
+        )
+
         # Calculate buffer sizes
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
@@ -460,7 +465,8 @@ class FIRKStep(ODEImplicitStep):
         
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, nonlinear_solver)
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver')
         )
         # no cover: start
         @cuda.jit(

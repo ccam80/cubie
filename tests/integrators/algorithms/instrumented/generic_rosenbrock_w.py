@@ -290,12 +290,47 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         self.register_buffers()
 
+    def build(self) -> StepCache:
+        """Create and cache the device helpers for the Rosenbrock algorithm.
+
+        Overrides the base class to pass driver_del_t to build_step, matching
+        the production Rosenbrock signature.
+
+        Returns
+        -------
+        StepCache
+            Container with the compiled step function.
+        """
+        config = self.compile_settings
+        self.build_implicit_helpers()
+
+        dxdt_fn = config.dxdt_function
+        numba_precision = config.numba_precision
+        n = config.n
+        observables_function = config.observables_function
+        driver_function = config.driver_function
+        driver_del_t = config.driver_del_t
+        n_drivers = config.n_drivers
+        solver_function = config.solver_function
+
+        return self.build_step(
+            dxdt_fn,
+            observables_function,
+            driver_function,
+            solver_function,
+            driver_del_t,
+            numba_precision,
+            n,
+            n_drivers,
+        )
+
     def build_step(
         self,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
         solver_function: Callable,
+        driver_del_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -304,7 +339,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
-        driver_del_t = config.driver_del_t
 
         # Access solver from parameter
         linear_solver = solver_function

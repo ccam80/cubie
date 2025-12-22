@@ -164,8 +164,14 @@ class CrankNicolsonStep(ODEImplicitStep):
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         config = self.compile_settings
-        # Register cn_dxdt buffer - aliasing will be set up when
-        # get_child_allocators is called in build_step
+        buffer_registry.clear_parent(self)
+
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver'
+        )
+
+        # Register cn_dxdt buffer
         buffer_registry.register(
             'cn_dxdt',
             self,
@@ -226,6 +232,9 @@ class CrankNicolsonStep(ODEImplicitStep):
         self.solver.update(residual_function=residual_fn)
 
         self.update_compile_settings(solver_function=self.solver.device_function)
+
+        # Re-register buffers with the new instrumented solver
+        self.register_buffers()
 
     def build_step(
         self,
