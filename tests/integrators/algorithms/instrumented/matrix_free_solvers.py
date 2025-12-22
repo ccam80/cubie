@@ -42,43 +42,11 @@ class InstrumentedLinearSolver(LinearSolver):
     Logging arrays are passed as device function parameters and populated
     during iteration. Uses buffer_registry for production buffers
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
-    """
     
-    def register_buffers(self) -> None:
-        """Register device buffers with lin_ prefix for instrumented solver."""
-        config = self.compile_settings
-        use_cached = config.use_cached_auxiliaries
-        
-        if use_cached:
-            buffer_registry.register(
-                'lin_cached_preconditioned_vec',
-                self,
-                config.n,
-                config.preconditioned_vec_location,
-                precision=config.precision
-            )
-            buffer_registry.register(
-                'lin_cached_temp',
-                self,
-                config.n,
-                config.temp_location,
-                precision=config.precision
-            )
-        else:
-            buffer_registry.register(
-                'lin_preconditioned_vec',
-                self,
-                config.n,
-                config.preconditioned_vec_location,
-                precision=config.precision
-            )
-            buffer_registry.register(
-                'lin_temp',
-                self,
-                config.n,
-                config.temp_location,
-                precision=config.precision
-            )
+    Uses the same buffer names as the production LinearSolver so that
+    get_child_allocators() correctly computes buffer sizes when this
+    solver is embedded within an instrumented Newton solver.
+    """
     
     def build(self) -> InstrumentedLinearSolverCache:
         """Compile instrumented linear solver device function.
@@ -140,19 +108,10 @@ class InstrumentedLinearSolver(LinearSolver):
         typed_zero = precision_numba(0.0)
         tol_squared = precision_numba(tolerance * tolerance)
         
-        # Get allocators from buffer_registry
-        if use_cached_auxiliaries:
-            alloc_precond = buffer_registry.get_allocator(
-                'lin_cached_preconditioned_vec', self
-            )
-            alloc_temp = buffer_registry.get_allocator(
-                'lin_cached_temp', self
-            )
-        else:
-            alloc_precond = buffer_registry.get_allocator(
-                'lin_preconditioned_vec', self
-            )
-            alloc_temp = buffer_registry.get_allocator('lin_temp', self)
+        # Get allocators from buffer_registry using production buffer names
+        # (registered by parent LinearSolver.register_buffers)
+        alloc_precond = buffer_registry.get_allocator('preconditioned_vec', self)
+        alloc_temp = buffer_registry.get_allocator('temp', self)
         
         # Branch on use_cached_auxiliaries flag
         if use_cached_auxiliaries:
@@ -449,42 +408,11 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     Logging arrays are passed as device function parameters and populated
     during Newton iteration. Embeds InstrumentedLinearSolver for nested
     linear solve logging.
-    """
     
-    def register_buffers(self) -> None:
-        """Register device buffers with newton_ prefix for instrumented solver."""
-        config = self.compile_settings
-        precision = config.precision
-        n = config.n
-        
-        buffer_registry.register(
-            'newton_delta',
-            self,
-            n,
-            config.delta_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'newton_residual',
-            self,
-            n,
-            config.residual_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'newton_residual_temp',
-            self,
-            n,
-            config.residual_temp_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'newton_stage_base_bt',
-            self,
-            n,
-            config.stage_base_bt_location,
-            precision=precision
-        )
+    Uses the same buffer names as the production NewtonKrylov so that
+    get_child_allocators() correctly computes buffer sizes when this
+    solver is embedded within a step implementation.
+    """
     
     def build(self) -> InstrumentedNewtonKrylovCache:
         """Compile instrumented Newton-Krylov solver device function.
@@ -554,20 +482,21 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         max_iters_val = int32(max_iters)
         max_backtracks_val = int32(max_backtracks + 1)
         
-        # Get allocators from buffer_registry
-        alloc_delta = buffer_registry.get_allocator('newton_delta', self)
-        alloc_residual = buffer_registry.get_allocator(
-            'newton_residual', self
-        )
+        # Get allocators from buffer_registry using production buffer names
+        # (registered by parent NewtonKrylov.register_buffers)
+        alloc_delta = buffer_registry.get_allocator('delta', self)
+        alloc_residual = buffer_registry.get_allocator('residual', self)
         alloc_residual_temp = buffer_registry.get_allocator(
-            'newton_residual_temp', self
+            'residual_temp', self
         )
         alloc_stage_base_bt = buffer_registry.get_allocator(
-            'newton_stage_base_bt', self
+            'stage_base_bt', self
         )
         
-        # Compute offset for linear solver shared buffers
-        lin_shared_offset = buffer_registry.shared_buffer_size(self)
+        # Get child allocators for linear solver (same pattern as production)
+        alloc_lin_shared, alloc_lin_persistent = (
+            buffer_registry.get_child_allocators(self, self.linear_solver)
+        )
         
         # no cover: start
         @cuda.jit(
@@ -668,8 +597,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 
                 iter_slot = int(iters_count) - 1
                 
-                # Linear solver uses remaining shared space after Newton buffers
-                lin_shared = shared_scratch[lin_shared_offset:]
+                # Allocate linear solver scratch from child allocators
+                lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
                 krylov_iters_local[0] = int32(0)
                 # Compute flat index: slot_index * max_iters + iteration
                 lin_status = linear_solver_fn(
