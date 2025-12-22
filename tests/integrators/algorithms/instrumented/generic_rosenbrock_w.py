@@ -240,16 +240,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         get_fn = config.get_solver_helper_fn
 
-        # Get device functions from ODE system
+        # Get device functions from ODE system (cached versions for Rosenbrock)
         preconditioner = get_fn(
-            'neumann_preconditioner',
+            'neumann_preconditioner_cached',
             beta=beta,
             gamma=gamma,
             mass=mass,
             preconditioner_order=preconditioner_order
         )
         operator = get_fn(
-            'linear_operator',
+            'linear_operator_cached',
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -287,6 +287,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                  'time_derivative_function': time_derivative_function,
                  'prepare_jacobian_function': prepare_jacobian}
         )
+
+        self.register_buffers()
 
     def build_step(
         self,

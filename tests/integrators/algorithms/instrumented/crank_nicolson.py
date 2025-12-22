@@ -180,13 +180,32 @@ class CrankNicolsonStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
         n = config.n
         precision = config.precision
+        beta = config.beta
+        gamma = config.gamma
+        mass = config.M
+        preconditioner_order = config.preconditioner_order
 
         preconditioner = get_fn(
             'neumann_preconditioner',
-            order=config.preconditioner_order
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
         )
-        residual_fn = get_fn('stage_residual', coeff=1.0, mass=config.M)
-        linear_operator = get_fn('linear_operator', mass=config.M)
+        residual_fn = get_fn(
+            'stage_residual',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+        linear_operator = get_fn(
+            'linear_operator',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
 
         # Create instrumented linear solver
         linear_solver = InstrumentedLinearSolver(

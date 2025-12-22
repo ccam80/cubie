@@ -2,6 +2,7 @@
 
 from typing import Callable, Optional
 
+import attrs
 from numba import cuda, int32
 import numpy as np
 
@@ -15,6 +16,17 @@ from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
     InstrumentedLinearSolver,
     InstrumentedNewtonKrylov,
 )
+
+
+@attrs.define
+class BackwardsEulerStepConfig(ImplicitStepConfig):
+    """Configuration for Backwards Euler step with buffer location."""
+
+    increment_cache_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -91,7 +103,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
-        config = ImplicitStepConfig(
+        config = BackwardsEulerStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
             beta=beta,
             gamma=gamma,
@@ -121,6 +133,28 @@ class BackwardsEulerStep(ODEImplicitStep):
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        buffer_registry.clear_parent(self)
+
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver'
+        )
+
+        # Register increment cache buffer
+        buffer_registry.register(
+            'increment_cache',
+            self,
+            config.n,
+            config.increment_cache_location,
+            persistent=True,
+            precision=config.precision
+        )
 
     def build_implicit_helpers(self) -> None:
         """Construct the nonlinear solver chain used by implicit methods.
@@ -166,9 +200,9 @@ class BackwardsEulerStep(ODEImplicitStep):
         linear_solver = InstrumentedLinearSolver(
             precision=precision,
             n=n,
-            correction_type=config.linear_correction_type,
-            krylov_tolerance=config.krylov_tolerance,
-            max_linear_iters=config.max_linear_iters,
+            correction_type=self.linear_correction_type,
+            krylov_tolerance=self.krylov_tolerance,
+            max_linear_iters=self.max_linear_iters,
         )
         linear_solver.update(
             operator_apply=linear_operator,
@@ -180,16 +214,19 @@ class BackwardsEulerStep(ODEImplicitStep):
             precision=precision,
             n=n,
             linear_solver=linear_solver,
-            newton_tolerance=config.newton_tolerance,
-            max_newton_iters=config.max_newton_iters,
-            newton_damping=config.newton_damping,
-            newton_max_backtracks=config.newton_max_backtracks,
+            newton_tolerance=self.newton_tolerance,
+            max_newton_iters=self.max_newton_iters,
+            newton_damping=self.newton_damping,
+            newton_max_backtracks=self.newton_max_backtracks,
         )
         self.solver.update(residual_function=residual_fn)
 
         self.update_compile_settings(
             solver_function=self.solver.device_function
         )
+
+        # Re-register buffers with the new instrumented solver
+        self.register_buffers()
 
     def build_step(
         self,
@@ -228,18 +265,16 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function = driver_function
         n = int32(n)
         
-        # Get child allocators for Newton solver
+        # Get child allocators for Newton solver (already registered in register_buffers)
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver')
         )
-        #ANTI-PATTERN registration, move to register_buffers and add a config
-        # subclass with this location
-        buffer_registry.register('increment_cache', n,
-                                        precision=self.precision,
-                                        location='local',
-                                        aliases='solver_shared',
-                                        persistent=True)
+        
+        # Get increment cache allocator (registered in register_buffers)
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'increment_cache', self
+        )
         
         solver_fn = solver_function
 

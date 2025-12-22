@@ -402,6 +402,9 @@ class FIRKStep(ODEImplicitStep):
 
         self.update_compile_settings(solver_function=self.solver.device_function)
 
+        # Re-register buffers with the new instrumented solver
+        self.register_buffers()
+
     def build_step(
         self,
         dxdt_fn: Callable,

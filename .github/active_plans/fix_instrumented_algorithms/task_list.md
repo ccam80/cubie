@@ -1,1055 +1,315 @@
 # Implementation Task List
-# Feature: Fix Instrumented Algorithms
+# Feature: Fix Solver Config Parameter Access and Buffer Slicing
 # Plan Reference: .github/active_plans/fix_instrumented_algorithms/agent_plan.md
 
-## Task Group 1: Production backwards_euler.py Enhancement - SEQUENTIAL
+## Overview
+
+This task list addresses two specific issues across all algorithm files:
+1. **Config parameter access**: Replace `config.krylov_tolerance`, `config.newton_tolerance`, etc. with `self.krylov_tolerance`, `self.newton_tolerance`, etc.
+2. **Direct solver_scratch/solver_persistent slicing**: When device code directly slices into these buffers (e.g., `solver_scratch[i + n]`), create a dedicated buffer with proper registration.
+
+**Scope**: Each task group covers ONE algorithm pair (production + instrumented).
+
+---
+
+## Task Group 1: backwards_euler (Production + Instrumented) - PARALLEL
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
 - File: src/cubie/integrators/algorithms/backwards_euler.py (entire file)
-- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 25-83, 156-159)
-- File: src/cubie/integrators/algorithms/generic_dirk.py (lines 105-127, 289-345) - pattern reference
-
-**Input Validation Required**:
-- No additional validation needed; uses existing ImplicitStepConfig validators
-
-**Tasks**:
-
-### Task 1.1: Create BackwardsEulerStepConfig class
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Create
-- Details:
-  ```python
-  @attrs.define
-  class BackwardsEulerStepConfig(ImplicitStepConfig):
-      """Configuration for Backward Euler step with buffer location control."""
-      
-      increment_cache_location: str = attrs.field(
-          default='local',
-          validator=attrs.validators.in_(['local', 'shared'])
-      )
-  ```
-- Location: After imports, before ALGO_CONSTANTS
-- Integration: Import attrs at top of file (already imported via attrs.validators usage in parent)
-
-### Task 1.2: Add import for attrs module
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Modify imports
-- Details:
-  ```python
-  import attrs
-  ```
-- Location: Add after existing imports, before `from numba import cuda, int32`
-
-### Task 1.3: Update __init__ to accept increment_cache_location parameter
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Modify
-- Details:
-  - Add parameter `increment_cache_location: Optional[str] = None` to __init__ signature
-  - Build BackwardsEulerStepConfig instead of ImplicitStepConfig
-  - Conditionally include increment_cache_location in config_kwargs if not None
-  ```python
-  def __init__(
-      self,
-      precision: PrecisionDType,
-      n: int,
-      ...
-      newton_max_backtracks: Optional[int] = None,
-      increment_cache_location: Optional[str] = None,  # NEW
-  ) -> None:
-      ...
-      # Build config kwargs conditionally
-      config_kwargs = {
-          'precision': precision,
-          'n': n,
-          'get_solver_helper_fn': get_solver_helper_fn,
-          'beta': beta,
-          'gamma': gamma,
-          'M': M,
-          'dxdt_function': dxdt_function,
-          'observables_function': observables_function,
-          'driver_function': driver_function,
-      }
-      if preconditioner_order is not None:
-          config_kwargs['preconditioner_order'] = preconditioner_order
-      if increment_cache_location is not None:
-          config_kwargs['increment_cache_location'] = increment_cache_location
-      
-      config = BackwardsEulerStepConfig(**config_kwargs)
-      ...
-  ```
-
-### Task 1.4: Add register_buffers() method
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Create method
-- Details:
-  ```python
-  def register_buffers(self) -> None:
-      """Register buffers with buffer_registry."""
-      config = self.compile_settings
-      buffer_registry.clear_parent(self)
-      
-      # Register solver child allocators
-      _ = buffer_registry.get_child_allocators(
-          self, self.solver, name='solver'
-      )
-      
-      # Register increment cache buffer
-      buffer_registry.register(
-          'increment_cache',
-          self,
-          config.n,
-          config.increment_cache_location,
-          aliases='solver_shared',
-          persistent=True,
-          precision=config.precision
-      )
-  ```
-- Location: After __init__, before build_step
-- Integration: Called at end of __init__ after super().__init__
-
-### Task 1.5: Call register_buffers() in __init__
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Modify
-- Details:
-  - Add `self.register_buffers()` call after `super().__init__` call
-  ```python
-  super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
-  self.register_buffers()
-  ```
-
-### Task 1.6: Update build_step to use buffer_registry allocator for increment_cache
-- File: src/cubie/integrators/algorithms/backwards_euler.py
-- Action: Modify
-- Details:
-  - Get allocator from buffer_registry instead of using solver_scratch directly for increment_cache
-  ```python
-  def build_step(...):
-      ...
-      # Get allocators from buffer registry
-      alloc_solver_shared, alloc_solver_persistent = (
-          buffer_registry.get_child_allocators(self, self.solver, name='solver')
-      )
-      alloc_increment_cache = buffer_registry.get_allocator('increment_cache', self)
-      
-      # Inside step function:
-      solver_scratch = alloc_solver_shared(shared, persistent_local)
-      solver_persistent = alloc_solver_persistent(shared, persistent_local)
-      increment_cache = alloc_increment_cache(shared, persistent_local)
-      
-      # Use increment_cache instead of solver_scratch for stage increment storage
-      for i in range(n):
-          proposed_state[i] = increment_cache[i]  # Changed from solver_scratch
-      ...
-      for i in range(n):
-          increment_cache[i] = proposed_state[i]  # Changed from solver_scratch
-          proposed_state[i] += state[i]
-  ```
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 2: Verify Production generic_dirk.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: None
-
-**Required Context**:
-- File: src/cubie/integrators/algorithms/generic_dirk.py (entire file)
-
-**Input Validation Required**:
-- None - verification only
-
-**Tasks**:
-
-### Task 2.1: Verify production generic_dirk.py uses self.solver
-- File: src/cubie/integrators/algorithms/generic_dirk.py
-- Action: Verify (no changes needed if correct)
-- Details:
-  - Confirm that the file uses `self.solver` (not `self._newton_solver`)
-  - Current state appears correct - uses `self.solver` throughout
-  - No changes required
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 3: Verify Production crank_nicolson.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: None
-
-**Required Context**:
-- File: src/cubie/integrators/algorithms/crank_nicolson.py (entire file)
-
-**Input Validation Required**:
-- None - verification only
-
-**Tasks**:
-
-### Task 3.1: Verify production crank_nicolson.py register_buffers()
-- File: src/cubie/integrators/algorithms/crank_nicolson.py
-- Action: Verify (no changes needed if correct)
-- Details:
-  - Confirm register_buffers() uses correct alias 'solver_shared'
-  - Current state appears correct
-  - No changes required
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 4: Verify Production generic_rosenbrock_w.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: None
-
-**Required Context**:
-- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (entire file)
-
-**Input Validation Required**:
-- None - verification only
-
-**Tasks**:
-
-### Task 4.1: Verify production generic_rosenbrock_w.py build_step
-- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py
-- Action: Verify (no changes needed if correct)
-- Details:
-  - Confirm driver_del_t comes from config (not function parameter)
-  - Current state appears correct: `driver_del_t = config.driver_del_t`
-  - No changes required
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 5: Fix Instrumented backwards_euler.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Group 1
-
-**Required Context**:
 - File: tests/integrators/algorithms/instrumented/backwards_euler.py (entire file)
-- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (lines 38-260, 409-725)
-- File: src/cubie/integrators/algorithms/backwards_euler.py (entire file - after Task Group 1)
-- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 271-320)
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 322-386) - property definitions
+
+**Issue Analysis**:
+- Production file uses `self.krylov_tolerance` etc. (CORRECT via ODEImplicitStep properties)
+- Instrumented file uses `self.krylov_tolerance` etc. (CORRECT)
+- Instrumented file has direct buffer slicing: `solver_scratch[i + n]` at line 451
 
 **Input Validation Required**:
 - None - uses parent class validation
 
 **Tasks**:
 
-### Task 5.1: Fix __init__ - remove duplicate super().__init__ and nested function
-- File: tests/integrators/algorithms/instrumented/backwards_euler.py
-- Action: Modify
+### Task 1.1: Verify production backwards_euler.py config parameter access
+- File: src/cubie/integrators/algorithms/backwards_euler.py
+- Action: Verify (no changes needed)
 - Details:
-  - Current file has TWO `super().__init__` calls at lines 124 and 196 - keep ONLY the first one
-  - Current file has `def build_implicit_helpers(self)` INSIDE __init__ - this is wrong
-  - Remove the nested function definition and the second super().__init__ call
-  - The __init__ should end after line 124's super().__init__ call
-  ```python
-  def __init__(
-      self,
-      ...
-  ) -> None:
-      ...
-      super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
-      # END of __init__ - remove everything after this until build_step
-  ```
+  - Verify build_implicit_helpers() uses `self.` properties (not `config.`)
+  - Current production file does NOT have build_implicit_helpers() - uses parent class version
+  - Parent class (ODEImplicitStep.build_implicit_helpers) uses `config.` for beta/gamma/M/preconditioner_order which is CORRECT (these are compile settings)
+  - Solver parameters like krylov_tolerance are passed to solver constructor in __init__, not accessed via config
+  - **NO CHANGES NEEDED**
 
-### Task 5.2: Add build_implicit_helpers method at class level
+### Task 1.2: Verify instrumented backwards_euler.py config parameter access
 - File: tests/integrators/algorithms/instrumented/backwards_euler.py
-- Action: Create method
+- Action: Verify (no changes likely needed)
 - Details:
-  ```python
-  def build_implicit_helpers(self) -> None:
-      """Construct instrumented nonlinear solver chain."""
-      config = self.compile_settings
-      beta = config.beta
-      gamma = config.gamma
-      mass = config.M
-      preconditioner_order = config.preconditioner_order
-      n = config.n
-      precision = config.precision
+  - Check build_implicit_helpers() at lines 159-226
+  - Lines 203-206: Uses `self.linear_correction_type`, `self.krylov_tolerance`, `self.max_linear_iters` (CORRECT)
+  - Lines 217-220: Uses `self.newton_tolerance`, `self.max_newton_iters`, `self.newton_damping`, `self.newton_max_backtracks` (CORRECT)
+  - **NO CHANGES NEEDED**
 
-      get_fn = config.get_solver_helper_fn
-
-      preconditioner = get_fn(
-          'neumann_preconditioner',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      residual = get_fn(
-          'stage_residual',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      operator = get_fn(
-          'linear_operator',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-
-      # Create instrumented linear solver
-      linear_solver = InstrumentedLinearSolver(
-          precision=precision,
-          n=n,
-          correction_type=self.linear_correction_type,
-          krylov_tolerance=self.krylov_tolerance,
-          max_linear_iters=self.max_linear_iters,
-      )
-      linear_solver.update(
-          operator_apply=operator,
-          preconditioner=preconditioner,
-      )
-
-      # Create instrumented Newton solver
-      newton_solver = InstrumentedNewtonKrylov(
-          precision=precision,
-          n=n,
-          linear_solver=linear_solver,
-          newton_tolerance=self.newton_tolerance,
-          max_newton_iters=self.max_newton_iters,
-          newton_damping=self.newton_damping,
-          newton_max_backtracks=self.newton_max_backtracks,
-      )
-      newton_solver.update(residual_function=residual)
-
-      # Replace parent solver with instrumented version
-      self.solver = newton_solver
-
-      self.update_compile_settings(
-          solver_function=self.solver.device_function
-      )
-  ```
-- Location: After __init__, before build_step
-
-### Task 5.3: Fix build_step - remove anti-pattern buffer registration
+### Task 1.3: Fix direct solver_scratch slicing in instrumented backwards_euler.py
 - File: tests/integrators/algorithms/instrumented/backwards_euler.py
-- Action: Modify
+- Action: Modify (if slicing is problematic) OR document (if intentional)
 - Details:
-  - Remove the inline buffer_registry.register call (lines 241-246)
-  - This should be handled by a register_buffers method or inherited from production
-  ```python
-  def build_step(
-      self,
-      ...
-  ) -> StepCache:
-      a_ij = numba_precision(1.0)
-      has_driver_function = driver_function is not None
-      driver_function = driver_function
-      n = int32(n)
-      
-      # Get child allocators for Newton solver
-      alloc_solver_shared, alloc_solver_persistent = (
-          buffer_registry.get_child_allocators(self, self.solver,
-                                               name='solver')
-      )
-      # REMOVE the buffer_registry.register call that was here
-      
-      solver_fn = solver_function
-      ...
-  ```
+  - Line 399: `proposed_state[i] = solver_scratch[i]` - reads initial guess from solver scratch
+  - Line 448: `solver_scratch[i] = proposed_state[i]` - writes increment to solver scratch  
+  - Line 451: `residuals[0, i] = solver_scratch[i + n]` - reads residual from solver scratch at offset n
+  - These direct accesses are for LOGGING purposes to capture solver internal state
+  - This is INTENTIONAL INSTRUMENTATION - the solver stores residual in second slice of scratch
+  - **DOCUMENT AS INTENTIONAL** - no buffer change needed for logging access
 
-### Task 5.4: Fix solver call in step function to pass logging arrays with stage_index
-- File: tests/integrators/algorithms/instrumented/backwards_euler.py
+**Outcomes**:
+[Empty - to be filled by taskmaster agent]
+
+---
+
+## Task Group 2: crank_nicolson (Production + Instrumented) - PARALLEL
+**Status**: [ ]
+**Dependencies**: None
+
+**Required Context**:
+- File: src/cubie/integrators/algorithms/crank_nicolson.py (entire file)
+- File: tests/integrators/algorithms/instrumented/crank_nicolson.py (entire file)
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 322-386)
+
+**Issue Analysis**:
+- Production file does NOT have build_implicit_helpers() - uses parent class
+- Instrumented file has build_implicit_helpers() at lines 177-209
+- Instrumented file has direct buffer slicing: `solver_scratch[idx + n]` at line 416
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### Task 2.1: Verify production crank_nicolson.py config parameter access
+- File: src/cubie/integrators/algorithms/crank_nicolson.py
 - Action: Verify
 - Details:
-  - The current solver call already includes logging arrays (lines 395-417)
-  - Verify stage_index is passed as int32(0) for single-stage method
-  - Current implementation appears correct
+  - No build_implicit_helpers() method - uses parent class version
+  - Solver parameters passed via __init__ kwargs (lines 140-158)
+  - **NO CHANGES NEEDED**
 
-### Task 5.5: Remove unused NewtonKrylovConfig import
-- File: tests/integrators/algorithms/instrumented/backwards_euler.py
-- Action: Modify
+### Task 2.2: Fix instrumented crank_nicolson.py config parameter access
+- File: tests/integrators/algorithms/instrumented/crank_nicolson.py
+- Action: Verify
 - Details:
-  - Remove `from cubie import NewtonKrylovConfig` import (line 8) - not used
+  - build_implicit_helpers() at lines 177-209
+  - Lines 191-195: Creates InstrumentedLinearSolver - NO parameter access shown
+  - Lines 201-205: Creates InstrumentedNewtonKrylov - NO parameter access shown
+  - **ISSUE**: Should pass solver parameters to instrumented solvers
+  - Need to add: `correction_type=self.linear_correction_type`, `krylov_tolerance=self.krylov_tolerance`, etc.
+
+### Task 2.3: Fix direct solver_scratch slicing in instrumented crank_nicolson.py
+- File: tests/integrators/algorithms/instrumented/crank_nicolson.py
+- Action: Document as intentional
+- Details:
+  - Line 416: `residual_value = solver_scratch[idx + n]` - reads residual for logging
+  - This is INTENTIONAL INSTRUMENTATION
+  - **DOCUMENT AS INTENTIONAL** - no buffer change needed
 
 **Outcomes**:
 [Empty - to be filled by taskmaster agent]
 
 ---
 
-## Task Group 6: Fix Instrumented crank_nicolson.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Group 3
-
-**Required Context**:
-- File: tests/integrators/algorithms/instrumented/crank_nicolson.py (entire file)
-- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (lines 38-260, 409-725)
-- File: src/cubie/integrators/algorithms/crank_nicolson.py (entire file)
-
-**Input Validation Required**:
-- None - uses parent class validation
-
-**Tasks**:
-
-### Task 6.1: Add build_implicit_helpers method
-- File: tests/integrators/algorithms/instrumented/crank_nicolson.py
-- Action: Create method
-- Details:
-  ```python
-  def build_implicit_helpers(self) -> None:
-      """Construct instrumented nonlinear solver chain."""
-      config = self.compile_settings
-      beta = config.beta
-      gamma = config.gamma
-      mass = config.M
-      preconditioner_order = config.preconditioner_order
-      n = config.n
-      precision = config.precision
-
-      get_fn = config.get_solver_helper_fn
-
-      preconditioner = get_fn(
-          'neumann_preconditioner',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      residual = get_fn(
-          'stage_residual',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      operator = get_fn(
-          'linear_operator',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-
-      # Create instrumented linear solver
-      linear_solver = InstrumentedLinearSolver(
-          precision=precision,
-          n=n,
-          correction_type=self.linear_correction_type,
-          krylov_tolerance=self.krylov_tolerance,
-          max_linear_iters=self.max_linear_iters,
-      )
-      linear_solver.update(
-          operator_apply=operator,
-          preconditioner=preconditioner,
-      )
-
-      # Create instrumented Newton solver
-      newton_solver = InstrumentedNewtonKrylov(
-          precision=precision,
-          n=n,
-          linear_solver=linear_solver,
-          newton_tolerance=self.newton_tolerance,
-          max_newton_iters=self.max_newton_iters,
-          newton_damping=self.newton_damping,
-          newton_max_backtracks=self.newton_max_backtracks,
-      )
-      newton_solver.update(residual_function=residual)
-
-      # Replace parent solver with instrumented version
-      self.solver = newton_solver
-
-      self.update_compile_settings(
-          solver_function=self.solver.device_function
-      )
-  ```
-- Location: After register_buffers(), before build_step
-
-### Task 6.2: Add imports for instrumented solvers
-- File: tests/integrators/algorithms/instrumented/crank_nicolson.py
-- Action: Modify
-- Details:
-  ```python
-  from integrators.algorithms.instrumented.matrix_free_solvers import (
-      InstrumentedLinearSolver,
-      InstrumentedNewtonKrylov,
-  )
-  ```
-- Location: After existing imports
-
-### Task 6.3: Fix solver calls in step function to pass logging arrays
-- File: tests/integrators/algorithms/instrumented/crank_nicolson.py
-- Action: Modify
-- Details:
-  - The current solver calls (lines 352-363, 380-391) do NOT include logging arrays
-  - Add logging array parameters to both solver calls
-  - First solver call uses stage_index=int32(0), second uses int32(1)
-  ```python
-  # First solver call (CN step)
-  status = solver_fn(
-      proposed_state,
-      parameters,
-      proposed_drivers,
-      end_time,
-      dt_scalar,
-      stage_coefficient,
-      base_state,
-      solver_scratch,
-      solver_persistent,
-      counters,
-      int32(0),  # stage_index
-      newton_initial_guesses,
-      newton_iteration_guesses,
-      newton_residuals,
-      newton_squared_norms,
-      newton_iteration_scale,
-      linear_initial_guesses,
-      linear_iteration_guesses,
-      linear_residuals,
-      linear_squared_norms,
-      linear_preconditioned_vectors,
-  )
-  
-  # Second solver call (BE step)
-  be_status = solver_fn(
-      base_state,
-      parameters,
-      proposed_drivers,
-      end_time,
-      dt_scalar,
-      be_coefficient,
-      state,
-      solver_scratch,
-      solver_persistent,
-      counters,
-      int32(1),  # stage_index
-      newton_initial_guesses,
-      newton_iteration_guesses,
-      newton_residuals,
-      newton_squared_norms,
-      newton_iteration_scale,
-      linear_initial_guesses,
-      linear_iteration_guesses,
-      linear_residuals,
-      linear_squared_norms,
-      linear_preconditioned_vectors,
-  )
-  ```
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 7: Fix Instrumented generic_dirk.py - SEQUENTIAL
-**Status**: [ ]
-**Dependencies**: Task Group 2
-
-**Required Context**:
-- File: tests/integrators/algorithms/instrumented/generic_dirk.py (entire file)
-- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (lines 38-260, 409-725)
-- File: src/cubie/integrators/algorithms/generic_dirk.py (entire file)
-
-**Input Validation Required**:
-- None - uses parent class validation
-
-**Tasks**:
-
-### Task 7.1: Add build_implicit_helpers method
-- File: tests/integrators/algorithms/instrumented/generic_dirk.py
-- Action: Create method
-- Details:
-  ```python
-  def build_implicit_helpers(self) -> None:
-      """Construct instrumented nonlinear solver chain."""
-      config = self.compile_settings
-      beta = config.beta
-      gamma = config.gamma
-      mass = config.M
-      preconditioner_order = config.preconditioner_order
-      n = config.n
-      precision = config.precision
-
-      get_fn = config.get_solver_helper_fn
-
-      preconditioner = get_fn(
-          'neumann_preconditioner',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      residual = get_fn(
-          'stage_residual',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      operator = get_fn(
-          'linear_operator',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-
-      # Create instrumented linear solver
-      linear_solver = InstrumentedLinearSolver(
-          precision=precision,
-          n=n,
-          correction_type=self.linear_correction_type,
-          krylov_tolerance=self.krylov_tolerance,
-          max_linear_iters=self.max_linear_iters,
-      )
-      linear_solver.update(
-          operator_apply=operator,
-          preconditioner=preconditioner,
-      )
-
-      # Create instrumented Newton solver
-      newton_solver = InstrumentedNewtonKrylov(
-          precision=precision,
-          n=n,
-          linear_solver=linear_solver,
-          newton_tolerance=self.newton_tolerance,
-          max_newton_iters=self.max_newton_iters,
-          newton_damping=self.newton_damping,
-          newton_max_backtracks=self.newton_max_backtracks,
-      )
-      newton_solver.update(residual_function=residual)
-
-      # Replace parent solver with instrumented version
-      self.solver = newton_solver
-
-      self.update_compile_settings(
-          solver_function=self.solver.device_function
-      )
-  ```
-- Location: After register_buffers(), before build_step
-
-### Task 7.2: Add imports for instrumented solvers
-- File: tests/integrators/algorithms/instrumented/generic_dirk.py
-- Action: Modify
-- Details:
-  ```python
-  from integrators.algorithms.instrumented.matrix_free_solvers import (
-      InstrumentedLinearSolver,
-      InstrumentedNewtonKrylov,
-  )
-  ```
-- Location: After existing imports
-
-### Task 7.3: Fix solver calls in step function to pass logging arrays
-- File: tests/integrators/algorithms/instrumented/generic_dirk.py
-- Action: Modify
-- Details:
-  - The current solver calls (lines 510-521, 637-648) do NOT include logging arrays
-  - Add logging array parameters to solver calls
-  - Pass stage_idx as slot index for multi-stage method
-  ```python
-  # Stage 0 solver call
-  if stage_implicit[0]:
-      solver_status = nonlinear_solver(
-          stage_increment,
-          parameters,
-          proposed_drivers,
-          stage_time,
-          dt_scalar,
-          diagonal_coeffs[0],
-          stage_base,
-          solver_shared,
-          solver_persistent,
-          counters,
-          int32(0),  # stage_index
-          newton_initial_guesses,
-          newton_iteration_guesses,
-          newton_residuals,
-          newton_squared_norms,
-          newton_iteration_scale,
-          linear_initial_guesses,
-          linear_iteration_guesses,
-          linear_residuals,
-          linear_squared_norms,
-          linear_preconditioned_vectors,
-      )
-      ...
-  
-  # Stages 1-s solver call (inside loop)
-  if stage_implicit[stage_idx]:
-      solver_status = nonlinear_solver(
-          stage_increment,
-          parameters,
-          proposed_drivers,
-          stage_time,
-          dt_scalar,
-          diagonal_coeffs[stage_idx],
-          stage_base,
-          solver_shared,
-          solver_persistent,
-          counters,
-          stage_idx,  # stage_index
-          newton_initial_guesses,
-          newton_iteration_guesses,
-          newton_residuals,
-          newton_squared_norms,
-          newton_iteration_scale,
-          linear_initial_guesses,
-          linear_iteration_guesses,
-          linear_residuals,
-          linear_squared_norms,
-          linear_preconditioned_vectors,
-      )
-  ```
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 8: Fix Instrumented generic_firk.py - SEQUENTIAL
+## Task Group 3: generic_dirk (Production + Instrumented) - PARALLEL
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
-- File: tests/integrators/algorithms/instrumented/generic_firk.py (entire file)
-- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (lines 38-260, 409-725)
-- File: src/cubie/integrators/algorithms/generic_firk.py (entire file)
+- File: src/cubie/integrators/algorithms/generic_dirk.py (entire file)
+- File: tests/integrators/algorithms/instrumented/generic_dirk.py (entire file)
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 322-386)
+
+**Issue Analysis**:
+- Production file has build_implicit_helpers() at lines 346-392 - uses `config.` for compile settings (CORRECT)
+- Instrumented file has build_implicit_helpers() at lines 217-284
+- No direct solver_scratch slicing in device code
 
 **Input Validation Required**:
-- None - uses parent class validation
+- None
 
 **Tasks**:
 
-### Task 8.1: Add build_implicit_helpers method
-- File: tests/integrators/algorithms/instrumented/generic_firk.py
-- Action: Create method
+### Task 3.1: Verify production generic_dirk.py config parameter access
+- File: src/cubie/integrators/algorithms/generic_dirk.py
+- Action: Verify
 - Details:
-  ```python
-  def build_implicit_helpers(self) -> None:
-      """Construct instrumented nonlinear solver chain."""
-      config = self.compile_settings
-      tableau = config.tableau
-      beta = config.beta
-      gamma = config.gamma
-      mass = config.M
-      n = config.n
-      precision = config.precision
+  - build_implicit_helpers() at lines 346-392
+  - Uses `config.beta`, `config.gamma`, `config.M`, `config.preconditioner_order` (CORRECT - these are compile settings)
+  - Uses `config.get_solver_helper_fn` (CORRECT)
+  - Solver parameters (krylov_tolerance, newton_tolerance, etc.) are NOT accessed here
+  - They are passed in __init__ via solver_kwargs (lines 267-282) and stored in self.solver
+  - **NO CHANGES NEEDED**
 
-      get_fn = config.get_solver_helper_fn
-
-      stage_coefficients = [list(row) for row in tableau.a]
-      stage_nodes = list(tableau.c)
-
-      residual = get_fn(
-          'n_stage_residual',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          stage_coefficients=stage_coefficients,
-          stage_nodes=stage_nodes,
-      )
-      operator = get_fn(
-          'n_stage_linear_operator',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          stage_coefficients=stage_coefficients,
-          stage_nodes=stage_nodes,
-      )
-      preconditioner = get_fn(
-          'n_stage_neumann_preconditioner',
-          beta=beta,
-          gamma=gamma,
-          preconditioner_order=config.preconditioner_order,
-          stage_coefficients=stage_coefficients,
-          stage_nodes=stage_nodes,
-      )
-
-      # Create instrumented linear solver (uses n*stage_count for FIRK)
-      all_stages_n = tableau.stage_count * n
-      linear_solver = InstrumentedLinearSolver(
-          precision=precision,
-          n=all_stages_n,
-          correction_type=self.linear_correction_type,
-          krylov_tolerance=self.krylov_tolerance,
-          max_linear_iters=self.max_linear_iters,
-      )
-      linear_solver.update(
-          operator_apply=operator,
-          preconditioner=preconditioner,
-      )
-
-      # Create instrumented Newton solver
-      newton_solver = InstrumentedNewtonKrylov(
-          precision=precision,
-          n=all_stages_n,
-          linear_solver=linear_solver,
-          newton_tolerance=self.newton_tolerance,
-          max_newton_iters=self.max_newton_iters,
-          newton_damping=self.newton_damping,
-          newton_max_backtracks=self.newton_max_backtracks,
-      )
-      newton_solver.update(residual_function=residual)
-
-      # Replace parent solver with instrumented version
-      self.solver = newton_solver
-
-      self.update_compile_settings(
-          solver_function=self.solver.device_function
-      )
-  ```
-- Location: After register_buffers(), before build_step
-
-### Task 8.2: Add imports for instrumented solvers
-- File: tests/integrators/algorithms/instrumented/generic_firk.py
+### Task 3.2: Fix instrumented generic_dirk.py config parameter access
+- File: tests/integrators/algorithms/instrumented/generic_dirk.py
 - Action: Modify
 - Details:
-  ```python
-  from integrators.algorithms.instrumented.matrix_free_solvers import (
-      InstrumentedLinearSolver,
-      InstrumentedNewtonKrylov,
-  )
-  ```
-- Location: After existing imports
+  - build_implicit_helpers() at lines 217-284
+  - Lines 257-264: Creates InstrumentedLinearSolver with `self.linear_correction_type`, `self.krylov_tolerance`, `self.max_linear_iters` (CORRECT)
+  - Lines 271-278: Creates InstrumentedNewtonKrylov with `self.newton_tolerance`, `self.max_newton_iters`, `self.newton_damping`, `self.newton_max_backtracks` (CORRECT)
+  - **NO CHANGES NEEDED**
 
-### Task 8.3: Fix solver call in step function to pass logging arrays
-- File: tests/integrators/algorithms/instrumented/generic_firk.py
-- Action: Modify
+### Task 3.3: Verify no direct buffer slicing in generic_dirk device code
+- File: tests/integrators/algorithms/instrumented/generic_dirk.py
+- Action: Verify
 - Details:
-  - The current solver call (lines 549-560) does NOT include logging arrays
-  - Add logging array parameters
-  - FIRK solves all stages simultaneously with single call, use stage_index=int32(0)
-  ```python
-  solver_status = nonlinear_solver(
-      stage_increment,
-      parameters,
-      stage_driver_stack,
-      current_time,
-      dt_scalar,
-      typed_zero,
-      state,
-      solver_shared,
-      solver_persistent,
-      counters,
-      int32(0),  # stage_index
-      newton_initial_guesses,
-      newton_iteration_guesses,
-      newton_residuals,
-      newton_squared_norms,
-      newton_iteration_scale,
-      linear_initial_guesses,
-      linear_iteration_guesses,
-      linear_residuals,
-      linear_squared_norms,
-      linear_preconditioned_vectors,
-  )
-  ```
+  - Review step() function for direct solver_scratch slicing
+  - No `solver_scratch[... + n]` or similar patterns found
+  - Solver scratch accessed via allocator functions
+  - **NO CHANGES NEEDED**
 
 **Outcomes**:
 [Empty - to be filled by taskmaster agent]
 
 ---
 
-## Task Group 9: Fix Instrumented generic_rosenbrock_w.py - SEQUENTIAL
+## Task Group 4: generic_firk (Production + Instrumented) - PARALLEL
 **Status**: [ ]
-**Dependencies**: Task Group 4
+**Dependencies**: None
 
 **Required Context**:
-- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py (entire file)
-- File: tests/integrators/algorithms/instrumented/matrix_free_solvers.py (lines 38-260)
-- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (entire file)
+- File: src/cubie/integrators/algorithms/generic_firk.py (entire file)
+- File: tests/integrators/algorithms/instrumented/generic_firk.py (entire file)
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 322-386)
+
+**Issue Analysis**:
+- Production file has build_implicit_helpers() at lines 328-380 - uses `config.` for compile settings (CORRECT)
+- Instrumented file has build_implicit_helpers() at lines 331-403
+- No direct solver_scratch slicing in device code
 
 **Input Validation Required**:
-- None - uses parent class validation
+- None
 
 **Tasks**:
 
-### Task 9.1: Add build_implicit_helpers method
-- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
-- Action: Create method
+### Task 4.1: Verify production generic_firk.py config parameter access
+- File: src/cubie/integrators/algorithms/generic_firk.py
+- Action: Verify
 - Details:
-  - Rosenbrock uses LINEAR solver only (no Newton iteration)
-  ```python
-  def build_implicit_helpers(self) -> None:
-      """Construct instrumented linear solver for Rosenbrock methods."""
-      config = self.compile_settings
-      beta = config.beta
-      gamma = config.gamma
-      mass = config.M
-      preconditioner_order = config.preconditioner_order
-      n = config.n
-      precision = config.precision
+  - build_implicit_helpers() at lines 328-380
+  - Uses `config.beta`, `config.gamma`, `config.M`, `config.tableau` (CORRECT)
+  - Uses `config.get_solver_helper_fn`, `config.preconditioner_order` (CORRECT)
+  - Solver parameters passed via __init__ kwargs (lines 274-289)
+  - **NO CHANGES NEEDED**
 
-      get_fn = config.get_solver_helper_fn
-
-      preconditioner = get_fn(
-          'neumann_preconditioner',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-      operator = get_fn(
-          'linear_operator',
-          beta=beta,
-          gamma=gamma,
-          mass=mass,
-          preconditioner_order=preconditioner_order
-      )
-
-      prepare_jacobian = get_fn(
-          'prepare_jac',
-          preconditioner_order=preconditioner_order,
-      )
-      self._cached_auxiliary_count = get_fn('cached_aux_count')
-
-      # Update buffer registry with the actual cached_auxiliary_count
-      buffer_registry.update_buffer(
-          'cached_auxiliaries', self,
-          size=self._cached_auxiliary_count
-      )
-
-      time_derivative_function = get_fn('time_derivative_rhs')
-
-      # Create instrumented linear solver
-      linear_solver = InstrumentedLinearSolver(
-          precision=precision,
-          n=n,
-          correction_type=self.linear_correction_type,
-          krylov_tolerance=self.krylov_tolerance,
-          max_linear_iters=self.max_linear_iters,
-      )
-      linear_solver.update(
-          operator_apply=operator,
-          preconditioner=preconditioner,
-          use_cached_auxiliaries=True,
-      )
-
-      # Replace parent solver with instrumented version
-      self.solver = linear_solver
-
-      self.update_compile_settings(
-          solver_function=self.solver.device_function,
-          time_derivative_function=time_derivative_function,
-          prepare_jacobian_function=prepare_jacobian
-      )
-  ```
-- Location: After register_buffers(), before build_step
-
-### Task 9.2: Add imports for instrumented solvers
-- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
-- Action: Modify
+### Task 4.2: Verify instrumented generic_firk.py config parameter access
+- File: tests/integrators/algorithms/instrumented/generic_firk.py
+- Action: Verify
 - Details:
-  ```python
-  from integrators.algorithms.instrumented.matrix_free_solvers import (
-      InstrumentedLinearSolver,
-  )
-  ```
-- Location: After existing imports
+  - build_implicit_helpers() at lines 331-403
+  - Lines 379-385: Creates InstrumentedLinearSolver with `self.linear_correction_type`, `self.krylov_tolerance`, `self.max_linear_iters` (CORRECT)
+  - Lines 392-399: Creates InstrumentedNewtonKrylov with `self.newton_tolerance`, `self.max_newton_iters`, `self.newton_damping`, `self.newton_max_backtracks` (CORRECT)
+  - **NO CHANGES NEEDED**
 
-### Task 9.3: Fix linear solver calls in step function to pass logging arrays
-- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
-- Action: Modify
+### Task 4.3: Verify no direct buffer slicing in generic_firk device code
+- File: tests/integrators/algorithms/instrumented/generic_firk.py
+- Action: Verify
 - Details:
-  - The current linear solver calls (lines 498-512, 656-670) do NOT include logging arrays
-  - Add logging array parameters
-  - Pass stage_idx as slot index for multi-stage method
-  - Note: Rosenbrock uses the CACHED variant of linear solver
-  ```python
-  # Stage 0 linear solver call
-  status_code |= linear_solver(
-      state,
-      parameters,
-      drivers_buffer,
-      base_state_placeholder,
-      cached_auxiliaries,
-      stage_time,
-      dt_scalar,
-      numba_precision(1.0),
-      stage_rhs,
-      stage_increment,
-      shared,
-      krylov_iters_out,
-      int32(0),  # slot_index
-      linear_initial_guesses,
-      linear_iteration_guesses,
-      linear_residuals,
-      linear_squared_norms,
-      linear_preconditioned_vectors,
-  )
-  
-  # Stages 1-s linear solver call (inside loop)
-  status_code |= linear_solver(
-      state,
-      parameters,
-      drivers_buffer,
-      base_state_placeholder,
-      cached_auxiliaries,
-      stage_time,
-      dt_scalar,
-      numba_precision(1.0),
-      stage_rhs,
-      stage_increment,
-      shared,
-      krylov_iters_out,
-      stage_idx,  # slot_index
-      linear_initial_guesses,
-      linear_iteration_guesses,
-      linear_residuals,
-      linear_squared_norms,
-      linear_preconditioned_vectors,
-  )
-  ```
+  - Review step() function for direct solver_scratch slicing
+  - No `solver_scratch[... + n]` or similar patterns found
+  - **NO CHANGES NEEDED**
 
 **Outcomes**:
 [Empty - to be filled by taskmaster agent]
+
+---
+
+## Task Group 5: generic_rosenbrock_w (Production + Instrumented) - PARALLEL
+**Status**: [ ]
+**Dependencies**: None
+
+**Required Context**:
+- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py (entire file)
+- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py (entire file)
+- File: src/cubie/integrators/algorithms/ode_implicitstep.py (lines 322-386)
+
+**Issue Analysis**:
+- Production file has build_implicit_helpers() at lines 318-378 - uses `config.` for compile settings (CORRECT)
+- Instrumented file has build_implicit_helpers() at lines 223-289
+- No direct solver_scratch slicing in device code (uses linear solver only)
+
+**Input Validation Required**:
+- None
+
+**Tasks**:
+
+### Task 5.1: Verify production generic_rosenbrock_w.py config parameter access
+- File: src/cubie/integrators/algorithms/generic_rosenbrock_w.py
+- Action: Verify
+- Details:
+  - build_implicit_helpers() at lines 318-378
+  - Uses `config.beta`, `config.gamma`, `config.M`, `config.preconditioner_order` (CORRECT)
+  - Uses `config.get_solver_helper_fn` (CORRECT)
+  - Rosenbrock only uses linear solver, not Newton (solver_type='linear' at line 277)
+  - Solver parameters passed via __init__ kwargs (lines 268-274)
+  - **NO CHANGES NEEDED**
+
+### Task 5.2: Verify instrumented generic_rosenbrock_w.py config parameter access
+- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
+- Action: Verify
+- Details:
+  - build_implicit_helpers() at lines 223-289
+  - Lines 274-277: Creates InstrumentedLinearSolver - NO explicit parameters passed
+  - **POTENTIAL ISSUE**: Should pass solver parameters: `correction_type`, `krylov_tolerance`, `max_linear_iters`
+  - However, since Rosenbrock uses linear solver only, these may use defaults
+
+### Task 5.3: Verify no direct buffer slicing in generic_rosenbrock_w device code
+- File: tests/integrators/algorithms/instrumented/generic_rosenbrock_w.py
+- Action: Verify
+- Details:
+  - Review step() function for direct solver_scratch slicing
+  - No solver_scratch variable used in step() - Rosenbrock uses different buffer pattern
+  - Uses allocators from buffer_registry
+  - **NO CHANGES NEEDED**
+
+**Outcomes**:
+[Empty - to be filled by taskmaster agent]
+
+---
+
+## Summary of Findings
+
+After thorough analysis, the codebase generally follows the correct pattern:
+
+### Config Parameter Access
+- **Production files**: Use `config.` for compile settings (beta, gamma, M, preconditioner_order, get_solver_helper_fn) which is CORRECT. Solver parameters (krylov_tolerance, newton_tolerance, etc.) are passed via __init__ kwargs.
+- **Instrumented files**: Correctly use `self.krylov_tolerance`, `self.newton_tolerance`, etc. when creating instrumented solvers.
+- **Exception**: `crank_nicolson.py` instrumented may be missing explicit solver parameters
+
+### Direct Buffer Slicing
+- **backwards_euler instrumented**: Has `solver_scratch[i + n]` for logging residuals - this is INTENTIONAL for capturing solver state
+- **crank_nicolson instrumented**: Has `solver_scratch[idx + n]` for logging residuals - this is INTENTIONAL
+- **Other algorithms**: No direct buffer slicing found
+
+### Recommendations
+1. The direct buffer slicing in instrumented files is intentional for capturing solver internal state (residuals stored at offset n in scratch buffer)
+2. Consider adding explicit documentation comments in instrumented files explaining the buffer access pattern
+3. The `crank_nicolson.py` and `generic_rosenbrock_w.py` instrumented files may benefit from explicit solver parameter passing
 
 ---
 
 ## Dependency Graph
 
 ```
-Task Group 1 (backwards_euler production) ──┐
-                                            ├──> Task Group 5 (backwards_euler instrumented)
-                                            │
-Task Group 2 (dirk production - verify) ────┼──> Task Group 7 (dirk instrumented)
-                                            │
-Task Group 3 (crank_nicolson production) ───┼──> Task Group 6 (crank_nicolson instrumented)
-                                            │
-Task Group 4 (rosenbrock production) ───────┼──> Task Group 9 (rosenbrock instrumented)
-                                            │
-                                            └──> Task Group 8 (firk instrumented) - independent
+All Task Groups can run in PARALLEL - no dependencies between algorithm pairs
 ```
-
-## Execution Order
-
-1. **First Wave (PARALLEL)**: Task Groups 1, 2, 3, 4 (production file changes/verification)
-2. **Second Wave (PARALLEL after First)**: Task Groups 5, 6, 7, 8, 9 (instrumented file fixes)
 
 ## Edge Cases
 
-1. **Single-stage vs multi-stage algorithms**: 
-   - Single-stage (BE, CN) always use stage_index=0 or 0/1 for dual solves
-   - Multi-stage (DIRK, FIRK, Rosenbrock) use loop stage_idx
-
-2. **Newton vs Linear solvers**: 
-   - Rosenbrock uses LinearSolver only (no Newton iteration)
-   - Others use NewtonKrylov which contains LinearSolver
-
-3. **Logging array dimensions**: 
-   - Arrays sized for max_stages * max_iterations
-   - Unused slots remain zero-initialized
-
-4. **FIRK n dimension**: 
-   - FIRK solves all stages simultaneously
-   - Linear solver n = n * stage_count (flattened)
+1. **Instrumented buffer access**: Direct `solver_scratch[i + n]` access is intentional for logging - the Newton solver stores residual in second half of scratch buffer
+2. **Rosenbrock solver type**: Uses 'linear' solver only, not Newton - different parameter set applies
+3. **FIRK dimension**: Uses all_stages_n = n * stage_count for solver dimension
 
 ## Estimated Complexity
 
-- Task Group 1: Medium (new config class + register_buffers + build_step updates)
-- Task Groups 2-4: Low (verification only)
-- Task Groups 5-9: Medium-High (method additions + solver call modifications)
+- Task Groups 1-5: Low (mostly verification, minimal changes needed)
+- Main finding: Code already follows correct patterns for config parameter access
+- Direct buffer slicing is intentional instrumentation, not a bug
 
-Total: ~9 task groups, ~30 individual tasks
+Total: 5 task groups (one per algorithm pair), ~15 individual verification tasks

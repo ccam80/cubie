@@ -192,7 +192,7 @@ class InstrumentedLinearSolver(LinearSolver):
                 
                 # Evaluate operator and compute initial residual
                 operator_apply(
-                    state, parameters, drivers, base_state, cached_aux,
+                    state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, x, temp
                 )
                 acc = typed_zero
@@ -219,8 +219,8 @@ class InstrumentedLinearSolver(LinearSolver):
                             state,
                             parameters,
                             drivers,
-                            base_state,
                             cached_aux,
+                            base_state,
                             t,
                             h,
                             a_ij,
@@ -236,8 +236,8 @@ class InstrumentedLinearSolver(LinearSolver):
                         state,
                         parameters,
                         drivers,
-                        base_state,
                         cached_aux,
+                        base_state,
                         t,
                         h,
                         a_ij,
