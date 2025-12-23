@@ -274,12 +274,13 @@ class FIRKStep(ODEImplicitStep):
             "observables_function": observables_function,
             "driver_function": driver_function,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order,
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
             "M": mass,
         }
+        if preconditioner_order is not None:
+            config_kwargs["preconditioner_order"] = preconditioner_order
         if stage_increment_location is not None:
             config_kwargs["stage_increment_location"] = stage_increment_location
         if stage_driver_stack_location is not None:

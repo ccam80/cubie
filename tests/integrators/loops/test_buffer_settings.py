@@ -44,6 +44,7 @@ class TestIVPLoopBufferRegistration:
             precision=np.float32,
             n_states=3,
             compile_flags=flags,
+            n_parameters=2,
             state_location='shared',
             parameters_location='shared',
         )
@@ -64,12 +65,12 @@ class TestIVPLoopBufferRegistration:
             n_drivers=1,
             n_observables=2,
             state_location='local',
-            state_proposal_location='local',
+            proposed_state_location='local',
             parameters_location='local',
             drivers_location='local',
-            drivers_proposal_location='local',
+            proposed_drivers_location='local',
             observables_location='local',
-            observables_proposal_location='local',
+            proposed_observables_location='local',
             error_location='local',
             counters_location='local',
             state_summary_location='local',
@@ -95,11 +96,11 @@ class TestBufferRegistryIntegration:
         )
         
         # Should be able to get allocators for all registered buffers
-        alloc = buffer_registry.get_allocator('loop_state', loop)
+        alloc = buffer_registry.get_allocator('state', loop)
         assert callable(alloc)
 
-    def test_clear_factory_removes_registrations(self):
-        """clear_factory should remove all buffer registrations."""
+    def test_clear_parent_removes_registrations(self):
+        """clear_parent should remove all buffer registrations."""
         flags = OutputCompileFlags()
         
         loop = IVPLoop(
@@ -112,6 +113,6 @@ class TestBufferRegistryIntegration:
         initial_size = buffer_registry.shared_buffer_size(loop)
         
         # Clear and check size is 0
-        buffer_registry.clear_factory(loop)
+        buffer_registry.clear_parent(loop)
         cleared_size = buffer_registry.shared_buffer_size(loop)
         assert cleared_size == 0

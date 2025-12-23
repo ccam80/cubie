@@ -47,13 +47,19 @@ def _run_device_step(
     temp = np.asarray(local_mem, dtype=precision) if local_mem is not None \
         else np.zeros(2, dtype=precision)
     niters_val = np.int32(niters)
+    # Shared scratch and persistent local for new controller signature
+    shared_scratch = np.zeros(1, dtype=precision)
+    persistent_local = np.zeros(2, dtype=precision)
 
     @cuda.jit
-    def kernel(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val):
-        device_func(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val)
+    def kernel(dt_val, state_val, state_prev_val, err_val, niters_val,
+               accept_val, shared_val, persistent_val):
+        device_func(dt_val, state_val, state_prev_val, err_val, niters_val,
+                    accept_val, shared_val, persistent_val)
 
-    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept, temp)
-    return StepResult(float(dt[0]), int(accept[0]), temp.copy())
+    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept,
+                 shared_scratch, persistent_local)
+    return StepResult(float(dt[0]), int(accept[0]), persistent_local.copy())
 
 @pytest.fixture(scope='function')
 def device_step_results(step_controller, precision, step_setup):
