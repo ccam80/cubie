@@ -57,6 +57,139 @@ funcs = output_funcs.device_function  # build() called again with dt_save=0.02
 4. Use in closure when compiling device functions (captured at compile time)
 5. Cache invalidation happens automatically when parameter changes
 
+### Buffer Allocation Pattern
+CuBIE uses a centralized buffer registry system (`src/cubie/buffer_registry.py`) for managing CUDA memory allocation across all device functions. The pattern provides unified memory management with configurable buffer locations (shared, local, or persistent local memory).
+
+**Core Components:**
+- `BufferRegistry` singleton (`buffer_registry`) - Central registry tracking all buffer allocations
+- `CUDABuffer` - Immutable buffer descriptor (name, size, location, precision, aliasing)
+- `BufferGroup` - Groups buffers for a single parent object with lazy layout computation
+
+**Buffer Allocation Workflow:**
+
+1. **Configuration Phase** - Location parameters added to config object:
+   ```python
+   # In ODELoopConfig (or similar attrs config class)
+   state_location: str = field(
+       default='local',
+       validator=validators.in_(['shared', 'local'])
+   )
+   ```
+   - All buffer location parameters default to `'local'`
+   - Parameter names follow pattern: `{buffer_name}_location`
+   - Added to `ALL_*_PARAMETERS` constant set for argument filtering
+
+2. **Registration Phase** - Buffers registered in `register_buffers()`:
+   ```python
+   def register_buffers(self) -> None:
+       """Register buffers according to locations in compile settings."""
+       config = self.compile_settings
+       
+       buffer_registry.register(
+           'state',                      # Buffer name
+           self,                         # Parent object
+           config.n_states,              # Buffer size
+           config.state_location,        # Memory location
+           precision=config.precision
+       )
+   ```
+   - Called after `__init__()` and after `update()`
+   - Registers each buffer with central registry
+   - Supports buffer aliasing for memory reuse
+
+3. **Allocator Generation** - Device functions create allocators:
+   ```python
+   # In build() method
+   alloc_state = buffer_registry.get_allocator('state', self)
+   alloc_proposed_state = buffer_registry.get_allocator('proposed_state', self)
+   ```
+   - Allocators are CUDA device functions: `(shared, persistent) -> array`
+   - Return appropriate slice/view based on buffer location
+   - Captured in closure when compiling parent device function
+
+4. **Child Buffer Delegation** - Parent allocates memory for children:
+   ```python
+   # Parent registers child's buffer requirements
+   alloc_child_shared, alloc_child_persistent = (
+       buffer_registry.get_child_allocators(
+           parent=self,
+           child=algorithm_step,
+           name='algorithm'
+       )
+   )
+   ```
+   - Child's shared and persistent buffer sizes computed automatically
+   - Registered as `{name}_shared` and `{name}_persistent` in parent's group
+   - Parent passes allocated slices to child device functions
+
+5. **Runtime Allocation** - Device functions allocate at runtime:
+   ```python
+   @cuda.jit(device=True, inline=True)
+   def device_loop(shared_scratch, persistent_local, ...):
+       # Allocate buffers using pre-generated allocators
+       state = alloc_state(shared_scratch, persistent_local)
+       proposed_state = alloc_proposed_state(shared_scratch, persistent_local)
+       
+       # Pass child allocators to child device functions
+       algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
+       algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
+       
+       step_status = step_function(
+           state, proposed_state, ...,
+           algo_shared,      # Child receives slice into parent's memory
+           algo_persistent,  # Child receives slice into parent's memory
+           ...
+       )
+   ```
+   - All allocations happen at CUDA kernel runtime
+   - No explicit slice arithmetic in device code
+   - Allocators transparently handle shared/local/persistent location
+
+**Memory Location Semantics:**
+- `'shared'` - Shared memory (fast, limited to ~48KB per block, requires explicit sync)
+- `'local'` - Thread-local registers/stack (no allocation in registry layouts)
+- `'local'` + `persistent=True` - Persistent local memory (slower but larger capacity)
+
+**Buffer Aliasing:**
+Buffers can alias (reuse memory from) other buffers with disjoint lifetimes:
+```python
+buffer_registry.register(
+    'child_buffer',
+    parent=self,
+    size=10,
+    location='shared',
+    aliases='parent_buffer'  # Reuses parent_buffer's memory
+)
+```
+- Child buffer overlaps parent buffer in memory
+- Only valid when parent has sufficient remaining capacity
+- Enables efficient memory reuse without manual slice management
+
+**Update Pattern:**
+```python
+def update(self, updates_dict=None, silent=False, **kwargs):
+    # Update compile settings (handles non-buffer parameters)
+    recognised = self.update_compile_settings(updates_dict, silent=True)
+    
+    # Update buffer locations in registry (handles *_location parameters)
+    recognised |= buffer_registry.update(self, updates_dict, silent=True)
+    
+    # Re-register buffers with new locations
+    self.register_buffers()
+    
+    return recognised
+```
+- `buffer_registry.update()` recognizes `{buffer_name}_location` parameters
+- `register_buffers()` called to refresh allocators with new locations
+- Cache invalidated automatically by `update_compile_settings()`
+
+**Key Advantages:**
+- Single source of truth for buffer sizing and layout
+- Eliminates manual slice arithmetic in device code
+- Runtime-configurable memory locations (shared vs local vs persistent)
+- Automatic memory reuse via aliasing
+- Centralized sizing queries via `shared_buffer_size()`, `persistent_local_buffer_size()`
+
 ### Attrs Classes Pattern
 Used throughout for data containers and compile settings:
 - All configuration classes use `@attrs.define` decorator
