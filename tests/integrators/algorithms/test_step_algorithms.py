@@ -1303,8 +1303,7 @@ def test_algorithm(
             assert step_object.max_linear_iters == updates["max_linear_iters"], \
                 "max_linear_iters update"
             assert step_object.linear_correction_type == updates[
-                "linear_correction_type"
-            ], "linear_correction_type update"
+                "linear_correction_type"], "linear_correction_type update"
             assert step_object.krylov_tolerance == pytest.approx(
                 updates["krylov_tolerance"],
                 rel=tolerance.rel_tight,

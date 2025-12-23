@@ -241,15 +241,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         recognized = set()
 
-        # Map linear_correction_type to correction_type for solver
-        solver_updates = all_updates.copy()
-        if 'linear_correction_type' in solver_updates:
-            solver_updates['correction_type'] = solver_updates.pop(
-                'linear_correction_type'
-            )
-            recognized.add('linear_correction_type')
-
-        recognized |= self.solver.update(solver_updates, silent=True)
+        recognized |= self.solver.update(all_updates, silent=True)
 
         all_updates["solver_function"] = self.solver.device_function
 

@@ -669,6 +669,13 @@ class BufferRegistry:
         if parent in self._groups:
             del self._groups[parent]
 
+    def reset(self) -> None:
+        """Clear all buffer registrations, for example when switching
+        algorithms."""
+        allparents = list(self._groups.keys())
+        for parent in allparents:
+            self.clear_parent(parent)
+
     def update(
         self,
         parent: object,

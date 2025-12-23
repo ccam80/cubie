@@ -72,7 +72,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared-memory elements required by the loop."""
-        return buffer_registry.shared_buffer_size(self)
+        return buffer_registry.shared_buffer_size(self._loop)
 
     @property
     def shared_memory_bytes(self) -> int:
@@ -85,11 +85,11 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def local_memory_elements(self) -> int:
         """Return total persistent local-memory requirement."""
-        return buffer_registry.local_buffer_size(self)
+        return buffer_registry.local_buffer_size(self._loop)
 
     @property
     def local_persistent_elements(self):
-        return buffer_registry.persistent_local_buffer_size(self)
+        return buffer_registry.persistent_local_buffer_size(self._loop)
 
     @property
     def compiled_loop_function(self) -> Callable:

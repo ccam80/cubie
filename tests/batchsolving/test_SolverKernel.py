@@ -1,9 +1,8 @@
 import numpy as np
 import pytest
-from numba import cuda
 
-from tests._utils import assert_integration_outputs, LoopRunResult, LONG_RUN_PARAMS
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.buffer_registry import buffer_registry
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 
 
@@ -202,7 +201,9 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         output_settings=output_settings,
         loop_settings={"dt_save": 0.01, "dt_summarise": 0.1},
     )
-
+    _ = freshsolver.kernel
+    _ = solverkernel.kernel
+    assert buffer_registry._groups[freshsolver] == buffer_registry._groups[solverkernel]
     assert freshsolver.compile_settings == solverkernel.compile_settings, (
         "BatchSolverConfig mismatch"
     )

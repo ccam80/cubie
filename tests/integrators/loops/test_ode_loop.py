@@ -53,8 +53,6 @@ def test_initial_observable_seed_matches_reference(
         atol=tolerance.abs_tight,
     )
 
-
-
 @pytest.mark.parametrize(
     "solver_settings_override",
     ALGORITHM_PARAM_SETS,
@@ -66,7 +64,7 @@ def test_loop(
     output_functions,
     tolerance,
 ):
-    # Be a little looser for odd controller/algo changes
+    # Be a little looser for odd controller/algo combos
     atol=tolerance.abs_loose
     rtol=tolerance.rel_loose
     assert_integration_outputs(

@@ -73,7 +73,7 @@ def solver_device(request, placeholder_operator, precision):
     solver = LinearSolver(
         precision=precision,
         n=3,
-        correction_type=request.param,
+        linear_correction_type=request.param,
         krylov_tolerance=1e-12,
         max_linear_iters=32,
     )
@@ -124,7 +124,7 @@ def test_linear_solver_symbolic(
     system_setup,
     solver_kernel,
     precision,
-    correction_type,
+    linear_correction_type,
     precond_order,
     tolerance,
 ):
@@ -142,7 +142,7 @@ def test_linear_solver_symbolic(
     solver = LinearSolver(
         precision=precision,
         n=n,
-        correction_type=correction_type,
+        linear_correction_type=linear_correction_type,
         krylov_tolerance=1e-8,
         max_linear_iters=1000,
     )
@@ -179,7 +179,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     solver = LinearSolver(
         precision=precision,
         n=n,
-        correction_type="minimal_residual",
+        linear_correction_type="minimal_residual",
         krylov_tolerance=1e-20,
         max_linear_iters=16,
     )

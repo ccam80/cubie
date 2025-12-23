@@ -5,7 +5,6 @@ from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
-    LinearSolverConfig,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -251,23 +250,39 @@ def test_newton_krylov_failure(precision):
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert (
-            status_code
-            == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-    )
+    assert status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+
 
 def test_newton_krylov_max_newton_iters_exceeded(
     placeholder_system, precision
 ):
     """Returns MAX_NEWTON_ITERATIONS_EXCEEDED when max_iters=0 and residual>tolerance."""
+    _, _, base_state = placeholder_system
 
-    residual, operator, base_state = placeholder_system
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        # Cubic residual in the final state: f(x) = (base + x - target)^3.
+        # Newton's method reduces this slowly from a distant initial guess.
+        target = base_state[0] + precision(1.0)  # solution increment = 1.0
+        y = base_state[0] + state[0]
+        diff = y - target
+        out[0] = diff * diff * diff
+
+    @cuda.jit(device=True)
+    def operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
+        # Jacobian of the cubic residual: J = 3*(y - target)^2
+        target = base_state[0] + precision(1.0)
+        y = base_state[0] + state[0]
+        jac = precision(3.0) * (y - target) * (y - target)
+        out[0] = jac * vec[0]
     n = 1
     linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
         krylov_tolerance=1e-8,
-        max_linear_iters=32,
+        max_linear_iters=20,
     )
     linear_solver_instance.update(operator_apply=operator)
 
@@ -275,7 +290,7 @@ def test_newton_krylov_max_newton_iters_exceeded(
         precision=precision,
         n=n,
         linear_solver=linear_solver_instance,
-        newton_tolerance=1e-15,
+        newton_tolerance=1e-20,
         max_newton_iters=1,
     )
 
