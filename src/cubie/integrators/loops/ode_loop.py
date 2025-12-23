@@ -518,7 +518,8 @@ class IVPLoop(CUDAFactory):
             # Allocate child buffers for algorithm step
             algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
             algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
-            controller_temp = alloc_controller_persistent(
+            ctrl_shared = alloc_controller_shared(shared_scratch, persistent_local)
+            ctrl_persistent = alloc_controller_persistent(
                 shared_scratch, persistent_local
             )
             dt = alloc_dt(shared_scratch, persistent_local)
@@ -660,7 +661,8 @@ class IVPLoop(CUDAFactory):
                             error,
                             niters,
                             accept_step,
-                            controller_temp,
+                            ctrl_shared,
+                            ctrl_persistent,
                         )
 
                         accept = bool_(accept_step[0] != int32(0))
