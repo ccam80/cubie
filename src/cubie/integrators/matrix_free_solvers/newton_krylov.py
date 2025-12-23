@@ -14,6 +14,7 @@ import numpy as np
 
 from cubie._utils import (
     PrecisionDType,
+    build_config,
     getype_validator,
     gttype_validator,
     inrangetype_validator,
@@ -183,17 +184,10 @@ class NewtonKrylov(CUDAFactory):
         precision: PrecisionDType,
         n: int,
         linear_solver: LinearSolver,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
-        
+
         Parameters
         ----------
         precision : PrecisionDType
@@ -202,53 +196,22 @@ class NewtonKrylov(CUDAFactory):
             Size of state vectors.
         linear_solver : LinearSolver
             LinearSolver instance for solving linear systems.
-        newton_tolerance : float, optional
-            Residual norm threshold for convergence.
-            If None, defaults to 1e-3.
-        max_newton_iters : int, optional
-            Maximum Newton iterations permitted.
-            If None, defaults to 100.
-        newton_damping : float, optional
-            Step shrink factor for backtracking.
-            If None, defaults to 0.5.
-        newton_max_backtracks : int, optional
-            Maximum damping attempts per Newton step.
-            If None, defaults to 8.
-        delta_location : str, default='local'
-            Memory location for delta buffer ('local' or 'shared').
-        residual_location : str, default='local'
-            Memory location for residual buffer ('local' or 'shared').
-        residual_temp_location : str, default='local'
-            Memory location for residual_temp buffer ('local' or 'shared').
-        stage_base_bt_location : str, default='local'
-            Memory location for stage_base_bt buffer ('local' or 'shared').
+        **kwargs
+            Optional parameters passed to NewtonKrylovConfig. See
+            NewtonKrylovConfig for available parameters. None values
+            are ignored.
         """
         super().__init__()
 
         self.linear_solver = linear_solver
 
-        newton_kwargs = {}
-        if newton_tolerance is not None:
-            newton_kwargs['newton_tolerance'] = newton_tolerance
-        if max_newton_iters is not None:
-            newton_kwargs['max_newton_iters'] = max_newton_iters
-        if newton_damping is not None:
-            newton_kwargs['newton_damping'] = newton_damping
-        if newton_max_backtracks is not None:
-            newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        if delta_location is not None:
-            newton_kwargs['delta_location'] = delta_location
-        if residual_location is not None:
-            newton_kwargs['residual_location'] = residual_location
-        if residual_temp_location is not None:
-            newton_kwargs['residual_temp_location'] = residual_temp_location
-        if stage_base_bt_location is not None:
-            newton_kwargs['stage_base_bt_location'] = stage_base_bt_location
-
-        config = NewtonKrylovConfig(
-            precision=precision,
-            n=n,
-            **newton_kwargs
+        config = build_config(
+            NewtonKrylovConfig,
+            required={
+                'precision': precision,
+                'n': n,
+            },
+            **kwargs
         )
 
         self.setup_compile_settings(config)

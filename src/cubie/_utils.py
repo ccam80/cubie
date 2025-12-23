@@ -16,7 +16,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators, Attribute
+from attrs import fields, has, validators, Attribute, Factory, NOTHING
 from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
@@ -628,3 +628,98 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
                 )
             result[key] = value
     return result, unpacked_keys
+
+
+def build_config(
+    config_class: type,
+    required: dict,
+    **optional
+) -> Any:
+    """Build attrs config instance from required and optional parameters.
+
+    Starts with config class defaults for all optional fields, then applies
+    provided required and optional values. This eliminates the verbose pattern
+    of checking `if param is not None` for every optional parameter.
+
+    Parameters
+    ----------
+    config_class : type
+        Attrs class to instantiate (e.g., DIRKStepConfig).
+    required : dict
+        Required parameters that must be provided. These are typically
+        function parameters like precision, n, dxdt_function.
+    **optional
+        Optional parameter overrides. Only non-None values override defaults
+        from the config class.
+
+    Returns
+    -------
+    config_class instance
+        Configured attrs object with defaults + required + optional overrides.
+
+    Raises
+    ------
+    TypeError
+        If config_class is not an attrs class.
+    ValueError
+        If required fields of config_class are missing after merge.
+
+    Examples
+    --------
+    >>> config = build_config(
+    ...     DIRKStepConfig,
+    ...     required={'precision': np.float32, 'n': 3},
+    ...     krylov_tolerance=1e-8
+    ... )
+
+    Notes
+    -----
+    The helper automatically:
+    - Extracts defaults from config_class attrs fields
+    - Merges: defaults <- required <- optional (non-None)
+    - Filters out None values from optional kwargs
+    - Validates all required config fields are present
+    - Ignores extra keys not in config class fields
+    """
+    if not has(config_class):
+        raise TypeError(
+            f"{config_class.__name__} is not an attrs class"
+        )
+
+    # Extract field info from config class
+    defaults = {}
+    required_fields = set()
+    valid_fields = set()
+
+    for field in fields(config_class):
+        valid_fields.add(field.name)
+        if field.default is not NOTHING:
+            # Has default value - extract it
+            if isinstance(field.default, Factory):
+                defaults[field.name] = field.default.factory()
+            else:
+                defaults[field.name] = field.default
+        else:
+            # No default - this is a required field
+            required_fields.add(field.name)
+
+    # Filter optional kwargs to remove None values
+    # (None means "use default", not "set to None")
+    filtered_optional = {
+        k: v for k, v in optional.items() if v is not None
+    }
+
+    # Merge: defaults <- required <- filtered_optional
+    merged = {**defaults, **required, **filtered_optional}
+
+    # Validate all required config fields are present
+    missing = required_fields - set(merged.keys())
+    if missing:
+        raise ValueError(
+            f"{config_class.__name__} missing required fields: {missing}"
+        )
+
+    # Filter to only valid fields (ignore extra keys)
+    final = {k: v for k, v in merged.items() if k in valid_fields}
+
+    return config_class(**final)

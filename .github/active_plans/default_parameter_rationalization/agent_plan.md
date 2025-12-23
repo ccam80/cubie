@@ -761,5 +761,235 @@ Existing integration tests should pass unchanged since Solver API is unchanged.
 5. **Phase 5**: Refactor loop and output function init functions
 6. **Phase 6**: Update tests to match new init patterns
 7. **Phase 7**: Remove obsolete code and validate all tests pass
+8. **Phase 8**: Create comprehensive optional arguments documentation
 
 Each phase can be tested independently. Breaking changes are acceptable per project guidelines.
+
+## Phase 8: Optional Arguments Documentation
+
+### Purpose
+
+Create a user-facing RST documentation file that serves as a complete reference for all optional arguments that can be passed to `solver.solve()`. This documentation complements the code refactoring by providing users with a clear understanding of what they can customize.
+
+### File Location
+
+`docs/source/user_guide/optional_arguments.rst`
+
+### Document Architecture
+
+```
+Optional Arguments Reference
+============================
+
+Introduction
+------------
+[Brief explanation of kwargs flow: Solver → components]
+
+Algorithm Options
+-----------------
+[Description of algorithm configuration]
+
+Parameter Descriptions
+~~~~~~~~~~~~~~~~~~~~~~
+[Plain-language description of each parameter]
+
+Algorithm Applicability
+~~~~~~~~~~~~~~~~~~~~~~~
+[Table showing which algorithms support which parameters]
+
+Controller Options
+------------------
+[Similar structure]
+
+Loop Options
+------------
+[Similar structure]
+
+Output Options
+--------------
+[Similar structure]
+```
+
+### Data Collection During Phases 2-5
+
+As each component is refactored, the implementing agent should add parameter information to a tracking section. This enables accurate documentation.
+
+**Information to collect per parameter:**
+- `name`: Parameter name as used in kwargs
+- `default`: Default value from attrs config class
+- `type`: Expected type (float, int, str, etc.)
+- `brief`: One-line description for quick reference
+- `applies_to`: List of algorithms/controllers that recognize this parameter
+
+**Example format (for agent's reference):**
+```python
+# Algorithm parameters (from refactored files)
+ALGORITHM_PARAMS = {
+    'krylov_tolerance': {
+        'default': 1e-6,
+        'type': 'float',
+        'brief': 'Convergence threshold for iterative linear solver',
+        'applies_to': ['backwards_euler', 'crank_nicolson', 'dirk', 'firk']
+    },
+    'max_linear_iters': {
+        'default': 10,
+        'type': 'int',
+        'brief': 'Maximum iterations for linear solver per Newton step',
+        'applies_to': ['backwards_euler', 'crank_nicolson', 'dirk', 'firk']
+    },
+    'newton_tolerance': {
+        'default': 1e-6,
+        'type': 'float',
+        'brief': 'Convergence threshold for Newton iteration',
+        'applies_to': ['backwards_euler', 'crank_nicolson', 'dirk', 'firk']
+    },
+    # ... etc
+}
+```
+
+### Documentation Writing Guidelines
+
+**Style principles:**
+1. **Technical but accessible**: Assume the reader understands ODEs but not implementation details
+2. **Explain the "why"**: Why would someone change this parameter?
+3. **Provide context**: How does this parameter interact with others?
+4. **Avoid jargon**: Use "stopping condition" not "termination criterion"
+
+**Example parameter description (newton_tolerance):**
+
+```rst
+newton_tolerance
+    The tolerance for the Newton solver to exit. In each implicit step, a
+    Newton-Krylov solver runs iteratively, trying to converge on a state
+    that minimizes the difference between the proposed next state and what
+    the derivative equations predict.
+    
+    When the sum of squared differences across all state variables falls
+    below this tolerance, the iteration exits and the step is considered
+    solved.
+    
+    .. math::
+    
+       \sum_{i=0}^{n} (x_{proposed}[i] - x_{predicted}[i])^2 < \text{newton\_tolerance}
+    
+    **Note:** This differs from ``atol`` and ``rtol``, which control step
+    acceptance based on estimated truncation error. The Newton tolerance
+    controls how closely the implicit solution matches the expected
+    relationship between consecutive states; the step tolerances control
+    whether the overall step size introduces acceptable error.
+    
+    **Default:** 1e-6
+    
+    **When to adjust:** Decrease for higher accuracy in stiff systems;
+    increase if Newton iteration is taking too many steps.
+```
+
+### Applicability Tables
+
+Use RST tables to show which algorithms support each parameter:
+
+```rst
+.. list-table:: Algorithm Parameter Applicability
+   :header-rows: 1
+   :widths: 30 10 10 10 10 10 10
+
+   * - Parameter
+     - Euler
+     - ERK
+     - BE
+     - CN
+     - DIRK
+     - FIRK
+   * - krylov_tolerance
+     - 
+     - 
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+   * - max_linear_iters
+     - 
+     - 
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+   * - newton_tolerance
+     - 
+     - 
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+   * - tableau
+     - 
+     - ✓
+     - 
+     - 
+     - ✓
+     - ✓
+```
+
+### Parameter Categories
+
+**Algorithm Options** (from `ALL_ALGORITHM_STEP_PARAMETERS`):
+- Implicit solver parameters: krylov_tolerance, max_linear_iters, newton_tolerance, max_newton_iters
+- Tableau parameters: tableau (for ERK, DIRK, FIRK, Rosenbrock-W)
+- Buffer locations: various `*_location` parameters for memory placement
+
+**Controller Options** (from `ALL_STEP_CONTROLLER_PARAMETERS`):
+- Step size bounds: dt, dt_min, dt_max
+- Adaptive gains: kp, ki, kd (for PID controller)
+- Safety factors: safety_factor, max_factor, min_factor
+- Tolerance parameters: atol, rtol
+
+**Loop Options** (from `ALL_LOOP_SETTINGS`):
+- Save intervals: dt_save, dt_summarise
+- Maximum steps: max_steps
+- Termination conditions
+
+**Output Options** (from `ALL_OUTPUT_FUNCTION_PARAMETERS`):
+- Output types selection
+- Summary metrics configuration
+- State/observable selection
+
+### Integration with Sphinx
+
+After creating `optional_arguments.rst`, update `docs/source/user_guide/index.rst` to include the new file in the toctree:
+
+**Current toctree:**
+```rst
+.. toctree::
+   :maxdepth: 1
+   :caption: Contents
+
+   systems
+   drivers
+   algorithms
+   speed
+   cuda
+   userfunctions
+```
+
+**Updated toctree (add optional_arguments after algorithms):**
+```rst
+.. toctree::
+   :maxdepth: 1
+   :caption: Contents
+
+   systems
+   drivers
+   algorithms
+   optional_arguments
+   speed
+   cuda
+   userfunctions
+```
+
+### Verification
+
+The documentation should be verified by:
+1. Building Sphinx docs (`make html` in docs directory)
+2. Checking all parameter names match code
+3. Ensuring tables render correctly
+4. Verifying internal links work

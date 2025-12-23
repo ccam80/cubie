@@ -6,7 +6,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
-from cubie._utils import PrecisionDType, _expand_dtype
+from cubie._utils import PrecisionDType, _expand_dtype, build_config
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
@@ -38,19 +38,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
     def __init__(
         self,
         precision: PrecisionDType,
-        dt_min: float = 1e-6,
-        dt_max: float = 1.0,
-        atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.7,
-        ki: float = -0.4,
-        kd: float = 0.0,
-        min_gain: float = 0.2,
-        max_gain: float = 5.0,
-        deadband_min: float = 1.0,
-        deadband_max: float = 1.2,
+        **kwargs,
     ) -> None:
         """Initialise a proportional–integral–derivative controller.
 
@@ -58,49 +47,18 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         ----------
         precision
             Precision used for controller calculations.
-        dt_min
-            Minimum allowed step size.
-        dt_max
-            Maximum allowed step size.
-        atol
-            Absolute tolerance specification.
-        rtol
-            Relative tolerance specification.
-        algorithm_order
-            Order of the integration algorithm.
         n
             Number of state variables.
-        kp
-            Proportional gain before scaling for controller order.
-        ki
-            Integral gain before scaling for controller order.
-        kd
-            Derivative gain before scaling for controller order.
-        min_gain
-            Lower bound for the step size change factor.
-        max_gain
-            Upper bound for the step size change factor.
-        deadband_min
-            Lower gain threshold for holding the previous step size.
-        deadband_max
-            Upper gain threshold for holding the previous step size.
+        **kwargs
+            Optional parameters passed to PIDStepControlConfig. See
+            PIDStepControlConfig for available parameters including dt_min,
+            dt_max, atol, rtol, algorithm_order, kp, ki, kd, min_gain,
+            max_gain, deadband_min, deadband_max. None values are ignored.
         """
-
-        config = PIDStepControlConfig(
-            precision=precision,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            atol=atol,
-            rtol=rtol,
-            algorithm_order=algorithm_order,
-            min_gain=min_gain,
-            max_gain=max_gain,
-            kp=kp,
-            ki=ki,
-            kd=kd,
-            deadband_min=deadband_min,
-            deadband_max=deadband_max,
-            n=n,
+        config = build_config(
+            PIDStepControlConfig,
+            required={'precision': precision, 'n': n},
+            **kwargs
         )
 
         super().__init__(config)

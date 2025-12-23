@@ -15,6 +15,7 @@ import numpy as np
 
 from cubie._utils import (
     PrecisionDType,
+    build_config,
     getype_validator,
     gttype_validator,
     inrangetype_validator,
@@ -155,53 +156,30 @@ class LinearSolver(CUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
-        linear_correction_type: Optional[str] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
-        preconditioned_vec_location: Optional[str] = None,
-        temp_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialize LinearSolver with parameters.
-        
+
         Parameters
         ----------
         precision : PrecisionDType
             Numerical precision for computations.
         n : int
             Length of residual and search-direction vectors.
-        linear_correction_type : str, optional
-            Line-search strategy ('steepest_descent' or 'minimal_residual').
-            If None, defaults to 'minimal_residual'.
-        krylov_tolerance : float, optional
-            Target on squared residual norm for convergence.
-            If None, defaults to 1e-6.
-        max_linear_iters : int, optional
-            Maximum iterations permitted.
-            If None, defaults to 100.
-        preconditioned_vec_location : str, default='local'
-            Memory location for preconditioned_vec buffer ('local' or 'shared').
-        temp_location : str, default='local'
-            Memory location for temp buffer ('local' or 'shared').
+        **kwargs
+            Optional parameters passed to LinearSolverConfig. See
+            LinearSolverConfig for available parameters. None values
+            are ignored.
         """
         super().__init__()
-        
-        # Create and setup configuration with explicit parameters
-        linear_kwargs = {}
-        if linear_correction_type is not None:
-            linear_kwargs['linear_correction_type'] = linear_correction_type
-        if krylov_tolerance is not None:
-            linear_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            linear_kwargs['max_linear_iters'] = max_linear_iters
-        if preconditioned_vec_location is not None:
-            linear_kwargs['preconditioned_vec_location'] = preconditioned_vec_location
-        if temp_location is not None:
-            linear_kwargs['temp_location'] = temp_location
 
-        config = LinearSolverConfig(
-            precision=precision,
-            n=n,
-            **linear_kwargs
+        config = build_config(
+            LinearSolverConfig,
+            required={
+                'precision': precision,
+                'n': n,
+            },
+            **kwargs
         )
         self.setup_compile_settings(config)
         self.register_buffers()

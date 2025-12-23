@@ -50,6 +50,23 @@
 - No need to construct intermediate settings dicts for simple overrides
 - Clear warning when duplicate keys exist
 
+### User Story 4: Comprehensive Optional Arguments Documentation
+**As a** user of the Solver API  
+**I want** a complete reference guide to all optional parameters  
+**So that** I can understand what I can customize and how each parameter affects solver behavior
+
+**Acceptance Criteria:**
+- An RST file exists in the user guide documenting all optional arguments
+- Parameters are organized by category: Algorithm, Controller, Loop, Output
+- Each parameter has a plain-language description (technical but avoiding jargon)
+- Applicability tables show which algorithms/controllers each parameter applies to
+- Descriptions explain what the parameter controls and why it matters
+
+**Success Metrics:**
+- Users can find any optional parameter and understand its purpose
+- No need to read source code to understand parameter behavior
+- Clear indication of which algorithms support which parameters
+
 ## Overview
 
 The current parameter default system in cubie has evolved organically, resulting in:
@@ -343,3 +360,75 @@ def __init__(self, precision, n, **kwargs):
 - Factory function tests: add config construction tests
 - Init tests: switch to config-based construction
 - No changes to integration tests (behavior unchanged)
+
+## Documentation Deliverable
+
+### Optional Arguments Guide
+
+A comprehensive RST file (`docs/source/user_guide/optional_arguments.rst`) documenting all optional parameters available through `solver.solve()`.
+
+```mermaid
+flowchart TD
+    A[optional_arguments.rst] --> B[Algorithm Options]
+    A --> C[Controller Options]
+    A --> D[Loop Options]
+    A --> E[Output Options]
+    
+    B --> B1[Parameter descriptions]
+    B --> B2[Applicability table]
+    
+    C --> C1[Parameter descriptions]
+    C --> C2[Applicability table]
+    
+    D --> D1[Parameter descriptions]
+    
+    E --> E1[Parameter descriptions]
+```
+
+### Document Structure
+
+1. **Introduction**: Brief explanation of how optional arguments flow from Solver to components
+
+2. **Algorithm Options Section**:
+   - Heading describing algorithm configuration
+   - Each parameter with plain-language description
+   - Table showing which algorithms support each parameter (✓/✗)
+
+3. **Controller Options Section**:
+   - Heading describing step-size control
+   - Each parameter with plain-language description
+   - Table showing which controllers support each parameter
+
+4. **Loop Options Section**:
+   - Heading describing integration loop settings
+   - Each parameter with description
+
+5. **Output Options Section**:
+   - Heading describing output handling settings
+   - Each parameter with description
+
+### Description Style Guidelines
+
+Descriptions should be:
+- **Technical but accessible**: Explain what the parameter controls without computer science jargon
+- **Contextual**: Explain why the parameter matters and when to adjust it
+- **Concrete**: Use examples where helpful
+
+**Example** (for `newton_tolerance`):
+> The tolerance for the Newton solver to exit. In each implicit step, a 
+> Newton-Krylov solver runs iteratively, trying to converge on a state that 
+> minimizes the difference between the proposed next state and what the 
+> derivative equations predict. When the sum of squared differences falls 
+> below this tolerance, the iteration exits.
+>
+> This differs from `atol` and `rtol` which control step acceptance based on 
+> estimated truncation error. The Newton tolerance controls how closely the 
+> implicit solution matches the expected relationship between states.
+
+### Implementation Approach
+
+During code refactoring phases:
+1. Agents collect parameter information into a draft section of agent_plan.md
+2. Short dicts mapping parameter names to brief notes
+3. Final documentation task assembles these into proper RST format
+4. Descriptions expanded to full plain-language explanations

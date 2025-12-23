@@ -32,7 +32,7 @@ from typing import Callable, Optional
 import attrs
 from numba import cuda, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -136,11 +136,10 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
-        stage_rhs_location: Optional[str] = None,
-        stage_accumulator_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
-        
+
         This constructor creates an ERK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
@@ -172,40 +171,37 @@ class ERKStep(ODEExplicitStep):
             (Dormand-Prince 5(4)).
         n_drivers
             Number of driver variables in the system.
-        stage_rhs_location
-            Memory location for stage RHS buffer: 'local' or 'shared'. If
-            None, defaults to 'local'.
-        stage_accumulator_location
-            Memory location for stage accumulator buffer: 'local' or 'shared'.
-            If None, defaults to 'local'.
-        
+        **kwargs
+            Optional parameters passed to config classes. See ERKStepConfig
+            for available parameters. None values are ignored.
+
         Notes
         -----
         The step controller defaults are selected dynamically:
-        
+
         - If ``tableau.has_error_estimate`` is ``True``:
           Uses :data:`ERK_ADAPTIVE_DEFAULTS` (PI controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`ERK_FIXED_DEFAULTS` (fixed-step controller)
-        
+
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau. Users
         can still override these defaults by explicitly specifying step
         controller settings when creating a :class:`Solver` or calling
         :func:`solve_ivp`.
-        
+
         Examples
         --------
         Create an ERK step with the default Dormand-Prince tableau:
-        
+
         >>> from cubie.integrators.algorithms.generic_erk import ERKStep
         >>> import numpy as np
         >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
         'pi'
-        
+
         Create an ERK step with Classical RK4 (errorless):
-        
+
         >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
         ...     CLASSICAL_RK4_TABLEAU
         ... )
@@ -213,24 +209,20 @@ class ERKStep(ODEExplicitStep):
         >>> step.controller_defaults.step_controller["step_controller"]
         'fixed'
         """
-
-        # Build config first so buffer registration can use config defaults
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau,
-        }
-        if stage_rhs_location is not None:
-            config_kwargs["stage_rhs_location"] = stage_rhs_location
-        if stage_accumulator_location is not None:
-            config_kwargs["stage_accumulator_location"] = stage_accumulator_location
-
-        config = ERKStepConfig(**config_kwargs)
+        config = build_config(
+            ERKStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'n_drivers': n_drivers,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'tableau': tableau,
+            },
+            **kwargs
+        )
 
         if tableau.has_error_estimate:
             defaults = ERK_ADAPTIVE_DEFAULTS

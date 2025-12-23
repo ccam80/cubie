@@ -31,7 +31,7 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -146,28 +146,12 @@ class FIRKStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
-        linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
-        preconditioned_vec_location: Optional[str] = None,
-        temp_location: Optional[str] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
-        stage_increment_location: Optional[str] = None,
-        stage_driver_stack_location: Optional[str] = None,
-        stage_state_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the FIRK step configuration.
-        
+
         This constructor creates a FIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
@@ -189,146 +173,59 @@ class FIRKStep(ODEImplicitStep):
             drivers.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
-        preconditioner_order
-            Order of the truncated Neumann preconditioner. If None, uses
-            default value of 2.
-        krylov_tolerance
-            Convergence tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
-        max_linear_iters
-            Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
-        linear_correction_type
-            Type of Krylov correction. If None, uses default from
-            LinearSolverConfig.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration. If None, uses
-            default from NewtonKrylovConfig.
-        max_newton_iters
-            Maximum iterations permitted for the Newton solver. If None, uses
-            default from NewtonKrylovConfig.
-        newton_damping
-            Damping factor applied within Newton updates. If None, uses
-            default from NewtonKrylovConfig.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver. If
-            None, uses default from NewtonKrylovConfig.
-        preconditioned_vec_location
-            Buffer location for preconditioned vector: 'local' or 'shared'. If
-            None, uses LinearSolverConfig default.
-        temp_location
-            Buffer location for temporary vector: 'local' or 'shared'. If None,
-            uses LinearSolverConfig default.
-        delta_location
-            Buffer location for Newton delta: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_location
-            Buffer location for Newton residual: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_temp_location
-            Buffer location for Newton residual_temp: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
-        stage_base_bt_location
-            Buffer location for Newton stage_base_bt: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
         tableau
             FIRK tableau describing the coefficients. Defaults to
             :data:`DEFAULT_FIRK_TABLEAU`.
         n_drivers
             Number of driver variables in the system.
-        stage_increment_location
-            Memory location for stage increment buffer: 'local' or 'shared'.
-            If None, defaults to 'local'.
-        stage_driver_stack_location
-            Memory location for stage driver stack buffer: 'local' or
-            'shared'. If None, defaults to 'local'.
-        stage_state_location
-            Memory location for stage state buffer: 'local' or 'shared'. If
-            None, defaults to 'local'.
-        
+        **kwargs
+            Optional parameters passed to config classes. See
+            FIRKStepConfig, ImplicitStepConfig, and solver config classes
+            for available parameters. None values are ignored.
+
         Notes
         -----
         The step controller defaults are selected dynamically:
-        
+
         - If ``tableau.has_error_estimate`` is ``True``:
           Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (PI controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`FIRK_FIXED_DEFAULTS` (fixed-step controller)
-        
+
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau.
-        
+
         FIRK methods require solving a coupled system of all stages
         simultaneously, which is more computationally expensive than DIRK
         methods but can achieve higher orders of accuracy for stiff systems.
         """
-
         mass = np.eye(n, dtype=precision)
 
-        # Build config first so buffer registration can use config defaults
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau,
-            "beta": 1.0,
-            "gamma": 1.0,
-            "M": mass,
-        }
-        if preconditioner_order is not None:
-            config_kwargs["preconditioner_order"] = preconditioner_order
-        if stage_increment_location is not None:
-            config_kwargs["stage_increment_location"] = stage_increment_location
-        if stage_driver_stack_location is not None:
-            config_kwargs["stage_driver_stack_location"] = stage_driver_stack_location
-        if stage_state_location is not None:
-            config_kwargs["stage_state_location"] = stage_state_location
+        config = build_config(
+            FIRKStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'n_drivers': n_drivers,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'tableau': tableau,
+                'beta': 1.0,
+                'gamma': 1.0,
+                'M': mass,
+            },
+            **kwargs
+        )
 
-        config = FIRKStepConfig(**config_kwargs)
-        
         # Select defaults based on error estimate
         if tableau.has_error_estimate:
             controller_defaults = FIRK_ADAPTIVE_DEFAULTS
         else:
             controller_defaults = FIRK_FIXED_DEFAULTS
-        
-        # Build kwargs dict conditionally
-        solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
-        if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
-        if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        if preconditioned_vec_location is not None:
-            solver_kwargs[
-                'preconditioned_vec_location'
-            ] = preconditioned_vec_location
-        if temp_location is not None:
-            solver_kwargs['temp_location'] = temp_location
-        if delta_location is not None:
-            solver_kwargs['delta_location'] = delta_location
-        if residual_location is not None:
-            solver_kwargs['residual_location'] = residual_location
-        if residual_temp_location is not None:
-            solver_kwargs['residual_temp_location'] = residual_temp_location
-        if stage_base_bt_location is not None:
-            solver_kwargs['stage_base_bt_location'] = stage_base_bt_location
-        
-        # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, **solver_kwargs)
+
+        super().__init__(config, controller_defaults, **kwargs)
 
         self.solver.update(n=self.tableau.stage_count * n)
         self.register_buffers()

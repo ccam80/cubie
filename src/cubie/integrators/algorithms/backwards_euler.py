@@ -6,7 +6,7 @@ import attrs
 from numba import cuda, int32
 import numpy as np
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -47,21 +47,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
-        linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
-        preconditioned_vec_location: Optional[str] = None,
-        temp_location: Optional[str] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
-        increment_cache_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -79,105 +65,32 @@ class BackwardsEulerStep(ODEImplicitStep):
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
-        preconditioner_order
-            Order of the truncated Neumann preconditioner. If None, uses
-            default from ImplicitStepConfig.
-        krylov_tolerance
-            Tolerance used by the linear solver. If None, uses default from
-            LinearSolverConfig.
-        max_linear_iters
-            Maximum iterations permitted for the linear solver. If None, uses
-            default from LinearSolverConfig.
-        linear_correction_type
-            Identifier for the linear correction strategy. If None, uses
-            default from LinearSolverConfig.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration. If None, uses
-            default from NewtonKrylovConfig.
-        max_newton_iters
-            Maximum iterations permitted for the Newton solver. If None, uses
-            default from NewtonKrylovConfig.
-        newton_damping
-            Damping factor applied within Newton updates. If None, uses
-            default from NewtonKrylovConfig.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver. If
-            None, uses default from NewtonKrylovConfig.
-        preconditioned_vec_location
-            Buffer location for preconditioned vector: 'local' or 'shared'. If
-            None, uses LinearSolverConfig default.
-        temp_location
-            Buffer location for temporary vector: 'local' or 'shared'. If None,
-            uses LinearSolverConfig default.
-        delta_location
-            Buffer location for Newton delta: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_location
-            Buffer location for Newton residual: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_temp_location
-            Buffer location for Newton residual_temp: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
-        stage_base_bt_location
-            Buffer location for Newton stage_base_bt: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
-        increment_cache_location
-            Memory location for increment cache buffer: 'local' or 'shared'.
-            If None, defaults to 'local'.
+        **kwargs
+            Optional parameters passed to config classes. See
+            BackwardsEulerStepConfig, ImplicitStepConfig, and solver config
+            classes for available parameters. None values are ignored.
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
 
-        config_kwargs = {
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "beta": beta,
-            "gamma": gamma,
-            "M": M,
-            "n": n,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "precision": precision,
-        }
-        if preconditioner_order is not None:
-            config_kwargs["preconditioner_order"] = preconditioner_order
-        if increment_cache_location is not None:
-            config_kwargs["increment_cache_location"] = increment_cache_location
+        config = build_config(
+            BackwardsEulerStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'beta': beta,
+                'gamma': gamma,
+                'M': M,
+            },
+            **kwargs
+        )
 
-        config = BackwardsEulerStepConfig(**config_kwargs)
-        
-        solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
-        if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
-        if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        if preconditioned_vec_location is not None:
-            solver_kwargs[
-                'preconditioned_vec_location'
-            ] = preconditioned_vec_location
-        if temp_location is not None:
-            solver_kwargs['temp_location'] = temp_location
-        if delta_location is not None:
-            solver_kwargs['delta_location'] = delta_location
-        if residual_location is not None:
-            solver_kwargs['residual_location'] = residual_location
-        if residual_temp_location is not None:
-            solver_kwargs['residual_temp_location'] = residual_temp_location
-        if stage_base_bt_location is not None:
-            solver_kwargs['stage_base_bt_location'] = stage_base_bt_location
-        
-        super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+        super().__init__(config, BE_DEFAULTS.copy(), **kwargs)
 
         self.register_buffers()
 
