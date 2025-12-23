@@ -206,6 +206,7 @@ class BaseAdaptiveStepController(BaseStepController):
         """
         super().__init__()
         self.setup_compile_settings(config)
+        self.register_buffers()
 
     def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.

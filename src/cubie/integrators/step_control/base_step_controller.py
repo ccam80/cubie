@@ -15,11 +15,12 @@ import warnings
 import attrs
 import numba
 from numpy import float32
-from attrs import define, field
+from attrs import define, field, validators
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
     precision_validator
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
@@ -28,7 +29,8 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order',
     'min_gain', 'max_gain', 'safety',
     'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
-    'gamma', 'max_newton_iters'
+    'gamma', 'max_newton_iters',
+    'timestep_memory'
 }
 
 @attrs.define
@@ -53,6 +55,10 @@ class BaseStepControllerConfig(ABC):
         validator=precision_validator,
     )
     n: int = field(default=1, validator=getype_validator(int, 0))
+    timestep_memory: str = field(
+        default='local',
+        validator=validators.in_(['local', 'shared'])
+    )
 
     @property
     def numba_precision(self) -> type:
@@ -102,6 +108,31 @@ class BaseStepController(CUDAFactory):
         """Initialise the base controller factory."""
 
         super().__init__()
+
+    def register_buffers(self) -> None:
+        """Register controller buffers with the central buffer registry.
+
+        Registers the timestep_buffer using size from local_memory_elements
+        and location from compile_settings.timestep_memory. Controllers
+        with zero buffer requirements still register to maintain consistent
+        interface.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        size = self.local_memory_elements
+
+        # Clear any existing buffer registrations
+        buffer_registry.clear_parent(self)
+
+        # Register timestep buffer
+        buffer_registry.register(
+            'timestep_buffer',
+            self,
+            size,
+            config.timestep_memory,
+            persistent=True,
+            precision=precision
+        )
 
     @abstractmethod
     def build(self) -> Callable:

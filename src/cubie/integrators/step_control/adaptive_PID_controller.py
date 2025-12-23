@@ -7,6 +7,7 @@ from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
 from cubie._utils import PrecisionDType, _expand_dtype
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -198,6 +199,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the PID controller.
         """
+        alloc_timestep_buffer = buffer_registry.get_allocator(
+            'timestep_buffer', self
+        )
 
         kp = self.kp
         ki = self.ki
@@ -222,17 +226,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            # [
-            #     (
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[::1],
-            #         int32,
-            #         int32[::1],
-            #         precision[::1],
-            #     )
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -244,7 +237,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             error,
             niters,
             accept_out,
-            local_temp
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Proportional–integral–derivative accept/step controller.
 
@@ -262,16 +256,22 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
-            err_prev = local_temp[0]
-            err_prev_prev = local_temp[1]
+            timestep_buffer = alloc_timestep_buffer(
+                shared_scratch, persistent_local
+            )
+
+            err_prev = timestep_buffer[0]
+            err_prev_prev = timestep_buffer[1]
             nrm2 = typed_zero
 
             for i in range(n):
@@ -306,8 +306,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
-            local_temp[1] = err_prev
-            local_temp[0] = nrm2
+            timestep_buffer[1] = err_prev
+            timestep_buffer[0] = nrm2
 
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret

@@ -5,6 +5,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 
 from cubie._utils import PrecisionDType
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
     AdaptiveStepControlConfig,
@@ -129,6 +130,10 @@ class AdaptiveIController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the integral controller.
         """
+        alloc_timestep_buffer = buffer_registry.get_allocator(
+            'timestep_buffer', self
+        )
+
         order_exponent = precision(1.0 / (2 * (1 + algorithm_order)))
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
@@ -147,15 +152,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-                # [(
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     int32,
-                #     int32[::1],
-                #     precision[::1],
-                # )],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -167,7 +163,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
             error,
             niters,
             accept_out,
-            local_temp,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Integral accept/step-size controller.
 
@@ -185,14 +182,19 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
+            # Allocate buffer for interface consistency (I controller uses 0)
+            _ = alloc_timestep_buffer(shared_scratch, persistent_local)
+
             nrm2 = typed_zero
             for i in range(n):
                 error_i = max(abs(error[i]), precision(1e-16))
