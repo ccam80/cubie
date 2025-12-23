@@ -41,6 +41,9 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'increment_cache_location',
     # CrankNicolson buffer location parameters
     'dxdt_location',
+    # Solver buffer location parameters
+    'preconditioned_vec_location', 'temp_location', 'delta_location',
+    'residual_location', 'residual_temp_location', 'stage_base_bt_location',
 }
 
 
