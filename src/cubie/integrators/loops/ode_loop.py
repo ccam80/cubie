@@ -8,7 +8,6 @@ device call so that compiled kernels only focus on algorithmic updates.
 from typing import Callable, Optional, Set
 
 import attrs
-from attrs import validators
 import numpy as np
 from numba import cuda, int32, float64, bool_
 
@@ -16,9 +15,8 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie._utils import getype_validator, PrecisionDType, unpack_dict_values
-from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
-                                                     ODELoopConfig)
+from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
@@ -43,6 +41,20 @@ ALL_LOOP_SETTINGS = {
     "dt_min",
     "dt_max",
     "is_adaptive",
+    # Loop buffer location parameters
+    "state_location",
+    "proposed_state_location",
+    "parameters_location",
+    "drivers_location",
+    "proposed_drivers_location",
+    "observables_location",
+    "proposed_observables_location",
+    "error_location",
+    "counters_location",
+    "state_summary_location",
+    "observable_summary_location",
+    "dt_location",
+    "accept_step_location",
 }
 
 
@@ -72,27 +84,44 @@ class IVPLoop(CUDAFactory):
     observable_summary_buffer_height
         Height of observable summary buffer.
     state_location
-        Memory location for state buffer: 'local' or 'shared'.
-    state_proposal_location
-        Memory location for proposed state buffer.
+        Memory location for state buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
+    proposed_state_location
+        Memory location for proposed state buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     parameters_location
-        Memory location for parameters buffer.
+        Memory location for parameters buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     drivers_location
-        Memory location for drivers buffer.
-    drivers_proposal_location
-        Memory location for proposed drivers buffer.
+        Memory location for drivers buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
+    proposed_drivers_location
+        Memory location for proposed drivers buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     observables_location
-        Memory location for observables buffer.
-    observables_proposal_location
-        Memory location for proposed observables buffer.
+        Memory location for observables buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
+    proposed_observables_location
+        Memory location for proposed observables buffer: 'local' or 'shared'.
+        If None, defaults to 'local'.
     error_location
-        Memory location for error buffer.
+        Memory location for error buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     counters_location
-        Memory location for counters buffer.
+        Memory location for counters buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
     state_summary_location
-        Memory location for state summary buffer.
+        Memory location for state summary buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     observable_summary_location
-        Memory location for observable summary buffer.
+        Memory location for observable summary buffer: 'local' or 'shared'.
+        If None, defaults to 'local'.
+    dt_location
+        Memory location for dt buffer: 'local' or 'shared'. If None,
+        defaults to 'local'.
+    accept_step_location
+        Memory location for accept_step buffer: 'local' or 'shared'. If
+        None, defaults to 'local'.
     controller_local_len
         Number of persistent local memory elements for the controller.
     algorithm_local_len
@@ -139,19 +168,6 @@ class IVPLoop(CUDAFactory):
         n_counters: int = 0,
         state_summary_buffer_height: int = 0,
         observable_summary_buffer_height: int = 0,
-        state_location: str = 'local',
-        state_proposal_location: str = 'local',
-        parameters_location: str = 'local',
-        drivers_location: str = 'local',
-        drivers_proposal_location: str = 'local',
-        observables_location: str = 'local',
-        observables_proposal_location: str = 'local',
-        error_location: str = 'local',
-        counters_location: str = 'local',
-        state_summary_location: str = 'local',
-        observable_summary_location: str = 'local',
-        controller_local_len: int = 0,
-        algorithm_local_len: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         dt0: Optional[float] = None,
@@ -165,96 +181,147 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
+        state_location: Optional[str] = None,
+        proposed_state_location: Optional[str] = None,
+        parameters_location: Optional[str] = None,
+        drivers_location: Optional[str] = None,
+        proposed_drivers_location: Optional[str] = None,
+        observables_location: Optional[str] = None,
+        proposed_observables_location: Optional[str] = None,
+        error_location: Optional[str] = None,
+        counters_location: Optional[str] = None,
+        state_summary_location: Optional[str] = None,
+        observable_summary_location: Optional[str] = None,
+        dt_location: Optional[str] = None,
+        accept_step_location: Optional[str] = None,
     ) -> None:
         super().__init__()
 
-        # Register all loop buffers with central registry
-        buffer_registry.clear_parent(self)
+        config_kwargs = {
+            'n_states': n_states,
+            'n_parameters': n_parameters,
+            'n_drivers': n_drivers,
+            'n_observables': n_observables,
+            'n_error': n_error,
+            'n_counters': n_counters,
+            'state_summary_buffer_height': state_summary_buffer_height,
+            'observable_summary_buffer_height': observable_summary_buffer_height,
+            'precision': precision,
+            'compile_flags': compile_flags,
+            'dt_save': dt_save,
+            'dt_summarise': dt_summarise,
+            'save_state_fn': save_state_func,
+            'update_summaries_fn': update_summaries_func,
+            'save_summaries_fn': save_summaries_func,
+            'step_controller_fn': step_controller_fn,
+            'step_function': step_function,
+            'driver_function': driver_function,
+            'observables_fn': observables_fn,
+        }
+        if state_location is not None:
+            config_kwargs['state_location'] = state_location
+        if proposed_state_location is not None:
+            config_kwargs['proposed_state_location'] = proposed_state_location
+        if parameters_location is not None:
+            config_kwargs['parameters_location'] = parameters_location
+        if drivers_location is not None:
+            config_kwargs['drivers_location'] = drivers_location
+        if proposed_drivers_location is not None:
+            config_kwargs['proposed_drivers_location'] = proposed_drivers_location
+        if observables_location is not None:
+            config_kwargs['observables_location'] = observables_location
+        if proposed_observables_location is not None:
+            config_kwargs['proposed_observables_location'] = proposed_observables_location
+        if error_location is not None:
+            config_kwargs['error_location'] = error_location
+        if counters_location is not None:
+            config_kwargs['counters_location'] = counters_location
+        if state_summary_location is not None:
+            config_kwargs['state_summary_location'] = state_summary_location
+        if observable_summary_location is not None:
+            config_kwargs['observable_summary_location'] = observable_summary_location
+        if dt_location is not None:
+            config_kwargs['dt_location'] = dt_location
+        if accept_step_location is not None:
+            config_kwargs['accept_step_location'] = accept_step_location
+        if dt0 is not None:
+            config_kwargs['dt0'] = dt0
+        if dt_min is not None:
+            config_kwargs['dt_min'] = dt_min
+        if dt_max is not None:
+            config_kwargs['dt_max'] = dt_max
+        if is_adaptive is not None:
+            config_kwargs['is_adaptive'] = is_adaptive
 
-        buffer_registry.register(
-            'loop_state', self, n_states, state_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_state', self, n_states,
-            state_proposal_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_parameters', self, n_parameters,
-            parameters_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_drivers', self, n_drivers, drivers_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_drivers', self, n_drivers,
-            drivers_proposal_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_observables', self, n_observables,
-            observables_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_proposed_observables', self, n_observables,
-            observables_proposal_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_error', self, n_error, error_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_counters', self, n_counters, counters_location,
-            precision=precision
-        )
-        buffer_registry.register(
-            'loop_state_summary', self, state_summary_buffer_height,
-            state_summary_location, precision=precision
-        )
-        buffer_registry.register(
-            'loop_observable_summary', self, observable_summary_buffer_height,
-            observable_summary_location, precision=precision
-        )
-
-        config = ODELoopConfig(
-            n_states=n_states,
-            n_parameters=n_parameters,
-            n_drivers=n_drivers,
-            n_observables=n_observables,
-            n_error=n_error,
-            n_counters=n_counters,
-            state_summary_buffer_height=state_summary_buffer_height,
-            observable_summary_buffer_height=observable_summary_buffer_height,
-            controller_local_len=controller_local_len,
-            algorithm_local_len=algorithm_local_len,
-            state_location=state_location,
-            proposed_state_location=state_proposal_location,
-            parameters_location=parameters_location,
-            drivers_location=drivers_location,
-            proposed_drivers_location=drivers_proposal_location,
-            observables_location=observables_location,
-            proposed_observables_location=observables_proposal_location,
-            error_location=error_location,
-            counters_location=counters_location,
-            state_summary_location=state_summary_location,
-            observable_summary_location=observable_summary_location,
-            save_state_fn=save_state_func,
-            update_summaries_fn=update_summaries_func,
-            save_summaries_fn=save_summaries_func,
-            step_controller_fn=step_controller_fn,
-            step_function=step_function,
-            driver_function=driver_function,
-            observables_fn=observables_fn,
-            precision=precision,
-            compile_flags=compile_flags,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
-            dt0=dt0,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            is_adaptive=is_adaptive,
-        )
+        config = ODELoopConfig(**config_kwargs)
         self.setup_compile_settings(config)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers according to locations in compile settings."""
+        config = self.compile_settings
+        precision = config.precision
+        n_states = config.n_states
+        n_parameters = config.n_parameters
+        n_drivers = config.n_drivers
+        n_observables = config.n_observables
+        n_error = config.n_error
+        n_counters = config.n_counters
+        state_summary_buffer_height = config.state_summary_buffer_height
+        observable_summary_buffer_height = config.observable_summary_buffer_height
+
+        # Register all loop buffers with central registry
+
+        buffer_registry.register(
+            'state', self, n_states, config.state_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'proposed_state', self, n_states, config.proposed_state_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'parameters', self, n_parameters,
+            config.parameters_location, precision=precision
+        )
+        buffer_registry.register(
+            'drivers', self, n_drivers, config.drivers_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'proposed_drivers', self, n_drivers,
+            config.proposed_drivers_location, precision=precision
+        )
+        buffer_registry.register(
+            'observables', self, n_observables,
+            config.observables_location, precision=precision
+        )
+        buffer_registry.register(
+            'proposed_observables', self, n_observables,
+            config.proposed_observables_location, precision=precision
+        )
+        buffer_registry.register(
+            'error', self, n_error, config.error_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'counters', self, n_counters, config.counters_location,
+            precision=precision
+        )
+        buffer_registry.register(
+            'state_summary', self, state_summary_buffer_height,
+            config.state_summary_location, precision=precision
+        )
+        buffer_registry.register(
+            'observable_summary', self, observable_summary_buffer_height,
+            config.observable_summary_location, precision=precision
+        )
+        buffer_registry.register(
+            'dt', self, 1, config.dt_location, precision=precision
+        )
+        buffer_registry.register(
+            'accept_step', self, 1, config.accept_step_location, precision=precision
+        )
 
     @property
     def precision(self) -> PrecisionDType:
@@ -303,34 +370,24 @@ class IVPLoop(CUDAFactory):
         save_counters_bool = flags.save_counters
 
         # Get allocators from buffer registry
-        alloc_state = buffer_registry.get_allocator('loop_state', self)
-        alloc_proposed_state = buffer_registry.get_allocator(
-            'loop_proposed_state', self
-        )
-        alloc_parameters = buffer_registry.get_allocator('loop_parameters', self)
-        alloc_drivers = buffer_registry.get_allocator('loop_drivers', self)
-        alloc_proposed_drivers = buffer_registry.get_allocator(
-            'loop_proposed_drivers', self
-        )
-        alloc_observables = buffer_registry.get_allocator('loop_observables', self)
-        alloc_proposed_observables = buffer_registry.get_allocator(
-            'loop_proposed_observables', self
-        )
-        alloc_error = buffer_registry.get_allocator('loop_error', self)
-        alloc_counters = buffer_registry.get_allocator('loop_counters', self)
-        alloc_state_summary = buffer_registry.get_allocator(
-            'loop_state_summary', self
-        )
-        alloc_observable_summary = buffer_registry.get_allocator(
-            'loop_observable_summary', self
-        )
-
-        # Local memory indices for non-allocated persistent local storage
-        local_indices = config.local_indices
-        dt_slice = local_indices.dt
-        accept_slice = local_indices.accept
-        controller_slice = local_indices.controller
-        algorithm_slice = local_indices.algorithm
+        getalloc = buffer_registry.get_allocator
+        alloc_state = getalloc('state', self, zero=True)
+        alloc_proposed_state = getalloc('proposed_state', self, zero=True)
+        alloc_parameters = getalloc('parameters', self, zero=True)
+        alloc_drivers = getalloc('drivers', self, zero=True)
+        alloc_proposed_drivers = getalloc('proposed_drivers', self, zero=True)
+        alloc_observables = getalloc('observables', self, zero=True)
+        alloc_proposed_observables = getalloc('proposed_observables', self, zero=True)
+        alloc_error = getalloc('error', self, zero=True)
+        alloc_counters = getalloc('counters', self, zero=True)
+        alloc_state_summary = getalloc('state_summary', self, zero=True)
+        alloc_observable_summary = getalloc('observable_summary', self, zero=True)
+        alloc_algo_shared = getalloc('algorithm_shared', self, zero=True)
+        alloc_algo_persistent = getalloc('algorithm_persistent', self, zero=True)
+        alloc_controller_shared = getalloc('controller_shared', self, zero=True)
+        alloc_controller_persistent = getalloc('controller_persistent', self, zero=True)
+        alloc_dt = getalloc('dt', self, zero=True)
+        alloc_accept_step = getalloc('accept_step', self, zero=True)
 
         # Timing values
         saves_per_summary = config.saves_per_summary
@@ -348,10 +405,6 @@ class IVPLoop(CUDAFactory):
         n_counters = int32(config.n_counters)
         
         fixed_mode = not config.is_adaptive
-
-        # Remaining scratch starts after all loop buffers
-        remaining_scratch_start = buffer_registry.shared_buffer_size(self)
-
 
         @cuda.jit(
             # [
@@ -437,17 +490,14 @@ class IVPLoop(CUDAFactory):
             stagnant_counts = int32(0)
 
             shared_scratch[:] = precision(0.0)
-
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators
             # ----------------------------------------------------------- #
             state_buffer = alloc_state(shared_scratch, persistent_local)
             state_proposal_buffer = alloc_proposed_state(
-                shared_scratch, persistent_local
+                    shared_scratch, persistent_local
             )
-            observables_buffer = alloc_observables(
-                shared_scratch, persistent_local
-            )
+            observables_buffer = alloc_observables(shared_scratch, persistent_local)
             observables_proposal_buffer = alloc_proposed_observables(
                 shared_scratch, persistent_local
             )
@@ -465,15 +515,18 @@ class IVPLoop(CUDAFactory):
             counters_since_save = alloc_counters(shared_scratch, persistent_local)
             error = alloc_error(shared_scratch, persistent_local)
 
-            remaining_shared_scratch = shared_scratch[remaining_scratch_start:]
+            # Allocate child buffers for algorithm step
+            algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
+            algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
+            ctrl_shared = alloc_controller_shared(shared_scratch, persistent_local)
+            ctrl_persistent = alloc_controller_persistent(
+                shared_scratch, persistent_local
+            )
+            dt = alloc_dt(shared_scratch, persistent_local)
+            accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
             proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
-            dt = persistent_local[dt_slice]
-            accept_step = persistent_local[accept_slice].view(simsafe_int32)
-            controller_temp = persistent_local[controller_slice]
-            algo_local = persistent_local[algorithm_slice]
-
             first_step_flag = True
             prev_step_accepted_flag = True
 
@@ -588,8 +641,8 @@ class IVPLoop(CUDAFactory):
                             t_prec,
                             first_step_flag,
                             prev_step_accepted_flag,
-                            remaining_shared_scratch,
-                            algo_local,
+                            algo_shared,
+                            algo_persistent,
                             proposed_counters,
                         )
                     )
@@ -608,7 +661,8 @@ class IVPLoop(CUDAFactory):
                             error,
                             niters,
                             accept_step,
-                            controller_temp,
+                            ctrl_shared,
+                            ctrl_persistent,
                         )
 
                         accept = bool_(accept_step[0] != int32(0))
@@ -739,12 +793,12 @@ class IVPLoop(CUDAFactory):
             None,  # initial_states
             None,  # parameters
             None,  # driver_coefficients
-            None, # local persistent - not really used
+            None,  # local persistent - not really used
             None,  # persistent_local - arbitrary 32kb provided / float64
-            None, # state_output
-            None, # observables_output
+            None,  # state_output
+            None,  # observables_output
             None,  # state_summaries_output
-            None, # obs summ output
+            None,  # obs summ output
             None,  # iteration_counters_output
             self.dt_save + 0.01,  # duration - scalar
             0.0,  # settling_time - scalar
@@ -765,12 +819,6 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def local_indices(self) -> LoopLocalIndices:
-        """Return persistent local-memory indices."""
-
-        return self.compile_settings.local_indices
-
-    @property
     def shared_memory_elements(self) -> int:
         """Return the loop's shared-memory requirement."""
         return buffer_registry.shared_buffer_size(self)
@@ -778,7 +826,12 @@ class IVPLoop(CUDAFactory):
     @property
     def local_memory_elements(self) -> int:
         """Return the loop's persistent local-memory requirement."""
-        return self.compile_settings.loop_local_elements
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_memory_elements(self) -> int:
+        """Return the loop's persistent local-memory requirement."""
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -904,6 +957,7 @@ class IVPLoop(CUDAFactory):
 
         # Update buffer locations in registry
         recognised |= buffer_registry.update(self, updates_dict, silent=True)
+        self.register_buffers()
 
         unrecognised = set(updates_dict.keys()) - recognised
         if not silent and unrecognised:

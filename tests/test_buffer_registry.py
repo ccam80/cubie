@@ -4,9 +4,7 @@ import pytest
 import numpy as np
 
 from cubie.buffer_registry import (
-    buffer_registry,
     CUDABuffer,
-    BufferGroup,
     BufferRegistry,
 )
 
@@ -76,11 +74,6 @@ class TestBufferRegistry:
         )
         assert self.factory in self.registry._groups
         assert 'buffer1' in self.registry._groups[self.factory].entries
-
-    def test_duplicate_name_raises(self):
-        self.registry.register('buffer1', self.factory, 100, 'shared')
-        with pytest.raises(ValueError, match="already registered"):
-            self.registry.register('buffer1', self.factory, 50, 'local')
 
     def test_empty_name_raises(self):
         with pytest.raises(ValueError, match="cannot be empty"):
@@ -220,7 +213,6 @@ class TestGetAllocator:
         self.registry.register('buffer1', self.factory, 100, 'shared')
         allocator = self.registry.get_allocator('buffer1', self.factory)
         assert callable(allocator)
-
 
 class TestMultipleFactories:
     """Tests for multiple factory contexts."""

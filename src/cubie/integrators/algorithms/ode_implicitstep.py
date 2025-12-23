@@ -1,16 +1,18 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Set
 
 import attrs
 import numpy as np
 import sympy as sp
 
-from cubie._utils import inrangetype_validator, gttype_validator
-from cubie.integrators.matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+from cubie._utils import inrangetype_validator, is_device_validator
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolver,
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonKrylov,
 )
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
@@ -33,22 +35,7 @@ class ImplicitStepConfig(BaseStepConfig):
         Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
-    krylov_tolerance
-        Linear solver tolerance used by the Krylov iteration.
-    max_linear_iters
-        Maximum iterations permitted for the linear solver.
-    linear_correction_type
-        Identifier controlling the linear correction operator.
-    newton_tolerance
-        Convergence tolerance for the Newton iteration.
-    max_newton_iters
-        Maximum iterations permitted for the Newton solver.
-    newton_damping
-        Damping factor applied within Newton updates.
-    newton_max_backtracks
-        Maximum number of backtracking steps within Newton updates.
     """
-
     _beta: float = attrs.field(
         default=1.0,
         validator=inrangetype_validator(float, 0, 1)
@@ -62,31 +49,9 @@ class ImplicitStepConfig(BaseStepConfig):
         default=1,
         validator=inrangetype_validator(int, 1, 32)
     )
-    _krylov_tolerance: float = attrs.field(
-        default=1e-3,
-        validator=gttype_validator(float, 0))
-    max_linear_iters: int = attrs.field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767),
-    )
-    linear_correction_type: str = attrs.field(default="minimal_residual")
-
-    _newton_tolerance: float = attrs.field(
-        default=1e-3,
-        validator=gttype_validator(float, 0)
-    )
-    max_newton_iters: int = attrs.field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767),
-    )
-    _newton_damping: float = attrs.field(
-        default=0.5,
-        validator=inrangetype_validator(float, 0, 1)
-    )
-
-    newton_max_backtracks: int = attrs.field(
-        default=10,
-        validator=inrangetype_validator(int, 1, 32767)
+    solver_function = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(is_device_validator)
     )
 
     @property
@@ -100,24 +65,8 @@ class ImplicitStepConfig(BaseStepConfig):
         return self.precision(self._gamma)
 
     @property
-    def krylov_tolerance(self) -> float:
-        """Return the linear solver tolerance."""
-        return self.precision(self._krylov_tolerance)
-
-    @property
-    def newton_tolerance(self) -> float:
-        """Return the nonlinear solver tolerance."""
-        return self.precision(self._newton_tolerance)
-
-    @property
-    def newton_damping(self) -> float:
-        """Return the Newton damping factor."""
-        return self.precision(self._newton_damping)
-
-    @property
     def settings_dict(self) -> dict:
         """Return configuration fields as a dictionary."""
-
         settings_dict = super().settings_dict
         settings_dict.update(
             {
@@ -125,13 +74,6 @@ class ImplicitStepConfig(BaseStepConfig):
                 'gamma': self.gamma,
                 'M': self.M,
                 'preconditioner_order': self.preconditioner_order,
-                'krylov_tolerance': self.krylov_tolerance,
-                'max_linear_iters': self.max_linear_iters,
-                'linear_correction_type': self.linear_correction_type,
-                'newton_tolerance': self.newton_tolerance,
-                'max_newton_iters': self.max_newton_iters,
-                'newton_damping': self.newton_damping,
-                'newton_max_backtracks': self.newton_max_backtracks,
                 'get_solver_helper_fn': self.get_solver_helper_fn,
             }
         )
@@ -141,9 +83,25 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    def __init__(self,
-                 config: ImplicitStepConfig,
-                 _controller_defaults: StepControlDefaults) -> None:
+    def __init__(
+        self,
+        config: ImplicitStepConfig,
+        _controller_defaults: StepControlDefaults,
+        solver_type: str = "newton",
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
+        preconditioned_vec_location: Optional[str] = None,
+        temp_location: Optional[str] = None,
+        delta_location: Optional[str] = None,
+        residual_location: Optional[str] = None,
+        residual_temp_location: Optional[str] = None,
+        stage_base_bt_location: Optional[str] = None,
+    ) -> None:
         """Initialise the implicit step with its configuration.
 
         Parameters
@@ -151,11 +109,145 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config
             Configuration describing the implicit step.
         _controller_defaults
-           Per-algorithm default runtime collaborators, such as step
-           controllers and matrix-free solvers.
+           Per-algorithm default runtime collaborators.
+        solver_type
+            Type of solver to create: 'newton' or 'linear'.
+        krylov_tolerance
+            Tolerance used by the linear solver.
+        max_linear_iters
+            Maximum iterations permitted for the linear solver.
+        linear_correction_type
+            Identifier for the linear correction strategy.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver.
+        newton_damping
+            Damping factor applied within Newton updates.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver.
+        preconditioned_vec_location
+            Buffer location for preconditioned vector: 'local' or 'shared'.
+            If None, uses LinearSolverConfig default.
+        temp_location
+            Buffer location for temporary vector: 'local' or 'shared'.
+            If None, uses LinearSolverConfig default.
+        delta_location
+            Buffer location for Newton delta: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        residual_location
+            Buffer location for Newton residual: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        residual_temp_location
+            Buffer location for Newton residual_temp: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        stage_base_bt_location
+            Buffer location for Newton stage_base_bt: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
         """
 
+        
         super().__init__(config, _controller_defaults)
+
+        if solver_type not in ['newton', 'linear']:
+            raise ValueError(
+                f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
+            )
+
+        linear_solver_kwargs = {}
+        if linear_correction_type is not None:
+            linear_solver_kwargs['linear_correction_type'] = linear_correction_type
+        if krylov_tolerance is not None:
+            linear_solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            linear_solver_kwargs['max_linear_iters'] = max_linear_iters
+        if preconditioned_vec_location is not None:
+            linear_solver_kwargs[
+                'preconditioned_vec_location'
+            ] = preconditioned_vec_location
+        if temp_location is not None:
+            linear_solver_kwargs['temp_location'] = temp_location
+
+        linear_solver = LinearSolver(
+            precision=config.precision,
+            n=config.n,
+            **linear_solver_kwargs,
+        )
+        
+        if solver_type == 'newton':
+            newton_kwargs = {}
+            if newton_tolerance is not None:
+                newton_kwargs['newton_tolerance'] = newton_tolerance
+            if max_newton_iters is not None:
+                newton_kwargs['max_newton_iters'] = max_newton_iters
+            if newton_damping is not None:
+                newton_kwargs['newton_damping'] = newton_damping
+            if newton_max_backtracks is not None:
+                newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
+            if delta_location is not None:
+                newton_kwargs['delta_location'] = delta_location
+            if residual_location is not None:
+                newton_kwargs['residual_location'] = residual_location
+            if residual_temp_location is not None:
+                newton_kwargs['residual_temp_location'] = (
+                    residual_temp_location
+                )
+            if stage_base_bt_location is not None:
+                newton_kwargs['stage_base_bt_location'] = (
+                    stage_base_bt_location
+                )
+            self.solver = NewtonKrylov(
+                precision=config.precision,
+                n=config.n,
+                linear_solver=linear_solver,
+                **newton_kwargs,
+            )
+        else:  # solver_type == 'linear'
+            self.solver = linear_solver
+
+    def register_buffers(self) -> None:
+        """ Register buffers with buffer_registry."""
+        pass
+
+    def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
+        """Update algorithm and owned solver parameters.
+        
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of parameter names to new values.
+        silent : bool, default=False
+            Suppress warnings for unrecognized parameters.
+        **kwargs
+            Additional parameters to update.
+        
+        Returns
+        -------
+        set[str]
+            Names of parameters that were successfully recognized.
+        
+        Notes
+        -----
+        Delegates solver parameters to owned solver instance.
+        Invalidates step cache only if solver cache was invalidated.
+        """
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+        
+        if not all_updates:
+            return set()
+        
+        recognized = set()
+
+        recognized |= self.solver.update(all_updates, silent=True)
+
+        all_updates["solver_function"] = self.solver.device_function
+
+        recognized |= super().update(all_updates, silent=True)
+
+        return recognized
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.
@@ -165,21 +257,22 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-
-        solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
+        self.build_implicit_helpers()
+
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
         driver_function = config.driver_function
         n_drivers = config.n_drivers
+        solver_function = config.solver_function
 
         return self.build_step(
-            solver_fn,
             dxdt_fn,
             observables_function,
             driver_function,
+            solver_function,
             numba_precision,
             n,
             n_drivers,
@@ -188,39 +281,38 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
-
+        
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by ``build_implicit_helpers``.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
-            Device observable computation helper.
+            Device function for evaluating observables.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for running internal solver
         numba_precision
             Numba precision for compiled device buffers.
         n
             Dimension of the state vector.
         n_drivers
             Number of driver signals provided to the system.
-
+        
         Returns
         -------
         StepCache
             Container holding the device step implementation.
         """
-
         raise NotImplementedError
 
     def build_implicit_helpers(self) -> Callable:
@@ -238,17 +330,17 @@ class ODEImplicitStep(BaseAlgorithmStep):
         gamma = config.gamma
         mass = config.M
         preconditioner_order = config.preconditioner_order
-        n = config.n
 
         get_fn = config.get_solver_helper_fn
     
+        # Get device functions from ODE system
         preconditioner = get_fn(
-                    'neumann_preconditioner',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order
-            )
+            'neumann_preconditioner',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
+        )
         residual = get_fn(
             'stage_residual',
             beta=beta,
@@ -257,64 +349,23 @@ class ODEImplicitStep(BaseAlgorithmStep):
             preconditioner_order=preconditioner_order
         )
         operator = get_fn(
-                'linear_operator',
-                beta=beta,
-                gamma=gamma,
-                mass=mass,
-                preconditioner_order=preconditioner_order)
-
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver = linear_solver_factory(operator,
-                                              n=n,
-                                              precision=self.precision,
-                                              preconditioner=preconditioner,
-                                              correction_type=correction_type,
-                                              tolerance=krylov_tolerance,
-                                              max_iters=max_linear_iters)
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        nonlinear_solver = newton_krylov_solver_factory(
-            residual_function=residual,
-            linear_solver=linear_solver,
-            n=n,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
-            precision=self.precision,
+            'linear_operator',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
         )
-        return nonlinear_solver
 
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return shared scratch dedicated to the Newton--Krylov solver."""
-
-        return self.compile_settings.n * 2
-
-    @property
-    def solver_local_elements(self) -> int:
-        """Implicit solvers return zero persistent local elements."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Implicit base class does not reserve extra shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Implicit base class does not reserve persistent locals."""
-
-        return 0
+        self.solver.update(
+            operator_apply=operator,
+            preconditioner=preconditioner,
+            residual_function=residual,
+            n = self.compile_settings.n
+        )
+        
+        self.update_compile_settings(
+                solver_function=self.solver.device_function
+        )
 
     @property
     def is_implicit(self) -> bool:
@@ -348,41 +399,58 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def krylov_tolerance(self) -> float:
         """Return the tolerance used for the linear solve."""
-
-        return self.compile_settings.krylov_tolerance
+        return self.solver.krylov_tolerance
 
     @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
-
-        return int(self.compile_settings.max_linear_iters)
+        return int(self.solver.max_linear_iters)
 
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
-
-        return self.compile_settings.linear_correction_type
+        return self.solver.linear_correction_type
 
     @property
-    def newton_tolerance(self) -> float:
+    def newton_tolerance(self) -> Optional[float]:
         """Return the Newton solve tolerance."""
-
-        return self.compile_settings.newton_tolerance
+        return getattr(self.solver, 'newton_tolerance', None)
 
     @property
-    def max_newton_iters(self) -> int:
+    def max_newton_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
-
-        return int(self.compile_settings.max_newton_iters)
+        val = getattr(self.solver, 'max_newton_iters', None)
+        return int(val) if val is not None else None
 
     @property
-    def newton_damping(self) -> float:
+    def newton_damping(self) -> Optional[float]:
         """Return the Newton damping factor."""
-
-        return self.compile_settings.newton_damping
+        return getattr(self.solver, 'newton_damping', None)
 
     @property
-    def newton_max_backtracks(self) -> int:
+    def newton_max_backtracks(self) -> Optional[int]:
         """Return the maximum number of Newton backtracking steps."""
-
-        return int(self.compile_settings.newton_max_backtracks)
+        val = getattr(self.solver, 'newton_max_backtracks', None)
+        return int(val) if val is not None else None
+    
+    @property
+    def settings_dict(self) -> dict:
+        """Return merged algorithm and solver settings.
+        
+        Combines implicit step configuration (beta, gamma, M, etc.)
+        with solver settings (Newton and linear solver parameters).
+        
+        Returns
+        -------
+        dict
+            Merged configuration dictionary containing:
+            - Base step settings (n, n_drivers, precision) from BaseStepConfig
+            - Implicit step settings (beta, gamma, M, preconditioner_order,
+              get_solver_helper_fn) from ImplicitStepConfig
+            - Solver settings (newton_tolerance, krylov_tolerance, etc.)
+              from NewtonKrylov or LinearSolver
+            - All buffer location parameters from solver hierarchy
+        """
+        settings = super().settings_dict
+        settings.update(self.solver.settings_dict)
+        return settings

@@ -6,6 +6,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
@@ -188,6 +189,10 @@ class GustafssonController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the Gustafsson controller.
         """
+        alloc_timestep_buffer = buffer_registry.get_allocator(
+            'timestep_buffer', self
+        )
+
         expo = precision(1.0 / (2 * (algorithm_order + 1)))
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
@@ -206,23 +211,13 @@ class GustafssonController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            # [
-            #     (
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         int32,
-            #         int32[::1],
-            #         numba_precision[::1],
-            #     )
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_gustafsson(
-            dt, state, state_prev, error, niters, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out,
+            shared_scratch, persistent_local
         ):  # pragma: no cover - CUDA
             """Gustafsson accept/step controller.
 
@@ -240,18 +235,23 @@ class GustafssonController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
+            timestep_buffer = alloc_timestep_buffer(
+                shared_scratch, persistent_local
+            )
 
             current_dt = dt[0]
-            dt_prev = max(local_temp[0], precision(1e-16))
-            err_prev = max(local_temp[1], precision(1e-16))
+            dt_prev = max(timestep_buffer[0], precision(1e-16))
+            err_prev = max(timestep_buffer[1], precision(1e-16))
 
             nrm2 = typed_zero
             for i in range(n):
@@ -288,8 +288,8 @@ class GustafssonController(BaseAdaptiveStepController):
             dt_new_raw = current_dt * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            local_temp[0] = current_dt
-            local_temp[1] = nrm2
+            timestep_buffer[0] = current_dt
+            timestep_buffer[1] = nrm2
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 

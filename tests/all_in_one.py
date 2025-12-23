@@ -1089,16 +1089,16 @@ def driver_function_inline_factory(interpolator):
             tau = prec(scaled - scaled_floor)
             in_range = True
         else:
-            in_range = (scaled >= 0.0) and (scaled <= num_segments)
-            seg = selp(idx < 0, int32(0), idx)
+            in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+            seg = selp(idx < int32(0), int32(0), idx)
             seg = selp(seg >= num_segments,
                       int32(num_segments - 1), seg)
-            tau = scaled - float(seg)
+            tau = scaled - precision(seg)
 
         # Evaluate polynomials using Horner's rule
         for driver_idx in range(num_drivers):
             acc = zero_value
-            for k in range(order, -1, -1):
+            for k in range(int32(order), int32(-1), int32(-1)):
                 acc = acc * tau + coefficients[seg, driver_idx, k]
             out[driver_idx] = acc if in_range else zero_value
 
@@ -1165,16 +1165,16 @@ def driver_derivative_inline_factory(interpolator):
             tau = prec(scaled - scaled_floor)
             in_range = True
         else:
-            in_range = (scaled >= 0.0) and (scaled <= num_segments)
-            seg = selp(idx < 0, int32(0), idx)
+            in_range = (scaled >= prec(0.0)) and (scaled <= num_segments)
+            seg = selp(idx < int32(0), int32(0), idx)
             seg = selp(seg >= num_segments,
                       int32(num_segments - 1), seg)
-            tau = scaled - float(seg)
+            tau = scaled - prec(seg)
 
         # Evaluate derivative using Horner's rule on derivative polynomial
         for driver_idx in range(num_drivers):
             acc = zero_value
-            for k in range(order, 0, -1):
+            for k in range(int32(order), int32(0), int32(-1)):
                 acc = acc * tau + prec(k) * (
                     coefficients[seg, driver_idx, k]
                 )
