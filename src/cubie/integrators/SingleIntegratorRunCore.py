@@ -162,28 +162,29 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         self.setup_compile_settings(config)
+
+
         self._loop = self.instantiate_loop(
-                precision=precision,
-                n_states=system_sizes.states,
-                n_parameters=system_sizes.parameters,
-                n_observables=system_sizes.observables,
-                n_drivers=system_sizes.drivers,
-                compile_flags=self._output_functions.compile_flags,
-                state_summaries_buffer_height= self._output_functions
-                .state_summaries_buffer_height,
-                observable_summaries_buffer_height= self._output_functions
-                .observable_summaries_buffer_height,
-                loop_settings=loop_settings,
-                driver_function=driver_function,
+            precision=precision,
+            n_states=system_sizes.states,
+            n_parameters=system_sizes.parameters,
+            n_observables=system_sizes.observables,
+            n_drivers=system_sizes.drivers,
+            compile_flags=self._output_functions.compile_flags,
+            state_summaries_buffer_height=self._output_functions.state_summaries_buffer_height,
+            observable_summaries_buffer_height=self._output_functions.observable_summaries_buffer_height,
+            loop_settings=loop_settings,
+            driver_function=driver_function,
         )
-        
+
         # Register algorithm step and controller buffers with loop as parent
         buffer_registry.get_child_allocators(
-            self._loop, self._algo_step, name='algorithm'
+            self._loop, self._algo_step, name="algorithm"
         )
         buffer_registry.get_child_allocators(
-            self._loop, self._step_controller, name='controller'
+                self._loop, self._step_controller, name='controller'
         )
+
 
     @property
     def n_error(self) -> int:
@@ -441,6 +442,13 @@ class SingleIntegratorRunCore(CUDAFactory):
                 }
             )
 
+        # Re-register algo and controller buffers to refresh sizing in loop
+        buffer_registry.get_child_allocators(
+                self._loop, self._algo_step, name='algorithm'
+        )
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)
 
@@ -517,15 +525,22 @@ class SingleIntegratorRunCore(CUDAFactory):
         get_solver_helper_fn = self._system.get_solver_helper
         compiled_fns_dict = {}
         if dxdt_fn != self._algo_step.dxdt_function:
-            compiled_fns_dict['dxdt_function'] = dxdt_fn
+            compiled_fns_dict["dxdt_function"] = dxdt_fn
         if observables_fn != self._algo_step.observables_function:
-            compiled_fns_dict['observables_function'] = observables_fn
+            compiled_fns_dict["observables_function"] = observables_fn
         if get_solver_helper_fn != self._algo_step.get_solver_helper_fn:
             compiled_fns_dict['get_solver_helper_fn'] = get_solver_helper_fn
 
         #Build algorithm fn after change made
         self._algo_step.update(compiled_fns_dict)
 
+        # Re-register algo and controller buffers to refresh sizing in loop
+        buffer_registry.get_child_allocators(
+                self._loop, self._algo_step, name='algorithm'
+        )
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
         compiled_functions = {
             'save_state_fn': self._output_functions.save_state_func,
             'update_summaries_fn': self._output_functions.update_summaries_func,

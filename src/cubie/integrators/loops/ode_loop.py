@@ -957,6 +957,7 @@ class IVPLoop(CUDAFactory):
 
         # Update buffer locations in registry
         recognised |= buffer_registry.update(self, updates_dict, silent=True)
+        self.register_buffers()
 
         unrecognised = set(updates_dict.keys()) - recognised
         if not silent and unrecognised:

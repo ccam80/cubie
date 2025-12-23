@@ -128,7 +128,6 @@ class AdaptivePIController(BaseAdaptiveStepController):
     @property
     def local_memory_elements(self) -> int:
         """Return the number of local memory slots required."""
-
         return 1
 
     @property
