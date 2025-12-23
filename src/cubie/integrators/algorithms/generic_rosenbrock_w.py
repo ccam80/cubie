@@ -156,6 +156,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         krylov_tolerance: Optional[float] = None,
         max_linear_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
+        preconditioned_vec_location: Optional[str] = None,
+        temp_location: Optional[str] = None,
+        delta_location: Optional[str] = None,
+        residual_location: Optional[str] = None,
+        residual_temp_location: Optional[str] = None,
+        stage_base_bt_location: Optional[str] = None,
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
         stage_rhs_location: Optional[str] = None,
         stage_store_location: Optional[str] = None,
@@ -199,6 +205,24 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         linear_correction_type
             Type of Krylov correction ("minimal_residual" or other). If None,
             uses default from LinearSolverConfig.
+        preconditioned_vec_location
+            Buffer location for preconditioned vector: 'local' or 'shared'. If
+            None, uses LinearSolverConfig default.
+        temp_location
+            Buffer location for temporary vector: 'local' or 'shared'. If None,
+            uses LinearSolverConfig default.
+        delta_location
+            Buffer location for Newton delta: 'local' or 'shared'. If None,
+            uses NewtonKrylovConfig default.
+        residual_location
+            Buffer location for Newton residual: 'local' or 'shared'. If None,
+            uses NewtonKrylovConfig default.
+        residual_temp_location
+            Buffer location for Newton residual_temp: 'local' or 'shared'. If
+            None, uses NewtonKrylovConfig default.
+        stage_base_bt_location
+            Buffer location for Newton stage_base_bt: 'local' or 'shared'. If
+            None, uses NewtonKrylovConfig default.
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
@@ -272,9 +296,25 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             solver_kwargs['max_linear_iters'] = max_linear_iters
         if linear_correction_type is not None:
             solver_kwargs['linear_correction_type'] = linear_correction_type
+        if preconditioned_vec_location is not None:
+            solver_kwargs[
+                'preconditioned_vec_location'
+            ] = preconditioned_vec_location
+        if temp_location is not None:
+            solver_kwargs['temp_location'] = temp_location
+        if delta_location is not None:
+            solver_kwargs['delta_location'] = delta_location
+        if residual_location is not None:
+            solver_kwargs['residual_location'] = residual_location
+        if residual_temp_location is not None:
+            solver_kwargs['residual_temp_location'] = residual_temp_location
+        if stage_base_bt_location is not None:
+            solver_kwargs['stage_base_bt_location'] = stage_base_bt_location
 
         # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, solver_type='linear', **solver_kwargs)
+        super().__init__(
+            config, controller_defaults, solver_type='linear', **solver_kwargs
+        )
 
         self.register_buffers()
 

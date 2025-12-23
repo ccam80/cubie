@@ -154,6 +154,12 @@ class FIRKStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        preconditioned_vec_location: Optional[str] = None,
+        temp_location: Optional[str] = None,
+        delta_location: Optional[str] = None,
+        residual_location: Optional[str] = None,
+        residual_temp_location: Optional[str] = None,
+        stage_base_bt_location: Optional[str] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
         stage_increment_location: Optional[str] = None,
@@ -207,6 +213,24 @@ class FIRKStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver. If
             None, uses default from NewtonKrylovConfig.
+        preconditioned_vec_location
+            Buffer location for preconditioned vector: 'local' or 'shared'. If
+            None, uses LinearSolverConfig default.
+        temp_location
+            Buffer location for temporary vector: 'local' or 'shared'. If None,
+            uses LinearSolverConfig default.
+        delta_location
+            Buffer location for Newton delta: 'local' or 'shared'. If None,
+            uses NewtonKrylovConfig default.
+        residual_location
+            Buffer location for Newton residual: 'local' or 'shared'. If None,
+            uses NewtonKrylovConfig default.
+        residual_temp_location
+            Buffer location for Newton residual_temp: 'local' or 'shared'. If
+            None, uses NewtonKrylovConfig default.
+        stage_base_bt_location
+            Buffer location for Newton stage_base_bt: 'local' or 'shared'. If
+            None, uses NewtonKrylovConfig default.
         tableau
             FIRK tableau describing the coefficients. Defaults to
             :data:`DEFAULT_FIRK_TABLEAU`.
@@ -287,6 +311,20 @@ class FIRKStep(ODEImplicitStep):
             solver_kwargs['newton_damping'] = newton_damping
         if newton_max_backtracks is not None:
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+        if preconditioned_vec_location is not None:
+            solver_kwargs[
+                'preconditioned_vec_location'
+            ] = preconditioned_vec_location
+        if temp_location is not None:
+            solver_kwargs['temp_location'] = temp_location
+        if delta_location is not None:
+            solver_kwargs['delta_location'] = delta_location
+        if residual_location is not None:
+            solver_kwargs['residual_location'] = residual_location
+        if residual_temp_location is not None:
+            solver_kwargs['residual_temp_location'] = residual_temp_location
+        if stage_base_bt_location is not None:
+            solver_kwargs['stage_base_bt_location'] = stage_base_bt_location
         
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)

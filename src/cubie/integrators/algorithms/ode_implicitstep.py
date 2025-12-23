@@ -95,6 +95,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        preconditioned_vec_location: Optional[str] = None,
+        temp_location: Optional[str] = None,
+        delta_location: Optional[str] = None,
+        residual_location: Optional[str] = None,
+        residual_temp_location: Optional[str] = None,
+        stage_base_bt_location: Optional[str] = None,
     ) -> None:
         """Initialise the implicit step with its configuration.
 
@@ -120,33 +126,95 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Damping factor applied within Newton updates.
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
+        preconditioned_vec_location
+            Buffer location for preconditioned vector: 'local' or 'shared'.
+            If None, uses LinearSolverConfig default.
+        temp_location
+            Buffer location for temporary vector: 'local' or 'shared'.
+            If None, uses LinearSolverConfig default.
+        delta_location
+            Buffer location for Newton delta: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        residual_location
+            Buffer location for Newton residual: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        residual_temp_location
+            Buffer location for Newton residual_temp: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
+        stage_base_bt_location
+            Buffer location for Newton stage_base_bt: 'local' or 'shared'.
+            If None, uses NewtonKrylovConfig default.
         """
 
         
         super().__init__(config, _controller_defaults)
+
+        valid_locations = {'local', 'shared'}
+        for name, value in [
+            ('preconditioned_vec_location', preconditioned_vec_location),
+            ('temp_location', temp_location),
+            ('delta_location', delta_location),
+            ('residual_location', residual_location),
+            ('residual_temp_location', residual_temp_location),
+            ('stage_base_bt_location', stage_base_bt_location),
+        ]:
+            if value is not None and value not in valid_locations:
+                raise ValueError(
+                    f"{name} must be 'local' or 'shared', got '{value}'"
+                )
 
         if solver_type not in ['newton', 'linear']:
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
 
+        linear_solver_kwargs = {}
+        if linear_correction_type is not None:
+            linear_solver_kwargs['correction_type'] = linear_correction_type
+        if krylov_tolerance is not None:
+            linear_solver_kwargs['krylov_tolerance'] = krylov_tolerance
+        if max_linear_iters is not None:
+            linear_solver_kwargs['max_linear_iters'] = max_linear_iters
+        if preconditioned_vec_location is not None:
+            linear_solver_kwargs[
+                'preconditioned_vec_location'
+            ] = preconditioned_vec_location
+        if temp_location is not None:
+            linear_solver_kwargs['temp_location'] = temp_location
+
         linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-            correction_type=linear_correction_type,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
+            **linear_solver_kwargs,
         )
         
         if solver_type == 'newton':
+            newton_kwargs = {}
+            if newton_tolerance is not None:
+                newton_kwargs['newton_tolerance'] = newton_tolerance
+            if max_newton_iters is not None:
+                newton_kwargs['max_newton_iters'] = max_newton_iters
+            if newton_damping is not None:
+                newton_kwargs['newton_damping'] = newton_damping
+            if newton_max_backtracks is not None:
+                newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
+            if delta_location is not None:
+                newton_kwargs['delta_location'] = delta_location
+            if residual_location is not None:
+                newton_kwargs['residual_location'] = residual_location
+            if residual_temp_location is not None:
+                newton_kwargs['residual_temp_location'] = (
+                    residual_temp_location
+                )
+            if stage_base_bt_location is not None:
+                newton_kwargs['stage_base_bt_location'] = (
+                    stage_base_bt_location
+                )
             self.solver = NewtonKrylov(
                 precision=config.precision,
                 n=config.n,
                 linear_solver=linear_solver,
-                newton_tolerance=newton_tolerance,
-                max_newton_iters=max_newton_iters,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks,
+                **newton_kwargs,
             )
         else:  # solver_type == 'linear'
             self.solver = linear_solver
