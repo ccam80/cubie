@@ -5,7 +5,6 @@ from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
-    LinearSolverConfig,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
@@ -71,15 +70,14 @@ def test_neumann_preconditioner(
 def solver_device(request, placeholder_operator, precision):
     """Return solver device for the requested correction type."""
 
-    config = LinearSolverConfig(
+    solver = LinearSolver(
         precision=precision,
         n=3,
-        operator_apply=placeholder_operator,
         correction_type=request.param,
-        tolerance=1e-12,
-        max_iters=32,
+        krylov_tolerance=1e-12,
+        max_linear_iters=32,
     )
-    solver = LinearSolver(config)
+    solver.update(operator_apply=placeholder_operator)
     return solver.device_function
 
 @pytest.mark.parametrize(
@@ -141,17 +139,15 @@ def test_linear_solver_symbolic(
         None if precond_order == 0 else system_setup["preconditioner"](precond_order)
     )
     
-    config = LinearSolverConfig(
+    solver = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=operator,
-        preconditioner=precond,
         correction_type=correction_type,
-        tolerance=1e-8,
-        max_iters=1000,
+        krylov_tolerance=1e-8,
+        max_linear_iters=1000,
     )
-    solver_instance = LinearSolver(config)
-    solver = solver_instance.device_function
+    solver.update(operator_apply=operator, preconditioner=precond)
+    solver = solver.device_function
     
     kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
@@ -180,16 +176,15 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
             out[i] = precision(0.0)
 
     n = 3
-    config = LinearSolverConfig(
+    solver = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=zero_operator,
         correction_type="minimal_residual",
-        tolerance=1e-20,
-        max_iters=16,
+        krylov_tolerance=1e-20,
+        max_linear_iters=16,
     )
-    solver_instance = LinearSolver(config)
-    solver = solver_instance.device_function
+    solver.update(operator_apply=zero_operator)
+    solver = solver.device_function
 
     h = precision(0.01)
     kernel = solver_kernel(solver, n, h, precision)

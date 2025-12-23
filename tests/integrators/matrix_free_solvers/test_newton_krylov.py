@@ -9,7 +9,6 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
-    NewtonKrylovConfig,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
@@ -37,24 +36,22 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     residual, operator, base_state = placeholder_system
     n = 1
     
-    linear_config = LinearSolverConfig(
+    linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=operator,
-        tolerance=1e-8,
-        max_iters=32,
+        krylov_tolerance=1e-8,
+        max_linear_iters=32,
     )
-    linear_solver_instance = LinearSolver(linear_config)
+    linear_solver_instance.update(operator_apply=operator)
     
-    newton_config = NewtonKrylovConfig(
+    newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
-        residual_function=residual,
         linear_solver=linear_solver_instance,
-        tolerance=1e-6,
-        max_iters=16,
+        newton_tolerance=1e-6,
+        max_newton_iters=16,
     )
-    newton_instance = NewtonKrylov(newton_config)
+    newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
 
     scratch_len = 2 * n
@@ -66,6 +63,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        local_persistent = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -76,6 +74,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             a_ij,
             base,
             shared,
+            local_persistent,
             counters,
         )
 
@@ -121,30 +120,30 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     h = system_setup["h"]
 
     precond = (
-        None if precond_order == 0 else system_setup["preconditioner"](precond_order)
+        None
+        if precond_order == 0
+        else system_setup["preconditioner"](precond_order)
     )
-    
-    linear_config = LinearSolverConfig(
+    linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=operator,
-        preconditioner=precond,
-        correction_type="minimal_residual",
-        tolerance=1e-8,
-        max_iters=1000,
+        krylov_tolerance=1e-8,
+        max_linear_iters=1000,
     )
-    linear_solver_instance = LinearSolver(linear_config)
-    
-    newton_config = NewtonKrylovConfig(
+    linear_solver_instance.update(operator_apply=operator,
+                                  preconditioner=precond)
+
+    newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
-        residual_function=residual_func,
         linear_solver=linear_solver_instance,
-        tolerance=1e-8,
-        max_iters=1000,
+        newton_tolerance=1e-8,
+        max_newton_iters=1000,
     )
-    newton_instance = NewtonKrylov(newton_config)
+
+    newton_instance.update(residual_function=residual_func)
     solver = newton_instance.device_function
+
 
     scratch_len = 2 * n
 
@@ -155,6 +154,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -165,6 +165,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -201,24 +202,23 @@ def test_newton_krylov_failure(precision):
         out[0] = vec[0]
 
     n = 1
-    linear_config = LinearSolverConfig(
+    linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=operator,
-        tolerance=1e-12,
-        max_iters=8,
+        krylov_tolerance=1e-12,
+        max_linear_iters=8,
     )
-    linear_solver_instance = LinearSolver(linear_config)
-    
-    newton_config = NewtonKrylovConfig(
+    linear_solver_instance.update(operator_apply=operator)
+
+    newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
-        residual_function=residual,
         linear_solver=linear_solver_instance,
-        tolerance=1e-8,
-        max_iters=2,
+        newton_tolerance=1e-8,
+        max_newton_iters=2,
     )
-    newton_instance = NewtonKrylov(newton_config)
+
+    newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
 
     scratch_len = 3 * n
@@ -232,6 +232,7 @@ def test_newton_krylov_failure(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -242,6 +243,7 @@ def test_newton_krylov_failure(precision):
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -260,26 +262,25 @@ def test_newton_krylov_max_newton_iters_exceeded(
 
     residual, operator, base_state = placeholder_system
     n = 1
-    
-    linear_config = LinearSolverConfig(
+    linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=operator,
-        tolerance=1e-8,
-        max_iters=32,
+        krylov_tolerance=1e-8,
+        max_linear_iters=32,
     )
-    linear_solver_instance = LinearSolver(linear_config)
-    
-    newton_config = NewtonKrylovConfig(
+    linear_solver_instance.update(operator_apply=operator)
+
+    newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
-        residual_function=residual,
         linear_solver=linear_solver_instance,
-        tolerance=1e-6,
-        max_iters=0,  # force no Newton iterations
+        newton_tolerance=1e-15,
+        max_newton_iters=1,
     )
-    newton_instance = NewtonKrylov(newton_config)
+
+    newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
+
 
     scratch_len = 3 * n
 
@@ -290,6 +291,7 @@ def test_newton_krylov_max_newton_iters_exceeded(
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -300,6 +302,7 @@ def test_newton_krylov_max_newton_iters_exceeded(
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -328,26 +331,25 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 
     # Inner linear solver will return MAX_LINEAR_ITERATIONS_EXCEEDED
     n = 1
-    linear_config = LinearSolverConfig(
+    linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
-        operator_apply=zero_operator,
-        correction_type="minimal_residual",
-        tolerance=1e-20,
-        max_iters=8,
+        krylov_tolerance=1e-20,
+        max_linear_iters=8,
     )
-    linear_solver_instance = LinearSolver(linear_config)
-    
-    newton_config = NewtonKrylovConfig(
+    linear_solver_instance.update(operator_apply=zero_operator)
+
+    newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
-        residual_function=residual,
         linear_solver=linear_solver_instance,
-        tolerance=1e-8,
-        max_iters=4,
+        newton_tolerance=1e-8,
+        max_newton_iters=4,
     )
-    newton_instance = NewtonKrylov(newton_config)
+
+    newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
+
 
     scratch_len = 3 * n
 
@@ -360,6 +362,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
+        local_persistent = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -370,6 +373,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             a_ij,
             base,
             shared,
+            local_persistent,
             counters,
         )
 
