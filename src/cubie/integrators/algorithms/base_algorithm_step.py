@@ -37,6 +37,10 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'stage_driver_stack_location', 'stage_state_location',
     # Rosenbrock buffer location parameters
     'stage_store_location', 'cached_auxiliaries_location',
+    # BackwardsEuler buffer location parameters
+    'increment_cache_location',
+    # CrankNicolson buffer location parameters
+    'dxdt_location',
 }
 
 
