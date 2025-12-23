@@ -270,10 +270,8 @@ class IVPLoop(CUDAFactory):
         state_summary_buffer_height = config.state_summary_buffer_height
         observable_summary_buffer_height = config.observable_summary_buffer_height
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
         # Register all loop buffers with central registry
+
         buffer_registry.register(
             'state', self, n_states, config.state_location,
             precision=precision
@@ -386,6 +384,7 @@ class IVPLoop(CUDAFactory):
         alloc_observable_summary = getalloc('observable_summary', self)
         alloc_algo_shared = getalloc('algorithm_shared', self)
         alloc_algo_persistent = getalloc('algorithm_persistent', self)
+        alloc_controller_shared = getalloc('controller_shared', self)
         alloc_controller_persistent = getalloc('controller_persistent', self)
         alloc_dt = getalloc('dt', self)
         alloc_accept_step = getalloc('accept_step', self)
@@ -496,7 +495,7 @@ class IVPLoop(CUDAFactory):
             # ----------------------------------------------------------- #
             state_buffer = alloc_state(shared_scratch, persistent_local)
             state_proposal_buffer = alloc_proposed_state(
-                shared_scratch, persistent_local
+                    shared_scratch, persistent_local
             )
             observables_buffer = alloc_observables(shared_scratch, persistent_local)
             observables_proposal_buffer = alloc_proposed_observables(
@@ -519,7 +518,8 @@ class IVPLoop(CUDAFactory):
             # Allocate child buffers for algorithm step
             algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
             algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
-            controller_temp = alloc_controller_persistent(
+            ctrl_shared = alloc_controller_shared(shared_scratch, persistent_local)
+            ctrl_persistent = alloc_controller_persistent(
                 shared_scratch, persistent_local
             )
             dt = alloc_dt(shared_scratch, persistent_local)
@@ -661,7 +661,8 @@ class IVPLoop(CUDAFactory):
                             error,
                             niters,
                             accept_step,
-                            controller_temp,
+                            ctrl_shared,
+                            ctrl_persistent,
                         )
 
                         accept = bool_(accept_step[0] != int32(0))

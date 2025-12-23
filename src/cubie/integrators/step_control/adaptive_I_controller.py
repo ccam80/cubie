@@ -147,15 +147,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-                # [(
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     int32,
-                #     int32[::1],
-                #     precision[::1],
-                # )],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -167,7 +158,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
             error,
             niters,
             accept_out,
-            local_temp,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Integral accept/step-size controller.
 
@@ -185,8 +177,10 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
