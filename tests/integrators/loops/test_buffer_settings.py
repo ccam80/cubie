@@ -43,8 +43,8 @@ class TestIVPLoopBufferRegistration:
         loop = IVPLoop(
             precision=np.float32,
             n_states=3,
-            compile_flags=flags,
             n_parameters=2,
+            compile_flags=flags,
             state_location='shared',
             parameters_location='shared',
         )
@@ -99,7 +99,7 @@ class TestBufferRegistryIntegration:
         alloc = buffer_registry.get_allocator('state', loop)
         assert callable(alloc)
 
-    def test_clear_parent_removes_registrations(self):
+    def test_clear_factory_removes_registrations(self):
         """clear_parent should remove all buffer registrations."""
         flags = OutputCompileFlags()
         
