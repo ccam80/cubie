@@ -266,12 +266,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             "driver_function": driver_function,
             "driver_del_t": driver_del_t,
             "get_solver_helper_fn": get_solver_helper_fn,
-            "preconditioner_order": preconditioner_order,
             "tableau": tableau_value,
             "beta": 1.0,
             "gamma": tableau_value.gamma,
             "M": mass,
         }
+        if preconditioner_order is not None:
+            config_kwargs["preconditioner_order"] = preconditioner_order
         if stage_rhs_location is not None:
             config_kwargs["stage_rhs_location"] = stage_rhs_location
         if stage_store_location is not None:

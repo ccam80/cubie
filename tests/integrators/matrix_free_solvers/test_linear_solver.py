@@ -118,7 +118,7 @@ def test_linear_solver_placeholder(
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True
 )
-@pytest.mark.parametrize("correction_type", ["steepest_descent", "minimal_residual"])
+@pytest.mark.parametrize("linear_correction_type", ["steepest_descent", "minimal_residual"])
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_linear_solver_symbolic(
     system_setup,

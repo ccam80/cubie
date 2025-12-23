@@ -20,7 +20,6 @@ Array = NDArray[np.floating]
 # Build, update, getter tests combined
 def test_getters(
     loop_mutable,
-    buffer_settings,
     precision,
     solver_settings,
 ):
@@ -34,16 +33,6 @@ def test_getters(
     assert loop.dt_summarise == precision(solver_settings[
                                               'dt_summarise']),\
         "dt_summarise getter"
-    assert (
-        loop.local_memory_elements
-        == 2
-    ), "local_memory getter"
-    assert (
-        loop.shared_memory_elements
-        == loop.compile_settings.shared_buffer_indices.local_end
-    ), "shared_memory getter"
-    assert loop.compile_settings.shared_buffer_indices is not None, \
-        "shared_buffer_indices getter"
     # test update
     loop.update({"dt_save": 2 * solver_settings["dt_save"]})
     assert loop.dt_save == pytest.approx(

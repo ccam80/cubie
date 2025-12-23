@@ -291,7 +291,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         linear_solver = InstrumentedLinearSolver(
             precision=precision,
             n=n,
-            correction_type=self.linear_correction_type,
+            linear_correction_type=self.linear_correction_type,
             krylov_tolerance=self.krylov_tolerance,
             max_linear_iters=self.max_linear_iters,
         )

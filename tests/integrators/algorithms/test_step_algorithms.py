@@ -947,7 +947,7 @@ def _execute_cpu_step_twice(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1013,7 +1013,7 @@ def cpu_step_results(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1074,8 +1074,7 @@ def test_two_steps(
     assert all(status == 0 for status in cpu_result.statuses)
     assert gpu_result.statuses == cpu_result.statuses
 
-    tol = {"rtol": 5e-7, "atol": 1e-7} #softened somewhat for rodas3p
-    # implementation
+    tol = {"rtol": 5e-7, "atol": 1e-7}  # Loosened for rosenbrock variants
 
     assert_allclose(
         gpu_result.first_state,
@@ -1242,12 +1241,12 @@ def test_algorithm(
 
 
     if properties is not None and properties["is_implicit"]:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
             assert step_object.linear_correction_type == solver_settings[
-                "correction_type"
+                "linear_correction_type"
             ], "linear_correction_type set"
             assert step_object.krylov_tolerance == pytest.approx(
                 solver_settings["krylov_tolerance"],
@@ -1264,7 +1263,7 @@ def test_algorithm(
                 "max_linear_iters"
             ], "max_linear_iters set"
             assert step_object.linear_correction_type == solver_settings[
-                "correction_type"
+                "linear_correction_type"
             ], "linear_correction_type set"
             assert step_object.max_newton_iters == solver_settings[
                 "max_newton_iters"
@@ -1290,7 +1289,7 @@ def test_algorithm(
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             updates = {
                 "max_linear_iters": max(
                     1, solver_settings["max_linear_iters"] // 2

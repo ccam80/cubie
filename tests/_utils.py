@@ -766,8 +766,9 @@ def run_device_loop(
     )
 
     summarise_dt = singleintegratorrun.dt_summarise
-    summary_samples = int(np.floor(precision(duration) /
-                                  precision(summarise_dt)))
+    summary_samples = max(
+        1, int(np.floor(precision(duration) / precision(summarise_dt)))
+    )
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

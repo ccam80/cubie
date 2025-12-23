@@ -270,7 +270,7 @@ def linear_solver_instance(request, system_setup, precision):
         'n': n,
         'operator_apply': operator,
         'preconditioner': preconditioner,
-        'correction_type': overrides.get('correction_type', 'minimal_residual'),
+        'linear_correction_type': overrides.get('linear_correction_type', 'minimal_residual'),
         'tolerance': overrides.get('tolerance', 1e-8),
         'max_iters': overrides.get('max_iters', 1000),
     }

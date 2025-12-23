@@ -135,12 +135,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             "gamma": gamma,
             "M": M,
             "n": n,
-            "preconditioner_order": preconditioner_order,
             "dxdt_function": dxdt_function,
             "observables_function": observables_function,
             "driver_function": driver_function,
             "precision": precision,
         }
+        if preconditioner_order is not None:
+            config_kwargs["preconditioner_order"] = preconditioner_order
         if increment_cache_location is not None:
             config_kwargs["increment_cache_location"] = increment_cache_location
 
