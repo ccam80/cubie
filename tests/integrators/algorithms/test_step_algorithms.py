@@ -1328,9 +1328,9 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert config.max_newton_iters == updates["max_newton_iters"], \
+            assert step_object.max_newton_iters == updates["max_newton_iters"], \
                 "max_newton_iters update"
-            assert config.preconditioner_order == updates[
+            assert step_object.preconditioner_order == updates[
                 "preconditioner_order"
             ], "preconditioner_order update"
             assert step_object.krylov_tolerance == pytest.approx(

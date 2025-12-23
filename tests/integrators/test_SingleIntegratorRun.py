@@ -172,9 +172,6 @@ class TestSingleIntegratorRun:
 
         # Properties that simply forward underlying objects.
         loop_props: Dict[str, str] = {
-            "shared_buffer_indices": "shared_buffer_indices",
-            "buffer_indices": "buffer_indices",
-            "local_indices": "local_indices",
             "compile_flags": "compile_flags",
             "save_state_fn": "save_state_fn",
             "update_summaries_fn": "update_summaries_fn",

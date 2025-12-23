@@ -190,7 +190,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         all_updates["solver_function"] = self.solver.device_function
 
-        super().update(all_updates, silent=True)
+        recognized |= super().update(all_updates, silent=True)
 
         return recognized
 
