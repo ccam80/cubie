@@ -167,22 +167,6 @@ class TestSingleIntegratorRun:
 
         assert list(run.output_types) == list(solver_settings["output_types"])
 
-        # Aggregate memory bookkeeping matches contributions from each child.
-        expected_shared = (
-            run._loop.shared_memory_elements
-            + getattr(run._algo_step, "shared_memory_required", 0)
-        )
-        assert run.shared_memory_elements == expected_shared
-        expected_shared_bytes = (
-            expected_shared * np.dtype(run.precision).itemsize
-        )
-        assert run.shared_memory_bytes == expected_shared_bytes
-        expected_local = (
-            run._loop.local_memory_elements
-            + run._algo_step.persistent_local_required
-            + run._step_controller.local_memory_elements
-        )
-        assert run.local_memory_elements == expected_local
         assert run.compiled_loop_function is device_fn
         assert run.threads_per_loop == run._algo_step.threads_per_step
 
@@ -191,8 +175,6 @@ class TestSingleIntegratorRun:
             "shared_buffer_indices": "shared_buffer_indices",
             "buffer_indices": "buffer_indices",
             "local_indices": "local_indices",
-            "shared_memory_elements_loop": "shared_memory_elements",
-            "local_memory_elements_loop": "local_memory_elements",
             "compile_flags": "compile_flags",
             "save_state_fn": "save_state_fn",
             "update_summaries_fn": "update_summaries_fn",
@@ -201,7 +183,6 @@ class TestSingleIntegratorRun:
             "compiled_loop_step_function": "step_function",
         }
         controller_props: Dict[str, str] = {
-            "local_memory_elements_controller": "local_memory_elements",
             "min_gain": "min_gain",
             "max_gain": "max_gain",
             "safety": "safety",
@@ -218,9 +199,6 @@ class TestSingleIntegratorRun:
             "threads_per_step": "threads_per_step",
             "uses_multiple_stages": "is_multistage",
             "adapts_step": "is_adaptive",
-            "shared_memory_required_step": "shared_memory_required",
-            "local_scratch_required_step": "local_scratch_required",
-            "local_memory_required_step": "persistent_local_required",
             "implicit_step": "is_implicit",
             "order": "order",
             "integration_step_function": "step_function",
@@ -409,12 +387,6 @@ def test_update_routes_to_children(
         abs=tolerance.abs_tight,
     )
 
-    expected_local = (
-        run._loop.local_memory_elements
-        + run._algo_step.persistent_local_required
-        + run._step_controller.local_memory_elements
-    )
-    assert run.local_memory_elements == expected_local
 
 
 def test_default_step_controller_settings_applied(
