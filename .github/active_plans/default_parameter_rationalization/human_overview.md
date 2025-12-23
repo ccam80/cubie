@@ -83,16 +83,16 @@ flowchart TD
 - Step F: 15 optional params duplicate config class defaults
 - Steps F→G→H: Unnecessary parameter passing
 
-### Proposed State - Option A: Attrs-First
+### Proposed State - Option B: Helper Function with Required/Optional Split
 
 ```mermaid
 flowchart TD
     A[User: Solver kwargs] --> B[merge_kwargs_into_settings]
     B --> C[algorithm_settings dict]
     C --> D[get_algorithm_step]
-    D --> E[DIRKStepConfig with defaults]
-    E --> F[attrs.evolve with overrides]
-    F --> G[DIRKStep.__init__ config only]
+    D --> E[build_config helper]
+    E --> F[DIRKStepConfig with defaults]
+    F --> G[DIRKStep.__init__ precision, n, **kwargs]
     
     H[ImplicitStepConfig attrs defaults] --> E
     
@@ -103,9 +103,10 @@ flowchart TD
 
 **Benefits:**
 - Single source of truth: attrs config class
-- Smaller init signatures: only required params
-- No manual dict construction
-- Uses attrs.evolve for clean overrides
+- Clear separation of required vs optional parameters
+- Users don't need to construct config objects
+- Helper function reduces verbosity of current pattern
+- All parameters settable at top-level Solver
 
 ### Key Technical Decisions
 
@@ -281,22 +282,45 @@ class DIRKStep(ODEImplicitStep):
 - Documentation will drift from code
 - Still have duplicate defaults
 
-## Recommendation: Option A
+## Recommendation: Option B (User Selected)
 
 **Rationale:**
-1. **Pythonic**: attrs.evolve is standard pattern for immutable updates
-2. **Minimal changes**: Mostly affects init signatures
-3. **Testable**: Easy to verify defaults in config tests
-4. **Extensible**: Pattern scales to new algorithms
-5. **Consistent**: Aligns with CUDAFactory compile_settings pattern
+1. **No config construction required**: Users instantiate objects directly without building config
+2. **Clear required vs optional**: Init signatures show what's mandatory
+3. **Reduces verbosity**: Helper function replaces repetitive `if param is not None:` checks
+4. **Improves current pattern**: Algorithm files already use this flow but it's too verbose
+5. **Top-level settable**: All params can be set at Solver level and propagate down
+
+**Current Pattern (Verbose):**
+```python
+def __init__(self, precision, n, krylov_tolerance=None, max_linear_iters=None, ...):
+    config_kwargs = {"precision": precision, "n": n}
+    if krylov_tolerance is not None:
+        config_kwargs["krylov_tolerance"] = krylov_tolerance
+    if max_linear_iters is not None:
+        config_kwargs["max_linear_iters"] = max_linear_iters
+    # ... 10 more of these ...
+    config = ImplicitStepConfig(**config_kwargs)
+```
+
+**New Pattern (Clean):**
+```python
+def __init__(self, precision, n, **kwargs):
+    config = build_config(
+        ImplicitStepConfig,
+        required={'precision': precision, 'n': n},
+        **kwargs
+    )
+```
 
 **Implementation phases:**
-1. Add `CONFIG_CLASS` class attribute to all algorithm steps
-2. Create `build_config_from_settings` helper in `_utils.py`
-3. Refactor factory functions (`get_algorithm_step`, `get_controller`)
-4. Simplify init functions to accept config + overrides
-5. Remove optional parameters from init signatures
-6. Update tests to use config objects
+1. Create `build_config` helper in `_utils.py`
+2. Update algorithm init functions to use helper
+3. Update controller init functions to use helper
+4. Update loop and output function init functions
+5. Update factory functions to pass through kwargs
+6. Update tests
+7. Remove obsolete code
 
 **Non-goals:**
 - Backwards compatibility (breaking changes expected during development)

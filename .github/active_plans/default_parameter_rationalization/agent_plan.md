@@ -2,11 +2,11 @@
 
 ## Architectural Overview
 
-This plan implements **Option A: Attrs-First with Config Object** to rationalize default parameter handling across cubie's configuration cascade.
+This plan implements **Option B: Helper Function with Required/Optional Split** to rationalize default parameter handling across cubie's configuration cascade.
 
 ### Core Principle
 
-**Single Source of Truth**: All optional parameter defaults live in attrs config classes. Init functions accept only required parameters plus kwargs for overrides.
+**Single Source of Truth**: All optional parameter defaults live in attrs config classes. Init functions accept required parameters explicitly plus `**kwargs` for optional overrides. A helper function constructs the config object, eliminating verbose `if param is not None` checks.
 
 ## Component Architecture
 
@@ -23,9 +23,9 @@ ConfigClass(**config_dict)
 
 ```
 User kwargs → merge_kwargs_into_settings → settings dict → 
-get_algorithm_step → build_config_from_settings → 
-ConfigClass(with defaults + overrides) → 
-Algorithm.__init__(config)
+get_algorithm_step → split_applicable_settings →
+Algorithm.__init__(precision, n, **kwargs) → build_config →
+ConfigClass(with defaults + overrides)
 ```
 
 ## Data Structures
@@ -68,37 +68,56 @@ class AlgorithmConfig(BaseStepConfig):
 class DIRKStep(ODEImplicitStep):
     """DIRK integration step implementation."""
     
-    # Class attribute linking to config
-    CONFIG_CLASS = DIRKStepConfig
-    
-    def __init__(self, config: DIRKStepConfig, **overrides):
-        """Initialize with config object.
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n: int,
+        dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
+        driver_function: Optional[Callable] = None,
+        get_solver_helper_fn: Optional[Callable] = None,
+        **kwargs
+    ):
+        """Initialize DIRK step with required parameters and optional overrides.
         
         Parameters
         ----------
-        config : DIRKStepConfig
-            Configuration object with all parameters.
-        **overrides
-            Runtime overrides to config fields.
-            Applied via attrs.evolve if provided.
+        precision : PrecisionDType
+            Numerical precision for computations.
+        n : int
+            Number of state variables.
+        dxdt_function : Callable, optional
+            Device function for derivatives.
+        observables_function : Callable, optional
+            Device function for observables.
+        driver_function : Callable, optional
+            Device function for time-varying drivers.
+        get_solver_helper_fn : Callable, optional
+            Factory for solver helpers.
+        **kwargs
+            Optional parameters (krylov_tolerance, max_linear_iters, etc.).
+            Defaults come from DIRKStepConfig attrs class.
         """
-        if overrides:
-            # Validate overrides against config fields
-            valid_fields = {f.name for f in attrs.fields(type(config))}
-            invalid = set(overrides) - valid_fields
-            if invalid:
-                raise ValueError(f"Invalid config fields: {invalid}")
-            config = attrs.evolve(config, **overrides)
-        
-        # Store config for buffer registration
-        self._config = config
+        # Build config using helper - merges defaults with provided values
+        config = build_config(
+            DIRKStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+            },
+            **kwargs
+        )
         
         # Clear and register buffers using config values
         buffer_registry.clear_parent(self)
-        self._register_buffers()
+        self._register_buffers(config)
         
         # Get controller defaults based on config
-        defaults = self._get_controller_defaults()
+        defaults = self._get_controller_defaults(config)
         
         # Initialize parent with config and defaults
         super().__init__(config, defaults)
@@ -106,7 +125,7 @@ class DIRKStep(ODEImplicitStep):
 
 ### Factory Function Pattern
 
-Factory functions construct config objects and pass to algorithm:
+Factory functions filter settings and pass to algorithm init:
 
 ```python
 def get_algorithm_step(precision, settings, **kwargs):
@@ -132,58 +151,78 @@ def get_algorithm_step(precision, settings, **kwargs):
     # Resolve algorithm type and tableau
     algorithm_type, tableau = resolve_alias(algorithm_value)
     
-    # Get config class from algorithm type
-    config_class = algorithm_type.CONFIG_CLASS
+    # Inject tableau if resolved
+    if tableau is not None:
+        algorithm_settings['tableau'] = tableau
     
-    # Build config with precision + settings
-    config = build_config_from_settings(
-        config_class,
-        precision=precision,
-        settings=algorithm_settings,
-        tableau=tableau  # Optional: injected by factory
+    # Add required precision
+    algorithm_settings['precision'] = precision
+    
+    # Filter settings for this algorithm's init signature
+    filtered, missing, unused = split_applicable_settings(
+        algorithm_type,
+        algorithm_settings,
+        warn_on_unused=False
     )
     
-    # Instantiate algorithm with config
-    return algorithm_type(config)
+    if missing:
+        raise ValueError(f"Missing required parameters: {missing}")
+    
+    # Instantiate algorithm - it will use build_config internally
+    return algorithm_type(**filtered)
 ```
 
 ## Helper Functions
 
-### build_config_from_settings
+### build_config
 
 New utility function in `_utils.py`:
 
 ```python
-def build_config_from_settings(
+def build_config(
     config_class: type,
-    settings: dict,
-    **required_overrides
+    required: dict,
+    **optional
 ) -> Any:
-    """Build attrs config instance from settings dict.
+    """Build attrs config instance from required and optional parameters.
     
-    Starts with config class defaults, merges settings, applies required
-    overrides. Validates that required fields (no default) are provided.
+    Starts with config class defaults for all optional fields, then applies
+    provided required and optional values. This eliminates the verbose pattern
+    of checking `if param is not None` for every optional parameter.
     
     Parameters
     ----------
     config_class : type
         Attrs class to instantiate (e.g., DIRKStepConfig).
-    settings : dict
-        Settings dict with optional parameter overrides.
-    **required_overrides
-        Required fields that must be provided (e.g., precision=np.float32).
+    required : dict
+        Required parameters that must be provided. These are typically
+        function parameters like precision, n, dxdt_function.
+    **optional
+        Optional parameter overrides. Only non-None values override defaults
+        from the config class.
     
     Returns
     -------
     config_class instance
-        Configured attrs object with defaults + overrides.
+        Configured attrs object with defaults + required + optional overrides.
     
-    Raises
-    ------
-    ValueError
-        If required field is missing from both settings and required_overrides.
+    Examples
+    --------
+    >>> config = build_config(
+    ...     DIRKStepConfig,
+    ...     required={'precision': np.float32, 'n': 3},
+    ...     krylov_tolerance=1e-8
+    ... )
+    
+    Notes
+    -----
+    The helper automatically:
+    - Extracts defaults from config_class attrs fields
+    - Merges: defaults <- required <- optional (non-None)
+    - Filters out None values from optional kwargs
+    - Validates all required config fields are present
     """
-    # Extract defaults from config class
+    # Start with config class defaults
     defaults = {}
     required_fields = set()
     
@@ -195,29 +234,36 @@ def build_config_from_settings(
             else:
                 defaults[field.name] = field.default
         else:
-            # Required field
+            # Required field (no default)
             required_fields.add(field.name)
     
-    # Merge: defaults <- settings <- required_overrides
-    merged = {**defaults, **settings, **required_overrides}
+    # Filter optional kwargs to remove None values
+    # (None means "use default", not "set to None")
+    filtered_optional = {
+        k: v for k, v in optional.items() if v is not None
+    }
     
-    # Check all required fields are present
-    missing = required_fields - set(merged.keys())
+    # Merge: defaults <- required <- filtered_optional
+    merged = {**defaults, **required, **filtered_optional}
+    
+    # Validate all required fields are present
+    provided_fields = set(merged.keys())
+    missing = required_fields - provided_fields
     if missing:
         raise ValueError(
             f"{config_class.__name__} missing required fields: {missing}"
         )
     
-    # Filter to only valid fields (ignore extra keys in settings)
+    # Filter to only valid fields (ignore extra keys)
     valid_fields = {f.name for f in attrs.fields(config_class)}
-    filtered = {k: v for k, v in merged.items() if k in valid_fields}
+    final = {k: v for k, v in merged.items() if k in valid_fields}
     
-    return config_class(**filtered)
+    return config_class(**final)
 ```
 
 ### Usage in Factories
 
-Example for `get_algorithm_step`:
+Example for `get_algorithm_step` (minimal changes needed):
 
 ```python
 def get_algorithm_step(precision, settings, **kwargs):
@@ -235,35 +281,39 @@ def get_algorithm_step(precision, settings, **kwargs):
     else:
         raise TypeError(f"Invalid algorithm type: {type(algorithm_value)}")
     
-    # Get config class
-    config_class = algorithm_type.CONFIG_CLASS
+    # Inject precision (required for all algorithms)
+    algorithm_settings['precision'] = precision
     
     # Inject tableau if resolved
     if resolved_tableau is not None:
         algorithm_settings['tableau'] = resolved_tableau
     
-    # Build config with precision (required) + settings (optional)
-    config = build_config_from_settings(
-        config_class,
+    # Filter to algorithm's __init__ signature
+    filtered, missing, unused = split_applicable_settings(
+        algorithm_type,
         algorithm_settings,
-        precision=precision
+        warn_on_unused=False
     )
     
-    # Instantiate algorithm with config
-    return algorithm_type(config)
+    if missing:
+        missing_keys = ", ".join(sorted(missing))
+        raise ValueError(
+            f"{algorithm_type.__name__} requires settings for: {missing_keys}"
+        )
+    
+    # Algorithm __init__ will use build_config internally
+    return algorithm_type(**filtered)
 ```
 
 ## Integration Points
 
 ### BaseAlgorithmStep Changes
 
-Modify base class to support new pattern:
+Minimal changes to base class - init pattern stays similar:
 
 ```python
 class BaseAlgorithmStep(CUDAFactory, ABC):
     """Base class for algorithm steps."""
-    
-    CONFIG_CLASS = None  # Override in subclasses
     
     def __init__(self, config: BaseStepConfig, _controller_defaults: StepControlDefaults):
         """Initialize with config object.
@@ -274,6 +324,12 @@ class BaseAlgorithmStep(CUDAFactory, ABC):
             Configuration object (subclass-specific).
         _controller_defaults : StepControlDefaults
             Per-algorithm controller defaults.
+            
+        Notes
+        -----
+        Subclasses construct config using build_config helper before calling
+        super().__init__. This keeps config construction internal to each
+        algorithm while maintaining single source of truth for defaults.
         """
         super().__init__()
         self._controller_defaults = _controller_defaults.copy()
@@ -283,70 +339,153 @@ class BaseAlgorithmStep(CUDAFactory, ABC):
 
 ### Controller Integration
 
-Similar changes for step controllers:
+Similar pattern for step controllers:
 
 ```python
 class AdaptivePIDController(BaseStepController):
     """Adaptive PID step controller."""
     
-    CONFIG_CLASS = AdaptivePIDConfig
-    
-    def __init__(self, config: AdaptivePIDConfig, **overrides):
-        if overrides:
-            config = attrs.evolve(config, **overrides)
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n: int,
+        algorithm_order: int,
+        **kwargs
+    ):
+        """Initialize PID controller.
+        
+        Parameters
+        ----------
+        precision : PrecisionDType
+            Numerical precision.
+        n : int
+            Number of state variables.
+        algorithm_order : int
+            Order of the integration algorithm.
+        **kwargs
+            Optional parameters (dt, dt_min, dt_max, kp, ki, kd, etc.).
+            Defaults from AdaptivePIDConfig attrs class.
+        """
+        config = build_config(
+            AdaptivePIDConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'algorithm_order': algorithm_order,
+            },
+            **kwargs
+        )
         super().__init__(config)
 ```
 
 ### Loop and Output Functions
 
-These components also use config pattern:
+These components follow the same pattern:
 
 ```python
 class IVPLoop(CUDAFactory):
     """Integration loop factory."""
     
-    def __init__(self, config: ODELoopConfig, **overrides):
-        if overrides:
-            config = attrs.evolve(config, **overrides)
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n_states: int,
+        n_parameters: int,
+        n_observables: int,
+        n_drivers: int,
+        **kwargs
+    ):
+        """Initialize integration loop.
+        
+        Parameters
+        ----------
+        precision : PrecisionDType
+            Numerical precision.
+        n_states, n_parameters, n_observables, n_drivers : int
+            System dimensions.
+        **kwargs
+            Optional parameters (dt_save, dt_summarise, buffer locations, etc.).
+            Defaults from ODELoopConfig attrs class.
+        """
+        config = build_config(
+            ODELoopConfig,
+            required={
+                'precision': precision,
+                'n_states': n_states,
+                'n_parameters': n_parameters,
+                'n_observables': n_observables,
+                'n_drivers': n_drivers,
+            },
+            **kwargs
+        )
         super().__init__()
         self.setup_compile_settings(config)
 
 class OutputFunctions(CUDAFactory):
     """Output handler factory."""
     
-    def __init__(self, config: OutputConfig, **overrides):
-        if overrides:
-            config = attrs.evolve(config, **overrides)
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        max_states: int,
+        max_observables: int,
+        **kwargs
+    ):
+        """Initialize output functions.
+        
+        Parameters
+        ----------
+        precision : PrecisionDType
+            Numerical precision.
+        max_states, max_observables : int
+            Maximum dimensions.
+        **kwargs
+            Optional parameters (output_types, dt_save, selectors, etc.).
+            Defaults from OutputConfig attrs class.
+        """
+        config = build_config(
+            OutputConfig,
+            required={
+                'precision': precision,
+                'max_states': max_states,
+                'max_observables': max_observables,
+            },
+            **kwargs
+        )
         super().__init__()
         self.setup_compile_settings(config)
 ```
 
 ## Buffer Registry Integration
 
-Buffer registration currently happens in init before config creation. Reorder:
+Buffer registration happens after config construction:
 
-**Before:**
+**Current Pattern (Verbose):**
 ```python
-def __init__(self, precision, n, stage_increment_location='local', ...):
-    # Register buffers using parameter values
-    buffer_registry.register('dirk_stage_increment', self, n, 
-                            stage_increment_location, precision=precision)
+def __init__(self, precision, n, stage_increment_location=None, ...):
+    # Build config with verbose checks
+    config_kwargs = {'precision': precision, 'n': n}
+    if stage_increment_location is not None:
+        config_kwargs['stage_increment_location'] = stage_increment_location
+    # ... more checks ...
     
-    # Then build config
-    config = DIRKStepConfig(
-        precision=precision,
-        stage_increment_location=stage_increment_location,
-        ...
-    )
+    config = DIRKStepConfig(**config_kwargs)
+    
+    # Register buffers using config values
+    buffer_registry.register('dirk_stage_increment', self, config.n, 
+                            config.stage_increment_location, precision=config.precision)
 ```
 
-**After:**
+**New Pattern (Clean):**
 ```python
-def __init__(self, config: DIRKStepConfig, **overrides):
-    if overrides:
-        config = attrs.evolve(config, **overrides)
+def __init__(self, precision, n, **kwargs):
+    # Build config cleanly
+    config = build_config(
+        DIRKStepConfig,
+        required={'precision': precision, 'n': n},
+        **kwargs
+    )
     
-    self._config = config
     buffer_registry.clear_parent(self)
     
     # Register buffers using config values
@@ -357,7 +496,6 @@ def __init__(self, config: DIRKStepConfig, **overrides):
         config.stage_increment_location,
         precision=config.precision
     )
-```
 
 ## Controller Defaults Handling
 
@@ -374,8 +512,15 @@ DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
 )
 
 class DIRKStep(ODEImplicitStep):
-    def __init__(self, config: DIRKStepConfig, **overrides):
-        # ... handle config and overrides ...
+    def __init__(self, precision, n, **kwargs):
+        # Build config using helper
+        config = build_config(
+            DIRKStepConfig,
+            required={'precision': precision, 'n': n},
+            **kwargs
+        )
+        
+        # Register buffers...
         
         # Select defaults based on config
         if config.tableau.has_error_estimate:
@@ -507,49 +652,49 @@ config = ODELoopConfig(system_sizes=system_sizes, **settings)
 
 ### Init Signature Changes
 
-**Before:**
+**Before (Current Verbose Pattern):**
 ```python
-DIRKStep(precision, n, dxdt_function=None, krylov_tolerance=1e-6, 
-         max_linear_iters=10, tableau=DEFAULT_TABLEAU, ...)
+DIRKStep(
+    precision, n, dxdt_function=None, krylov_tolerance=None, 
+    max_linear_iters=None, tableau=None, stage_increment_location=None, ...
+)
 ```
 
-**After:**
+**After (Clean Pattern):**
 ```python
-DIRKStep(config)
-# or with overrides
-DIRKStep(config, krylov_tolerance=1e-8)
+DIRKStep(precision, n, **kwargs)
+# with kwargs like: krylov_tolerance=1e-8, stage_increment_location='shared'
 ```
 
 ### User-Facing Changes
 
-**Before (still works via Solver):**
+**Via Solver (no changes):**
 ```python
 solver = Solver(system, algorithm='dirk', krylov_tolerance=1e-8)
 ```
 
-**After (same, but internally uses config objects):**
+**Direct Instantiation:**
 ```python
-solver = Solver(system, algorithm='dirk', krylov_tolerance=1e-8)
-```
+# Before (works but verbose)
+step = DIRKStep(
+    precision=np.float32, n=3, 
+    krylov_tolerance=1e-8, max_linear_iters=20
+)
 
-Users of Solver/solve_ivp see no changes. Direct algorithm instantiation requires config:
+# After (cleaner with same capability)
+step = DIRKStep(
+    precision=np.float32, n=3,
+    krylov_tolerance=1e-8, max_linear_iters=20
+)
 
-**Before:**
-```python
-step = DIRKStep(precision=np.float32, n=3, krylov_tolerance=1e-8)
-```
-
-**After:**
-```python
-config = DIRKStepConfig(precision=np.float32, n=3, krylov_tolerance=1e-8)
-step = DIRKStep(config)
-
-# Or use factory
+# Or via factory (unchanged)
 step = get_algorithm_step(
     precision=np.float32,
     settings={'algorithm': 'dirk', 'n': 3, 'krylov_tolerance': 1e-8}
 )
 ```
+
+Key difference: No more explicit `=None` in signature, but kwargs still work the same way.
 
 ## Testing Strategy
 
@@ -609,13 +754,12 @@ Existing integration tests should pass unchanged since Solver API is unchanged.
 
 ## Migration Path
 
-1. **Phase 1**: Add helper function `build_config_from_settings` to `_utils.py`
-2. **Phase 2**: Add `CONFIG_CLASS` attribute to all algorithm and controller classes
-3. **Phase 3**: Refactor algorithm factory (`get_algorithm_step`)
-4. **Phase 4**: Refactor controller factory (`get_controller`)
-5. **Phase 5**: Simplify algorithm init functions (one at a time)
-6. **Phase 6**: Simplify controller init functions
-7. **Phase 7**: Update loop and output function factories
-8. **Phase 8**: Remove obsolete code and update tests
+1. **Phase 1**: Add `build_config` helper function to `_utils.py`
+2. **Phase 2**: Refactor backwards_euler.py to use helper (simplify verbose pattern)
+3. **Phase 3**: Refactor other algorithm init functions one at a time
+4. **Phase 4**: Refactor controller init functions
+5. **Phase 5**: Refactor loop and output function init functions
+6. **Phase 6**: Update tests to match new init patterns
+7. **Phase 7**: Remove obsolete code and validate all tests pass
 
 Each phase can be tested independently. Breaking changes are acceptable per project guidelines.
