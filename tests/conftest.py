@@ -17,9 +17,6 @@ from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
 from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
-from cubie.integrators.SingleIntegratorRunCore import (
-    ALL_BUFFER_LOCATION_PARAMETERS
-)
 
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -1094,49 +1091,6 @@ def initial_state(system, precision, request):
             ) from error
         return request_inits
     return system.initial_values.values_array.astype(precision, copy=True)
-
-
-@pytest.fixture(scope="session")
-def buffer_settings(solver_settings, output_functions):
-    """Buffer settings derived from system sizes and output configuration.
-    
-    Uses solver_settings metadata and algorithm tableau to determine
-    buffer requirements without building step objects.
-    """
-    is_adaptive = _get_algorithm_is_adaptive(solver_settings['algorithm'])
-    n_error = solver_settings['n_states'] if is_adaptive else 0
-    return LoopBufferSettings(
-        n_states=solver_settings['n_states'],
-        n_parameters=solver_settings['n_parameters'],
-        n_drivers=solver_settings['n_drivers'],
-        n_observables=solver_settings['n_observables'],
-        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
-        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
-        n_error=n_error,
-        n_counters=0,
-    )
-
-
-@pytest.fixture(scope="session")
-def buffer_settings_mutable(solver_settings, output_functions_mutable):
-    """Function-scoped buffer settings from mutable output functions.
-    
-    Uses solver_settings metadata and algorithm tableau to determine
-    buffer requirements without building step objects.
-    """
-    is_adaptive = _get_algorithm_is_adaptive(solver_settings['algorithm'])
-    n_error = solver_settings['n_states'] if is_adaptive else 0
-    return LoopBufferSettings(
-        n_states=solver_settings['n_states'],
-        n_parameters=solver_settings['n_parameters'],
-        n_drivers=solver_settings['n_drivers'],
-        n_observables=solver_settings['n_observables'],
-        state_summary_buffer_height=output_functions_mutable.state_summaries_buffer_height,
-        observable_summary_buffer_height=output_functions_mutable.observable_summaries_buffer_height,
-        n_error=n_error,
-        n_counters=0,
-    )
-
 
 # ========================================
 # COMPUTED OUTPUT FIXTURES

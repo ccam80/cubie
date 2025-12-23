@@ -8,7 +8,6 @@ import numpy as np
 import sympy as sp
 
 from cubie._utils import inrangetype_validator, is_device_validator
-from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
@@ -37,7 +36,6 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order
         Order of the truncated Neumann preconditioner.
     """
-
     _beta: float = attrs.field(
         default=1.0,
         validator=inrangetype_validator(float, 0, 1)
@@ -153,6 +151,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         else:  # solver_type == 'linear'
             self.solver = linear_solver
 
+    def register_buffers(self) -> None:
+        """ Register buffers with buffer_registry."""
+        pass
+
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
         
@@ -188,12 +190,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         all_updates["solver_function"] = self.solver.device_function
 
-        recognized |= self.update_compile_settings(
-            updates_dict=all_updates, silent=silent
-        )
-        recognized |= buffer_registry.update(
-            self, updates_dict=all_updates, silent=True
-        )
+        super().update(all_updates, silent=True)
 
         return recognized
 
@@ -308,6 +305,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             operator_apply=operator,
             preconditioner=preconditioner,
             residual_function=residual,
+            n = self.compile_settings.n
         )
         
         self.update_compile_settings(

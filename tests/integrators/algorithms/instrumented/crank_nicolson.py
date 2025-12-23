@@ -3,45 +3,19 @@
 from typing import Callable, Optional
 
 from numba import cuda, int32
-import numpy as np
 
 from cubie._utils import PrecisionDType
-from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import (
-    StepCache,
-    StepControlDefaults,
-)
-from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+from cubie.buffer_registry import buffer_registry
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from tests.integrators.algorithms.instrumented.ode_implicitstep import \
+    InstrumentedODEImplicitStep
+from cubie.integrators.algorithms.crank_nicolson import (ALGO_CONSTANTS,
+                                                         CN_DEFAULTS,
+                                                         CrankNicolsonStepConfig)
 
-from .matrix_free_solvers import (
-    InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
-)
-from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolverConfig
-)
-from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    NewtonKrylovConfig
-)
 
-ALGO_CONSTANTS = {'beta': 1.0,
-                  'gamma': 1.0,
-                  'M': np.eye}
 
-CN_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-        "kp": 0.7,
-        "ki": -0.4,
-        "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
-    }
-)
-class CrankNicolsonStep(ODEImplicitStep):
+class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
     def __init__(
@@ -60,6 +34,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        dxdt_location: Optional[str] = None,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
@@ -78,21 +53,32 @@ class CrankNicolsonStep(ODEImplicitStep):
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
-            Order of the truncated Neumann preconditioner.
+            Order of the truncated Neumann preconditioner. If None, uses
+            default from ImplicitStepConfig.
         krylov_tolerance
-            Tolerance used by the linear solver.
+            Tolerance used by the linear solver. If None, uses default from
+            LinearSolverConfig.
         max_linear_iters
-            Maximum iterations permitted for the linear solver.
+            Maximum iterations permitted for the linear solver. If None, uses
+            default from LinearSolverConfig.
         linear_correction_type
-            Identifier for the linear correction strategy.
+            Identifier for the linear correction strategy. If None, uses
+            default from LinearSolverConfig.
         newton_tolerance
-            Convergence tolerance for the Newton iteration.
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
         max_newton_iters
-            Maximum iterations permitted for the Newton solver.
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
         newton_damping
-            Damping factor applied within Newton updates.
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
         newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
+        dxdt_location
+            Memory location for dxdt buffer: 'local' or 'shared'. If None,
+            defaults to 'local'.
 
         Returns
         -------
@@ -103,21 +89,27 @@ class CrankNicolsonStep(ODEImplicitStep):
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
-
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order if preconditioner_order is not None else 1,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
-        )
         
-        # Build kwargs dict conditionally
+        # Build config kwargs conditionally
+        config_kwargs = {
+            'precision': precision,
+            'n': n,
+            'get_solver_helper_fn': get_solver_helper_fn,
+            'beta': beta,
+            'gamma': gamma,
+            'M': M,
+            'dxdt_function': dxdt_function,
+            'observables_function': observables_function,
+            'driver_function': driver_function,
+        }
+        if preconditioner_order is not None:
+            config_kwargs['preconditioner_order'] = preconditioner_order
+        if dxdt_location is not None:
+            config_kwargs['dxdt_location'] = dxdt_location
+        
+        config = CrankNicolsonStepConfig(**config_kwargs)
+        
+        # Build solver kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
             solver_kwargs['krylov_tolerance'] = krylov_tolerance
@@ -135,83 +127,26 @@ class CrankNicolsonStep(ODEImplicitStep):
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
         
         super().__init__(config, CN_DEFAULTS.copy(), **solver_kwargs)
-
-    def build_implicit_helpers(self) -> Callable:
-        """Construct the nonlinear solver chain used by implicit methods."""
-
-        precision = self.precision
-        config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        mass = config.M
-        preconditioner_order = config.preconditioner_order
-        n = config.n
-
-        get_fn = config.get_solver_helper_fn
-
-        preconditioner = get_fn(
-            "neumann_preconditioner",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        residual = get_fn(
-            "stage_residual",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        operator = get_fn(
-            "linear_operator",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
-        correction_type = config.linear_correction_type
-
-        linear_solver_config = LinearSolverConfig(
-            precision=precision,
-            n=n,
-            operator_apply=operator,
-            preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
-            use_cached_auxiliaries=False,
-        )
-        linear_solver_instance = InstrumentedLinearSolver(
-            linear_solver_config
-        )
-
-        newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
-        newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
-
-        newton_config = NewtonKrylovConfig(
-            precision=precision,
-            n=n,
-            residual_function=residual,
-            linear_solver=linear_solver_instance,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
-        )
-        newton_instance = InstrumentedNewtonKrylov(newton_config)
         
-        # Replace parent solver with instrumented version
-        self.solver = newton_instance
+        self.register_buffers()
 
-        return newton_instance.device_function
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver'
+        )
+
+        # Register cn_dxdt buffer
+        buffer_registry.register(
+            'cn_dxdt',
+            self,
+            config.n,
+            config.dxdt_location,
+            precision=config.precision
+        )
 
     def build_step(
         self,
@@ -223,22 +158,43 @@ class CrankNicolsonStep(ODEImplicitStep):
         n: int,
         n_drivers: int,
     ) -> StepCache:  # pragma: no cover - cuda code
-        """Build the device function for the Crank–Nicolson step."""
+        """Build the device function for the Crank–Nicolson step.
 
-        config = self.compile_settings
-        
-        solver_fn = solver_function
+        Parameters
+        ----------
+        dxdt_fn
+            Device derivative function for the ODE system.
+        observables_function
+            Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
+        numba_precision
+            Numba precision corresponding to the configured precision.
+        n
+            Dimension of the state vector.
+        n_drivers
+            Number of driver signals provided to the system.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled step function and solver.
+        """
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None
-        solver_shared_elements = self.solver_shared_elements
-        stage_count = self.stage_count
-        newton_iters = int(config.max_newton_iters)
-        newton_backtracks = int(config.newton_max_backtracks)
-        newton_slots = newton_iters * (newton_backtracks + 1) + 1
-        linear_iters = int(config.max_linear_iters)
-        linear_slots = max(1, stage_count * newton_iters)
+        n = int32(n)
+        typed_zero = numba_precision(0.0)
+
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver')
+        )
+        alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
         @cuda.jit(
             # (
@@ -314,55 +270,16 @@ class CrankNicolsonStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            typed_zero = numba_precision(0.0)
-            status_mask = int32(0xFFFF)
+
+            solver_shared = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            dxdt = alloc_dxdt(shared, persistent_local)
+
             stage_rhs = cuda.local.array(n, numba_precision)
             cn_increment = cuda.local.array(n, numba_precision)
-            dummy_newton_initial_guesses = cuda.local.array(
-                (stage_count, n),
-                numba_precision,
-            )
-            dummy_newton_iteration_guesses = cuda.local.array(
-                (stage_count, newton_slots, n),
-                numba_precision,
-            )
-            dummy_newton_residuals = cuda.local.array(
-                (stage_count, newton_slots, n),
-                numba_precision,
-            )
-            dummy_newton_squared_norms = cuda.local.array(
-                (stage_count, newton_slots),
-                numba_precision,
-            )
-            dummy_newton_iteration_scale = cuda.local.array(
-                (stage_count, newton_iters),
-                numba_precision,
-            )
-            dummy_linear_initial_guesses = cuda.local.array(
-                (linear_slots, n),
-                numba_precision,
-            )
-            dummy_linear_iteration_guesses = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
-            dummy_linear_residuals = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
-            dummy_linear_squared_norms = cuda.local.array(
-                (linear_slots, linear_iters),
-                numba_precision,
-            )
-            dummy_linear_preconditioned_vectors = cuda.local.array(
-                (linear_slots, linear_iters, n),
-                numba_precision,
-            )
-
             observable_count = proposed_observables.shape[0]
 
             for idx in range(n):
-                proposed_state[idx] = typed_zero
                 cn_increment[idx] = typed_zero
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
@@ -374,25 +291,28 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = typed_zero
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
-            solver_scratch = shared[:solver_shared_elements]
-            dxdt_buffer = solver_scratch[:n]
+
+            # base_state aliases error as their lifetimes are disjoint
             base_state = error
 
+            # Evaluate f(state)
             dxdt_fn(
                 state,
                 parameters,
                 drivers_buffer,
                 observables,
-                dxdt_buffer,
+                dxdt,
                 time_scalar,
             )
 
             half_dt = dt_scalar * numba_precision(0.5)
             end_time = time_scalar + dt_scalar
 
+            # Form the Crank-Nicolson stage base
             for idx in range(n):
-                base_state[idx] = state[idx] + half_dt * dxdt_buffer[idx]
+                base_state[idx] = state[idx] + half_dt * dxdt[idx]
 
+            # Solve Crank-Nicolson step (main solution)
             if has_driver_function:
                 driver_function(
                     end_time,
@@ -402,7 +322,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
-            status = solver_fn(
+            status = solver_function(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -410,7 +330,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dt_scalar,
                 stage_coefficient,
                 base_state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,
@@ -425,9 +346,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_preconditioned_vectors,
             )
 
+            # LOGGING: capture final residual from solver scratch
             for idx in range(n):
                 increment_value = proposed_state[idx]
-                residual_value = solver_scratch[idx + n]
                 final_state = base_state[idx] + (
                     stage_coefficient * increment_value
                 )
@@ -436,10 +357,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 base_state[idx] = increment_value
                 cn_increment[idx] = trapezoidal_increment
                 stage_increments[0, idx] = trapezoidal_increment
-                residuals[0, idx] = residual_value
                 stage_states[0, idx] = final_state
 
-            be_status = solver_fn(
+            be_status = solver_function(
                 base_state,
                 parameters,
                 proposed_drivers,
@@ -447,22 +367,24 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dt_scalar,
                 be_coefficient,
                 state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
                 int32(0),
-                dummy_newton_initial_guesses,
-                dummy_newton_iteration_guesses,
-                dummy_newton_residuals,
-                dummy_newton_squared_norms,
-                dummy_newton_iteration_scale,
-                dummy_linear_initial_guesses,
-                dummy_linear_iteration_guesses,
-                dummy_linear_residuals,
-                dummy_linear_squared_norms,
-                dummy_linear_preconditioned_vectors,
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
-            status |= be_status & status_mask
+            status |= be_status
 
+            # Compute error as difference between Crank-Nicolson and Backward Euler
             for idx in range(n):
                 error[idx] = (
                     proposed_state[idx] - (state[idx] + base_state[idx])
@@ -476,9 +398,11 @@ class CrankNicolsonStep(ODEImplicitStep):
                 end_time,
             )
 
+            # LOGGING: capture stage observables
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
+            # LOGGING: capture stage derivatives
             dxdt_fn(
                 proposed_state,
                 parameters,
@@ -495,7 +419,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             return status
 
-        return StepCache(step=step, nonlinear_solver=solver_fn)
+        return StepCache(step=step, nonlinear_solver=solver_function)
 
     @property
     def is_multistage(self) -> bool:

@@ -2,15 +2,28 @@
 
 from typing import Callable, Optional
 
+import attrs
 from numba import cuda, int32
 import numpy as np
 
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
-from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+from cubie.integrators.algorithms.ode_implicitstep import (
+    ImplicitStepConfig, ODEImplicitStep
+)
+
+
+@attrs.define
+class BackwardsEulerStepConfig(ImplicitStepConfig):
+    """Configuration for Backwards Euler step with buffer location."""
+
+    increment_cache_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -42,6 +55,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        increment_cache_location: Optional[str] = None,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -83,22 +97,30 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver. If
             None, uses default from NewtonKrylovConfig.
+        increment_cache_location
+            Memory location for increment cache buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
-        )
+
+        config_kwargs = {
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "beta": beta,
+            "gamma": gamma,
+            "M": M,
+            "n": n,
+            "preconditioner_order": preconditioner_order,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "precision": precision,
+        }
+        if increment_cache_location is not None:
+            config_kwargs["increment_cache_location"] = increment_cache_location
+
+        config = BackwardsEulerStepConfig(**config_kwargs)
         
         solver_kwargs = {}
         if krylov_tolerance is not None:
@@ -117,6 +139,28 @@ class BackwardsEulerStep(ODEImplicitStep):
             solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
         
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+
+        self.register_buffers()
+
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver_scratch'
+        )
+
+        # Register increment cache buffer
+        buffer_registry.register(
+            'increment_cache',
+            self,
+            config.n,
+            config.increment_cache_location,
+            persistent=True,
+            precision=config.precision
+        )
 
     def build_step(
         self,
@@ -161,6 +205,11 @@ class BackwardsEulerStep(ODEImplicitStep):
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
                                                  name='solver_scratch')
+        )
+
+        # Get increment cache allocator from buffer_registry
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'increment_cache', self
         )
         
         solver_fn = solver_function
@@ -245,9 +294,10 @@ class BackwardsEulerStep(ODEImplicitStep):
             """
             solver_scratch = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            increment_cache = alloc_increment_cache(shared, persistent_local)
 
             for i in range(n):
-                proposed_state[i] = solver_scratch[i]
+                proposed_state[i] = increment_cache[i]
 
             next_time = time_scalar + dt_scalar
             if has_driver_function:
@@ -271,7 +321,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             )
 
             for i in range(n):
-                solver_scratch[i] = proposed_state[i]
+                increment_cache[i] = proposed_state[i]
                 proposed_state[i] += state[i]
 
             observables_function(

@@ -247,9 +247,6 @@ class ERKStep(ODEExplicitStep):
         n = config.n
         tableau = config.tableau
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
 
@@ -285,11 +282,11 @@ class ERKStep(ODEExplicitStep):
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
-        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
-        accumulator_length = (tableau.stage_count - 1) * n_arraysize
+
+        accumulator_length = (tableau.stage_count - 1) * n
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
@@ -305,7 +302,6 @@ class ERKStep(ODEExplicitStep):
         else:
             error_weights = tuple(typed_zero for _ in range(stage_count))
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -364,37 +360,6 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
-            # ----------------------------------------------------------- #
-            # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared or local.
-            #   Default behaviour:
-            #       - Holds finished stage rhs * dt for later stage sums.
-            #       - Slice k stores contributions streamed into stage k+1.
-            #   Reuse:
-            #       - stage_cache: first slice (size n)
-            #           - Saves the FSAL rhs when the tableau supports it.
-            #           - Cache survives after the loop so no live slice is hit.
-            # proposed_state: size n, global memory.
-            #   Default behaviour:
-            #       - Starts as the accepted state and gathers stage updates.
-            #       - Each stage applies its weighted increment before moving on.
-            # proposed_drivers / proposed_observables: size n each, global.
-            #   Default behaviour:
-            #       - Refresh to the current stage time before rhs evaluation.
-            #       - Later stages only read the newest values, so nothing lingers.
-            # stage_rhs: size n, shared or local memory.
-            #   Default behaviour:
-            #       - Holds the current stage rhs before scaling by dt.
-            #   Reuse:
-            #       - When FSAL hits we copy cached rhs here before touching
-            #         shared memory, keeping lifetimes separate.
-            # error: size n, global memory (adaptive runs only).
-            #   Default behaviour:
-            #       - Accumulates error-weighted f(y_jn) during the
-            #       loop.
-            #       - Cleared at loop entry so prior steps cannot leak in.
-            # ----------------------------------------------------------- #
-
 
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
@@ -423,7 +388,7 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            # Deep cached rhs if able to, otherwise recalculate.
+            # Keep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,
@@ -565,21 +530,6 @@ class ERKStep(ODEExplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` if algorithm calculates an error estimate."""
         return self.tableau.has_error_estimate
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def order(self) -> int:

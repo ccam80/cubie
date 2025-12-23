@@ -218,10 +218,6 @@ class BufferGroup:
             raise ValueError("Buffer name cannot be empty.")
         if aliases is not None and aliases == name:
             raise ValueError(f"Buffer '{name}' cannot alias itself.")
-        if name in self.entries:
-            raise ValueError(
-                f"Buffer '{name}' already registered for this parent."
-            )
         if aliases is not None and aliases not in self.entries:
             raise ValueError(
                 f"Alias target '{aliases}' not registered. "

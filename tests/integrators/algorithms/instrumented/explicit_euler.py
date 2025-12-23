@@ -21,7 +21,7 @@ EE_DEFAULTS = StepControlDefaults(
     }
 )
 
-class ExplicitEulerStep(ODEExplicitStep):
+class InstrumentedExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
 
     def __init__(

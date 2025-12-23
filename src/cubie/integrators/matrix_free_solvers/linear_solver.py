@@ -297,8 +297,8 @@ class LinearSolver(CUDAFactory):
                 temp = alloc_temp(shared, persistent_local)
                 
                 operator_apply(
-                    state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
-                        x, temp
+                    state, parameters, drivers, cached_aux, base_state, t, h,
+                    a_ij, x, temp
                 )
                 acc = typed_zero
                 for i in range(n_val):
@@ -319,8 +319,8 @@ class LinearSolver(CUDAFactory):
                             state,
                             parameters,
                             drivers,
-                            base_state,
                             cached_aux,
+                            base_state,
                             t,
                             h,
                             a_ij,
@@ -336,8 +336,8 @@ class LinearSolver(CUDAFactory):
                         state,
                         parameters,
                         drivers,
-                        base_state,
                         cached_aux,
+                        base_state,
                         t,
                         h,
                         a_ij,
@@ -356,23 +356,27 @@ class LinearSolver(CUDAFactory):
                             ti = temp[i]
                             numerator += ti * rhs[i]
                             denominator += ti * ti
-                    
-                    alpha = selp(
-                        denominator != typed_zero,
-                        numerator / denominator,
-                        typed_zero,
-                    )
-                    alpha_effective = selp(converged, precision_numba(0.0), alpha)
-                    
+
+                    if denominator != typed_zero:
+                        alpha = numerator / denominator
+                    else:
+                        alpha = typed_zero
+
                     acc = typed_zero
-                    for i in range(n_val):
-                        x[i] += alpha_effective * preconditioned_vec[i]
-                        rhs[i] -= alpha_effective * temp[i]
-                        residual_value = rhs[i]
-                        acc += residual_value * residual_value
+                    if not converged:
+                        for i in range(n_val):
+                            x[i] += alpha * preconditioned_vec[i]
+                            rhs[i] -= alpha * temp[i]
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+                    else:
+                        for i in range(n_val):
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+
                     converged = converged or (acc <= tol_squared)
-                
-                # Single exit point - status based on converged flag
+
+                # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
                 krylov_iters_out[0] = iter_count
                 return final_status
@@ -515,7 +519,7 @@ class LinearSolver(CUDAFactory):
                         alpha = numerator / denominator
                     else:
                         alpha = typed_zero
-                    
+
                     acc = typed_zero
                     if not converged:
                         for i in range(n_val):
@@ -530,7 +534,7 @@ class LinearSolver(CUDAFactory):
                     
                     converged = converged or (acc <= tol_squared)
                 
-                # Single exit point - status based on converged flag
+                # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
                 krylov_iters_out[0] = iter_count
                 return final_status
@@ -575,7 +579,7 @@ class LinearSolver(CUDAFactory):
         
         # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
-        
+        self.register_buffers()
         return recognized
     
     @property
