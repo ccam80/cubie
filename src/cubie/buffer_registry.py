@@ -122,7 +122,6 @@ class CUDABuffer:
         )
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
-        _array_size = self.size
         _zero = zero
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
@@ -135,7 +134,7 @@ class CUDABuffer:
             else:
                 array = cuda.local.array(_local_size, _precision)
             if _zero:
-                for i in range(_array_size):
+                for i in range(array.size):
                     array[i] = _precision(0.0)
             return array
 
