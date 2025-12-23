@@ -48,7 +48,7 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 **Role**: Expert project manager and technical architect  
 **Purpose**: User story creation, research, and implementation planning  
 **MCP Tools**: GitHub (always), Playwright (web browsing), bash (for directory creation)
-**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
+**Context**: `.github/context/cubie_internal_structure.md`, `.github/copilot-instructions.md`  
 **Output**: `user_stories.md`, `human_overview.md`, `agent_plan.md` in `.github/active_plans/<feature_name>/`
 **File Permissions**: Can create/edit directory and files in `.github/active_plans/<feature>/` only (creates directory first using bash)
 
@@ -61,7 +61,7 @@ Creates comprehensive plans with:
 **Role**: Operations manager and implementation planner  
 **Purpose**: Convert architectural plans into detailed, executable tasks  
 **MCP Tools**: GitHub
-**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
+**Context**: `.github/context/cubie_internal_structure.md`, `.github/copilot-instructions.md`  
 **Output**: `task_list.md` with function-level implementation tasks
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/task_list.md` only
 
@@ -91,7 +91,7 @@ Executes:
 **Role**: Critical code reviewer  
 **Purpose**: Validate against user stories and analyze for quality  
 **MCP Tools**: None
-**Context**: `AGENTS.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
+**Context**: `.github/copilot-instructions.md`, requires `agent_plan.md`, `human_overview.md`, `user_stories.md`  
 **Output**: `review_report.md` with analysis and suggested edits
 **File Permissions**: Can create/edit `.github/active_plans/<feature>/review_report.md` only
 
@@ -107,7 +107,7 @@ Reviews for:
 **Role**: API documentation specialist  
 **Purpose**: Enforce numpydoc standards and maintain API reference docs  
 **MCP Tools**: None
-**Context**: `AGENTS.md`  
+**Context**: `.github/copilot-instructions.md`  
 **Output**: Updated docstrings, API reference files, internal structure updates
 **File Permissions**: Can edit any `.py` files, `docs/` files, `.github/context/cubie_internal_structure.md`
 
@@ -124,7 +124,7 @@ Enforces:
 **Role**: Technical storyteller for user-facing documentation  
 **Purpose**: Create concept-based user guides and how-to docs in RST  
 **MCP Tools**: None
-**Context**: `.github/context/cubie_internal_structure.md`, `AGENTS.md`  
+**Context**: `.github/context/cubie_internal_structure.md`, `.github/copilot-instructions.md`  
 **Output**: Documentation in **reStructuredText (.rst)** for Sphinx (Markdown only for readmes/summaries)
 **File Permissions**: Can create/edit files in `docs/` directory only (plus `readme.md`)
 **Pipeline Position**: **INDEPENDENT** - called separately, not part of the main implementation pipeline
@@ -136,7 +136,22 @@ Creates:
 - Accepts function updates from docstring_guru
 - Updates narrative docs when API changes affect them
 
-### 7. renamer
+### 7. run_tests
+**Role**: Test execution and reporting specialist  
+**Purpose**: Run pytest with CUDA simulation and provide failure summaries  
+**MCP Tools**: bash
+**Context**: `task_list.md` (for tests to run)  
+**Output**: Test result summaries with failure details
+**File Permissions**: Read-only (cannot edit files)
+**Pipeline Position**: Called after each taskmaster invocation, before reviewer, and at pipeline exit
+
+Provides:
+- Runs tests with NUMBA_ENABLE_CUDASIM=1
+- Excludes nocudasim and specific_algos tests by default
+- Clear failure summaries (error message, not full tracebacks)
+- Actionable recommendations for failures
+
+### 8. renamer
 **Role**: Name rationalization specialist  
 **Purpose**: Manage and rationalize method, function, property, and attribute names  
 **MCP Tools**: bash, search
@@ -160,10 +175,10 @@ The agent pipeline is coordinated by the **default Copilot agent** (not by the c
 
 **Pipeline Flow (coordinated by default Copilot agent)**:
 ```
-plan_new_feature → detailed_implementer → taskmaster → reviewer → taskmaster (2nd) → docstring_guru
-                                                                                          ↓
-                                                                            narrative_documenter
-                                                                            (called separately)
+plan_new_feature → detailed_implementer → [taskmaster → run_tests] (per group) → run_tests → reviewer → taskmaster (edits) → run_tests → docstring_guru
+                                                                                                                                              ↓
+                                                                                                                                narrative_documenter
+                                                                                                                                (called separately)
 ```
 
 **Return After Levels**:
@@ -177,22 +192,22 @@ plan_new_feature → detailed_implementer → taskmaster → reviewer → taskma
    - Returns: above + task_list.md
 
 3. **return_after=taskmaster**: 
-   - plan_new_feature → detailed_implementer → taskmaster (stops)
+   - plan_new_feature → detailed_implementer → [taskmaster + run_tests per group] (stops)
    - Returns: above + task_list.md with implementation outcomes
 
 4. **return_after=reviewer**: 
-   - plan_new_feature → detailed_implementer → taskmaster → reviewer (stops)
+   - plan_new_feature → detailed_implementer → [taskmaster + run_tests per group] → run_tests → reviewer (stops)
    - Returns: above + review_report.md
 
 5. **return_after=taskmaster_2**: 
-   - Full pipeline + taskmaster applies review edits (stops)
+   - Full pipeline + taskmaster applies review edits + run_tests (stops)
    - Returns: above + applied review edits + updated review_report.md
 
 6. **return_after=docstring_guru**: 
-   - Complete pipeline including review edits + docstring_guru (stops)
+   - Complete pipeline including review edits + run_tests + docstring_guru (stops)
    - Returns: above + source files with complete docstrings
 
-**narrative_documenter** is called separately, outside this pipeline.
+**narrative_documenter** and **renamer** are called separately, outside this pipeline.
 
 ### Standard Feature Development Flow
 
@@ -212,23 +227,31 @@ User Request with return_after parameter
 │ detailed_implementer  │ → Reviews source code
 │                       │ → Creates task_list.md with:
 │                       │   - Input Validation Required
-│                       │   - Dependency-ordered tasks
-│                       │   - PARALLEL/SEQUENTIAL groups
+│                       │   - Dependency-ordered task groups
+│                       │   - Tests to Create & Tests to Run
 └───────────────────────┘
     ↓ (if return_after > detailed_implementer)
-    ↓ (default Copilot agent invokes next agent)
+    ↓ (default Copilot agent loops for each task group)
+┌───────────────────────────────────────────────────────┐
+│ FOR EACH TASK GROUP:                                  │
+│ ┌───────────────────────┐                            │
+│ │ taskmaster            │ → Executes one task group  │
+│ │                       │ → Reads context files      │
+│ │                       │ → Writes code changes      │
+│ │                       │ → Creates tests            │
+│ │                       │ → Updates task_list.md     │
+│ └───────────────────────┘                            │
+│     ↓                                                │
+│ ┌───────────────────────┐                            │
+│ │ run_tests             │ → Runs tests for group     │
+│ │                       │ → Reports failures         │
+│ │                       │ → If fail: taskmaster fix  │
+│ └───────────────────────┘                            │
+└───────────────────────────────────────────────────────┘
+    ↓ (after all task groups complete)
 ┌───────────────────────┐
-│ taskmaster            │ → Executes entire implementation
-│                       │ → Performs tasks in parallel/sequential order
-│                       │ → Tracks progress and dependencies
-│                       │ → Updates task_list.md with outcomes
-│                       │
-│ Implements tasks:     │
-│ - Reads context files │
-│ - Writes code changes │ → Execute tasks EXACTLY as specified
-│ - Adds educational    │ → Add educational comments (not docstrings)
-│   comments            │ → Perform ONLY specified validation
-│ - Flags bugs/risks    │ → Flag bugs/risks in outcomes
+│ run_tests             │ → Full test verification
+│                       │ → Before reviewer
 └───────────────────────┘
     ↓ (if return_after > taskmaster)
     ↓ (default Copilot agent invokes next agent)
@@ -239,10 +262,15 @@ User Request with return_after parameter
 │                       │ → Creates review_report.md
 └───────────────────────┘
     ↓ (if return_after > reviewer AND has edits)
-    ↓ (default Copilot agent invokes taskmaster 2nd time)
+    ↓ (default Copilot agent invokes taskmaster for edits)
 ┌───────────────────────┐
-│ taskmaster (2nd run)  │ → Applies review edits directly
+│ taskmaster (edits)    │ → Applies review edits directly
 │                       │ → Updates review_report.md
+└───────────────────────┘
+    ↓
+┌───────────────────────┐
+│ run_tests             │ → Final test verification
+│                       │ → Before docstring_guru
 └───────────────────────┘
     ↓ (if return_after = docstring_guru)
     ↓ (default Copilot agent invokes next agent)
@@ -472,7 +500,7 @@ Tools are described within the Markdown instructions rather than in separate con
 - **GitHub**: Repository operations (plan_new_feature, detailed_implementer)
 - **Perplexity deep_research**: External research (plan_new_feature, only if requested)
 - **Playwright**: Web automation (plan_new_feature)
-- **pytest**: Test running (taskmaster only, only for added tests with CUDASIM)
+- **bash**: Test running (run_tests with CUDASIM)
 - **sphinx**: Documentation validation (docstring_guru, optional)
 - **mermaid**: Diagram generation (narrative_documenter, optional)
 - **bash/search**: Repository scanning and verification (renamer)
@@ -490,9 +518,9 @@ See individual agent files for detailed tool usage instructions.
 3. **Choose the right return_after level**:
    - `plan_new_feature`: Just planning, want to review before implementation
    - `detailed_implementer`: Planning + task breakdown, want to review tasks
-   - `taskmaster`: Planning + implementation, want to review code before review
-   - `reviewer`: Planning + implementation + review, want to see review before edits
-   - `taskmaster_2`: Planning + implementation + review + edits, want to review before docstrings
+   - `taskmaster`: Planning + implementation + tests, want to review code before review
+   - `reviewer`: Planning + implementation + tests + review, want to see review before edits
+   - `taskmaster_2`: Planning + implementation + review + edits + tests, want to review before docstrings
    - `docstring_guru`: Complete pipeline including docstrings
 4. **Call narrative_documenter separately**: It's outside the main pipeline
 5. **Call renamer separately**: Use for name rationalization work
@@ -512,11 +540,17 @@ These are enforced in agent instructions:
   * Describe behavior/architecture, not implementation details
 - **detailed_implementer**: 
   * Specify exact "Input Validation Required"
-  * Mark task groups as PARALLEL or SEQUENTIAL
+  * Provide explicit context paths per task group
+  * Include "Tests to Create" and "Tests to Run" sections
 - **taskmaster**: 
   * Implement code directly
-  * Execute all task groups in the task_list.md
-  * Handle both full implementation plans and review edit applications
+  * Execute one task group at a time (fresh context per group)
+  * Create tests as specified, never mark skip/nocudasim/specific_algos
+  * Do NOT run tests - run_tests agent handles this
+- **run_tests**:
+  * Runs tests with NUMBA_ENABLE_CUDASIM=1
+  * Excludes nocudasim and specific_algos by default
+  * Provides failure summaries, not full tracebacks
 - **reviewer**: 
   * Validate against user_stories.md
   * Be harsh but fair
@@ -543,7 +577,7 @@ All agents understand CuBIE-specific conventions from repository-level instructi
 - **Breaking Changes**: Acceptable (no backwards compatibility)
 - **Documentation**: RST for Sphinx, numpydoc for API, concept-based user guides
 
-See `AGENTS.md` for complete architecture and style guidelines.
+See `.github/copilot-instructions.md` for complete style guidelines and `.github/context/cubie_internal_structure.md` for architecture.
 
 ## Troubleshooting
 
@@ -583,7 +617,7 @@ When modifying agent configurations:
 
 ## Additional Resources
 
-- **AGENTS.md**: Complete CuBIE architecture reference
-- **.github/copilot-instructions.md**: Global Copilot instructions
+- **.github/copilot-instructions.md**: Complete Copilot instructions and style guidelines
+- **.github/context/cubie_internal_structure.md**: CuBIE architecture reference
 - **docs/**: User-facing documentation
 - **Active Plans**: Check `.github/active_plans/` for ongoing work
