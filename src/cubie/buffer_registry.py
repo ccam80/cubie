@@ -14,7 +14,7 @@ from typing import Callable, Dict, Optional, Tuple, Any, Set
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda
+from numba import cuda, int32
 
 from cubie._utils import getype_validator, precision_validator
 from cubie.cuda_simsafe import compile_kwargs
