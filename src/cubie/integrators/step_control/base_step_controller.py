@@ -30,7 +30,7 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     'min_gain', 'max_gain', 'safety',
     'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
     'gamma', 'max_newton_iters',
-    'timestep_memory'
+    'timestep_memory_location'
 }
 
 @attrs.define
@@ -55,7 +55,7 @@ class BaseStepControllerConfig(ABC):
         validator=precision_validator,
     )
     n: int = field(default=1, validator=getype_validator(int, 0))
-    timestep_memory: str = field(
+    timestep_memory_location: str = field(
         default='local',
         validator=validators.in_(['local', 'shared'])
     )
@@ -121,15 +121,12 @@ class BaseStepController(CUDAFactory):
         precision = config.precision
         size = self.local_memory_elements
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
         # Register timestep buffer
         buffer_registry.register(
             'timestep_buffer',
             self,
             size,
-            config.timestep_memory,
+            config.timestep_memory_location,
             persistent=True,
             precision=precision
         )

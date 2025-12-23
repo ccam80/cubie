@@ -6,7 +6,6 @@ from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
 from cubie._utils import PrecisionDType, getype_validator
-from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig,
     BaseStepController,
@@ -102,13 +101,6 @@ class FixedStepController(BaseStepController):
         Callable
             CUDA device function that keeps the step size constant.
         """
-        precision = self.compile_settings.numba_precision
-
-        # Get allocator for interface consistency
-        alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
-        )
-
         @cuda.jit(
             device=True,
             inline=True,
@@ -144,9 +136,6 @@ class FixedStepController(BaseStepController):
             int32
                 Zero, indicating that the current step size should be kept.
             """
-            # Allocate buffer for interface consistency
-            _ = alloc_timestep_buffer(shared_scratch, persistent_local)
-
             accept_out[0] = int32(1)
             return int32(0)
 
