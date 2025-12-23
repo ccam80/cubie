@@ -188,9 +188,3 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0

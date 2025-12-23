@@ -427,7 +427,6 @@ class DIRKStep(ODEImplicitStep):
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         diagonal_coeffs = tableau.diagonal(numba_precision)
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -499,47 +498,7 @@ class DIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            # ----------------------------------------------------------- #
-            # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared memory.
-            #   Default behaviour:
-            #       - Stores accumulated explicit contributions for successors.
-            #       - Slice k feeds the base state for stage k+1.
-            #   Reuse:
-            #       - stage_base: first slice (size n)
-            #           - Holds the working state during the current stage.
-            #           - New data lands only after the prior stage has finished.
-            # solver_scratch: size solver_shared_elements, shared memory.
-            #   Default behaviour:
-            #       - Provides workspace for the Newton iteration helpers.
-            #   Reuse:
-            #       - stage_rhs: first slice (size n)
-            #           - Carries the Newton residual and then the stage rhs.
-            #           - Once a stage closes we reuse it for the next residual,
-            #             so no live data remains.
-            #       - increment_cache: second slice (size n)
-            #           - Receives the accepted increment at step end for FSAL.
-            #           - Solver stops touching it once convergence is reached.
-            #   Note:
-            #       - Evaluation state is computed inline by operators and
-            #         residuals; no dedicated buffer required.
-            # stage_increment: size n, shared or local memory.
-            #   Default behaviour:
-            #       - Starts as the Newton guess and finishes as the step.
-            #       - Copied into increment_cache once the stage closes.
-            # proposed_state: size n, global memory.
-            #   Default behaviour:
-            #       - Carries the running solution with each stage update.
-            #       - Only updated after a stage converges, keeping data stable.
-            # proposed_drivers / proposed_observables: size n each, global.
-            #   Default behaviour:
-            #       - Refresh to the stage time before rhs or residual work.
-            #       - Later stages reuse only the newest values, so no clashes.
-            # ----------------------------------------------------------- #
 
-            # ----------------------------------------------------------- #
-            # Selective allocation from local or shared memory
-            # ----------------------------------------------------------- #
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_accumulator = alloc_accumulator(shared, persistent_local)
             stage_base = alloc_stage_base(shared, persistent_local)
@@ -547,10 +506,6 @@ class DIRKStep(ODEImplicitStep):
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
-            # Initialize local arrays
-            for _i in range(n):
-                stage_increment[_i] = typed_zero
-                stage_base[_i] = typed_zero
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = typed_zero
             # --------------------------------------------------------------- #
@@ -743,6 +698,8 @@ class DIRKStep(ODEImplicitStep):
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
+
+                # Accumulate output/error or write directly if possible
                 for idx in range(n):
                     increment = stage_rhs[idx]
                     if accumulates_output:
@@ -754,7 +711,6 @@ class DIRKStep(ODEImplicitStep):
                         if accumulates_error:
                             error[idx] += error_weight * increment
                         elif b_hat_row == stage_idx:
-                            # Direct assignment for error
                             error[idx] = stage_base[idx]
 
             # --------------------------------------------------------------- #
@@ -800,30 +756,6 @@ class DIRKStep(ODEImplicitStep):
         return self.tableau.has_error_estimate
 
     @property
-    def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
-
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
-        if self._cached_auxiliary_count is None:
-            self.build_implicit_helpers()
-        return self._cached_auxiliary_count
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     def is_implicit(self) -> bool:
         """Return ``True`` because the method solves nonlinear systems."""
         return True
@@ -833,9 +765,7 @@ class DIRKStep(ODEImplicitStep):
         """Return the classical order of accuracy."""
         return self.tableau.order
 
-
     @property
     def threads_per_step(self) -> int:
         """Return the number of CUDA threads that advance one state."""
-
         return 1

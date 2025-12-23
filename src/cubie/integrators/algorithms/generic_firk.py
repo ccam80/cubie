@@ -291,6 +291,7 @@ class FIRKStep(ODEImplicitStep):
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
 
+        self.solver.update(n=self.tableau.stage_count * n)
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -299,15 +300,16 @@ class FIRKStep(ODEImplicitStep):
         precision = config.precision
         n = config.n
         tableau = config.tableau
-        
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
 
         # Calculate buffer sizes
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
-
-        # Register algorithm buffers using config values
+        
+        _,_ = buffer_registry.get_child_allocators(
+                self,
+                self.solver,
+                name='solver'
+        )
         buffer_registry.register(
             'stage_increment',
             self,
@@ -373,6 +375,7 @@ class FIRKStep(ODEImplicitStep):
             operator_apply=operator,
             preconditioner=preconditioner,
             residual_function=residual,
+            n=tableau.stage_count * config.n
         )
 
         self.update_compile_settings(
@@ -399,7 +402,6 @@ class FIRKStep(ODEImplicitStep):
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
-        all_stages_n = int32(config.all_stages_n)
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
@@ -412,7 +414,6 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -529,7 +530,6 @@ class FIRKStep(ODEImplicitStep):
             status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
-
                 if has_driver_function:
                     stage_base = stage_idx * n_drivers
                     for idx in range (n_drivers):
@@ -624,30 +624,21 @@ class FIRKStep(ODEImplicitStep):
         return self.tableau.has_error_estimate
 
     @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     def stage_count(self) -> int:
         """Return the number of stages described by the tableau."""
-
         return self.compile_settings.stage_count
 
     @property
     def is_implicit(self) -> bool:
         """Return ``True`` because the method solves nonlinear systems."""
-
         return True
 
     @property
     def order(self) -> int:
         """Return the classical order of accuracy."""
-
         return self.tableau.order
 
     @property
     def threads_per_step(self) -> int:
         """Return the number of CUDA threads that advance one state."""
-
         return 1

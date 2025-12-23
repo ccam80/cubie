@@ -2,148 +2,20 @@
 
 from typing import Callable, Optional
 
-import attrs
 from numba import cuda, int32
 
-from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults,
 )
-from cubie.integrators.algorithms.ode_explicitstep import (
-    ExplicitStepConfig,
-    ODEExplicitStep,
-)
-from cubie.integrators.algorithms.generic_erk_tableaus import (
-    DEFAULT_ERK_TABLEAU,
-    ERKTableau,
-)
-
-ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-        "kp": 0.7,
-        "ki": -0.4,
-        "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.1,
-        "max_gain": 5.0,
-        "safety": 0.9
-    }
-)
-
-ERK_FIXED_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "fixed",
-        "dt": 1e-3,
-    }
-)
+from cubie.integrators.algorithms.generic_erk import (
+    ERKStep)
 
 
-@attrs.define
-class ERKStepConfig(ExplicitStepConfig):
-    """Configuration describing an explicit Runge--Kutta integrator."""
 
-    tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    stage_rhs_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    stage_accumulator_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-
-    @property
-    def first_same_as_last(self) -> bool:
-        """Return ``True`` when the tableau shares the first and last stage."""
-
-        return self.tableau.first_same_as_last
-
-class ERKStep(ODEExplicitStep):
+class InstrumentedERKStep(ERKStep):
     """Generic explicit Runge--Kutta step with configurable tableaus."""
-
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
-        get_solver_helper_fn: Optional[Callable] = None,
-        tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
-        n_drivers: int = 0,
-        stage_rhs_location: Optional[str] = None,
-        stage_accumulator_location: Optional[str] = None,
-    ) -> None:
-        """Initialise the Runge--Kutta step configuration.
-
-        Parameters
-        ----------
-        tableau
-            Explicit Runge--Kutta tableau describing the coefficients used by
-            the integrator. Defaults to :data:`DEFAULT_ERK_TABLEAU`.
-        """
-
-        # Build config first so buffer registration can use config defaults
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau,
-        }
-        if stage_rhs_location is not None:
-            config_kwargs["stage_rhs_location"] = stage_rhs_location
-        if stage_accumulator_location is not None:
-            config_kwargs["stage_accumulator_location"] = stage_accumulator_location
-
-        config = ERKStepConfig(**config_kwargs)
-
-        if tableau.has_error_estimate:
-            defaults = ERK_ADAPTIVE_DEFAULTS
-        else:
-            defaults = ERK_FIXED_DEFAULTS
-
-        super().__init__(config, defaults)
-        self.register_buffers()
-
-    def register_buffers(self) -> None:
-        """Register buffers with buffer_registry."""
-        config = self.compile_settings
-        precision = config.precision
-        n = config.n
-        tableau = config.tableau
-
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
-
-        # Calculate buffer sizes
-        accumulator_length = max(tableau.stage_count - 1, 0) * n
-
-        # Register algorithm buffers using config values
-        buffer_registry.register(
-            'stage_rhs',
-            self,
-            n,
-            config.stage_rhs_location,
-            persistent=True,
-            precision=precision
-        )
-        buffer_registry.register(
-            'stage_accumulator',
-            self,
-            accumulator_length,
-            config.stage_accumulator_location,
-            precision=precision
-        )
 
     def build_step(
         self,
@@ -160,11 +32,11 @@ class ERKStep(ODEExplicitStep):
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
-        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
-        accumulator_length = (tableau.stage_count - 1) * n_arraysize
+
+        accumulator_length = (tableau.stage_count - 1) * n
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
@@ -180,7 +52,6 @@ class ERKStep(ODEExplicitStep):
         else:
             error_weights = tuple(typed_zero for _ in range(stage_count))
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -273,42 +144,10 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
-            # ----------------------------------------------------------- #
-            # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared or local.
-            #   Default behaviour:
-            #       - Holds finished stage rhs * dt for later stage sums.
-            #       - Slice k stores contributions streamed into stage k+1.
-            #   Reuse:
-            #       - stage_cache: first slice (size n)
-            #           - Saves the FSAL rhs when the tableau supports it.
-            #           - Cache survives after the loop so no live slice is hit.
-            # proposed_state: size n, global memory.
-            #   Default behaviour:
-            #       - Starts as the accepted state and gathers stage updates.
-            #       - Each stage applies its weighted increment before moving on.
-            # proposed_drivers / proposed_observables: size n each, global.
-            #   Default behaviour:
-            #       - Refresh to the current stage time before rhs evaluation.
-            #       - Later stages only read the newest values, so nothing lingers.
-            # stage_rhs: size n, shared or local memory.
-            #   Default behaviour:
-            #       - Holds the current stage rhs before scaling by dt.
-            #   Reuse:
-            #       - When FSAL hits we copy cached rhs here before touching
-            #         shared memory, keeping lifetimes separate.
-            # error: size n, global memory (adaptive runs only).
-            #   Default behaviour:
-            #       - Accumulates error-weighted f(y_jn) during the
-            #       loop.
-            #       - Cleared at loop entry so prior steps cannot leak in.
-            # ----------------------------------------------------------- #
-
 
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
 
-            # LOGGING: Allocate local buffer for observable count
             observable_count = proposed_observables.shape[0]
 
             current_time = time_scalar
@@ -346,7 +185,7 @@ class ERKStep(ODEExplicitStep):
             else:
                 use_cached_rhs = False
 
-            # Deep cached rhs if able to, otherwise recalculate.
+            # Keep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,

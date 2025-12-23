@@ -23,30 +23,20 @@ from cubie.integrators.algorithms import (
 )
 from cubie._utils import split_applicable_settings
 
-from .backwards_euler import (
-    InstrumentedBackwardsEulerStep,
-)
-from .backwards_euler_predict_correct import (
-    InstrumentedBackwardsEulerPCStep,
-)
-from .crank_nicolson import (
-    CrankNicolsonStep as InstrumentedCrankNicolsonStep,
-)
-from .explicit_euler import (
-    ExplicitEulerStep as InstrumentedExplicitEulerStep,
-)
-from .generic_dirk import DIRKStep as InstrumentedDIRKStep
-from .generic_firk import FIRKStep as InstrumentedFIRKStep
+from .backwards_euler import InstrumentedBackwardsEulerStep
+from .backwards_euler_predict_correct import InstrumentedBackwardsEulerPCStep
+from .crank_nicolson import InstrumentedCrankNicolsonStep
+from .explicit_euler import InstrumentedExplicitEulerStep
+from .generic_dirk import InstrumentedDIRKStep
+from .generic_firk import InstrumentedFIRKStep
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     InstrumentedStepResult,
     STATUS_MASK,
     get_ref_stepper,
 )
-from .generic_erk import ERKStep as InstrumentedERKStep
-from .generic_rosenbrock_w import (
-    GenericRosenbrockWStep as InstrumentedRosenbrockStep,
-)
+from .generic_erk import InstrumentedERKStep
+from .generic_rosenbrock_w import InstrumentedRosenbrockWStep
 from tests.integrators.algorithms.instrumented import (
     create_instrumentation_host_buffers,
 )
@@ -59,7 +49,7 @@ STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, BaseAlgorithmStep] = {
     ERKStep: InstrumentedERKStep,
     DIRKStep: InstrumentedDIRKStep,
     FIRKStep: InstrumentedFIRKStep,
-    GenericRosenbrockWStep: InstrumentedRosenbrockStep,
+    GenericRosenbrockWStep: InstrumentedRosenbrockWStep,
 }
 
 
@@ -417,7 +407,6 @@ def instrumented_step_results(
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
 
     # Check if this is a FIRK step which requires flattened solver buffers
-    from tests.integrators.algorithms.instrumented.generic_firk import FIRKStep as InstrumentedFIRKStep
     is_firk = isinstance(instrumented_step_object, InstrumentedFIRKStep)
 
     host_buffers = create_instrumentation_host_buffers(

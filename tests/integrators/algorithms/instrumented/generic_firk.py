@@ -27,114 +27,29 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import attrs
 import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults,
 )
+from cubie.integrators.algorithms.generic_firk import (
+    FIRKStepConfig,
+    FIRK_ADAPTIVE_DEFAULTS,
+    FIRK_FIXED_DEFAULTS,
+)
+
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
     FIRKTableau,
 )
-from cubie.integrators.algorithms.ode_implicitstep import (
-    ImplicitStepConfig,
-    ODEImplicitStep,
-)
 from cubie.buffer_registry import buffer_registry
+from tests.integrators.algorithms.instrumented.ode_implicitstep import \
+    InstrumentedODEImplicitStep
 
 
-
-
-FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-        "kp": 0.6,
-        "ki": -0.4,
-        "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
-    }
-)
-"""Default step controller settings for adaptive FIRK tableaus.
-
-This configuration is used when the FIRK tableau has an embedded error
-estimate (``tableau.has_error_estimate == True``).
-
-The PI controller provides robust adaptive stepping with proportional and
-derivative terms to smooth step size adjustments. The deadband prevents
-unnecessary step size changes for small variations in the error estimate.
-
-Notes
------
-These defaults are applied automatically when creating a :class:`FIRKStep`
-with an adaptive tableau. Users can override any of these settings by
-explicitly specifying step controller parameters.
-"""
-
-FIRK_FIXED_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "fixed",
-        "dt": 1e-3,
-    }
-)
-"""Default step controller settings for errorless FIRK tableaus.
-
-This configuration is used when the FIRK tableau lacks an embedded error
-estimate (``tableau.has_error_estimate == False``).
-
-Fixed-step controllers maintain a constant step size throughout the
-integration. This is the only valid choice for errorless tableaus since
-adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating a :class:`FIRKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
-"""
-
-
-@attrs.define
-class FIRKStepConfig(ImplicitStepConfig):
-    """Configuration describing the FIRK integrator."""
-
-    tableau: FIRKTableau = attrs.field(
-        default=DEFAULT_FIRK_TABLEAU,
-    )
-    stage_increment_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    stage_driver_stack_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    stage_state_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-
-    @property
-    def stage_count(self) -> int:
-        """Return the number of stages described by the tableau."""
-
-        return self.tableau.stage_count
-
-    @property
-    def all_stages_n(self) -> int:
-        """Return the flattened dimension covering all stage increments."""
-
-        return self.stage_count * self.n
-
-
-class FIRKStep(ODEImplicitStep):
+class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
     """Fully implicit Runge--Kutta step with an embedded error estimate."""
 
     def __init__(
@@ -160,7 +75,7 @@ class FIRKStep(ODEImplicitStep):
         stage_state_location: Optional[str] = None,
     ) -> None:
         """Initialise the FIRK step configuration.
-        
+
         This constructor creates a FIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
@@ -220,19 +135,19 @@ class FIRKStep(ODEImplicitStep):
         stage_state_location
             Memory location for stage state buffer: 'local' or 'shared'. If
             None, defaults to 'local'.
-        
+
         Notes
         -----
         The step controller defaults are selected dynamically:
-        
+
         - If ``tableau.has_error_estimate`` is ``True``:
           Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (PI controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`FIRK_FIXED_DEFAULTS` (fixed-step controller)
-        
+
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau.
-        
+
         FIRK methods require solving a coupled system of all stages
         simultaneously, which is more computationally expensive than DIRK
         methods but can achieve higher orders of accuracy for stiff systems.
@@ -256,40 +171,45 @@ class FIRKStep(ODEImplicitStep):
             "M": mass,
         }
         if stage_increment_location is not None:
-            config_kwargs["stage_increment_location"] = stage_increment_location
+            config_kwargs["stage_increment_location"] = (
+                stage_increment_location
+            )
         if stage_driver_stack_location is not None:
-            config_kwargs["stage_driver_stack_location"] = stage_driver_stack_location
+            config_kwargs["stage_driver_stack_location"] = (
+                stage_driver_stack_location
+            )
         if stage_state_location is not None:
             config_kwargs["stage_state_location"] = stage_state_location
 
         config = FIRKStepConfig(**config_kwargs)
-        
+
         # Select defaults based on error estimate
         if tableau.has_error_estimate:
             controller_defaults = FIRK_ADAPTIVE_DEFAULTS
         else:
             controller_defaults = FIRK_FIXED_DEFAULTS
-        
+
         # Build kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+            solver_kwargs["krylov_tolerance"] = krylov_tolerance
         if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
+            solver_kwargs["max_linear_iters"] = max_linear_iters
         if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
+            solver_kwargs["linear_correction_type"] = linear_correction_type
         if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
+            solver_kwargs["newton_tolerance"] = newton_tolerance
         if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
+            solver_kwargs["max_newton_iters"] = max_newton_iters
         if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
+            solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        
+            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
+
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
-        self.solver.update({'n': self.tableau.stage_count * self.n})
+
+        self.solver.update(n=self.tableau.stage_count * n)
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -298,9 +218,6 @@ class FIRKStep(ODEImplicitStep):
         precision = config.precision
         n = config.n
         tableau = config.tableau
-        
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
 
         # Register solver child buffers
         _ = buffer_registry.get_child_allocators(
@@ -311,7 +228,11 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
-        # Register algorithm buffers using config values
+        _,_ = buffer_registry.get_child_allocators(
+                self,
+                self.solver,
+                name='solver'
+        )
         buffer_registry.register(
             'stage_increment',
             self,
@@ -340,9 +261,7 @@ class FIRKStep(ODEImplicitStep):
         config = self.compile_settings
         get_fn = config.get_solver_helper_fn
         n = config.n
-        precision = config.precision
         tableau = config.tableau
-        all_stages_n = tableau.stage_count * n
 
         beta = config.beta
         gamma = config.gamma
@@ -384,10 +303,12 @@ class FIRKStep(ODEImplicitStep):
             n=self.tableau.stage_count * self.n,
         )
 
-        self.update_compile_settings(solver_function=self.solver.device_function)
+        self.update_compile_settings(
+                {'solver_function':self.solver.device_function}
+        )
 
         # Re-register buffers with the new instrumented solver
-        self.register_buffers()
+        # self.register_buffers()
 
     def build_step(
         self,
@@ -409,7 +330,6 @@ class FIRKStep(ODEImplicitStep):
         n = int32(n)
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
-        all_stages_n = int32(config.all_stages_n)
 
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
@@ -422,7 +342,6 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -553,7 +472,7 @@ class FIRKStep(ODEImplicitStep):
                     )
                     driver_offset = stage_idx * n_drivers
                     driver_slice = stage_driver_stack[
-                        driver_offset:driver_offset + n_drivers
+                        driver_offset : driver_offset + n_drivers
                     ]
                     driver_function(stage_time, driver_coeffs, driver_slice)
 
@@ -567,6 +486,7 @@ class FIRKStep(ODEImplicitStep):
                 typed_zero,
                 state,
                 solver_shared,
+                solver_persistent,
                 counters,
                 int32(0),  # stage index
                 newton_initial_guesses,
@@ -681,11 +601,6 @@ class FIRKStep(ODEImplicitStep):
         """Return ``True`` when the tableau supplies an error estimate."""
 
         return self.tableau.has_error_estimate
-
-    @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required."""
-        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def stage_count(self) -> int:

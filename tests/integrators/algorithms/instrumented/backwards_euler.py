@@ -3,27 +3,14 @@
 from typing import Callable, Optional
 
 from numba import cuda, int32
-import numpy as np
 
 from cubie import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import \
-    BackwardsEulerStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
-    StepControlDefaults
+    BackwardsEulerStepConfig, ALGO_CONSTANTS, BE_DEFAULTS
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
 from tests.integrators.algorithms.instrumented.ode_implicitstep import \
     InstrumentedODEImplicitStep
-
-ALGO_CONSTANTS = {'beta': 1.0,
-                  'gamma': 1.0,
-                  'M': np.eye}
-
-BE_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "fixed",
-        "dt": 1e-3,
-    }
-)
 
 class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
     """Backward Euler integration step for implicit ODE updates."""

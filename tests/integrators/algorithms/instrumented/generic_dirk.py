@@ -2,7 +2,6 @@
 
 from typing import Callable, Optional
 
-import attrs
 import numpy as np
 from numba import cuda, int32
 
@@ -10,70 +9,25 @@ from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import activemask, all_sync, syncwarp
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults,
 )
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
     DIRKTableau,
 )
-from cubie.integrators.algorithms.ode_implicitstep import (
-    ImplicitStepConfig,
-    ODEImplicitStep,
+from cubie.integrators.algorithms.generic_dirk import (
+    DIRK_FIXED_DEFAULTS,
+    DIRK_ADAPTIVE_DEFAULTS,
+    DIRKStepConfig
 )
 from cubie.buffer_registry import buffer_registry
+from tests.integrators.algorithms.instrumented.ode_implicitstep import \
+    InstrumentedODEImplicitStep
 from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
     InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
 )
 
 
-DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-        "kp": 0.7,
-        "ki": -0.4,
-        "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.1,
-        "max_gain": 5.0,
-    }
-)
-
-DIRK_FIXED_DEFAULTS = StepControlDefaults(
-    step_controller={
-        "step_controller": "fixed",
-        "dt": 1e-3,
-    }
-)
-
-@attrs.define
-class DIRKStepConfig(ImplicitStepConfig):
-    """Configuration describing the DIRK integrator."""
-
-    tableau: DIRKTableau = attrs.field(
-        default=DEFAULT_DIRK_TABLEAU,
-    )
-    stage_increment_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    stage_base_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    accumulator_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-    stage_rhs_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-
-
-class DIRKStep(ODEImplicitStep):
+class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
 
     def __init__(
@@ -99,7 +53,83 @@ class DIRKStep(ODEImplicitStep):
         accumulator_location: Optional[str] = None,
         stage_rhs_location: Optional[str] = None,
     ) -> None:
-        """Initialise the DIRK step configuration."""
+        """Initialise the DIRK step configuration.
+
+        This constructor creates a DIRK step object and automatically selects
+        appropriate default step controller settings based on whether the
+        tableau has an embedded error estimate. Tableaus with error estimates
+        default to adaptive stepping (PI controller), while errorless tableaus
+        default to fixed stepping.
+
+        Parameters
+        ----------
+        precision
+            Floating-point precision for CUDA computations.
+        n
+            Number of state variables in the ODE system.
+        dxdt_function
+            Compiled CUDA device function computing state derivatives.
+        observables_function
+            Optional compiled CUDA device function computing observables.
+        driver_function
+            Optional compiled CUDA device function computing time-varying
+            drivers.
+        get_solver_helper_fn
+            Factory function returning solver helper for Jacobian operations.
+        preconditioner_order
+            Order of the truncated Neumann preconditioner. If None, uses
+            default value of 2.
+        krylov_tolerance
+            Convergence tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
+        max_linear_iters
+            Maximum iterations allowed for the Krylov solver. If None, uses
+            default from LinearSolverConfig.
+        linear_correction_type
+            Type of Krylov correction. If None, uses default from
+            LinearSolverConfig.
+        newton_tolerance
+            Convergence tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        max_newton_iters
+            Maximum iterations permitted for the Newton solver. If None, uses
+            default from NewtonKrylovConfig.
+        newton_damping
+            Damping factor applied within Newton updates. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_backtracks
+            Maximum number of backtracking steps within the Newton solver. If
+            None, uses default from NewtonKrylovConfig.
+        tableau
+            DIRK tableau describing the coefficients. Defaults to
+            :data:`DEFAULT_DIRK_TABLEAU`.
+        n_drivers
+            Number of driver variables in the system.
+        stage_increment_location
+            Memory location for stage increment buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
+        stage_base_location
+            Memory location for stage base buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        accumulator_location
+            Memory location for accumulator buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+        stage_rhs_location
+            Memory location for stage RHS buffer: 'local' or 'shared'. If
+            None, defaults to 'local'.
+
+        Notes
+        -----
+        The step controller defaults are selected dynamically:
+
+        - If ``tableau.has_error_estimate`` is ``True``:
+          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (PI controller)
+        - If ``tableau.has_error_estimate`` is ``False``:
+          Uses :data:`DIRK_FIXED_DEFAULTS` (fixed-step controller)
+
+        This automatic selection prevents incompatible configurations where
+        an adaptive controller is paired with an errorless tableau.
+        """
 
         mass = np.eye(n, dtype=precision)
 
@@ -119,7 +149,9 @@ class DIRKStep(ODEImplicitStep):
             "M": mass,
         }
         if stage_increment_location is not None:
-            config_kwargs["stage_increment_location"] = stage_increment_location
+            config_kwargs["stage_increment_location"] = (
+                stage_increment_location
+            )
         if stage_base_location is not None:
             config_kwargs["stage_base_location"] = stage_base_location
         if accumulator_location is not None:
@@ -138,24 +170,25 @@ class DIRKStep(ODEImplicitStep):
         # Build kwargs dict conditionally
         solver_kwargs = {}
         if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+            solver_kwargs["krylov_tolerance"] = krylov_tolerance
         if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
+            solver_kwargs["max_linear_iters"] = max_linear_iters
         if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
+            solver_kwargs["linear_correction_type"] = linear_correction_type
         if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
+            solver_kwargs["newton_tolerance"] = newton_tolerance
         if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
+            solver_kwargs["max_newton_iters"] = max_newton_iters
         if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
+            solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:
-            solver_kwargs['newton_max_backtracks'] = newton_max_backtracks
+            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         # Call parent __init__ to create solver instances
         super().__init__(config, controller_defaults, **solver_kwargs)
 
         self.register_buffers()
+
 
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
@@ -267,20 +300,15 @@ class DIRKStep(ODEImplicitStep):
             preconditioner=preconditioner,
         )
 
-        # Create instrumented Newton-Krylov solver
-        self.solver = InstrumentedNewtonKrylov(
-            precision=precision,
-            n=n,
-            linear_solver=linear_solver,
-            newton_tolerance=self.newton_tolerance,
-            max_newton_iters=self.max_newton_iters,
-            newton_damping=self.newton_damping,
-            newton_max_backtracks=self.newton_max_backtracks,
+        # Update solvers with device functions
+        self.solver.update(
+                operator_apply=linear_operator,
+                preconditioner=preconditioner,
+                residual_function=residual_fn,
         )
-        self.solver.update(residual_function=residual_fn)
 
         self.update_compile_settings(
-            solver_function=self.solver.device_function
+                {'solver_function': self.solver.device_function}
         )
 
     def build_step(
@@ -320,7 +348,6 @@ class DIRKStep(ODEImplicitStep):
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         diagonal_coeffs = tableau.diagonal(numba_precision)
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -336,9 +363,11 @@ class DIRKStep(ODEImplicitStep):
                           for coeff in diagonal_coeffs)
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
-        # Get allocators for Newton solver (registered in register_buffers)
-        alloc_solver_shared = buffer_registry.get_allocator('solver_shared', self)
-        alloc_solver_persistent = buffer_registry.get_allocator('solver_persistent', self)
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver')
+        )
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
@@ -422,47 +451,6 @@ class DIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-            # ----------------------------------------------------------- #
-            # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared memory.
-            #   Default behaviour:
-            #       - Stores accumulated explicit contributions for successors.
-            #       - Slice k feeds the base state for stage k+1.
-            #   Reuse:
-            #       - stage_base: first slice (size n)
-            #           - Holds the working state during the current stage.
-            #           - New data lands only after the prior stage has finished.
-            # solver_scratch: size solver_shared_elements, shared memory.
-            #   Default behaviour:
-            #       - Provides workspace for the Newton iteration helpers.
-            #   Reuse:
-            #       - stage_rhs: first slice (size n)
-            #           - Carries the Newton residual and then the stage rhs.
-            #           - Once a stage closes we reuse it for the next residual,
-            #             so no live data remains.
-            #       - increment_cache: second slice (size n)
-            #           - Receives the accepted increment at step end for FSAL.
-            #           - Solver stops touching it once convergence is reached.
-            #   Note:
-            #       - Evaluation state is computed inline by operators and
-            #         residuals; no dedicated buffer required.
-            # stage_increment: size n, shared or local memory.
-            #   Default behaviour:
-            #       - Starts as the Newton guess and finishes as the step.
-            #       - Copied into increment_cache once the stage closes.
-            # proposed_state: size n, global memory.
-            #   Default behaviour:
-            #       - Carries the running solution with each stage update.
-            #       - Only updated after a stage converges, keeping data stable.
-            # proposed_drivers / proposed_observables: size n each, global.
-            #   Default behaviour:
-            #       - Refresh to the stage time before rhs or residual work.
-            #       - Later stages reuse only the newest values, so no clashes.
-            # ----------------------------------------------------------- #
-
-            # ----------------------------------------------------------- #
-            # Selective allocation from local or shared memory
-            # ----------------------------------------------------------- #
             stage_increment = alloc_stage_increment(shared, persistent_local)
             stage_accumulator = alloc_accumulator(shared, persistent_local)
             stage_base = alloc_stage_base(shared, persistent_local)
@@ -470,10 +458,6 @@ class DIRKStep(ODEImplicitStep):
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
-            # Initialize local arrays
-            for _i in range(n):
-                stage_increment[_i] = typed_zero
-                stage_base[_i] = typed_zero
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = typed_zero
 
@@ -541,6 +525,7 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[0],
                         stage_base,
                         solver_shared,
+                        solver_persistent,
                         counters,
                         int32(0),
                         newton_initial_guesses,
@@ -583,7 +568,6 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 stage_states[0, idx] = stage_base[idx]
-                residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = (stage_increment[idx] *
                                             diagonal_coeff)
@@ -651,11 +635,11 @@ class DIRKStep(ODEImplicitStep):
                         proposed_drivers,
                     )
 
-                # LOGGING: Record driver values
-                for driver_idx in range(proposed_drivers_out.shape[1]):
-                    proposed_drivers_out[stage_idx, driver_idx] = (
-                        proposed_drivers[driver_idx]
-                    )
+                    # LOGGING: Record driver values
+                    for driver_idx in range(proposed_drivers_out.shape[1]):
+                        proposed_drivers_out[stage_idx, driver_idx] = (
+                            proposed_drivers[driver_idx]
+                        )
 
                 # Convert accumulator slice to state by adding y_n
                 for idx in range(n):
@@ -678,6 +662,7 @@ class DIRKStep(ODEImplicitStep):
                         diagonal_coeffs[stage_idx],
                         stage_base,
                         solver_shared,
+                        solver_persistent,
                         counters,
                         int32(stage_idx),
                         newton_initial_guesses,
@@ -729,10 +714,11 @@ class DIRKStep(ODEImplicitStep):
                 # LOGGING: Record derivatives and residuals
                 for idx in range(n):
                     stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                    residuals[stage_idx, idx] = typed_zero
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]
+
+                # Accumulate output/error or write directly if possible
                 for idx in range(n):
                     increment = stage_rhs[idx]
                     if accumulates_output:
@@ -744,10 +730,9 @@ class DIRKStep(ODEImplicitStep):
                         if accumulates_error:
                             error[idx] += error_weight * increment
                         elif b_hat_row == stage_idx:
-                            # Direct assignment for error
                             error[idx] = stage_base[idx]
 
-
+            # Finalise accumulated output/error
             for idx in range(n):
                 if accumulates_output:
                     proposed_state[idx] *= dt_scalar
@@ -787,15 +772,6 @@ class DIRKStep(ODEImplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` because an embedded error estimate is produced."""
         return self.tableau.has_error_estimate
-
-    @property
-    def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
-
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
-        if self._cached_auxiliary_count is None:
-            self.build_implicit_helpers()
-        return self._cached_auxiliary_count
 
     @property
     def shared_memory_required(self) -> int:
