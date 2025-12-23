@@ -149,20 +149,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         
         super().__init__(config, _controller_defaults)
 
-        valid_locations = {'local', 'shared'}
-        for name, value in [
-            ('preconditioned_vec_location', preconditioned_vec_location),
-            ('temp_location', temp_location),
-            ('delta_location', delta_location),
-            ('residual_location', residual_location),
-            ('residual_temp_location', residual_temp_location),
-            ('stage_base_bt_location', stage_base_bt_location),
-        ]:
-            if value is not None and value not in valid_locations:
-                raise ValueError(
-                    f"{name} must be 'local' or 'shared', got '{value}'"
-                )
-
         if solver_type not in ['newton', 'linear']:
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
