@@ -323,24 +323,6 @@ class IVPLoop(CUDAFactory):
             'accept_step', self, 1, config.accept_step_location, precision=precision
         )
 
-        # Register placeholder buffers for algorithm and controller
-        # These will be properly sized when get_child_allocators is called
-        # by the parent (e.g., SingleIntegratorRunCore)
-        buffer_registry.register(
-            'algorithm_shared', self, 0, 'shared', precision=precision
-        )
-        buffer_registry.register(
-            'algorithm_persistent', self, 0, 'local', persistent=True,
-            precision=precision
-        )
-        buffer_registry.register(
-            'controller_shared', self, 0, 'shared', precision=precision
-        )
-        buffer_registry.register(
-            'controller_persistent', self, 0, 'local', persistent=True,
-            precision=precision
-        )
-
     @property
     def precision(self) -> PrecisionDType:
         """Return the numerical precision used for the loop."""
