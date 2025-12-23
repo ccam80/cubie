@@ -123,6 +123,7 @@ class CUDABuffer:
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
         _zero = zero
+        elements = int32(self.size)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def allocate_buffer(shared, persistent):
@@ -134,7 +135,7 @@ class CUDABuffer:
             else:
                 array = cuda.local.array(_local_size, _precision)
             if _zero:
-                for i in range(array.size):
+                for i in range(elements):
                     array[i] = _precision(0.0)
             return array
 
