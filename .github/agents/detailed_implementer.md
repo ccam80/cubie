@@ -154,7 +154,9 @@ Structure:
 ## Task Group Context Requirements
 
 **CRITICAL**: Each task group is executed by a **different taskmaster agent invocation with fresh context**. The taskmaster agent:
-- Cannot search for files or explore the codebase
+- Has fresh context for each task group (no memory of previous groups)
+- CAN read files you list in "Required Context" for each group
+- Cannot independently search for or explore files not listed
 - Cannot run tests (a separate run_tests agent handles this)
 - CAN create test files as specified in "Tests to Create"
 
@@ -162,7 +164,7 @@ For each task group, you MUST provide:
 1. **Complete file paths** with line numbers for all required context
 2. **Explicit dependencies** between task groups
 3. **Tests to Create** section listing test files and functions to write
-4. **Tests to Run** section listing exact pytest paths for run_tests agent
+4. **Tests to Run** section listing exact pytest paths for run_tests agent (format: `tests/path/to/test_file.py::test_function_name`)
 
 ## Behavior Guidelines
 

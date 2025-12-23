@@ -117,7 +117,7 @@ Before returning to the default Copilot agent:
 - Add educational comments explaining implementation (not docstrings)
 - Perform ONLY validation listed in "Input Validation Required"
 - Never add extra validation beyond what is specified
-- Follow repository conventions from copilot-instructions.md
+- Follow repository conventions from .github/copilot-instructions.md
 - If specification is unclear, note in outcomes and make reasonable decisions
 - Execute the plan without asking user for feedback
 
@@ -244,7 +244,8 @@ Follow these from .github/copilot-instructions.md:
 
 - **Create tests when requested** in the task_list.md
 - Tests you create will be run by the **run_tests agent** after your work completes
-- Design tests to validate intended behavior; a failing test indicates a bug to fix
+- Design tests to validate correct behavior AND catch bugs/edge cases
+- A failing test indicates either a bug in the implementation or an issue with the test design
 
 ### Test Markers - NEVER USE
 

@@ -43,9 +43,10 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - `chore:` - for everything else
 
 ### Architecture-Specific
-- See `.github/copilot-instructions.md` for detailed style guidelines and `.github/context/cubie_internal_structure.md` for project structure
+- See `.github/context/cubie_internal_structure.md` for detailed project structure
 - Never call `build()` directly on CUDAFactory subclasses; access via properties (they auto-cache)
 - No backwards compatibility enforcement - breaking changes expected during development
+- Use descriptive function names rather than minimal ones
 
 ### CUDA Device Code Patterns
 - **Prefer predicated commit over conditional branching** in CUDA device functions
@@ -125,7 +126,7 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 
 **Important**: Pipeline coordination is handled by the **default Copilot agent** (you). Custom agents do NOT have the ability to invoke other custom agents. You are responsible for invoking each agent in the proper sequence based on the `return_after` parameter.
 
-**CRITICAL: During pipeline execution, you (the default agent) should NOT read or edit files directly**. Your role is purely coordination - invoke the appropriate agents and let them do the work.
+**CRITICAL: During pipeline execution, you (the default agent) should NOT read or edit source files directly**. Your role is purely coordination - invoke the appropriate agents and let them do the work. The exception is reading task_list.md to identify task groups for coordination.
 
 **Command variations to recognize:**
 - "run pipeline on issue #X, return after [level]"
@@ -188,7 +189,7 @@ Your action:
 14. Summarize and return to user
 ```
 
-**Note**: The only file reading you should do during pipeline is to identify task groups from task_list.md for coordination purposes. Do NOT read source files or make edits yourself.
+**Note**: Reading task_list.md to identify task groups is the only file reading you should do during pipeline execution. Do NOT read source files or make edits yourself.
 
 ### Running the Renamer Agent
 
