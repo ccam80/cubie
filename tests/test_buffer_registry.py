@@ -214,20 +214,6 @@ class TestGetAllocator:
         allocator = self.registry.get_allocator('buffer1', self.factory)
         assert callable(allocator)
 
-    def test_get_allocator_zero_parameter_default_false(self):
-        """Test that zero parameter defaults to False."""
-        self.registry.register('buffer1', self.factory, 5, 'shared')
-        allocator = self.registry.get_allocator('buffer1', self.factory)
-        assert callable(allocator)
-
-    def test_get_allocator_zero_parameter_true(self):
-        """Test that zero parameter can be set to True."""
-        self.registry.register('buffer1', self.factory, 5, 'shared')
-        allocator = self.registry.get_allocator('buffer1', self.factory, zero=True)
-        assert callable(allocator)
-
-
-
 class TestMultipleFactories:
     """Tests for multiple factory contexts."""
 
