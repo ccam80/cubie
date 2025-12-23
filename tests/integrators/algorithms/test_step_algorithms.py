@@ -1242,7 +1242,7 @@ def test_algorithm(
 
 
     if properties is not None and properties["is_implicit"]:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
@@ -1290,7 +1290,7 @@ def test_algorithm(
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             updates = {
                 "max_linear_iters": max(
                     1, solver_settings["max_linear_iters"] // 2
