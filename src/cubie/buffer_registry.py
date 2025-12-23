@@ -14,7 +14,7 @@ from typing import Callable, Dict, Optional, Tuple, Any, Set
 import attrs
 from attrs import validators
 import numpy as np
-from numba import cuda
+from numba import cuda, int32
 
 from cubie._utils import getype_validator, precision_validator
 from cubie.cuda_simsafe import compile_kwargs
@@ -77,6 +77,7 @@ class CUDABuffer:
         shared_slice: Optional[slice],
         persistent_slice: Optional[slice],
         local_size: Optional[int],
+        zero: bool = False,
     ) -> Callable:
         """Compile CUDA device function for buffer allocation.
 
@@ -93,6 +94,8 @@ class CUDABuffer:
             persistent.
         local_size
             Size for local array allocation, or None if not local.
+        zero
+            If True, initialize all elements to zero after allocation.
 
         Returns
         -------
@@ -119,6 +122,8 @@ class CUDABuffer:
         )
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
+        _zero = zero
+        elements = int32(self.size)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def allocate_buffer(shared, persistent):
@@ -129,6 +134,9 @@ class CUDABuffer:
                 array = persistent[_persistent_slice]
             else:
                 array = cuda.local.array(_local_size, _precision)
+            if _zero:
+                for i in range(elements):
+                    array[i] = _precision(0.0)
             return array
 
         return allocate_buffer
@@ -479,7 +487,7 @@ class BufferGroup:
             return 0
         return max(s.stop for s in self._persistent_layout.values())
 
-    def get_allocator(self, name: str) -> Callable:
+    def get_allocator(self, name: str, zero: bool = False) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
         Retrieves the pre-computed memory slice for this buffer from the
@@ -490,6 +498,8 @@ class BufferGroup:
         ----------
         name
             Buffer name to generate allocator for.
+        zero
+            If True, initialize all elements to zero after allocation.
 
         Returns
         -------
@@ -533,7 +543,7 @@ class BufferGroup:
         local_size = self._local_sizes.get(name)
 
         return entry.build_allocator(
-            shared_slice, persistent_slice, local_size
+            shared_slice, persistent_slice, local_size, zero
         )
 
 
@@ -789,6 +799,7 @@ class BufferRegistry:
         self,
         name: str,
         parent: object,
+        zero: bool = False,
     ) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
@@ -798,6 +809,8 @@ class BufferRegistry:
             Buffer name to generate allocator for.
         parent
             Parent instance that owns the buffer.
+        zero
+            If True, initialize all elements to zero after allocation.
 
         Returns
         -------
@@ -813,7 +826,7 @@ class BufferRegistry:
             raise KeyError(
                 f"Parent {parent} has no registered buffer group."
             )
-        return self._groups[parent].get_allocator(name)
+        return self._groups[parent].get_allocator(name, zero)
 
     def get_child_allocators(
         self,

@@ -214,7 +214,6 @@ class TestGetAllocator:
         allocator = self.registry.get_allocator('buffer1', self.factory)
         assert callable(allocator)
 
-
 class TestMultipleFactories:
     """Tests for multiple factory contexts."""
 
