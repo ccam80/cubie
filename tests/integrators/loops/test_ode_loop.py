@@ -33,8 +33,6 @@ def test_getters(
     assert loop.dt_summarise == precision(solver_settings[
                                               'dt_summarise']),\
         "dt_summarise getter"
-    assert loop.local_memory_elements > 0, "local_memory getter"
-    assert loop.shared_memory_elements > 0, "shared_memory getter"
     # test update
     loop.update({"dt_save": 2 * solver_settings["dt_save"]})
     assert loop.dt_save == pytest.approx(

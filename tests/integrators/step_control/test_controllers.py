@@ -47,7 +47,6 @@ def _run_device_step(
     temp = np.asarray(local_mem, dtype=precision) if local_mem is not None \
         else np.zeros(2, dtype=precision)
     niters_val = np.int32(niters)
-    # Shared scratch and persistent local for new controller signature
     shared_scratch = np.zeros(1, dtype=precision)
     persistent_local = np.zeros(2, dtype=precision)
 

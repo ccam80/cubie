@@ -612,9 +612,9 @@ class NewtonKrylov(CUDAFactory):
         return self.linear_solver.max_linear_iters
 
     @property
-    def correction_type(self) -> str:
+    def linear_correction_type(self) -> str:
         """Return correction type from nested linear solver."""
-        return self.linear_solver.correction_type
+        return self.linear_solver.linear_correction_type
     
     @property
     def shared_buffer_size(self) -> int:

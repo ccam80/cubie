@@ -79,15 +79,15 @@ class InstrumentedLinearSolver(LinearSolver):
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
         n = config.n
-        correction_type = config.correction_type
+        linear_correction_type = config.linear_correction_type
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
         # Compute flags for correction type
-        sd_flag = correction_type == "steepest_descent"
-        mr_flag = correction_type == "minimal_residual"
+        sd_flag = linear_correction_type == "steepest_descent"
+        mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
         
         # Convert types for device function

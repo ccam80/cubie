@@ -127,6 +127,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
+        linear_correction_type="minimal_residual",
         krylov_tolerance=1e-8,
         max_linear_iters=1000,
     )
@@ -334,6 +335,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
+        linear_correction_type="minimal_residual",
         krylov_tolerance=1e-20,
         max_linear_iters=8,
     )

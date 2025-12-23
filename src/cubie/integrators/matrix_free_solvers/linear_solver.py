@@ -42,7 +42,7 @@ class LinearSolverConfig:
         Device function applying operator F @ v.
     preconditioner : Optional[Callable]
         Device function for approximate inverse preconditioner.
-    correction_type : str
+    linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
     krylov_tolerance : float
         Target on squared residual norm for convergence.
@@ -69,7 +69,7 @@ class LinearSolverConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    correction_type: str = attrs.field(
+    linear_correction_type: str = attrs.field(
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"])
     )
@@ -116,14 +116,14 @@ class LinearSolverConfig:
             Configuration dictionary containing:
             - krylov_tolerance: Convergence tolerance for linear solver
             - max_linear_iters: Maximum iterations permitted
-            - correction_type: Line-search strategy
+            - linear_correction_type: Line-search strategy
             - preconditioned_vec_location: Buffer location for preconditioned vector
             - temp_location: Buffer location for temporary vector
         """
         return {
             'krylov_tolerance': self.krylov_tolerance,
             'max_linear_iters': self.max_linear_iters,
-            'correction_type': self.correction_type,
+            'linear_correction_type': self.linear_correction_type,
             'preconditioned_vec_location': self.preconditioned_vec_location,
             'temp_location': self.temp_location,
         }
@@ -155,7 +155,7 @@ class LinearSolver(CUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
-        correction_type: Optional[str] = None,
+        linear_correction_type: Optional[str] = None,
         krylov_tolerance: Optional[float] = None,
         max_linear_iters: Optional[int] = None,
         preconditioned_vec_location: Optional[str] = None,
@@ -169,7 +169,7 @@ class LinearSolver(CUDAFactory):
             Numerical precision for computations.
         n : int
             Length of residual and search-direction vectors.
-        correction_type : str, optional
+        linear_correction_type : str, optional
             Line-search strategy ('steepest_descent' or 'minimal_residual').
             If None, defaults to 'minimal_residual'.
         krylov_tolerance : float, optional
@@ -187,8 +187,8 @@ class LinearSolver(CUDAFactory):
         
         # Create and setup configuration with explicit parameters
         linear_kwargs = {}
-        if correction_type is not None:
-            linear_kwargs['correction_type'] = correction_type
+        if linear_correction_type is not None:
+            linear_kwargs['linear_correction_type'] = linear_correction_type
         if krylov_tolerance is not None:
             linear_kwargs['krylov_tolerance'] = krylov_tolerance
         if max_linear_iters is not None:
@@ -244,15 +244,15 @@ class LinearSolver(CUDAFactory):
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
         n = config.n
-        correction_type = config.correction_type
+        linear_correction_type = config.linear_correction_type
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
         # Compute flags for correction type
-        sd_flag = correction_type == "steepest_descent"
-        mr_flag = correction_type == "minimal_residual"
+        sd_flag = linear_correction_type == "steepest_descent"
+        mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
         
         # Convert types for device function
@@ -598,9 +598,9 @@ class LinearSolver(CUDAFactory):
         return self.compile_settings.n
     
     @property
-    def correction_type(self) -> str:
+    def linear_correction_type(self) -> str:
         """Return correction strategy."""
-        return self.compile_settings.correction_type
+        return self.compile_settings.linear_correction_type
     
     @property
     def krylov_tolerance(self) -> float:

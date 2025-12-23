@@ -156,7 +156,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         linear_solver_kwargs = {}
         if linear_correction_type is not None:
-            linear_solver_kwargs['correction_type'] = linear_correction_type
+            linear_solver_kwargs['linear_correction_type'] = linear_correction_type
         if krylov_tolerance is not None:
             linear_solver_kwargs['krylov_tolerance'] = krylov_tolerance
         if max_linear_iters is not None:
@@ -417,7 +417,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
-        return self.solver.correction_type
+        return self.solver.linear_correction_type
 
     @property
     def newton_tolerance(self) -> Optional[float]:
