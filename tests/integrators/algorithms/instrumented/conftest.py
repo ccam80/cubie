@@ -24,10 +24,10 @@ from cubie.integrators.algorithms import (
 from cubie._utils import split_applicable_settings
 
 from .backwards_euler import (
-    BackwardsEulerStep as InstrumentedBackwardsEulerStep,
+    InstrumentedBackwardsEulerStep,
 )
 from .backwards_euler_predict_correct import (
-    BackwardsEulerPCStep as InstrumentedBackwardsEulerPCStep,
+    InstrumentedBackwardsEulerPCStep,
 )
 from .crank_nicolson import (
     CrankNicolsonStep as InstrumentedCrankNicolsonStep,

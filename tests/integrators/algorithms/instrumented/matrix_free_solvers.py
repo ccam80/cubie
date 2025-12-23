@@ -42,10 +42,6 @@ class InstrumentedLinearSolver(LinearSolver):
     Logging arrays are passed as device function parameters and populated
     during iteration. Uses buffer_registry for production buffers
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
-    
-    Uses the same buffer names as the production LinearSolver so that
-    get_child_allocators() correctly computes buffer sizes when this
-    solver is embedded within an instrumented Newton solver.
     """
     
     def build(self) -> InstrumentedLinearSolverCache:
@@ -79,20 +75,13 @@ class InstrumentedLinearSolver(LinearSolver):
         """
         config = self.compile_settings
         
-        # Validate required device functions are set
-        if config.operator_apply is None:
-            raise ValueError(
-                "operator_apply must be set before building "
-                "InstrumentedLinearSolver"
-            )
-        
         # Extract parameters from config
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
         n = config.n
         correction_type = config.correction_type
-        tolerance = config.krylov_tolerance
-        max_iters = config.max_linear_iters
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -103,15 +92,16 @@ class InstrumentedLinearSolver(LinearSolver):
         
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(max_iters)
+        max_iters_val = int32(max_linear_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
-        tol_squared = precision_numba(tolerance * tolerance)
+        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent LinearSolver.register_buffers)
-        alloc_precond = buffer_registry.get_allocator('preconditioned_vec', self)
-        alloc_temp = buffer_registry.get_allocator('temp', self)
+        get_alloc = buffer_registry.get_allocator
+        alloc_precond = get_alloc('preconditioned_vec', self)
+        alloc_temp = get_alloc('temp', self)
         
         # Branch on use_cached_auxiliaries flag
         if use_cached_auxiliaries:
@@ -134,6 +124,7 @@ class InstrumentedLinearSolver(LinearSolver):
                 rhs,
                 x,
                 shared,
+                persistent_local,
                 krylov_iters_out,
                 # Logging parameters:
                 slot_index,
@@ -146,8 +137,8 @@ class InstrumentedLinearSolver(LinearSolver):
                 """Run one cached preconditioned solve with logging."""
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(shared, shared)
-                temp = alloc_temp(shared, shared)
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 # Evaluate operator and compute initial residual
                 operator_apply(
@@ -215,22 +206,24 @@ class InstrumentedLinearSolver(LinearSolver):
                             ti = temp[i]
                             numerator += ti * rhs[i]
                             denominator += ti * ti
-                    
-                    alpha = selp(
-                        denominator != typed_zero,
-                        numerator / denominator,
-                        typed_zero,
-                    )
-                    alpha_effective = selp(
-                        converged, precision_numba(0.0), alpha
-                    )
-                    
+
+                    if denominator != typed_zero:
+                        alpha = numerator / denominator
+                    else:
+                        alpha = typed_zero
+
                     acc = typed_zero
-                    for i in range(n_val):
-                        x[i] += alpha_effective * preconditioned_vec[i]
-                        rhs[i] -= alpha_effective * temp[i]
-                        residual_value = rhs[i]
-                        acc += residual_value * residual_value
+                    if not converged:
+                        for i in range(n_val):
+                            x[i] += alpha * preconditioned_vec[i]
+                            rhs[i] -= alpha * temp[i]
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+                    else:
+                        for i in range(n_val):
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+
                     converged = converged or (acc <= tol_squared)
                     
                     # Log iteration state (uses 0-based indexing)
@@ -243,7 +236,7 @@ class InstrumentedLinearSolver(LinearSolver):
                         ] = preconditioned_vec[i]
                     linear_squared_norms[log_slot, log_iter] = acc
                 
-                # Single exit point - status based on converged flag
+                # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
                 krylov_iters_out[0] = iteration
                 return final_status
@@ -271,6 +264,7 @@ class InstrumentedLinearSolver(LinearSolver):
                 rhs,
                 x,
                 shared,
+                persistent_local,
                 krylov_iters_out,
                 # Logging parameters:
                 slot_index,
@@ -283,12 +277,13 @@ class InstrumentedLinearSolver(LinearSolver):
                 """Run one preconditioned solve with logging."""
                 
                 # Allocate buffers from registry
-                preconditioned_vec = alloc_precond(shared, shared)
-                temp = alloc_temp(shared, shared)
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
                 
                 # Evaluate operator and compute initial residual
                 operator_apply(
-                    state, parameters, drivers, base_state, t, h, a_ij, x, temp
+                    state, parameters, drivers, base_state, t, h, a_ij, x,
+                        temp
                 )
                 acc = typed_zero
                 for i in range(n_val):
@@ -377,7 +372,7 @@ class InstrumentedLinearSolver(LinearSolver):
                         ] = preconditioned_vec[i]
                     linear_squared_norms[log_slot, log_iter] = acc
                 
-                # Single exit point - status based on converged flag
+                # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
                 krylov_iters_out[0] = iteration
                 return final_status
@@ -385,6 +380,9 @@ class InstrumentedLinearSolver(LinearSolver):
             # no cover: end
             return InstrumentedLinearSolverCache(linear_solver=linear_solver)
 
+    @property
+    def device_function(self) -> Callable:
+        return self.get_cached_output('linear_solver')
 
 @attrs.define
 class InstrumentedNewtonKrylovCache(CUDAFunctionCache):
@@ -408,10 +406,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     Logging arrays are passed as device function parameters and populated
     during Newton iteration. Embeds InstrumentedLinearSolver for nested
     linear solve logging.
-    
-    Uses the same buffer names as the production NewtonKrylov so that
-    get_child_allocators() correctly computes buffer sizes when this
-    solver is embedded within a step implementation.
     """
     
     def build(self) -> InstrumentedNewtonKrylovCache:
@@ -460,17 +454,15 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         
         # Extract parameters from config
         residual_function = config.residual_function
-        linear_solver = self.linear_solver
+        linear_solver_fn = config.linear_solver_function
+
         n = config.n
         tolerance = config.newton_tolerance
         max_iters = config.max_newton_iters
         damping = config.newton_damping
         max_backtracks = config.newton_max_backtracks
         precision = config.precision
-        
-        # Get linear solver device function (triggers build() if needed)
-        linear_solver_fn = linear_solver.device_function
-        
+
         # Convert types for device function
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
@@ -513,6 +505,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             a_ij,
             base_state,
             shared_scratch,
+            persistent_scratch,
             counters,
             # Logging parameters:
             stage_index,
@@ -534,11 +527,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             residual = alloc_residual(shared_scratch, shared_scratch)
             residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
             stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
-            
-            # Initialize local arrays
-            for _i in range(n_val):
-                delta[_i] = typed_zero
-                residual[_i] = typed_zero
+            lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
+            lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
             # Evaluate initial residual
             residual_function(
@@ -556,6 +546,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             linear_slot_base = int32(stage_index * max_iters_val)
             log_index = int32(0)
             residual_copy = cuda.local.array(n, numba_precision)
+
             for i in range(n_val):
                 residual_value = residual[i]
                 norm2_prev += residual_value * residual_value
@@ -597,10 +588,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 
                 iter_slot = int(iters_count) - 1
                 
-                # Allocate linear solver scratch from child allocators
-                lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
                 krylov_iters_local[0] = int32(0)
-                # Compute flat index: slot_index * max_iters + iteration
                 lin_status = linear_solver_fn(
                     stage_increment,
                     parameters,
@@ -612,6 +600,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     residual,
                     delta,
                     lin_shared,
+                    lin_persistent,
                     krylov_iters_local,
                     # Logging parameters for linear solver:
                     linear_slot_base + iter_slot,
@@ -689,6 +678,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 )
                 
                 if backtrack_failed:
+                    # Revert stage increment for another round
                     for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i]
                 
@@ -723,6 +713,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         return InstrumentedNewtonKrylovCache(
             newton_krylov_solver=newton_krylov_solver
         )
+
+    @property
+    def device_function(self) -> Callable:
+        return self.get_cached_output('newton_krylov_solver')
 
 
 __all__ = [

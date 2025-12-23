@@ -45,10 +45,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.buffer_registry import buffer_registry
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
-)
 
 
 
@@ -380,30 +376,13 @@ class FIRKStep(ODEImplicitStep):
             stage_nodes=stage_nodes,
         )
 
-        # Create instrumented linear solver with full dimension
-        linear_solver = InstrumentedLinearSolver(
-            precision=precision,
-            n=all_stages_n,
-            correction_type=self.linear_correction_type,
-            krylov_tolerance=self.krylov_tolerance,
-            max_linear_iters=self.max_linear_iters,
-        )
-        linear_solver.update(
+        # Update solvers with device functions
+        self.solver.update(
             operator_apply=linear_operator,
-            preconditioner=preconditioner
+            preconditioner=preconditioner,
+            residual_function=residual_fn,
+            n=self.tableau.stage_count * self.n,
         )
-
-        # Create instrumented newton solver
-        self.solver = InstrumentedNewtonKrylov(
-            precision=precision,
-            n=all_stages_n,
-            linear_solver=linear_solver,
-            newton_tolerance=self.newton_tolerance,
-            max_newton_iters=self.max_newton_iters,
-            newton_damping=self.newton_damping,
-            newton_max_backtracks=self.newton_max_backtracks,
-        )
-        self.solver.update(residual_function=residual_fn)
 
         self.update_compile_settings(solver_function=self.solver.device_function)
 

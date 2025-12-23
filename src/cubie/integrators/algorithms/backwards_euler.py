@@ -142,10 +142,10 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         self.register_buffers()
 
+
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         config = self.compile_settings
-        buffer_registry.clear_parent(self)
 
         # Register solver child buffers
         _ = buffer_registry.get_child_allocators(

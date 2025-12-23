@@ -218,8 +218,6 @@ class BufferGroup:
             raise ValueError("Buffer name cannot be empty.")
         if aliases is not None and aliases == name:
             raise ValueError(f"Buffer '{name}' cannot alias itself.")
-        # Allow buffer override - if already registered, update the entry
-        # This enables instrumented solvers to re-register with same parent
         if aliases is not None and aliases not in self.entries:
             raise ValueError(
                 f"Alias target '{aliases}' not registered. "

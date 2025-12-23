@@ -2,31 +2,17 @@
 
 from typing import Callable, Optional
 
-import attrs
 from numba import cuda, int32
 import numpy as np
 
-from cubie._utils import PrecisionDType
+from cubie import PrecisionDType
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.algorithms import ImplicitStepConfig
+from cubie.integrators.algorithms.backwards_euler import \
+    BackwardsEulerStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
-from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedLinearSolver,
-    InstrumentedNewtonKrylov,
-)
-
-
-@attrs.define
-class BackwardsEulerStepConfig(ImplicitStepConfig):
-    """Configuration for Backwards Euler step with buffer location."""
-
-    increment_cache_location: str = attrs.field(
-        default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
-    )
-
+from tests.integrators.algorithms.instrumented.ode_implicitstep import \
+    InstrumentedODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -39,8 +25,8 @@ BE_DEFAULTS = StepControlDefaults(
     }
 )
 
-class BackwardsEulerStep(ODEImplicitStep):
-    """Backward Euler step solved with matrix-free Newton–Krylov."""
+class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
+    """Backward Euler integration step for implicit ODE updates."""
 
     def __init__(
         self,
@@ -58,6 +44,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         max_newton_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        increment_cache_location: Optional[str] = None,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -99,51 +86,59 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver. If
             None, uses default from NewtonKrylovConfig.
+        increment_cache_location
+            Memory location for increment cache buffer: 'local' or 'shared'.
+            If None, defaults to 'local'.
         """
-        beta = ALGO_CONSTANTS['beta']
-        gamma = ALGO_CONSTANTS['gamma']
-        M = ALGO_CONSTANTS['M'](n, dtype=precision)
-        config = BackwardsEulerStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
-        )
-        
+        beta = ALGO_CONSTANTS["beta"]
+        gamma = ALGO_CONSTANTS["gamma"]
+        M = ALGO_CONSTANTS["M"](n, dtype=precision)
+
+        config_kwargs = {
+            "get_solver_helper_fn": get_solver_helper_fn,
+            "beta": beta,
+            "gamma": gamma,
+            "M": M,
+            "n": n,
+            "preconditioner_order": preconditioner_order,
+            "dxdt_function": dxdt_function,
+            "observables_function": observables_function,
+            "driver_function": driver_function,
+            "precision": precision,
+        }
+        if increment_cache_location is not None:
+            config_kwargs["increment_cache_location"] = (
+                increment_cache_location
+            )
+
+        config = BackwardsEulerStepConfig(**config_kwargs)
+
         solver_kwargs = {}
         if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
+            solver_kwargs["krylov_tolerance"] = krylov_tolerance
         if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
+            solver_kwargs["max_linear_iters"] = max_linear_iters
         if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
+            solver_kwargs["linear_correction_type"] = linear_correction_type
         if newton_tolerance is not None:
-            solver_kwargs['newton_tolerance'] = newton_tolerance
+            solver_kwargs["newton_tolerance"] = newton_tolerance
         if max_newton_iters is not None:
-            solver_kwargs['max_newton_iters'] = max_newton_iters
+            solver_kwargs["max_newton_iters"] = max_newton_iters
         if newton_damping is not None:
-            solver_kwargs['newton_damping'] = newton_damping
+            solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
-
         self.register_buffers()
 
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         config = self.compile_settings
-        buffer_registry.clear_parent(self)
 
         # Register solver child buffers
         _ = buffer_registry.get_child_allocators(
-            self, self.solver, name='solver'
+            self, self.solver, name='solver_scratch'
         )
 
         # Register increment cache buffer
@@ -155,78 +150,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             persistent=True,
             precision=config.precision
         )
-
-    def build_implicit_helpers(self) -> None:
-        """Construct the nonlinear solver chain used by implicit methods.
-
-        Overrides the parent method to use instrumented solvers that record
-        logging data for each Newton and linear solver iteration.
-        """
-        config = self.compile_settings
-        precision = config.precision
-        n = config.n
-        beta = config.beta
-        gamma = config.gamma
-        mass = config.M
-        preconditioner_order = config.preconditioner_order
-
-        get_fn = config.get_solver_helper_fn
-
-        preconditioner = get_fn(
-            "neumann_preconditioner",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        residual_fn = get_fn(
-            "stage_residual",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        linear_operator = get_fn(
-            "linear_operator",
-            beta=beta,
-            gamma=gamma,
-            mass=mass,
-            preconditioner_order=preconditioner_order,
-        )
-
-        # Create instrumented linear solver
-        linear_solver = InstrumentedLinearSolver(
-            precision=precision,
-            n=n,
-            correction_type=self.linear_correction_type,
-            krylov_tolerance=self.krylov_tolerance,
-            max_linear_iters=self.max_linear_iters,
-        )
-        linear_solver.update(
-            operator_apply=linear_operator,
-            preconditioner=preconditioner,
-        )
-
-        # Create instrumented Newton-Krylov solver
-        self.solver = InstrumentedNewtonKrylov(
-            precision=precision,
-            n=n,
-            linear_solver=linear_solver,
-            newton_tolerance=self.newton_tolerance,
-            max_newton_iters=self.max_newton_iters,
-            newton_damping=self.newton_damping,
-            newton_max_backtracks=self.newton_max_backtracks,
-        )
-        self.solver.update(residual_function=residual_fn)
-
-        self.update_compile_settings(
-            solver_function=self.solver.device_function
-        )
-
-        # Re-register buffers with the new instrumented solver
-        self.register_buffers()
 
     def build_step(
         self,
@@ -248,6 +171,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Device observable computation helper.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -390,16 +315,18 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             typed_zero = numba_precision(0.0)
-            stage_rhs = cuda.local.array(n, numba_precision)
+            increment_cache = alloc_increment_cache(shared, persistent_local)
+
+            for i in range(n):
+                proposed_state[i] = increment_cache[i]
 
             observable_count = proposed_observables.shape[0]
-
+            stage_rhs = cuda.local.array(n, numba_precision) # logging
             # LOGGING: Initialize instrumentation arrays
             for i in range(n):
-                proposed_state[i] = solver_scratch[i]
                 residuals[0, i] = typed_zero
                 jacobian_updates[0, i] = typed_zero
                 stage_states[0, i] = typed_zero
@@ -431,7 +358,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                 dt_scalar,
                 a_ij,
                 state,
-                solver_scratch,
+                solver_shared,
+                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,
@@ -448,10 +376,9 @@ class BackwardsEulerStep(ODEImplicitStep):
 
             # LOGGING: Record increment, residual, and state values
             for i in range(n):
-                solver_scratch[i] = proposed_state[i]
+                increment_cache[i] = proposed_state[i]
                 proposed_state[i] += state[i]
-                stage_increments[0, i] = solver_scratch[i]
-                residuals[0, i] = solver_scratch[i + n]
+                stage_increments[0, i] = proposed_state[i]
                 stage_states[0, i] = proposed_state[i]
 
             observables_function(

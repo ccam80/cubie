@@ -41,7 +41,7 @@ class NewtonKrylovConfig:
         Size of state vectors.
     residual_function : Optional[Callable]
         Device function evaluating residuals.
-    linear_solver : Optional[LinearSolver]
+    linear_solver_function : Optional[CUDA Device Function]
         LinearSolver instance for solving linear systems.
     newton_tolerance : float
         Residual norm threshold for convergence.
@@ -315,7 +315,7 @@ class NewtonKrylov(CUDAFactory):
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
 
-        numba_precision = from_dtype(config.precision)
+        numba_precision = config.numba_precision
         tol_squared = numba_precision(newton_tolerance * newton_tolerance)
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
@@ -488,6 +488,7 @@ class NewtonKrylov(CUDAFactory):
                             found_step = True
                         
                         if norm2_new < norm2_prev:
+                            # Negate residual for return
                             for i in range(n_val):
                                 residual[i] = -residual_temp[i]
                             norm2_prev = norm2_new
@@ -502,6 +503,7 @@ class NewtonKrylov(CUDAFactory):
                 )
                 
                 if backtrack_failed:
+                    # Revert increment to unscaled value for another go
                     for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i]
             

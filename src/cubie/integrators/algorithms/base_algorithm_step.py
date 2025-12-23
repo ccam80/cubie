@@ -479,6 +479,10 @@ class BaseAlgorithmStep(CUDAFactory):
         self.setup_compile_settings(config)
         self.is_controller_fixed = False  # Set by check_compatibility
 
+    def register_buffers(self) -> None:
+        """Register buffers required by the algorithm step."""
+        pass
+
     def update(
         self,
         updates_dict: Optional[Dict[str, object]] = None,
@@ -516,9 +520,9 @@ class BaseAlgorithmStep(CUDAFactory):
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
 
-        # Update buffer locations in registry
-
         recognised |= buffer_registry.update(self, updates_dict, silent=True)
+        self.register_buffers()
+
         unrecognised = set(updates_dict.keys()) - recognised
 
         # Check if unrecognized parameters are valid algorithm step parameters
