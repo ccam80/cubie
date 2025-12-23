@@ -41,6 +41,20 @@ ALL_LOOP_SETTINGS = {
     "dt_min",
     "dt_max",
     "is_adaptive",
+    # Loop buffer location parameters
+    "state_location",
+    "proposed_state_location",
+    "parameters_location",
+    "drivers_location",
+    "proposed_drivers_location",
+    "observables_location",
+    "proposed_observables_location",
+    "error_location",
+    "counters_location",
+    "state_summary_location",
+    "observable_summary_location",
+    "dt_location",
+    "accept_step_location",
 }
 
 
