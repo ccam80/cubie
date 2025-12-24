@@ -500,17 +500,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         if new_controller != self.compile_settings.step_controller:
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
-            # Ensure n is set correctly for tolerance array sizing
-            old_settings["n"] = updates_dict.get(
-                "n", self._system.sizes.states)
             old_settings["algorithm_order"] = updates_dict.get(
                 "algorithm_order", self._algo_step.order)
-            # Merge tolerance and step-size bounds from updates_dict into
-            # the controller settings: atol/rtol control error thresholds,
-            # dt_min/dt_max set the allowed step-size range
-            for key in ['atol', 'rtol', 'dt_min', 'dt_max']:
-                if key in updates_dict:
-                    old_settings[key] = updates_dict[key]
             self._step_controller = get_controller(
                     precision=precision,
                     settings=old_settings,

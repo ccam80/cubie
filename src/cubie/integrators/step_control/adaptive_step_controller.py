@@ -14,6 +14,7 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     inrangetype_validator,
+    opt_getype_validator,
 )
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepController, BaseStepControllerConfig, ControllerCache)
@@ -67,7 +68,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     _dt_min: float = field(default=1e-6, validator=getype_validator(float, 0))
     _dt_max: Optional[float] = field(
-        default=None, validator=getype_validator(float, 0)
+        default=None, validator=opt_getype_validator(float, 0)
     )
     atol: np.ndarray = field(
         default=np.asarray([1e-6]),
