@@ -592,3 +592,30 @@ class TestBufferRegistryUpdate:
         )
         assert 'buf1_location' in recognized
         assert 'buf2_location' in recognized
+
+
+@pytest.mark.sim_only
+def test_local_buffer_allocator_cudasim():
+    """Test that local buffer allocator works in CUDASIM mode.
+
+    Verifies that the conditional cuda.local.array fix produces
+    a valid array in simulation mode.
+    """
+    registry = BufferRegistry()
+    factory = MockFactory()
+    factory.precision = np.float32
+
+    # Register a local buffer
+    registry.register('local_buf', factory, 10, 'local')
+
+    # Get allocator - this should work without cuda.local.array errors
+    allocator = registry.get_allocator('local_buf', factory)
+
+    # In CUDASIM, allocator should return a numpy array
+    # when called with dummy shared/persistent arrays
+    shared = np.zeros(1, dtype=np.float32)
+    persistent = np.zeros(1, dtype=np.float32)
+    result = allocator(shared, persistent)
+
+    assert result is not None
+    assert len(result) == 10

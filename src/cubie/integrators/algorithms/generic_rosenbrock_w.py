@@ -51,6 +51,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
 
@@ -445,8 +446,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
-            base_state_placeholder = cuda.local.array(1, int32)
-            krylov_iters_out = cuda.local.array(1, int32)
+            if CUDA_SIMULATION:
+                base_state_placeholder = np.zeros(1, dtype=np.int32)
+                krylov_iters_out = np.zeros(1, dtype=np.int32)
+            else:
+                base_state_placeholder = cuda.local.array(1, int32)
+                krylov_iters_out = cuda.local.array(1, int32)
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # ----------------------------------------------------------- #

@@ -14,7 +14,7 @@ from numba import cuda, int32, float64, bool_
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp, CUDA_SIMULATION
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
@@ -484,7 +484,10 @@ class IVPLoop(CUDAFactory):
             accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
-            proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+            if CUDA_SIMULATION:
+                proposed_counters = np.zeros(2, dtype=np.int32)
+            else:
+                proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
             first_step_flag = True
             prev_step_accepted_flag = True
 

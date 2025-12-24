@@ -11,7 +11,7 @@ from numba import int32
 import attrs
 
 from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs
+    compile_kwargs, CUDA_SIMULATION
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -575,9 +575,13 @@ class BatchSolverKernel(CUDAFactory):
             shared_memory = cuda.shared.array(0, dtype=float32)
 
             # Declare shared memory in 32b units to allow for skewing/padding
-            local_scratch = cuda.local.array(
-                local_elements_per_run, dtype=float32
-            )
+            if CUDA_SIMULATION:
+                local_scratch = np.zeros(local_elements_per_run,
+                                         dtype=np.float32)
+            else:
+                local_scratch = cuda.local.array(
+                    local_elements_per_run, dtype=float32
+                )
             c_coefficients = cuda.const.array_like(d_coefficients)
             run_idx_low = int32(ty * run_stride_f32)
             run_idx_high = int32(

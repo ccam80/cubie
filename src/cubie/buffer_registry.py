@@ -17,7 +17,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import getype_validator, precision_validator
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, CUDA_SIMULATION
 
 
 @attrs.define
@@ -125,19 +125,35 @@ class CUDABuffer:
         _zero = zero
         elements = int32(self.size)
 
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def allocate_buffer(shared, persistent):
-            """Allocate buffer from appropriate memory region."""
-            if _use_shared:
-                array = shared[_shared_slice]
-            elif _use_persistent:
-                array = persistent[_persistent_slice]
-            else:
-                array = cuda.local.array(_local_size, _precision)
-            if _zero:
-                for i in range(elements):
-                    array[i] = _precision(0.0)
-            return array
+        if CUDA_SIMULATION:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def allocate_buffer(shared, persistent):
+                """Allocate buffer from appropriate memory region."""
+                if _use_shared:
+                    array = shared[_shared_slice]
+                elif _use_persistent:
+                    array = persistent[_persistent_slice]
+                else:
+                    # CUDASIM: use numpy.zeros instead of cuda.local.array
+                    array = np.zeros(_local_size, dtype=_precision)
+                if _zero:
+                    for i in range(elements):
+                        array[i] = _precision(0.0)
+                return array
+        else:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def allocate_buffer(shared, persistent):
+                """Allocate buffer from appropriate memory region."""
+                if _use_shared:
+                    array = shared[_shared_slice]
+                elif _use_persistent:
+                    array = persistent[_persistent_slice]
+                else:
+                    array = cuda.local.array(_local_size, _precision)
+                if _zero:
+                    for i in range(elements):
+                        array[i] = _precision(0.0)
+                return array
 
         return allocate_buffer
 

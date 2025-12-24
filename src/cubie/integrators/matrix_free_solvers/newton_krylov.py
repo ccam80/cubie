@@ -24,7 +24,7 @@ from cubie._utils import (
 )
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, compile_kwargs
+from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, compile_kwargs, CUDA_SIMULATION
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
@@ -380,7 +380,10 @@ class NewtonKrylov(CUDAFactory):
             has_error = False
             final_status = int32(0)
 
-            krylov_iters_local = cuda.local.array(1, int32)
+            if CUDA_SIMULATION:
+                krylov_iters_local = np.zeros(1, dtype=np.int32)
+            else:
+                krylov_iters_local = cuda.local.array(1, int32)
 
             iters_count = int32(0)
             total_krylov_iters = int32(0)
