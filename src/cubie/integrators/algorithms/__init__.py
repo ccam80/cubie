@@ -2,8 +2,6 @@
 
 from typing import Any, Mapping, Optional, Tuple, Type
 
-from cubie._utils import split_applicable_settings
-
 from .base_algorithm_step import BaseAlgorithmStep, BaseStepConfig, ButcherTableau
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
 from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
@@ -174,18 +172,9 @@ def get_algorithm_step(
 
     algorithm_settings["precision"] = precision
 
-    filtered, missing, unused = split_applicable_settings(
-        algorithm_type,
-        algorithm_settings,
-        warn_on_unused=warn_on_unused,
-    )
-    if missing:
-        missing_keys = ", ".join(sorted(missing))
-        raise ValueError(
-            f"{algorithm_type.__name__} requires settings for: {missing_keys}"
-        )
-
     if resolved_tableau is not None:
-        filtered["tableau"] = resolved_tableau
+        algorithm_settings["tableau"] = resolved_tableau
 
-    return algorithm_type(**filtered)
+    # Pass all settings to algorithm __init__ which uses build_config internally
+    # build_config filters to valid config fields and handles defaults
+    return algorithm_type(**algorithm_settings)

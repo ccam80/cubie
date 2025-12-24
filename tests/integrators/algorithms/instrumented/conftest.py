@@ -21,7 +21,6 @@ from cubie.integrators.algorithms import (
     resolve_supplied_tableau,
     BaseAlgorithmStep,
 )
-from cubie._utils import split_applicable_settings
 
 from .backwards_euler import InstrumentedBackwardsEulerStep
 from .backwards_euler_predict_correct import InstrumentedBackwardsEulerPCStep
@@ -100,21 +99,12 @@ def get_instrumented_step(
             f"No instrumented implementation registered for {algorithm_type}."
         ) from error
 
-    filtered, missing, unused = split_applicable_settings(
-        step_class,
-        algorithm_settings,
-        warn_on_unused=warn_on_unused,
-    )
-    if missing:
-        missing_keys = ", ".join(sorted(missing))
-        raise ValueError(
-            f"{step_class.__name__} requires settings for: {missing_keys}"
-        )
-
     if resolved_tableau is not None:
-        filtered["tableau"] = resolved_tableau
+        algorithm_settings["tableau"] = resolved_tableau
 
-    return step_class(**filtered)
+    # Pass all settings to instrumented step __init__ which uses build_config internally
+    # build_config filters to valid config fields and handles defaults
+    return step_class(**algorithm_settings)
 
 
 @pytest.fixture(scope="session")
