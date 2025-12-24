@@ -21,10 +21,11 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 @attrs.define
 class ActiveOutputs:
     """
-    Track which output arrays are actively being used.
+    Track which output arrays are configured to be produced.
 
     This class provides boolean flags indicating which output types are
-    currently active based on array sizes and allocation status.
+    enabled according to compile-time configuration flags, for example
+    values derived from ``OutputCompileFlags``.
 
     Parameters
     ----------
@@ -38,6 +39,8 @@ class ActiveOutputs:
         Whether observable summaries output is active.
     status_codes
         Whether status code output is active.
+    iteration_counters
+        Whether iteration counter output is active.
     """
 
     state: bool = attrs.field(default=False, validator=val.instance_of(bool))

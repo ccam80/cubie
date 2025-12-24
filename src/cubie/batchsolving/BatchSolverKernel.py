@@ -718,7 +718,7 @@ class BatchSolverKernel(CUDAFactory):
         )
 
         updates_dict.update({
-            "loop_function": self.single_integrator.device_function,
+            "loop_fn": self.single_integrator.device_function,
             "local_memory_elements": (
                 self.single_integrator.local_memory_elements
             ),
@@ -761,7 +761,7 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
-        """Output compile flags from compile settings."""
+        """Boolean compile-time controls for which output features are enabled."""
 
         return self.compile_settings.compile_flags
 
@@ -919,7 +919,7 @@ class BatchSolverKernel(CUDAFactory):
         division. No summary is recorded for t=0 and partial intervals at
         the tail of integration are excluded.
         """
-        precision=self.precision
+        precision = self.precision
         return int(precision(self._duration) /precision(self.dt_summarise))
 
     @property

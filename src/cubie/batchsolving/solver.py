@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
+from cubie import OutputCompileFlags
 from cubie._utils import PrecisionDType
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
@@ -811,12 +812,12 @@ class Solver:
         return self.kernel.precision
 
     @property
-    def compile_flags(self):
+    def compile_flags(self) -> OutputCompileFlags:
         """Expose output compile flags from the kernel."""
         return self.kernel.compile_flags
 
     @property
-    def active_outputs(self):
+    def active_outputs(self) -> ActiveOutputs:
         """Expose active outputs from the kernel."""
         return self.kernel.active_outputs
 
