@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from cubie import merge_kwargs_into_settings
+from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )

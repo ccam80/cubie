@@ -133,7 +133,7 @@ def test_summarised_variables_properties(solver):
 
 def test_output_properties(solver):
     """Test output-related properties."""
-    assert solver.active_output_arrays is not None
+    assert solver.active_outputs is not None
     assert solver.output_types is not None
     assert isinstance(solver.output_types, Iterable)
     assert solver.state_stride_order is not None

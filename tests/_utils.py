@@ -807,9 +807,8 @@ def run_device_loop(
     d_status = cuda.to_device(status)
 
     shared_bytes = max(4,singleintegratorrun.shared_memory_bytes)
-    shared_elements = singleintegratorrun.shared_memory_elements
-    persistent_required = singleintegratorrun.persistent_local_elements
-    localmem_required = singleintegratorrun.local_memory_elements
+    shared_elements = max(1,singleintegratorrun.shared_memory_elements)
+    persistent_required = max(1,singleintegratorrun.persistent_local_elements)
 
     loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
