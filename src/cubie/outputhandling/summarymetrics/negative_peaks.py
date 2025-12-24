@@ -95,7 +95,7 @@ class NegativePeaks(SummaryMetric):
             peak_counter = int32(buffer[2])
 
             if (
-                (current_index >= 2)
+                (current_index >= int32(2))
                 and (peak_counter < npeaks)
                 and (prev_prev != precision(0.0))
             ):

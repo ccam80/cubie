@@ -84,15 +84,3 @@ class ODEExplicitStep(BaseAlgorithmStep):
     def is_implicit(self) -> bool:
         """Return ``False`` to indicate the algorithm is explicit."""
         return False
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Explicit base class does not reserve shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Explicit base class does not reserve persistent locals."""
-
-        return 0

@@ -45,14 +45,14 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 
 script_start = perf_counter()
 #
-# algorithm_type = 'dirk'
-# algorithm_tableau_name ='l_stable_sdirk_4'
-algorithm_type = 'erk'
-algorithm_tableau_name = 'tsit5'
+algorithm_type = 'dirk'
+algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'erk'
+# algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
 # algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ros3p'
+# algorithm_tableau_name = 'ode23s'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -1000,16 +1000,16 @@ def driver_derivative_inline_factory(interpolator):
             tau = prec(scaled - scaled_floor)
             in_range = True
         else:
-            in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+            in_range = (scaled >= prec(0.0)) and (scaled <= num_segments)
             seg = selp(idx < int32(0), int32(0), idx)
             seg = selp(seg >= num_segments,
-                      int32(num_segments - int32(1)), seg)
-            tau = scaled - precision(seg)
+                      int32(num_segments - 1), seg)
+            tau = scaled - prec(seg)
 
         # Evaluate derivative using Horner's rule on derivative polynomial
         for driver_idx in range(num_drivers):
             acc = zero_value
-            for k in range(order, int32(0), int32(-1)):
+            for k in range(int32(order), int32(0), int32(-1)):
                 acc = acc * tau + prec(k) * (
                     coefficients[seg, driver_idx, k]
                 )
@@ -3206,7 +3206,7 @@ def update_std(
         buffer[0] = value  # Store shift value
         buffer[1] = precision(0.0)    # Reset sum
         buffer[2] = precision(0.0)    # Reset sum of squares
-    
+
     shifted_value = value - buffer[0]
     buffer[1] += shifted_value
     buffer[2] += shifted_value * shifted_value
@@ -3255,7 +3255,7 @@ def update_mean_std(
         buffer[0] = value
         buffer[1] = precision(0.0)
         buffer[2] = precision(0.0)
-    
+
     shifted_value = value - buffer[0]
     buffer[1] += shifted_value
     buffer[2] += shifted_value * shifted_value
@@ -3281,10 +3281,10 @@ def save_mean_std(
 
     mean = shift + mean_shifted
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
-    
+
     output_array[0] = mean
     output_array[1] = sqrt(variance)
-    
+
     buffer[0] = mean
     buffer[1] = precision(0.0)
     buffer[2] = precision(0.0)
@@ -3309,7 +3309,7 @@ def update_mean_std_rms(
         buffer[0] = value
         buffer[1] = precision(0.0)
         buffer[2] = precision(0.0)
-    
+
     shifted_value = value - buffer[0]
     buffer[1] += shifted_value
     buffer[2] += shifted_value * shifted_value
@@ -3335,11 +3335,11 @@ def save_mean_std_rms(
 
     # Mean: shift back to original scale
     mean = shift + mean_shifted
-    
+
     # Variance: using shifted values
     variance = mean_of_squares_shifted - (mean_shifted * mean_shifted)
     std = sqrt(variance)
-    
+
     # RMS: E[X^2] = E[(X-shift)^2] + 2*shift*E[X-shift] + shift^2
     mean_of_squares = (
         mean_of_squares_shifted
@@ -3347,11 +3347,11 @@ def save_mean_std_rms(
         + shift * shift
     )
     rms = sqrt(mean_of_squares)
-    
+
     output_array[0] = mean
     output_array[1] = std
     output_array[2] = rms
-    
+
     buffer[0] = mean
     buffer[1] = precision(0.0)
     buffer[2] = precision(0.0)
@@ -3376,7 +3376,7 @@ def update_std_rms(
         buffer[0] = value
         buffer[1] = precision(0.0)
         buffer[2] = precision(0.0)
-    
+
     shifted_value = value - buffer[0]
     buffer[1] += shifted_value
     buffer[2] += shifted_value * shifted_value
@@ -3409,10 +3409,10 @@ def save_std_rms(
         + shift * shift
     )
     rms = sqrt(mean_of_squares)
-    
+
     output_array[0] = std
     output_array[1] = rms
-    
+
     mean = shift + mean_shifted
     buffer[0] = mean
     buffer[1] = precision(0.0)
@@ -4290,7 +4290,7 @@ else:
     save_obs_bool = "observables" in output_types
     save_time_bool = "time" in output_types
     save_counters_bool = "iteration_counters" in output_types
-    
+
     summary_types_list = []
     for output_type in output_types:
         if any(
@@ -4307,7 +4307,7 @@ else:
                 f"Warning: Summary type '{output_type}' is not implemented. "
                 f"Ignoring."
             )
-    
+
     summary_types = tuple(summary_types_list)
 
 # Derive summarise booleans
@@ -4333,7 +4333,7 @@ if len(summary_types) > 0:
         summarised_observable_indices,
         summary_types,
     )
-    
+
     # Generate save chain
     save_summaries_chain = save_summary_factory(
         summaries_buffer_height_per_var,

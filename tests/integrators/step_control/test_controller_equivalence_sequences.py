@@ -60,11 +60,14 @@ def _run_device_step(
 
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
-    if local_mem is not None:
-        temp = np.asarray(local_mem, dtype=precision)
-    else:
-        temp = np.empty(0, dtype=precision)
     niters_val = np.int32(niters)
+    # Shared scratch and persistent local for new controller signature
+    shared_scratch = np.zeros(1, dtype=precision)
+    # Use passed local_mem or create new persistent local
+    if local_mem is not None:
+        persistent_local = np.asarray(local_mem, dtype=precision)
+    else:
+        persistent_local = np.zeros(2, dtype=precision)
 
     @cuda.jit
     def kernel(
@@ -74,7 +77,8 @@ def _run_device_step(
         err_val,
         niters_val,
         accept_val,
-        temp_val,
+        shared_val,
+        persistent_val,
     ):
         device_func(
             dt_val,
@@ -83,11 +87,13 @@ def _run_device_step(
             err_val,
             niters_val,
             accept_val,
-            temp_val,
+            shared_val,
+            persistent_val,
         )
 
-    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept, temp)
-    return StepResult(precision(dt[0]), int(accept[0]), temp.copy())
+    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept,
+                 shared_scratch, persistent_local)
+    return StepResult(precision(dt[0]), int(accept[0]), persistent_local.copy())
 
 
 def _sequence_inputs(

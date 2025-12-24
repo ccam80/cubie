@@ -62,7 +62,7 @@ These user stories will be used by the reviewer to validate the final implementa
 
 ## Expertise
 
-- Python 3.9+ development
+- Python 3.8+ development
 - CUDA programming and GPU architecture  
 - Numba JIT compilation and CUDA kernels
 - Batch integration of ODEs/SDEs
@@ -145,13 +145,13 @@ Keep this document concise.
 
 ## Behavior Guidelines
 
+- When faced with ambiguity or design choices, ASK the user for feedback
 - Include .github/context/cubie_internal_structure.md in your context
 - Research thoroughly before planning
-- NEVER include backward compatibility stubs or shims, changes are expected to be breaking and complete
-- NEVER include a minimal or optional implementation option. Your goal is to implement the full feature requested, without compromise.
 - Consider CuBIE's architecture: CUDA kernels via Numba, attrs classes, precision handling
 - Ensure plans align with repository conventions
-- Follow repository structure documented in AGENTS.md
+- Follow conventions in .github/copilot-instructions.md and structure in .github/context/cubie_internal_structure.md
+- Consider GPU memory constraints
 - Plan for both CUDA and CUDASIM environments where applicable
 
 ## Tools and When to Use Them

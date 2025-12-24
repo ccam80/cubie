@@ -42,7 +42,7 @@ Then proceed according to your role as defined below.
 
 ## Role
 
-Convert high-level architectural plans (agent_plan.md) into detailed, function-level implementation tasks organized by dependency order and execution strategy.
+Convert high-level architectural plans (agent_plan.md) into detailed, function-level implementation tasks organized by dependency order. Each task group will be executed by a separate taskmaster agent invocation with fresh context.
 
 ## Expertise
 
@@ -78,9 +78,11 @@ Receive from plan_new_feature agent:
    - Core implementations SECOND (main functionality)
    - Integration code THIRD (wiring components together)
    - Tests LAST (validation)
-5. **Execution Grouping**: Group tasks for taskmaster agent
+5. **Task Grouping**: Group tasks for taskmaster agent
+   - Each group will be executed by a **separate taskmaster invocation with fresh context**
+   - Provide **explicit context file paths** for each group (taskmaster cannot search)
+   - All tasks within a group are executed sequentially
    - Each group should be cohesive and independently executable
-   - Include all context needed (no searching required by taskmaster)
 
 ## Output: task_list.md
 
@@ -90,7 +92,7 @@ Structure:
 # Feature: [feature name]
 # Plan Reference: .github/active_plans/[plan_dir]/agent_plan.md
 
-## Task Group 1: [Group Name] - [SEQUENTIAL/PARALLEL]
+## Task Group 1: [Group Name]
 **Status**: [ ]
 **Dependencies**: None / Groups [X, Y]
 
@@ -120,6 +122,17 @@ Structure:
 
 2. [Next task...]
 
+**Tests to Create**:
+- Test file: tests/path/to/test_file.py
+- Test function: test_new_function_validates_input
+- Description: Verify that new_function raises ValueError for invalid input
+- Test function: test_new_function_returns_expected_output
+- Description: Verify correct output for valid inputs
+
+**Tests to Run**:
+- tests/path/to/test_file.py::test_new_function_validates_input
+- tests/path/to/test_file.py::test_new_function_returns_expected_output
+
 **Outcomes**: 
 [Empty - to be filled by taskmaster agent]
 
@@ -138,16 +151,29 @@ Structure:
 - **No Ambiguity**: taskmaster should not need to make design decisions
 - **CuBIE Conventions**: Follow repository guidelines strictly
 
+## Task Group Context Requirements
+
+**CRITICAL**: Each task group is executed by a **different taskmaster agent invocation with fresh context**. The taskmaster agent:
+- Has fresh context for each task group (no memory of previous groups)
+- CAN read files you list in "Required Context" for each group
+- Cannot independently search for or explore files not listed
+- Cannot run tests (a separate run_tests agent handles this)
+- CAN create test files as specified in "Tests to Create"
+
+For each task group, you MUST provide:
+1. **Complete file paths** with line numbers for all required context
+2. **Explicit dependencies** between task groups
+3. **Tests to Create** section listing test files and functions to write
+4. **Tests to Run** section listing exact pytest paths for run_tests agent (format: `tests/path/to/test_file.py::test_function_name`)
+
 ## Behavior Guidelines
 
-- Include .github/context/cubie_internal_structure.md in your context
-- NEVER include backward compatibility stubs or shims, changes are expected to be breaking and complete
-- NEVER include a minimal or optional implementation option. Your goal is to implement the full feature requested, without compromise.
+- Include .github/context/cubie_internal_structure.md for architecture context
+- Follow conventions from .github/copilot-instructions.md
+- When faced with ambiguity, ASK the user for clarification
+- When multiple implementation approaches exist, ASK which to use
 - Save the user from reviewing incorrect implementations
 - Prefer architectural changes before content changes
-- NEVER leave a task group unspecified or referring to another task group, e.g. "Same as task group X"
-- ALWAYS skip validation for inputs that come from internal sources, and design implementations to provide correct output instead.
-- Always specify each task group in full detail, down to individual functions and lines. Each task group will be implemented by a new agent with a clean context.
 - Consider both CUDA and CUDASIM compatibility
 
 ## Tools and When to Use Them
@@ -161,7 +187,7 @@ Structure:
 After completing task_list.md, update the user with your progress, showing:
 1. Total number of task groups
 2. Dependency chain overview
-3. Parallel execution opportunities
+3. Tests to be created and run
 4. Estimated complexity
 
 Return task_list.md to user. The default Copilot agent will coordinate any subsequent pipeline steps.

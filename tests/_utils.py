@@ -748,7 +748,7 @@ def run_device_loop(
 
     precision = system.precision
     dt_save = singleintegratorrun.dt_save
-    warmup = solver_config['warmup']
+    warmup = solver_config["warmup"]
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
     save_samples = int(np.floor(precision(duration) / precision(dt_save))) + 1
@@ -767,7 +767,7 @@ def run_device_loop(
 
     summarise_dt = singleintegratorrun.dt_summarise
     summary_samples = int(np.floor(precision(duration) /
-                                  precision(summarise_dt)))
+                                   precision(summarise_dt)))
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision
@@ -806,8 +806,9 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
-    shared_bytes = singleintegratorrun.shared_memory_bytes
-    localmem_required = singleintegratorrun.local_memory_elements
+    shared_bytes = max(4,singleintegratorrun.shared_memory_bytes)
+    shared_elements = max(1,singleintegratorrun.shared_memory_elements)
+    persistent_required = max(1,singleintegratorrun.persistent_local_elements)
 
     loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
@@ -840,9 +841,9 @@ def run_device_loop(
         if idx > 0:
             return
 
-        shared = cuda.shared.array(0, dtype=numba_precision)
+        shared = cuda.shared.array(shared_elements, dtype=numba_precision)
         shared[:] = numba_precision(0.0)
-        local = cuda.local.array(localmem_required, dtype=numba_precision)
+        local = cuda.local.array(persistent_required, dtype=numba_precision)
         local[:] = numba_precision(0.0)
         status_arr[0] = loop_fn(
             init_vec,

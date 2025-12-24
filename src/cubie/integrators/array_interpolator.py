@@ -392,12 +392,12 @@ class ArrayInterpolator(CUDAFactory):
                 seg = selp(idx < int32(0), int32(0), idx)
                 seg = selp(seg >= num_segments,
                            int32(num_segments - 1), seg)
-                tau = scaled - float(seg)
+                tau = scaled - precision(seg)
 
             # Evaluate polynomials using Horner's rule
             for input_index in range(num_inputs):
                 acc = zero_value
-                for k in range(order, int32(-1), int32(-1)):
+                for k in range(int32(order), int32(-1), int32(-1)):
                     acc = acc * tau + coefficients[seg, input_index, k]
                 out[input_index] = acc if in_range else zero_value
         # no cover: end
@@ -433,7 +433,7 @@ class ArrayInterpolator(CUDAFactory):
 
             for input_index in range(int32(num_inputs)):
                 acc = zero_value
-                for k in range(order, int32(0), int32(-1)):
+                for k in range(int32(order), int32(0), int32(-1)):
                     acc = acc * tau + precision(k) * (
                         coefficients[seg, input_index, k]
                     )

@@ -21,7 +21,7 @@ EE_DEFAULTS = StepControlDefaults(
     }
 )
 
-class ExplicitEulerStep(ODEExplicitStep):
+class InstrumentedExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
 
     def __init__(
@@ -259,30 +259,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         # no cover: end
         
         return StepCache(step=step, nonlinear_solver=None)
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Explicit Euler does not reserve shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Explicit Euler does not reserve persistent local storage."""
-
-        return 0
 
     @property
     def threads_per_step(self) -> int:

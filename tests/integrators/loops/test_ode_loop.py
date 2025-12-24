@@ -20,7 +20,6 @@ Array = NDArray[np.floating]
 # Build, update, getter tests combined
 def test_getters(
     loop_mutable,
-    buffer_settings,
     precision,
     solver_settings,
 ):
@@ -34,16 +33,6 @@ def test_getters(
     assert loop.dt_summarise == precision(solver_settings[
                                               'dt_summarise']),\
         "dt_summarise getter"
-    assert (
-        loop.local_memory_elements
-        == 2
-    ), "local_memory getter"
-    assert (
-        loop.shared_memory_elements
-        == loop.compile_settings.shared_buffer_indices.local_end
-    ), "shared_memory getter"
-    assert loop.compile_settings.shared_buffer_indices is not None, \
-        "shared_buffer_indices getter"
     # test update
     loop.update({"dt_save": 2 * solver_settings["dt_save"]})
     assert loop.dt_save == pytest.approx(
@@ -64,8 +53,6 @@ def test_initial_observable_seed_matches_reference(
         atol=tolerance.abs_tight,
     )
 
-
-
 @pytest.mark.parametrize(
     "solver_settings_override",
     ALGORITHM_PARAM_SETS,
@@ -77,7 +64,7 @@ def test_loop(
     output_functions,
     tolerance,
 ):
-    # Be a little looser for odd controller/algo changes
+    # Be a little looser for odd controller/algo combos
     atol=tolerance.abs_loose
     rtol=tolerance.rel_loose
     assert_integration_outputs(

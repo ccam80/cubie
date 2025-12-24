@@ -5,7 +5,8 @@ through the solver hierarchy when update() is called.
 """
 
 import pytest
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 
 
 def extend_expected_settings(settings, precision):
@@ -25,34 +26,29 @@ def extend_expected_settings(settings, precision):
     """
     extended = settings.copy()
     
-    # Compute ActiveOutputs based on output_types
-    # Note: ActiveOutputs are only set during solve(), not during build()
-    # So they will be False until solve is called
-    extended["ActiveOutputs"] = ActiveOutputs(
-        state=True,
-        observables=True,
-        state_summaries=False,
-        observable_summaries=False,
-        status_codes=False   ,
-        iteration_counters=True,
-    )
+
+
     
     # Compute compile_flags based on output_types
     output_types = settings.get("output_types", [])
     summary_types = {"mean", "max", "min", "rms", "std"}
     has_summaries = any(t in output_types for t in summary_types)
-    
     extended["save_state"] = ("state" in output_types)
     extended["save_observables"] = ("observables" in output_types)
     extended["save_time"] = ("time" in output_types)
+    extended["save_counters"] = 'iteration_counters' in output_types
     extended["summarise"] = has_summaries
     extended["summarise_state"] = has_summaries
-    # summarise_observables is True if summaries AND observable indices are set
-    # (regardless of whether 'observables' is in output_types)
     has_obs_indices = bool(settings.get("summarised_observable_indices", []))
     extended["summarise_observables"] = (has_summaries and has_obs_indices)
-    extended["save_counters"] = False  # Default
-    
+    extended["ActiveOutputs"] = ActiveOutputs(
+            state="state" in output_types,
+            observables='observables' in output_types,
+            state_summaries=has_summaries,
+            observable_summaries=(has_summaries and has_obs_indices),
+            status_codes=True,
+            iteration_counters='iteration_counters' in output_types,
+    )
     # is_adaptive depends on step_controller type
     extended["is_adaptive"] = (settings.get("step_controller", "fixed") != "fixed")
     
@@ -194,12 +190,9 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     assert list(kernel.summarised_observable_indices) == settings["summarised_observable_indices"]
     
     # Check compile_settings.ActiveOutputs
-    cs_active = kernel.compile_settings.ActiveOutputs
-    kernel_active = kernel.ActiveOutputs
+    kernel_active = kernel.active_outputs
     expected_active = settings["ActiveOutputs"]
     
-    # Both compile_settings and kernel property should match expected
-    assert cs_active == expected_active
     assert kernel_active == expected_active
     
     # Check ALL compile_settings attributes

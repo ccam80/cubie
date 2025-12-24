@@ -91,6 +91,7 @@ class FixedStepController(BaseStepController):
         super().__init__()
         config = FixedStepControlConfig(precision=precision, n=n, dt=dt)
         self.setup_compile_settings(config)
+        self.register_buffers()
 
     def build(self) -> ControllerCache:
         """Return a device function that always accepts with fixed step.
@@ -100,23 +101,14 @@ class FixedStepController(BaseStepController):
         Callable
             CUDA device function that keeps the step size constant.
         """
-        precision = self.compile_settings.numba_precision
         @cuda.jit(
-                # [(
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     precision[::1],
-                #     int32,
-                #     int32[::1],
-                #     precision[::1],
-                # )],
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_fixed_step(
-            dt, state, state_prev, error, niters, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out,
+            shared_scratch, persistent_local
         ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 
@@ -134,15 +126,16 @@ class FixedStepController(BaseStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Zero, indicating that the current step size should be kept.
             """
-
             accept_out[0] = int32(1)
             return int32(0)
 

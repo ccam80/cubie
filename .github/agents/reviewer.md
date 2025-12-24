@@ -231,6 +231,8 @@ Structure:
 
 ## Behavior Guidelines
 
+- Include .github/context/cubie_internal_structure.md for architecture context
+- Follow conventions from .github/copilot-instructions.md
 - Be thoroughly critical - that's your job
 - Every suggestion must be specific and actionable
 - Reference code locations precisely

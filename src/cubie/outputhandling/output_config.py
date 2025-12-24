@@ -779,6 +779,24 @@ class OutputConfig:
         )
 
     @property
+    def buffer_sizes_dict(self) -> dict[str, int]:
+        """ Returns a dict of buffer sizes to update other objects' settings"""
+        return {
+            'n_saved_states': self.n_saved_states,
+            'n_saved_observables': self.n_saved_observables,
+            'n_summarised_states': self.n_summarised_states,
+            'n_summarised_observables': self.n_summarised_observables,
+            'state_summaries_buffer_height': self.state_summaries_buffer_height,
+            'observable_summaries_buffer_height':
+               self.observable_summaries_buffer_height,
+            'total_summary_buffer_size': self.total_summary_buffer_size,
+            'state_summaries_output_height': self.state_summaries_output_height,
+            'observable_summaries_output_height':
+              self.observable_summaries_output_height,
+            'compile_flags': self.compile_flags
+        }
+
+    @property
     def output_types(self) -> List[str]:
         """Configured output type names in declaration order."""
         return self._output_types

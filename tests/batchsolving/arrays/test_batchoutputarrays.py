@@ -3,9 +3,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from cubie.batchsolving.arrays.BatchOutputArrays import (
-    ActiveOutputs,
-    OutputArrayContainer,
+from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrayContainer,
     OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
@@ -130,79 +128,6 @@ class TestOutputArrayContainer:
         assert container.state.memory_type == "device"
 
 
-
-def test_active_outputs_initialization():
-    """Test ActiveOutputs initialization"""
-    active = ActiveOutputs()
-    assert active.state is False
-    assert active.observables is False
-    assert active.state_summaries is False
-    assert active.observable_summaries is False
-    assert active.status_codes is False
-
-def test_update_from_outputarrays_all_active(
-    output_arrays_manager, sample_output_arrays
-):
-
-    """Test update_from_outputarrays with all arrays active"""
-    # Set up arrays in the manager
-    output_arrays_manager.host.state.array = sample_output_arrays["state"]
-    output_arrays_manager.host.observables.array = sample_output_arrays[
-        "observables"
-    ]
-    output_arrays_manager.host.state_summaries.array = sample_output_arrays[
-        "state_summaries"
-    ]
-    output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
-        "observable_summaries"
-    ]
-    output_arrays_manager.host.status_codes.array = sample_output_arrays[
-        "status_codes"
-    ]
-
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.state is True
-    assert active.observables is True
-    assert active.state_summaries is True
-    assert active.observable_summaries is True
-    assert active.status_codes is True
-
-def test_update_from_outputarrays_size_one_arrays(
-    output_arrays_manager
-):
-    """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
-    # Set up size-1 arrays (treated as artifacts)
-    output_arrays_manager.host.state.array = np.array([[[1]]])
-    output_arrays_manager.host.observables.array = np.array([[[1]]])
-    output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
-    output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
-    output_arrays_manager.host.status_codes.array = np.array([[[1]]])
-
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.state is False  # Size 1 treated as inactive
-    assert active.observables is False  # Size 1 treated as inactive
-    assert active.state_summaries is False  # None
-    assert active.observable_summaries is False  # None
-    assert active.status_codes is False
-
-
-def test_iteration_counters_marked_active_for_single_save(
-    output_arrays_manager,
-):
-    """Counters should be active even when only one save is present."""
-    output_arrays_manager.host.iteration_counters.array = np.zeros(
-        (1, 4, 1), dtype=np.int32
-    )
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.iteration_counters is True
-
-
 class TestOutputArrays:
     """Test the OutputArrays class"""
 
@@ -320,16 +245,6 @@ class TestOutputArrays:
         assert output_arrays_manager._chunks == 2
         assert output_arrays_manager._chunk_axis == "run"
 
-    def test_active_outputs_property(self, output_arrays_manager, solver):
-        """Test _active_outputs property"""
-        solver.kernel.num_runs = 5
-        output_arrays_manager.update(solver)
-
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Active status depends on whether arrays have size > 1
-        # After allocation from solver, arrays should be active
-        assert active.status_codes is True
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -591,15 +506,3 @@ class TestOutputArraysSpecialCases:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
-
-    def test_active_outputs_after_allocation(
-        self, output_arrays_manager, solver
-    ):
-        """Test active outputs detection after allocation"""
-        # Allocate arrays from solver
-        output_arrays_manager.update(solver)
-
-        # Check active outputs - should be active since arrays have size > 1
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Arrays allocated from solver should typically be active (size > 1)

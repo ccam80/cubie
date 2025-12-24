@@ -7,17 +7,14 @@ solvers that are consumed by modules in :mod:`cubie.integrators`.
 from enum import IntEnum
 
 from .linear_solver import (
-    LinearSolverBufferSettings,
-    LinearSolverLocalSizes,
-    LinearSolverSliceIndices,
-    linear_solver_factory,
-    linear_solver_cached_factory,
+    LinearSolver,
+    LinearSolverConfig,
+    LinearSolverCache,
 )
 from .newton_krylov import (
-    NewtonBufferSettings,
-    NewtonLocalSizes,
-    NewtonSliceIndices,
-    newton_krylov_solver_factory,
+    NewtonKrylov,
+    NewtonKrylovConfig,
+    NewtonKrylovCache,
 )
 
 
@@ -25,7 +22,7 @@ class SolverRetCodes(IntEnum):
     """Enumerate outcomes returned by Newton--Krylov solvers.
 
     The integer codes flag convergence failures in the lower 16 bits of the
-    status word emitted by :func:`newton_krylov_solver_factory`.
+    status word emitted by Newton-Krylov solvers.
     """
 
     SUCCESS = 0
@@ -35,14 +32,11 @@ class SolverRetCodes(IntEnum):
 
 
 __all__ = [
-    "linear_solver_factory",
-    "linear_solver_cached_factory",
-    "newton_krylov_solver_factory",
+    "LinearSolver",
+    "LinearSolverConfig",
+    "LinearSolverCache",
+    "NewtonKrylov",
+    "NewtonKrylovConfig",
+    "NewtonKrylovCache",
     "SolverRetCodes",
-    "LinearSolverBufferSettings",
-    "LinearSolverLocalSizes",
-    "LinearSolverSliceIndices",
-    "NewtonBufferSettings",
-    "NewtonLocalSizes",
-    "NewtonSliceIndices",
 ]

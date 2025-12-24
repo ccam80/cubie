@@ -16,7 +16,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 from numpy.typing import NDArray
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import (
     PrecisionDType,
@@ -236,7 +236,7 @@ class SolveResult:
                 'iteration_counters': solver.iteration_counters,
                 'status_codes': solver.status_codes,
             }
-        active_outputs = solver.active_output_arrays
+        active_outputs = solver.active_outputs
         state_active = active_outputs.state
         observables_active = active_outputs.observables
         state_summaries_active = active_outputs.state_summaries

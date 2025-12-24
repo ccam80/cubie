@@ -4,7 +4,7 @@ from numba import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    linear_solver_factory,
+    LinearSolver,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
@@ -70,14 +70,15 @@ def test_neumann_preconditioner(
 def solver_device(request, placeholder_operator, precision):
     """Return solver device for the requested correction type."""
 
-    return linear_solver_factory(
-        placeholder_operator,
-        3,
+    solver = LinearSolver(
         precision=precision,
-        correction_type=request.param,
-        tolerance=1e-12,
-        max_iters=32,
+        n=3,
+        linear_correction_type=request.param,
+        krylov_tolerance=1e-12,
+        max_linear_iters=32,
     )
+    solver.update(operator_apply=placeholder_operator)
+    return solver.device_function
 
 @pytest.mark.parametrize(
     "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
@@ -117,13 +118,13 @@ def test_linear_solver_placeholder(
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True
 )
-@pytest.mark.parametrize("correction_type", ["steepest_descent", "minimal_residual"])
+@pytest.mark.parametrize("linear_correction_type", ["steepest_descent", "minimal_residual"])
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_linear_solver_symbolic(
     system_setup,
     solver_kernel,
     precision,
-    correction_type,
+    linear_correction_type,
     precond_order,
     tolerance,
 ):
@@ -137,15 +138,17 @@ def test_linear_solver_symbolic(
     precond = (
         None if precond_order == 0 else system_setup["preconditioner"](precond_order)
     )
-    solver = linear_solver_factory(
-        operator,
-        n,
+    
+    solver = LinearSolver(
         precision=precision,
-        preconditioner=precond,
-        correction_type=correction_type,
-        tolerance=1e-8,
-        max_iters=1000,
+        n=n,
+        linear_correction_type=linear_correction_type,
+        krylov_tolerance=1e-8,
+        max_linear_iters=1000,
     )
+    solver.update(operator_apply=operator, preconditioner=precond)
+    solver = solver.device_function
+    
     kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
@@ -173,14 +176,15 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
             out[i] = precision(0.0)
 
     n = 3
-    solver = linear_solver_factory(
-        zero_operator,
-        n,
+    solver = LinearSolver(
         precision=precision,
-        correction_type="minimal_residual",
-        tolerance=1e-20,
-        max_iters=16,
+        n=n,
+        linear_correction_type="minimal_residual",
+        krylov_tolerance=1e-20,
+        max_linear_iters=16,
     )
+    solver.update(operator_apply=zero_operator)
+    solver = solver.device_function
 
     h = precision(0.01)
     kernel = solver_kernel(solver, n, h, precision)
