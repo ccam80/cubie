@@ -1,5 +1,6 @@
 """Manage output array lifecycles for batch solver executions."""
 
+import warnings
 from typing import TYPE_CHECKING, Dict, Union
 
 if TYPE_CHECKING:
@@ -11,6 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
     BaseArrayManager,
@@ -145,9 +147,47 @@ class ActiveOutputs:
         default=False, validator=val.instance_of(bool)
     )
 
+    @classmethod
+    def from_compile_flags(cls, flags: OutputCompileFlags) -> "ActiveOutputs":
+        """
+        Create ActiveOutputs from compile flags.
+
+        Parameters
+        ----------
+        flags
+            The compile flags determining which outputs are active.
+
+        Returns
+        -------
+        ActiveOutputs
+            Instance with flags derived from compile flags.
+
+        Notes
+        -----
+        Maps OutputCompileFlags to ActiveOutputs:
+        - save_state → state
+        - save_observables → observables
+        - summarise_state → state_summaries
+        - summarise_observables → observable_summaries
+        - save_counters → iteration_counters
+        - status_codes is always True (always written during execution)
+        """
+        return cls(
+            state=flags.save_state,
+            observables=flags.save_observables,
+            state_summaries=flags.summarise_state,
+            observable_summaries=flags.summarise_observables,
+            status_codes=True,
+            iteration_counters=flags.save_counters,
+        )
+
     def update_from_outputarrays(self, output_arrays: "OutputArrays") -> None:
         """
         Update active outputs based on OutputArrays instance.
+
+        .. deprecated::
+            Use :meth:`from_compile_flags` instead. This method uses flawed
+            size-based logic that fails for size-1 arrays.
 
         Parameters
         ----------
@@ -164,6 +204,12 @@ class ActiveOutputs:
         An output is considered active when the corresponding array exists
         and represents more than a single placeholder element.
         """
+        warnings.warn(
+            "update_from_outputarrays is deprecated and will be removed in a "
+            "future version. Use ActiveOutputs.from_compile_flags() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.state = (
             output_arrays.host.state.array is not None
             and output_arrays.host.state.array.size > 1
@@ -276,9 +322,24 @@ class OutputArrays(BaseArrayManager):
 
     @property
     def active_outputs(self) -> ActiveOutputs:
-        """Active output configuration derived from host allocations."""
-        self._active_outputs.update_from_outputarrays(self)
+        """Active output configuration."""
         return self._active_outputs
+
+    def set_active_outputs(self, active_outputs: ActiveOutputs) -> None:
+        """
+        Set active outputs from external source.
+
+        Parameters
+        ----------
+        active_outputs
+            ActiveOutputs instance to store.
+
+        Returns
+        -------
+        None
+            Stores the provided ActiveOutputs instance.
+        """
+        self._active_outputs = active_outputs
 
     @property
     def state(self) -> ArrayTypes:

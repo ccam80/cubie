@@ -10,6 +10,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
+from cubie.outputhandling.output_config import OutputCompileFlags
 
 
 
@@ -325,11 +326,15 @@ class TestOutputArrays:
         solver.kernel.num_runs = 5
         output_arrays_manager.update(solver)
 
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Active status depends on whether arrays have size > 1
-        # After allocation from solver, arrays should be active
-        assert active.status_codes is True
+        # Set active outputs from compile flags (new behavior)
+        compile_flags = solver.kernel.single_integrator.output_compile_flags
+        active = ActiveOutputs.from_compile_flags(compile_flags)
+        output_arrays_manager.set_active_outputs(active)
+
+        result = output_arrays_manager.active_outputs
+        assert isinstance(result, ActiveOutputs)
+        # status_codes is always True when set from compile flags
+        assert result.status_codes is True
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -599,7 +604,105 @@ class TestOutputArraysSpecialCases:
         # Allocate arrays from solver
         output_arrays_manager.update(solver)
 
-        # Check active outputs - should be active since arrays have size > 1
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Arrays allocated from solver should typically be active (size > 1)
+        # Set active outputs from compile flags (new behavior)
+        compile_flags = solver.kernel.single_integrator.output_compile_flags
+        active = ActiveOutputs.from_compile_flags(compile_flags)
+        output_arrays_manager.set_active_outputs(active)
+
+        # Check active outputs - should match what was set
+        result = output_arrays_manager.active_outputs
+        assert isinstance(result, ActiveOutputs)
+        assert result is active
+
+
+class TestActiveOutputsFromCompileFlags:
+    """Tests for ActiveOutputs.from_compile_flags factory method."""
+
+    def test_all_flags_true(self):
+        """Test mapping when all compile flags are enabled."""
+        # Use specific flags (summarise_state, summarise_observables) which are
+        # what ActiveOutputs.from_compile_flags() reads; the general 'summarise'
+        # flag is redundant here but included for completeness
+        flags = OutputCompileFlags(
+            save_state=True,
+            save_observables=True,
+            summarise_observables=True,
+            summarise_state=True,
+            save_counters=True,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is True
+        assert active.observables is True
+        assert active.state_summaries is True
+        assert active.observable_summaries is True
+        assert active.iteration_counters is True
+        assert active.status_codes is True
+
+    def test_all_flags_false(self):
+        """Test mapping when all compile flags are disabled."""
+        flags = OutputCompileFlags(
+            save_state=False,
+            save_observables=False,
+            summarise_observables=False,
+            summarise_state=False,
+            save_counters=False,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is False
+        assert active.observables is False
+        assert active.state_summaries is False
+        assert active.observable_summaries is False
+        assert active.iteration_counters is False
+        # status_codes is ALWAYS True
+        assert active.status_codes is True
+
+    def test_status_codes_always_true(self):
+        """Verify status_codes is always True regardless of flags."""
+        flags = OutputCompileFlags()  # All defaults (False)
+        active = ActiveOutputs.from_compile_flags(flags)
+        assert active.status_codes is True
+
+    def test_partial_flags(self):
+        """Test with only some flags enabled."""
+        flags = OutputCompileFlags(
+            save_state=True,
+            save_observables=False,
+            summarise=True,
+            summarise_observables=False,
+            summarise_state=True,
+            save_counters=False,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is True
+        assert active.observables is False
+        assert active.state_summaries is True
+        assert active.observable_summaries is False
+        assert active.iteration_counters is False
+        assert active.status_codes is True
+
+
+class TestOutputArraysSetActiveOutputs:
+    """Tests for OutputArrays.set_active_outputs method."""
+
+    def test_set_active_outputs(self, output_arrays_manager):
+        """Test that set_active_outputs stores the provided instance."""
+        flags = OutputCompileFlags(
+            save_state=True,
+            save_observables=True,
+            summarise=False,
+            summarise_observables=False,
+            summarise_state=False,
+            save_counters=True,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+        output_arrays_manager.set_active_outputs(active)
+
+        result = output_arrays_manager.active_outputs
+        assert result is active
+        assert result.state is True
+        assert result.observables is True
+        assert result.status_codes is True
+        assert result.iteration_counters is True

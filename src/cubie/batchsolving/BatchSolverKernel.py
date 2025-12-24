@@ -150,6 +150,12 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
+        # Derive ActiveOutputs from compile flags (authoritative source)
+        # Note: Can't use _refresh_active_outputs() here since output_arrays
+        # doesn't exist yet. Must create ActiveOutputs before BatchSolverConfig.
+        compile_flags = self.single_integrator.output_compile_flags
+        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
+
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
@@ -159,19 +165,18 @@ class BatchSolverKernel(CUDAFactory):
             shared_memory_elements=(
                 self.single_integrator.shared_memory_elements
             ),
-            ActiveOutputs=ActiveOutputs(),
-            # placeholder, updated after arrays allocate
+            ActiveOutputs=active_outputs,
         )
         self.setup_compile_settings(initial_config)
 
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
-        # Allocate/update to set active outputs then refresh compile settings
+        # Set active outputs on output_arrays and update arrays
+        self.output_arrays.set_active_outputs(active_outputs)
         self.output_arrays.update(self)
         self.update_compile_settings(
             {
-                "ActiveOutputs": self.output_arrays.active_outputs,
                 "local_memory_elements": (
                     self.single_integrator.local_memory_elements
                 ),
@@ -211,6 +216,26 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         return memory_manager
+
+    def _refresh_active_outputs(self) -> ActiveOutputs:
+        """Derive ActiveOutputs from current compile flags.
+
+        Returns
+        -------
+        ActiveOutputs
+            Instance with flags derived from the single integrator's
+            output compile flags.
+
+        Notes
+        -----
+        This method provides the single source of truth for ActiveOutputs
+        by deriving them from OutputCompileFlags. It also updates the
+        output_arrays with the new ActiveOutputs.
+        """
+        compile_flags = self.single_integrator.output_compile_flags
+        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
+        self.output_arrays.set_active_outputs(active_outputs)
+        return active_outputs
 
     def run(
         self,
@@ -281,6 +306,9 @@ class BatchSolverKernel(CUDAFactory):
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
 
+        # Derive ActiveOutputs from compile flags (authoritative source)
+        active_outputs = self._refresh_active_outputs()
+
         # Refresh compile-critical settings (may trigger rebuild)
         self.update_compile_settings(
             {
@@ -292,7 +320,7 @@ class BatchSolverKernel(CUDAFactory):
                 "shared_memory_elements": (
                     self.single_integrator.shared_memory_elements
                 ),
-                "ActiveOutputs": self.output_arrays.active_outputs,
+                "ActiveOutputs": active_outputs,
             }
         )
 
@@ -715,6 +743,9 @@ class BatchSolverKernel(CUDAFactory):
         all_unrecognized -= self.single_integrator.update(
                 updates_dict, silent=True
         )
+        # Derive ActiveOutputs from updated compile flags
+        active_outputs = self._refresh_active_outputs()
+
         updates_dict.update({
             "loop_function": self.single_integrator.device_function,
             "local_memory_elements": (
@@ -723,7 +754,7 @@ class BatchSolverKernel(CUDAFactory):
             "shared_memory_elements": (
                 self.single_integrator.shared_memory_elements
             ),
-             "ActiveOutputs": self.output_arrays.active_outputs,
+            "ActiveOutputs": active_outputs,
         })
 
         all_unrecognized -= self.update_compile_settings(
