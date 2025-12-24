@@ -47,7 +47,10 @@ def tol_converter(
         tol = np.asarray([value] * self_.n, dtype=self_.precision)
     else:
         tol = np.asarray(value, dtype=self_.precision)
-        if tol.shape[0] != self_.n:
+        # Broadcast single-element arrays to shape (n,)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = np.asarray([tol[0]] * self_.n, dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
             raise ValueError("tol must have shape (n,).")
     return tol
 

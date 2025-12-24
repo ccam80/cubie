@@ -194,8 +194,8 @@ class IVPLoop(CUDAFactory):
                 'n_observables': n_observables,
                 'n_error': n_error,
                 'n_counters': n_counters,
-                'state_summary_buffer_height': state_summaries_buffer_height,
-                'observable_summary_buffer_height':
+                'state_summaries_buffer_height': state_summaries_buffer_height,
+                'observable_summaries_buffer_height':
                     observable_summaries_buffer_height,
                 'precision': precision,
                 'compile_flags': compile_flags,
