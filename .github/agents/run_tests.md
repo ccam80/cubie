@@ -84,7 +84,7 @@ Add options based on needs:
 
 ### 3. Run Tests
 
-Execute the test command using bash with appropriate timeout.
+Execute the test command using bash with a 4-minute timeout.
 
 ### 4. Analyze Results
 

@@ -142,8 +142,8 @@ Creates:
 **MCP Tools**: bash
 **Context**: `task_list.md` (for tests to run)  
 **Output**: Test result summaries with failure details
-**File Permissions**: Read-only (cannot edit files)
-**Pipeline Position**: Called after each taskmaster invocation, before reviewer, and at pipeline exit
+**File Permissions**: Read-only except can create/edit `.github/active_plans/<feature_name>/test_results.md`
+**Pipeline Position**: Called once after all taskmaster invocations complete, before reviewer, and at pipeline exit
 
 Provides:
 - Runs tests with NUMBA_ENABLE_CUDASIM=1

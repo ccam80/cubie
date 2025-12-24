@@ -148,7 +148,7 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 8. **If reviewer suggests edits**: invoke taskmaster for review edits
 9. **Invoke run_tests** at pipeline exit for final verification
 
-**Default return_after level**: Use `reviewer` for complete implementation
+**Default return_after level**: Use `taskmaster_2` for complete implementation
 **Default starting agent**: `plan_new_feature` unless specified otherwise
 
 **Pipeline levels (in order):**
