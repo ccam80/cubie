@@ -92,7 +92,7 @@ class NegativePeaks(SummaryMetric):
             npeaks = customisable_variable
             prev = buffer[0]
             prev_prev = buffer[1]
-            peak_counter = int(buffer[2])
+            peak_counter = int32(buffer[2])
 
             if (
                 (current_index >= int32(2))

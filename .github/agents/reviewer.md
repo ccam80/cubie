@@ -142,11 +142,6 @@ Structure:
 
 ## Code Quality Analysis
 
-### Strengths
-- [Specific positive aspects with file/line references]
-
-### Areas of Concern
-
 #### Duplication
 - **Location**: src/cubie/path/file.py, lines X-Y and lines Z-W
 - **Issue**: [Description of duplicated code]
@@ -212,7 +207,7 @@ Structure:
 
 ## Review Philosophy
 
-### Be Harsh But Fair
+### Be Harsh
 
 - Point out all issues, no matter how small
 - Provide specific, actionable feedback
