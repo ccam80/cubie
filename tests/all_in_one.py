@@ -45,14 +45,14 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 
 script_start = perf_counter()
 #
-algorithm_type = 'dirk'
-algorithm_tableau_name ='l_stable_sdirk_4'
+# algorithm_type = 'dirk'
+# algorithm_tableau_name ='l_stable_sdirk_4'
 # algorithm_type = 'erk'
 # algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-# algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ode23s'
+algorithm_type = 'rosenbrock'
+algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -1273,6 +1273,7 @@ def linear_solver_cached_inline_factory(
         rhs,
         x,
         shared,
+        persistent,
         krylov_iters_out,
     ):
         preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
@@ -2663,20 +2664,27 @@ def rosenbrock_step_inline_factory(
 
     # Stage RHS
     stage_rhs_start = shared_pointer
-    stage_rhs_end = (stage_rhs_start + n
-                     if stage_rhs_shared else stage_rhs_start)
+    stage_rhs_end = (
+        stage_rhs_start + n if stage_rhs_shared else stage_rhs_start
+    )
     shared_pointer = stage_rhs_end
 
     # Stage store
     stage_store_start = shared_pointer
-    stage_store_end = (stage_store_start + stage_store_elements
-                       if stage_store_shared else stage_store_start)
+    stage_store_end = (
+        stage_store_start + stage_store_elements
+        if stage_store_shared
+        else stage_store_start
+    )
     shared_pointer = stage_store_end
 
     # Cached auxiliaries
     cached_aux_start = shared_pointer
-    cached_aux_end = (cached_aux_start + cached_auxiliary_count
-                      if cached_auxiliaries_shared else cached_aux_start)
+    cached_aux_end = (
+        cached_aux_start + cached_auxiliary_count
+        if cached_auxiliaries_shared
+        else cached_aux_start
+    )
     shared_pointer = cached_aux_end
 
     @cuda.jit(
@@ -2740,34 +2748,36 @@ def rosenbrock_step_inline_factory(
             cached_auxiliaries = cuda.local.array(
                 cached_auxiliary_count_int, numba_precision
             )
-
+        stage_increment = cuda.local.array(n_arraysize, numba_precision)
+        solver_shared = cuda.local.array(1, numba_precision)
+        solver_persistent = cuda.local.array(1, numba_precision)
+        krylov_iters = cuda.local.array(1, int32)
+        base_state_placeholder = cuda.local.array(1, numba_precision)
         current_time = time_scalar
         end_time = current_time + dt_scalar
         final_stage_base = n * (stage_count - int32(1))
-        time_derivative = stage_store[final_stage_base:final_stage_base + n]
+        time_derivative = stage_store[final_stage_base : final_stage_base + n]
 
         inv_dt = numba_precision(1.0) / dt_scalar
 
-        stage_time = current_time + dt_scalar * stage_time_fractions[0]
-
         prepare_jacobian(
-            state, parameters, drivers_buffer, current_time, cached_auxiliaries
+            state,
+            parameters,
+            drivers_buffer,
+            current_time,
+            cached_auxiliaries,
         )
 
+        # Evaluate del_t term at t_n, y_n
         if has_driver_function:
-            driver_function(stage_time, driver_coeffs, drivers_buffer)
+            driver_del_t(
+                current_time,
+                driver_coeffs,
+                proposed_drivers,
+            )
         else:
-            for idx in range(n_drivers):
-                drivers_buffer[idx] = numba_precision(0.0)
-
-        if has_driver_derivative:
-            driver_del_t(stage_time, driver_coeffs, proposed_drivers)
-        else:
-            for idx in range(n_drivers):
-                proposed_drivers[idx] = numba_precision(0.0)
-
-        for idx in range(n):
-            time_derivative[idx] = typed_zero
+            for i in range(n_drivers):
+                proposed_drivers[i] = numba_precision(0.0)
 
         time_derivative_rhs(
             state,
@@ -2776,78 +2786,61 @@ def rosenbrock_step_inline_factory(
             proposed_drivers,
             observables,
             time_derivative,
-            stage_time,
+            current_time,
         )
 
-        # Stage 0 slice copies the cached final increment as its guess
-        stage_increment = stage_store[:n]
-
         for idx in range(n):
-            stage_increment[idx] = time_derivative[idx]
             proposed_state[idx] = state[idx]
             time_derivative[idx] *= dt_scalar
             if has_error:
                 error[idx] = typed_zero
 
         status_code = int32(0)
+        stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
-        if has_driver_function:
-            driver_function(stage_time, driver_coeffs, proposed_drivers)
+        # --------------------------------------------------------------- #
+        #            Stage 0: uses starting values                        #
+        # --------------------------------------------------------------- #
 
-        observables_function(
-            state,
-            parameters,
-            proposed_drivers,
-            proposed_observables,
-            stage_time,
-        )
-
-        # Stage 0: uses starting values
         dxdt_fn(
             state,
             parameters,
-            proposed_drivers,
-            proposed_observables,
+            drivers_buffer,
+            observables,
             stage_rhs,
-            stage_time,
+            current_time,
         )
 
         for idx in range(n):
+            # No accumulated contributions at stage 0.
             f_value = stage_rhs[idx]
             rhs_value = (
-                (f_value + gamma_stages[0] * time_derivative[idx]) * dt_scalar
-            )
+                f_value + gamma_stages[0] * time_derivative[idx]
+            ) * dt_scalar
             stage_rhs[idx] = rhs_value * gamma
 
-        # Create empty array slice as placeholder for signature compatibility.
-        # The linear solver expects a base_state parameter, but Rosenbrock
-        # doesn't use it. This empty slice satisfies the signature without
-        # allocating memory.
-        base_state_placeholder = shared[int32(0):int32(0)]
-        krylov_iters_out = cuda.local.array(1, int32)
-        krylov_iters_out[0] = int32(0)
 
-        status_temp = int32(
-            linear_solver(
-                state,
-                parameters,
-                drivers_buffer,
-                base_state_placeholder,
-                cached_auxiliaries,
-                stage_time,
-                dt_scalar,
-                numba_precision(1.0),
-                stage_rhs,
-                stage_increment,
-                shared,
-                krylov_iters_out,
-            )
+        krylov_iters[0] = int32(0)
+
+        # Use stored copy as the initial guess for the first stage.
+        status_code |= linear_solver(
+            state,
+            parameters,
+            drivers_buffer,
+            base_state_placeholder,
+            cached_auxiliaries,
+            stage_time,
+            dt_scalar,
+            numba_precision(1.0),
+            stage_rhs,
+            stage_increment,
+            solver_shared,
+            solver_persistent,
+            krylov_iters,
         )
-        status_code = int32(status_code | status_temp)
-        if counters.shape[0] > 0:
-            counters[0] += krylov_iters_out[0]
-        if counters.shape[0] > 1:
-            counters[1] += krylov_iters_out[0]
+
+        for idx in range(n):
+            stage_store[idx] = stage_increment[idx]
 
         for idx in range(n):
             if accumulates_output:
@@ -2857,7 +2850,9 @@ def rosenbrock_step_inline_factory(
             if has_error and accumulates_error:
                 error[idx] += stage_increment[idx] * error_weights[int32(0)]
 
-        # Stages 1-s: must refresh all values
+        # --------------------------------------------------------------- #
+        #            Stages 1-s: must refresh all values                  #
+        # --------------------------------------------------------------- #
         for prev_idx in range(stages_except_first):
             stage_idx = prev_idx + int32(1)
             stage_offset = stage_idx * n
@@ -2866,65 +2861,69 @@ def rosenbrock_step_inline_factory(
                 current_time + dt_scalar * stage_time_fractions[stage_idx]
             )
 
-            # Get base state
-            stage_slice = stage_store[stage_offset:stage_offset + n]
+            # Get base state for F(t + c_i * dt, Y_n + sum(a_ij * K_j))
             for idx in range(n):
-                stage_slice[idx] = state[idx]
+                stage_store[stage_offset + idx] = state[idx]
 
             # Accumulate contributions from predecessor stages
+            # Loop over all stages for static loop bounds (better unrolling)
+            # Zero coefficients from strict lower triangular structure
             for predecessor_idx in range(stages_except_first):
                 a_col = a_coeffs[predecessor_idx]
                 a_coeff = a_col[stage_idx]
+                # Only accumulate valid predecessors (coefficient will be
+                # zero for predecessor_idx >= stage_idx due to strict
+                # lower triangular structure)
                 if predecessor_idx < stage_idx:
                     base_idx = predecessor_idx * n
                     for idx in range(n):
                         prior_val = stage_store[base_idx + idx]
-                        stage_slice[idx] += a_coeff * prior_val
+                        stage_store[stage_offset + idx] += a_coeff * prior_val
 
+            for idx in range(n):
+                stage_increment[idx] = stage_store[stage_offset + idx]
+
+            # Get t + c_i * dt parts
             if has_driver_function:
-                driver_function(stage_time, driver_coeffs, drivers_buffer)
-            else:
-                for idx in range(n_drivers):
-                    drivers_buffer[idx] = numba_precision(0.0)
+                driver_function(
+                    stage_time,
+                    driver_coeffs,
+                    proposed_drivers,
+                )
 
             observables_function(
-                stage_slice,
+                stage_increment,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 proposed_observables,
                 stage_time,
             )
 
             dxdt_fn(
-                stage_slice,
+                stage_increment,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 proposed_observables,
                 stage_rhs,
                 stage_time,
             )
 
-            # Capture precalculated outputs if tableau allows
+            # Capture precalculated outputs here, before overwrite
             if b_row == stage_idx:
                 for idx in range(n):
-                    proposed_state[idx] = stage_slice[idx]
+                    proposed_state[idx] = stage_increment[idx]
             if b_hat_row == stage_idx:
                 for idx in range(n):
-                    error[idx] = stage_slice[idx]
+                    error[idx] = stage_increment[idx]
 
-            # Recompute time-derivative for last stage
+            # Overwrite the final accumulator slice with time-derivative
             if stage_idx == stage_count - int32(1):
                 if has_driver_function:
-                    driver_function(
-                        stage_time,
+                    driver_del_t(
+                        current_time,
                         driver_coeffs,
-                        drivers_buffer,
+                        proposed_drivers,
                     )
-                if has_driver_derivative:
-                    driver_del_t(stage_time, driver_coeffs, proposed_drivers)
-                else:
-                    for idx in range(n_drivers):
-                        proposed_drivers[idx] = numba_precision(0.0)
                 time_derivative_rhs(
                     state,
                     parameters,
@@ -2932,7 +2931,7 @@ def rosenbrock_step_inline_factory(
                     proposed_drivers,
                     observables,
                     time_derivative,
-                    stage_time,
+                    current_time,
                 )
                 for idx in range(n):
                     time_derivative[idx] *= dt_scalar
@@ -2940,9 +2939,11 @@ def rosenbrock_step_inline_factory(
             # Add C_ij*K_j/dt + dt * gamma_i * d/dt terms to rhs
             for idx in range(n):
                 correction = numba_precision(0.0)
+                # Loop over all stages for static loop bounds
                 for predecessor_idx in range(stages_except_first):
                     c_col = C_coeffs[predecessor_idx]
                     c_coeff = c_col[stage_idx]
+                    # Only accumulate valid predecessors
                     if predecessor_idx < stage_idx:
                         prior_idx = predecessor_idx * n + idx
                         prior_val = stage_store[prior_idx]
@@ -2953,18 +2954,13 @@ def rosenbrock_step_inline_factory(
                 rhs_value = f_stage_val + correction * inv_dt + deriv_val
                 stage_rhs[idx] = rhs_value * dt_scalar * gamma
 
-            # Alias slice of stage storage for convenience
-            stage_increment = stage_slice
-
             # Use previous stage's solution as a guess for this stage
             previous_base = prev_idx * n
+
             for idx in range(n):
                 stage_increment[idx] = stage_store[previous_base + idx]
 
-            krylov_iters_out[0] = int32(0)
-
-            status_temp = int32(
-                linear_solver(
+            status_code |= linear_solver(
                     state,
                     parameters,
                     drivers_buffer,
@@ -2975,40 +2971,48 @@ def rosenbrock_step_inline_factory(
                     numba_precision(1.0),
                     stage_rhs,
                     stage_increment,
-                    shared,
-                    krylov_iters_out,
-                )
+                    solver_shared,
+                    solver_persistent,
+                    krylov_iters,
             )
-            status_code = int32(status_code | status_temp)
-            if counters.shape[0] > 0:
-                counters[0] += krylov_iters_out[0]
-            if counters.shape[0] > 1:
-                counters[1] += krylov_iters_out[0]
-
             for idx in range(n):
-                if accumulates_output:
-                    proposed_state[idx] += (
-                        stage_increment[idx] * solution_weights[stage_idx]
-                    )
-                if has_error and accumulates_error:
-                    error[idx] += (
-                        stage_increment[idx] * error_weights[stage_idx]
-                    )
+                stage_store[stage_offset + idx] = stage_increment[idx]
 
-        if has_driver_function:
-            driver_function(end_time, driver_coeffs, proposed_drivers)
+            if accumulates_output:
+                # Standard accumulation path for proposed_state
+                solution_weight = solution_weights[stage_idx]
+                for idx in range(n):
+                    increment = stage_increment[idx]
+                    proposed_state[idx] += solution_weight * increment
 
-        observables_function(
-            proposed_state,
-            parameters,
-            proposed_drivers,
-            proposed_observables,
-            end_time,
-        )
+            if has_error:
+                if accumulates_error:
+                    # Standard accumulation path for error
+                    error_weight = error_weights[stage_idx]
+                    for idx in range(n):
+                        increment = stage_increment[idx]
+                        error[idx] += error_weight * increment
 
+        # ----------------------------------------------------------- #
         if not accumulates_error:
             for idx in range(n):
                 error[idx] = proposed_state[idx] - error[idx]
+
+        if has_driver_function:
+            driver_function(
+                    end_time,
+                    driver_coeffs,
+                    proposed_drivers,
+            )
+
+        observables_function(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                end_time,
+        )
+
 
         return status_code
 
