@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
-from cubie import OutputCompileFlags
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder

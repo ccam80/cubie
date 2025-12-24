@@ -45,8 +45,8 @@ def extend_expected_settings(settings, precision):
             state="state" in output_types,
             observables='observables' in output_types,
             state_summaries=has_summaries,
-            observable_summaries=has_summaries,
-            status_codes=True   ,
+            observable_summaries=(has_summaries and has_obs_indices),
+            status_codes=True,
             iteration_counters='iteration_counters' in output_types,
     )
     # is_adaptive depends on step_controller type
