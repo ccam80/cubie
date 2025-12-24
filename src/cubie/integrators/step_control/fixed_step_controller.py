@@ -5,7 +5,7 @@ from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
-from cubie._utils import PrecisionDType, getype_validator
+from cubie._utils import PrecisionDType, getype_validator, build_config
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig,
     BaseStepController,
@@ -75,6 +75,7 @@ class FixedStepController(BaseStepController):
         precision: PrecisionDType,
         dt: float,
         n: int = 1,
+        **kwargs,
     ) -> None:
         """Initialise the fixed step controller.
 
@@ -86,10 +87,17 @@ class FixedStepController(BaseStepController):
             Fixed step size to apply on every iteration.
         n
             Number of state variables advanced by the integrator.
+        **kwargs
+            Optional parameters passed to FixedStepControlConfig. See
+            FixedStepControlConfig for available parameters. None values
+            are ignored.
         """
-
         super().__init__()
-        config = FixedStepControlConfig(precision=precision, n=n, dt=dt)
+        config = build_config(
+            FixedStepControlConfig,
+            required={'precision': precision, 'n': n, 'dt': dt},
+            **kwargs
+        )
         self.setup_compile_settings(config)
         self.register_buffers()
 

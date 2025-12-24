@@ -15,7 +15,7 @@ from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
@@ -83,63 +83,10 @@ class IVPLoop(CUDAFactory):
         Height of state summary buffer.
     observable_summaries_buffer_height
         Height of observable summary buffer.
-    state_location
-        Memory location for state buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    proposed_state_location
-        Memory location for proposed state buffer: 'local' or 'shared'. If
-        None, defaults to 'local'.
-    parameters_location
-        Memory location for parameters buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    drivers_location
-        Memory location for drivers buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    proposed_drivers_location
-        Memory location for proposed drivers buffer: 'local' or 'shared'. If
-        None, defaults to 'local'.
-    observables_location
-        Memory location for observables buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    proposed_observables_location
-        Memory location for proposed observables buffer: 'local' or 'shared'.
-        If None, defaults to 'local'.
-    error_location
-        Memory location for error buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    counters_location
-        Memory location for counters buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    state_summary_location
-        Memory location for state summary buffer: 'local' or 'shared'. If
-        None, defaults to 'local'.
-    observable_summary_location
-        Memory location for observable summary buffer: 'local' or 'shared'.
-        If None, defaults to 'local'.
-    dt_location
-        Memory location for dt buffer: 'local' or 'shared'. If None,
-        defaults to 'local'.
-    accept_step_location
-        Memory location for accept_step buffer: 'local' or 'shared'. If
-        None, defaults to 'local'.
-    controller_local_len
-        Number of persistent local memory elements for the controller.
-    algorithm_local_len
-        Number of persistent local memory elements for the algorithm.
     dt_save
-        Interval between accepted saves. Defaults to ``0.1`` when not
-        provided.
+        Interval between accepted saves. Defaults to ``0.1``.
     dt_summarise
-        Interval between summary accumulations. Defaults to ``1.0`` when not
-        provided.
-    dt0
-        Initial timestep applied before controller feedback.
-    dt_min
-        Minimum allowable timestep.
-    dt_max
-        Maximum allowable timestep.
-    is_adaptive
-        Whether an adaptive controller is used.
+        Interval between summary accumulations. Defaults to ``1.0``.
     save_state_func
         Device function that writes state and observable snapshots.
     update_summaries_func
@@ -154,6 +101,15 @@ class IVPLoop(CUDAFactory):
         Device function that evaluates drivers for a given time.
     observables_fn
         Device function that computes observables for proposed states.
+    **kwargs
+        Optional parameters passed to ODELoopConfig. Available parameters
+        include dt0, dt_min, dt_max, is_adaptive, controller_local_len,
+        algorithm_local_len, and buffer location parameters (state_location,
+        proposed_state_location, parameters_location, drivers_location,
+        proposed_drivers_location, observables_location,
+        proposed_observables_location, error_location, counters_location,
+        state_summary_location, observable_summary_location, dt_location,
+        accept_step_location). None values are ignored.
     """
 
     def __init__(
@@ -170,10 +126,6 @@ class IVPLoop(CUDAFactory):
         observable_summaries_buffer_height: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        dt0: Optional[float] = None,
-        dt_min: Optional[float] = None,
-        dt_max: Optional[float] = None,
-        is_adaptive: Optional[bool] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -181,79 +133,84 @@ class IVPLoop(CUDAFactory):
         step_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
-        state_location: Optional[str] = None,
-        proposed_state_location: Optional[str] = None,
-        parameters_location: Optional[str] = None,
-        drivers_location: Optional[str] = None,
-        proposed_drivers_location: Optional[str] = None,
-        observables_location: Optional[str] = None,
-        proposed_observables_location: Optional[str] = None,
-        error_location: Optional[str] = None,
-        counters_location: Optional[str] = None,
-        state_summary_location: Optional[str] = None,
-        observable_summary_location: Optional[str] = None,
-        dt_location: Optional[str] = None,
-        accept_step_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
+        """Initialise the IVP loop configuration.
+
+        Parameters
+        ----------
+        precision
+            Precision used for state and observable updates.
+        n_states
+            Number of state variables.
+        compile_flags
+            Output configuration that drives save and summary behaviour.
+        n_parameters
+            Number of parameters.
+        n_drivers
+            Number of driver variables.
+        n_observables
+            Number of observable variables.
+        n_error
+            Number of error elements (typically equals n_states for adaptive).
+        n_counters
+            Number of counter elements.
+        state_summary_buffer_height
+            Height of state summary buffer.
+        observable_summary_buffer_height
+            Height of observable summary buffer.
+        dt_save
+            Interval between accepted saves.
+        dt_summarise
+            Interval between summary accumulations.
+        save_state_func
+            Device function that writes state and observable snapshots.
+        update_summaries_func
+            Device function that accumulates summary statistics.
+        save_summaries_func
+            Device function that commits summary statistics to output buffers.
+        step_controller_fn
+            Device function that updates the timestep and accept flag.
+        step_function
+            Device function that advances the solution by one tentative step.
+        driver_function
+            Device function that evaluates drivers for a given time.
+        observables_fn
+            Device function that computes observables for proposed states.
+        **kwargs
+            Optional parameters passed to ODELoopConfig. See ODELoopConfig
+            for available parameters including dt0, dt_min, dt_max,
+            is_adaptive, and buffer location parameters (state_location,
+            proposed_state_location, etc.). None values are ignored.
+        """
         super().__init__()
 
-        config_kwargs = {
-            'n_states': n_states,
-            'n_parameters': n_parameters,
-            'n_drivers': n_drivers,
-            'n_observables': n_observables,
-            'n_error': n_error,
-            'n_counters': n_counters,
-            'state_summaries_buffer_height': state_summaries_buffer_height,
-            'observable_summaries_buffer_height': observable_summaries_buffer_height,
-            'precision': precision,
-            'compile_flags': compile_flags,
-            'dt_save': dt_save,
-            'dt_summarise': dt_summarise,
-            'save_state_fn': save_state_func,
-            'update_summaries_fn': update_summaries_func,
-            'save_summaries_fn': save_summaries_func,
-            'step_controller_fn': step_controller_fn,
-            'step_function': step_function,
-            'driver_function': driver_function,
-            'observables_fn': observables_fn,
-        }
-        if state_location is not None:
-            config_kwargs['state_location'] = state_location
-        if proposed_state_location is not None:
-            config_kwargs['proposed_state_location'] = proposed_state_location
-        if parameters_location is not None:
-            config_kwargs['parameters_location'] = parameters_location
-        if drivers_location is not None:
-            config_kwargs['drivers_location'] = drivers_location
-        if proposed_drivers_location is not None:
-            config_kwargs['proposed_drivers_location'] = proposed_drivers_location
-        if observables_location is not None:
-            config_kwargs['observables_location'] = observables_location
-        if proposed_observables_location is not None:
-            config_kwargs['proposed_observables_location'] = proposed_observables_location
-        if error_location is not None:
-            config_kwargs['error_location'] = error_location
-        if counters_location is not None:
-            config_kwargs['counters_location'] = counters_location
-        if state_summary_location is not None:
-            config_kwargs['state_summary_location'] = state_summary_location
-        if observable_summary_location is not None:
-            config_kwargs['observable_summary_location'] = observable_summary_location
-        if dt_location is not None:
-            config_kwargs['dt_location'] = dt_location
-        if accept_step_location is not None:
-            config_kwargs['accept_step_location'] = accept_step_location
-        if dt0 is not None:
-            config_kwargs['dt0'] = dt0
-        if dt_min is not None:
-            config_kwargs['dt_min'] = dt_min
-        if dt_max is not None:
-            config_kwargs['dt_max'] = dt_max
-        if is_adaptive is not None:
-            config_kwargs['is_adaptive'] = is_adaptive
-
-        config = ODELoopConfig(**config_kwargs)
+        config = build_config(
+            ODELoopConfig,
+            required={
+                'n_states': n_states,
+                'n_parameters': n_parameters,
+                'n_drivers': n_drivers,
+                'n_observables': n_observables,
+                'n_error': n_error,
+                'n_counters': n_counters,
+                'state_summaries_buffer_height': state_summaries_buffer_height,
+                'observable_summaries_buffer_height':
+                    observable_summaries_buffer_height,
+                'precision': precision,
+                'compile_flags': compile_flags,
+                'dt_save': dt_save,
+                'dt_summarise': dt_summarise,
+                'save_state_fn': save_state_func,
+                'update_summaries_fn': update_summaries_func,
+                'save_summaries_fn': save_summaries_func,
+                'step_controller_fn': step_controller_fn,
+                'step_function': step_function,
+                'driver_function': driver_function,
+                'observables_fn': observables_fn,
+            },
+            **kwargs
+        )
         self.setup_compile_settings(config)
         self.register_buffers()
 
@@ -489,6 +446,7 @@ class IVPLoop(CUDAFactory):
 
             stagnant_counts = int32(0)
 
+            persistent_local[:] = precision(0.0)
             shared_scratch[:] = precision(0.0)
             # ----------------------------------------------------------- #
             # Allocate buffers using registry allocators

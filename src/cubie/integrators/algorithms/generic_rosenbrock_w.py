@@ -37,7 +37,7 @@ import attrs
 import numpy as np
 from numba import cuda, int32
 
-from cubie._utils import PrecisionDType, is_device_validator
+from cubie._utils import PrecisionDType, build_config, is_device_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -152,23 +152,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         driver_function: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
-        linear_correction_type: Optional[str] = None,
-        preconditioned_vec_location: Optional[str] = None,
-        temp_location: Optional[str] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
-        stage_rhs_location: Optional[str] = None,
-        stage_store_location: Optional[str] = None,
-        cached_auxiliaries_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
-        
+
         This constructor creates a Rosenbrock-W step object and automatically
         selects appropriate default step controller settings based on whether
         the tableau has an embedded error estimate. Tableaus with error
@@ -193,94 +181,51 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             of drivers (required for some Rosenbrock formulations).
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
-        preconditioner_order
-            Order of the finite-difference Jacobian approximation used in the
-            preconditioner. If None, uses default value of 2.
-        krylov_tolerance
-            Convergence tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
-        max_linear_iters
-            Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
-        linear_correction_type
-            Type of Krylov correction ("minimal_residual" or other). If None,
-            uses default from LinearSolverConfig.
-        preconditioned_vec_location
-            Buffer location for preconditioned vector: 'local' or 'shared'. If
-            None, uses LinearSolverConfig default.
-        temp_location
-            Buffer location for temporary vector: 'local' or 'shared'. If None,
-            uses LinearSolverConfig default.
-        delta_location
-            Buffer location for Newton delta: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_location
-            Buffer location for Newton residual: 'local' or 'shared'. If None,
-            uses NewtonKrylovConfig default.
-        residual_temp_location
-            Buffer location for Newton residual_temp: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
-        stage_base_bt_location
-            Buffer location for Newton stage_base_bt: 'local' or 'shared'. If
-            None, uses NewtonKrylovConfig default.
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
-        stage_rhs_location
-            Memory location for stage RHS buffer: 'local' or 'shared'. If
-            None, defaults to 'local'.
-        stage_store_location
-            Memory location for stage store buffer: 'local' or 'shared'. If
-            None, defaults to 'local'.
-        cached_auxiliaries_location
-            Memory location for cached auxiliaries buffer: 'local' or 'shared'.
-            If None, defaults to 'local'.
-        
+        **kwargs
+            Optional parameters passed to config classes. See
+            RosenbrockWStepConfig, ImplicitStepConfig, and solver config
+            classes for available parameters. None values are ignored.
+
         Notes
         -----
         The step controller defaults are selected dynamically:
-        
+
         - If ``tableau.has_error_estimate`` is ``True``:
           Uses :data:`ROSENBROCK_ADAPTIVE_DEFAULTS` (PI controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`ROSENBROCK_FIXED_DEFAULTS` (fixed-step controller)
-        
+
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau.
-        
+
         Rosenbrock methods linearize the ODE around the current state,
         avoiding the need for iterative Newton solves. This makes them
         efficient for moderately stiff problems. The gamma parameter from the
         tableau controls the implicit treatment of the linearized system.
         """
-
         mass = np.eye(n, dtype=precision)
         tableau_value = tableau
 
-        # Build config first so buffer registration can use config defaults
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "driver_del_t": driver_del_t,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau_value,
-            "beta": 1.0,
-            "gamma": tableau_value.gamma,
-            "M": mass,
-        }
-        if preconditioner_order is not None:
-            config_kwargs["preconditioner_order"] = preconditioner_order
-        if stage_rhs_location is not None:
-            config_kwargs["stage_rhs_location"] = stage_rhs_location
-        if stage_store_location is not None:
-            config_kwargs["stage_store_location"] = stage_store_location
-        if cached_auxiliaries_location is not None:
-            config_kwargs["cached_auxiliaries_location"] = cached_auxiliaries_location
-
-        config = RosenbrockWStepConfig(**config_kwargs)
+        config = build_config(
+            RosenbrockWStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'driver_del_t': driver_del_t,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'tableau': tableau_value,
+                'beta': 1.0,
+                'gamma': tableau_value.gamma,
+                'M': mass,
+            },
+            **kwargs
+        )
         self._cached_auxiliary_count = None
 
         # Select defaults based on error estimate
@@ -289,32 +234,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         else:
             controller_defaults = ROSENBROCK_FIXED_DEFAULTS
 
-        # Build kwargs dict conditionally (only linear solver kwargs for Rosenbrock)
-        solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs['max_linear_iters'] = max_linear_iters
-        if linear_correction_type is not None:
-            solver_kwargs['linear_correction_type'] = linear_correction_type
-        if preconditioned_vec_location is not None:
-            solver_kwargs[
-                'preconditioned_vec_location'
-            ] = preconditioned_vec_location
-        if temp_location is not None:
-            solver_kwargs['temp_location'] = temp_location
-        if delta_location is not None:
-            solver_kwargs['delta_location'] = delta_location
-        if residual_location is not None:
-            solver_kwargs['residual_location'] = residual_location
-        if residual_temp_location is not None:
-            solver_kwargs['residual_temp_location'] = residual_temp_location
-        if stage_base_bt_location is not None:
-            solver_kwargs['stage_base_bt_location'] = stage_base_bt_location
-
-        # Call parent __init__ to create solver instances
         super().__init__(
-            config, controller_defaults, solver_type='linear', **solver_kwargs
+            config, controller_defaults, solver_type='linear', **kwargs
         )
 
         self.register_buffers()

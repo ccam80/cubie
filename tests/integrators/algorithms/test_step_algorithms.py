@@ -655,6 +655,7 @@ def device_step_results(
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
+        persistent[:] = precision(0.0)
         first_step_flag = int32(1)
         accepted_flag = int32(1)
         result = step_function(
@@ -809,6 +810,8 @@ def _execute_step_twice(
 
         for cache_idx in range(shared.shape[0]):
             shared[cache_idx] = zero
+        for pers_idx in range(persistent.shape[0]):
+            persistent[pers_idx] = zero
 
         if driver_function is not None:
             driver_function(zero, driver_coeffs_vec, drivers_current_vec)

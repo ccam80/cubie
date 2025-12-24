@@ -14,6 +14,7 @@ import numpy as np
 
 from cubie._utils import (
     PrecisionDType,
+    build_config,
     getype_validator,
     gttype_validator,
     inrangetype_validator,
@@ -32,7 +33,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 @attrs.define
 class NewtonKrylovConfig:
     """Configuration for NewtonKrylov solver compilation.
-    
+
     Attributes
     ----------
     precision : PrecisionDType
@@ -60,7 +61,7 @@ class NewtonKrylovConfig:
     stage_base_bt_location : str
         Memory location for stage_base_bt buffer.
     """
-    
+
     precision: PrecisionDType = attrs.field(
         converter=precision_converter,
         validator=precision_validator
@@ -113,26 +114,26 @@ class NewtonKrylovConfig:
     def newton_tolerance(self) -> float:
         """Return tolerance in configured precision."""
         return self.precision(self._newton_tolerance)
-    
+
     @property
     def newton_damping(self) -> float:
         """Return damping factor in configured precision."""
         return self.precision(self._newton_damping)
-    
+
     @property
     def numba_precision(self) -> type:
         """Return Numba type for precision."""
         return from_dtype(np.dtype(self.precision))
-    
+
     @property
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
         return simsafe_dtype(np.dtype(self.precision))
-    
+
     @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return Newton-Krylov configuration as dictionary.
-        
+
         Returns
         -------
         dict
@@ -161,13 +162,13 @@ class NewtonKrylovConfig:
 @attrs.define
 class NewtonKrylovCache(CUDAFunctionCache):
     """Cache container for NewtonKrylov outputs.
-    
+
     Attributes
     ----------
     newton_krylov_solver : Callable
         Compiled CUDA device function for Newton-Krylov solving.
     """
-    
+
     newton_krylov_solver: Callable = attrs.field(
         validator=is_device_validator
     )
@@ -175,27 +176,20 @@ class NewtonKrylovCache(CUDAFunctionCache):
 
 class NewtonKrylov(CUDAFactory):
     """Factory for Newton-Krylov solver device functions.
-    
+
     Implements damped Newton iteration using a matrix-free
     linear solver for the correction equation.
     """
-    
+
     def __init__(
         self,
         precision: PrecisionDType,
         n: int,
         linear_solver: LinearSolver,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
-        
+
         Parameters
         ----------
         precision : PrecisionDType
@@ -204,53 +198,22 @@ class NewtonKrylov(CUDAFactory):
             Size of state vectors.
         linear_solver : LinearSolver
             LinearSolver instance for solving linear systems.
-        newton_tolerance : float, optional
-            Residual norm threshold for convergence.
-            If None, defaults to 1e-3.
-        max_newton_iters : int, optional
-            Maximum Newton iterations permitted.
-            If None, defaults to 100.
-        newton_damping : float, optional
-            Step shrink factor for backtracking.
-            If None, defaults to 0.5.
-        newton_max_backtracks : int, optional
-            Maximum damping attempts per Newton step.
-            If None, defaults to 8.
-        delta_location : str, default='local'
-            Memory location for delta buffer ('local' or 'shared').
-        residual_location : str, default='local'
-            Memory location for residual buffer ('local' or 'shared').
-        residual_temp_location : str, default='local'
-            Memory location for residual_temp buffer ('local' or 'shared').
-        stage_base_bt_location : str, default='local'
-            Memory location for stage_base_bt buffer ('local' or 'shared').
+        **kwargs
+            Optional parameters passed to NewtonKrylovConfig. See
+            NewtonKrylovConfig for available parameters. None values
+            are ignored.
         """
         super().__init__()
 
         self.linear_solver = linear_solver
 
-        newton_kwargs = {}
-        if newton_tolerance is not None:
-            newton_kwargs['newton_tolerance'] = newton_tolerance
-        if max_newton_iters is not None:
-            newton_kwargs['max_newton_iters'] = max_newton_iters
-        if newton_damping is not None:
-            newton_kwargs['newton_damping'] = newton_damping
-        if newton_max_backtracks is not None:
-            newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
-        if delta_location is not None:
-            newton_kwargs['delta_location'] = delta_location
-        if residual_location is not None:
-            newton_kwargs['residual_location'] = residual_location
-        if residual_temp_location is not None:
-            newton_kwargs['residual_temp_location'] = residual_temp_location
-        if stage_base_bt_location is not None:
-            newton_kwargs['stage_base_bt_location'] = stage_base_bt_location
-
-        config = NewtonKrylovConfig(
-            precision=precision,
-            n=n,
-            **newton_kwargs
+        config = build_config(
+            NewtonKrylovConfig,
+            required={
+                'precision': precision,
+                'n': n,
+            },
+            **kwargs
         )
 
         self.setup_compile_settings(config)
@@ -294,19 +257,19 @@ class NewtonKrylov(CUDAFactory):
 
     def build(self) -> NewtonKrylovCache:
         """Compile Newton-Krylov solver device function.
-        
+
         Returns
         -------
         NewtonKrylovCache
             Container with compiled newton_krylov_solver device function.
-        
+
         Raises
         ------
         ValueError
             If residual_function or linear_solver is None when build() is called.
         """
         config = self.compile_settings
-        
+
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
@@ -325,19 +288,19 @@ class NewtonKrylov(CUDAFactory):
         n_val = int32(n)
         max_iters_val = int32(max_newton_iters)
         max_backtracks_val = int32(newton_max_backtracks + 1)
-        
+
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
         alloc_delta = get_alloc('delta', self)
         alloc_residual = get_alloc('residual', self)
         alloc_residual_temp =get_alloc('residual_temp', self)
         alloc_stage_base_bt = get_alloc('stage_base_bt', self)
-        
+
         # Get child allocators for linear solver
         alloc_lin_shared, alloc_lin_persistent = (
             buffer_registry.get_child_allocators(self, self.linear_solver)
         )
-        
+
         # no cover: start
         @cuda.jit(
             device=True,
@@ -357,7 +320,7 @@ class NewtonKrylov(CUDAFactory):
             counters,
         ):
             """Solve a nonlinear system with a damped Newton--Krylov iteration.
-            
+
             Parameters
             ----------
             stage_increment
@@ -381,7 +344,7 @@ class NewtonKrylov(CUDAFactory):
                 Persistent local scratch buffer for Newton and linear solver.
             counters
                 Size (2,) int32 array for iteration counters.
-            
+
             Returns
             -------
             int
@@ -395,7 +358,7 @@ class NewtonKrylov(CUDAFactory):
             stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
-            
+
             residual_function(
                 stage_increment,
                 parameters,
@@ -412,13 +375,13 @@ class NewtonKrylov(CUDAFactory):
                 residual[i] = -residual_value
                 delta[i] = typed_zero
                 norm2_prev += residual_value * residual_value
-            
+
             converged = norm2_prev <= tol_squared
             has_error = False
             final_status = int32(0)
-            
+
             krylov_iters_local = cuda.local.array(1, int32)
-            
+
             iters_count = int32(0)
             total_krylov_iters = int32(0)
             mask = activemask()
@@ -426,7 +389,7 @@ class NewtonKrylov(CUDAFactory):
                 done = converged or has_error
                 if all_sync(mask, done):
                     break
-                
+
                 active = not done
                 iters_count = selp(
                     active, int32(iters_count + int32(1)), iters_count
@@ -447,28 +410,28 @@ class NewtonKrylov(CUDAFactory):
                     lin_persistent,
                     krylov_iters_local,
                 )
-                
+
                 lin_failed = lin_status != int32(0)
                 has_error = has_error or lin_failed
                 final_status = selp(
                     lin_failed, int32(final_status | lin_status), final_status
                 )
                 total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
-                
+
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
                 found_step = False
                 alpha = typed_one
-                
+
                 for _ in range(max_backtracks_val):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
                         break
-                    
+
                     if active_bt:
                         for i in range(n_val):
                             stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
-                        
+
                         residual_function(
                             stage_increment,
                             parameters,
@@ -479,49 +442,49 @@ class NewtonKrylov(CUDAFactory):
                             base_state,
                             residual_temp,
                         )
-                        
+
                         norm2_new = typed_zero
                         for i in range(n_val):
                             residual_value = residual_temp[i]
                             norm2_new += residual_value * residual_value
-                        
+
                         if norm2_new <= tol_squared:
                             converged = True
                             found_step = True
-                        
+
                         if norm2_new < norm2_prev:
                             # Negate residual for return
                             for i in range(n_val):
                                 residual[i] = -residual_temp[i]
                             norm2_prev = norm2_new
                             found_step = True
-                    
+
                     alpha *= typed_damping
-                
+
                 backtrack_failed = active and (not found_step) and (not converged)
                 has_error = has_error or backtrack_failed
                 final_status = selp(
                     backtrack_failed, int32(final_status | int32(1)), final_status
                 )
-                
+
                 if backtrack_failed:
                     # Revert increment to unscaled value for another go
                     for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i]
-            
+
             max_iters_exceeded = (not converged) and (not has_error)
             final_status = selp(
                 max_iters_exceeded, int32(final_status | int32(2)), final_status
             )
-            
+
             counters[0] = iters_count
             counters[1] = total_krylov_iters
-            
+
             return final_status
-        
+
         # no cover: end
         return NewtonKrylovCache(newton_krylov_solver=newton_krylov_solver)
-    
+
     def update(
         self,
         updates_dict: Optional[Dict[str, Any]] = None,
@@ -538,7 +501,7 @@ class NewtonKrylov(CUDAFactory):
             If True, suppress warnings about unrecognized keys.
         **kwargs
             Additional settings as keyword arguments.
-        
+
         Returns
         -------
         set
@@ -567,42 +530,42 @@ class NewtonKrylov(CUDAFactory):
         self.register_buffers()
 
         return recognized
-    
+
     @property
     def device_function(self) -> Callable:
         """Return cached Newton-Krylov solver device function."""
         return self.get_cached_output("newton_krylov_solver")
-    
+
     @property
     def precision(self) -> PrecisionDType:
         """Return configured precision."""
         return self.compile_settings.precision
-    
+
     @property
     def n(self) -> int:
         """Return vector size."""
         return self.compile_settings.n
-    
+
     @property
     def newton_tolerance(self) -> float:
         """Return convergence tolerance."""
         return self.compile_settings.newton_tolerance
-    
+
     @property
     def max_newton_iters(self) -> int:
         """Return maximum Newton iterations."""
         return self.compile_settings.max_newton_iters
-    
+
     @property
     def newton_damping(self) -> float:
         """Return damping factor."""
         return self.compile_settings.newton_damping
-    
+
     @property
     def newton_max_backtracks(self) -> int:
         """Return maximum backtracking steps."""
         return self.compile_settings.newton_max_backtracks
-    
+
     @property
     def krylov_tolerance(self) -> float:
         """Return krylov tolerance from nested linear solver."""
@@ -617,19 +580,19 @@ class NewtonKrylov(CUDAFactory):
     def linear_correction_type(self) -> str:
         """Return correction type from nested linear solver."""
         return self.linear_solver.linear_correction_type
-    
+
     @property
     def shared_buffer_size(self) -> int:
         """Return total shared memory elements required.
-        
+
         Includes both Newton buffers and nested LinearSolver buffers.
         """
         return buffer_registry.shared_buffer_size(self)
-    
+
     @property
     def local_buffer_size(self) -> int:
         """Return total local memory elements required.
-        
+
         Includes both Newton buffers and nested LinearSolver buffers.
         """
         return buffer_registry.local_buffer_size(self)
@@ -637,18 +600,18 @@ class NewtonKrylov(CUDAFactory):
     @property
     def persistent_local_buffer_size(self) -> int:
         """Return total persistent local memory elements required.
-        
+
         Includes both Newton buffers and nested LinearSolver buffers.
         """
         return buffer_registry.persistent_local_buffer_size(self)
-    
+
     @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return merged Newton and linear solver configuration.
-        
+
         Combines Newton-level settings from compile_settings with
         linear solver settings from nested linear_solver instance.
-        
+
         Returns
         -------
         dict

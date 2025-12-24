@@ -84,24 +84,33 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
+    # Parameters accepted by LinearSolver
+    _LINEAR_SOLVER_PARAMS = frozenset({
+        'linear_correction_type',
+        'krylov_tolerance',
+        'max_linear_iters',
+        'preconditioned_vec_location',
+        'temp_location',
+    })
+
+    # Parameters accepted by NewtonKrylov
+    _NEWTON_KRYLOV_PARAMS = frozenset({
+        'newton_tolerance',
+        'max_newton_iters',
+        'newton_damping',
+        'newton_max_backtracks',
+        'delta_location',
+        'residual_location',
+        'residual_temp_location',
+        'stage_base_bt_location',
+    })
+
     def __init__(
         self,
         config: ImplicitStepConfig,
         _controller_defaults: StepControlDefaults,
         solver_type: str = "newton",
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
-        linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
-        preconditioned_vec_location: Optional[str] = None,
-        temp_location: Optional[str] = None,
-        delta_location: Optional[str] = None,
-        residual_location: Optional[str] = None,
-        residual_temp_location: Optional[str] = None,
-        stage_base_bt_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the implicit step with its configuration.
 
@@ -113,41 +122,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
            Per-algorithm default runtime collaborators.
         solver_type
             Type of solver to create: 'newton' or 'linear'.
-        krylov_tolerance
-            Tolerance used by the linear solver.
-        max_linear_iters
-            Maximum iterations permitted for the linear solver.
-        linear_correction_type
-            Identifier for the linear correction strategy.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration.
-        max_newton_iters
-            Maximum iterations permitted for the Newton solver.
-        newton_damping
-            Damping factor applied within Newton updates.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
-        preconditioned_vec_location
-            Buffer location for preconditioned vector: 'local' or 'shared'.
-            If None, uses LinearSolverConfig default.
-        temp_location
-            Buffer location for temporary vector: 'local' or 'shared'.
-            If None, uses LinearSolverConfig default.
-        delta_location
-            Buffer location for Newton delta: 'local' or 'shared'.
-            If None, uses NewtonKrylovConfig default.
-        residual_location
-            Buffer location for Newton residual: 'local' or 'shared'.
-            If None, uses NewtonKrylovConfig default.
-        residual_temp_location
-            Buffer location for Newton residual_temp: 'local' or 'shared'.
-            If None, uses NewtonKrylovConfig default.
-        stage_base_bt_location
-            Buffer location for Newton stage_base_bt: 'local' or 'shared'.
-            If None, uses NewtonKrylovConfig default.
+        **kwargs
+            Optional solver parameters (krylov_tolerance, max_linear_iters,
+            newton_tolerance, etc.). None values are ignored and defaults
+            from solver config classes are used.
         """
-
-        
         super().__init__(config, _controller_defaults)
 
         if solver_type not in ['newton', 'linear']:
@@ -155,55 +134,30 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
 
-        linear_solver_kwargs = {}
-        if linear_correction_type is not None:
-            linear_solver_kwargs['linear_correction_type'] = linear_correction_type
-        if krylov_tolerance is not None:
-            linear_solver_kwargs['krylov_tolerance'] = krylov_tolerance
-        if max_linear_iters is not None:
-            linear_solver_kwargs['max_linear_iters'] = max_linear_iters
-        if preconditioned_vec_location is not None:
-            linear_solver_kwargs[
-                'preconditioned_vec_location'
-            ] = preconditioned_vec_location
-        if temp_location is not None:
-            linear_solver_kwargs['temp_location'] = temp_location
+        # Extract kwargs for each solver, filtering None values
+        linear_kwargs = {
+            k: v for k, v in kwargs.items()
+            if k in self._LINEAR_SOLVER_PARAMS and v is not None
+        }
+        newton_kwargs = {
+            k: v for k, v in kwargs.items()
+            if k in self._NEWTON_KRYLOV_PARAMS and v is not None
+        }
 
         linear_solver = LinearSolver(
             precision=config.precision,
             n=config.n,
-            **linear_solver_kwargs,
+            **linear_kwargs,
         )
-        
+
         if solver_type == 'newton':
-            newton_kwargs = {}
-            if newton_tolerance is not None:
-                newton_kwargs['newton_tolerance'] = newton_tolerance
-            if max_newton_iters is not None:
-                newton_kwargs['max_newton_iters'] = max_newton_iters
-            if newton_damping is not None:
-                newton_kwargs['newton_damping'] = newton_damping
-            if newton_max_backtracks is not None:
-                newton_kwargs['newton_max_backtracks'] = newton_max_backtracks
-            if delta_location is not None:
-                newton_kwargs['delta_location'] = delta_location
-            if residual_location is not None:
-                newton_kwargs['residual_location'] = residual_location
-            if residual_temp_location is not None:
-                newton_kwargs['residual_temp_location'] = (
-                    residual_temp_location
-                )
-            if stage_base_bt_location is not None:
-                newton_kwargs['stage_base_bt_location'] = (
-                    stage_base_bt_location
-                )
             self.solver = NewtonKrylov(
                 precision=config.precision,
                 n=config.n,
                 linear_solver=linear_solver,
                 **newton_kwargs,
             )
-        else:  # solver_type == 'linear'
+        else:
             self.solver = linear_solver
 
     def register_buffers(self) -> None:
@@ -212,7 +166,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
-        
+
         Parameters
         ----------
         updates_dict : dict, optional
@@ -221,12 +175,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Suppress warnings for unrecognized parameters.
         **kwargs
             Additional parameters to update.
-        
+
         Returns
         -------
         set[str]
             Names of parameters that were successfully recognized.
-        
+
         Notes
         -----
         Delegates solver parameters to owned solver instance.
@@ -236,10 +190,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
-        
+
         if not all_updates:
             return set()
-        
+
         recognized = set()
 
         recognized |= self.solver.update(all_updates, silent=True)
@@ -291,7 +245,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
-        
+
         Parameters
         ----------
         dxdt_fn
@@ -308,7 +262,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Dimension of the state vector.
         n_drivers
             Number of driver signals provided to the system.
-        
+
         Returns
         -------
         StepCache
@@ -363,7 +317,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             residual_function=residual,
             n = self.compile_settings.n
         )
-        
+
         self.update_compile_settings(
                 solver_function=self.solver.device_function
         )
@@ -433,14 +387,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the maximum number of Newton backtracking steps."""
         val = getattr(self.solver, 'newton_max_backtracks', None)
         return int(val) if val is not None else None
-    
+
     @property
     def settings_dict(self) -> dict:
         """Return merged algorithm and solver settings.
-        
+
         Combines implicit step configuration (beta, gamma, M, etc.)
         with solver settings (Newton and linear solver parameters).
-        
+
         Returns
         -------
         dict
