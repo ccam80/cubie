@@ -488,7 +488,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        local_elements_per_run = config.local_memory_elements
+        local_elements_per_run = max(1,config.local_memory_elements)
         shared_elems_per_run = config.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
