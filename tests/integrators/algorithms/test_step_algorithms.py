@@ -700,8 +700,7 @@ def device_step_results(
         state=d_proposed.copy_to_host(),
         observables=d_proposed_observables.copy_to_host(),
         error=d_error.copy_to_host(),
-        status=status_value & STATUS_MASK,
-        niters=(status_value >> 16) & STATUS_MASK,
+        status=status_value,
         counters = d_counters.copy_to_host()
     )
 
@@ -806,11 +805,12 @@ def _execute_step_twice(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+
         zero = numba_precision(0.0)
 
-        for cache_idx in range(shared.shape[0]):
+        for cache_idx in range(shared_elems):
             shared[cache_idx] = zero
-        for pers_idx in range(persistent.shape[0]):
+        for pers_idx in range(persistent_len):
             persistent[pers_idx] = zero
 
         if driver_function is not None:
