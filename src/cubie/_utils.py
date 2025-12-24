@@ -690,7 +690,9 @@ def build_config(
     defaults = {}
     required_fields = set()
     valid_fields = set()
-    # Map aliases to field names for underscore-prefixed attrs fields
+    # Map field names to aliases for underscore-prefixed attrs fields
+    # attrs uses aliases for constructor args: _foo field -> foo constructor arg
+    field_to_alias = {}
     alias_to_field = {}
 
     for field in fields(config_class):
@@ -698,19 +700,23 @@ def build_config(
         # Handle attrs auto-aliasing: _foo -> foo alias
         if field.alias is not None:
             valid_fields.add(field.alias)
+            field_to_alias[field.name] = field.alias
             alias_to_field[field.alias] = field.name
         if field.default is not NOTHING:
             # Has default value - extract it
+            # Use alias as key if available (attrs expects alias in __init__)
+            key = field.alias if field.alias is not None else field.name
             if isinstance(field.default, Factory):
-                defaults[field.name] = field.default.factory()
+                defaults[key] = field.default.factory()
             else:
-                defaults[field.name] = field.default
+                defaults[key] = field.default
         else:
             # No default - this is a required field
-            required_fields.add(field.name)
-            # Also accept alias for required field validation
+            # Use alias for validation if available
             if field.alias is not None:
                 required_fields.add(field.alias)
+            else:
+                required_fields.add(field.name)
 
     # Filter optional kwargs to remove None values
     # (None means "use default", not "set to None")
@@ -722,26 +728,22 @@ def build_config(
     merged = {**defaults, **required, **filtered_optional}
 
     # Validate all required config fields are present
-    # Check that either the field name or its alias is provided
     merged_keys = set(merged.keys())
-    missing = set()
-    for req_field in required_fields:
-        # Skip alias entries in required_fields check
-        if req_field in alias_to_field:
-            continue
-        # Check if field name or its alias is present
-        alias = next(
-            (a for a, f in alias_to_field.items() if f == req_field), None
-        )
-        if req_field not in merged_keys:
-            if alias is None or alias not in merged_keys:
-                missing.add(req_field)
+    missing = required_fields - merged_keys
     if missing:
         raise ValueError(
             f"{config_class.__name__} missing required fields: {missing}"
         )
 
     # Filter to only valid fields (ignore extra keys)
-    final = {k: v for k, v in merged.items() if k in valid_fields}
+    # Convert field names to aliases where needed for attrs __init__
+    final = {}
+    for k, v in merged.items():
+        if k in valid_fields:
+            # If key is a field name with an alias, use the alias instead
+            if k in field_to_alias:
+                final[field_to_alias[k]] = v
+            else:
+                final[k] = v
 
     return config_class(**final)
