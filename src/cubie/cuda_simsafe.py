@@ -112,7 +112,7 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
     total = 8 * 1024 ** 3
 
 
-class LocalArrayFactory:  # pragma: no cover - placeholder
+class LocalArrayFactory:  # pragma: no cover - simulated
     """Factory for local array allocation in simulation mode.
 
     Provides a simulation-compatible interface for cuda.local.array().

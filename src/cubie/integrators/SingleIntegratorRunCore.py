@@ -505,7 +505,9 @@ class SingleIntegratorRunCore(CUDAFactory):
                 "n", self._system.sizes.states)
             old_settings["algorithm_order"] = updates_dict.get(
                 "algorithm_order", self._algo_step.order)
-            # Merge tolerance updates from updates_dict
+            # Merge tolerance and step-size bounds from updates_dict into
+            # the controller settings: atol/rtol control error thresholds,
+            # dt_min/dt_max set the allowed step-size range
             for key in ['atol', 'rtol', 'dt_min', 'dt_max']:
                 if key in updates_dict:
                     old_settings[key] = updates_dict[key]

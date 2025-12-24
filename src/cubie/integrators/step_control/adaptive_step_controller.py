@@ -44,12 +44,12 @@ def tol_converter(
     """
 
     if np.isscalar(value):
-        tol = np.asarray([value] * self_.n, dtype=self_.precision)
+        tol = np.full(self_.n, value, dtype=self_.precision)
     else:
         tol = np.asarray(value, dtype=self_.precision)
         # Broadcast single-element arrays to shape (n,)
         if tol.shape[0] == 1 and self_.n > 1:
-            tol = np.asarray([tol[0]] * self_.n, dtype=self_.precision)
+            tol = np.full(self_.n, tol[0], dtype=self_.precision)
         elif tol.shape[0] != self_.n:
             raise ValueError("tol must have shape (n,).")
     return tol
