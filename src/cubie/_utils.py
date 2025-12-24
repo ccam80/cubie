@@ -188,7 +188,7 @@ def split_applicable_settings(
     filtered = {
         key: value
         for key, value in settings.items()
-        if key in accepted
+        if key in accepted and value is not None
     }
     missing = required - filtered.keys()
     unused = set(settings.keys()) - accepted
@@ -637,9 +637,9 @@ def build_config(
 ) -> Any:
     """Build attrs config instance from required and optional parameters.
 
-    Starts with config class defaults for all optional fields, then applies
-    provided required and optional values. This eliminates the verbose pattern
-    of checking `if param is not None` for every optional parameter.
+    Merges required parameters with optional overrides and passes them to the
+    attrs config class constructor. The config class itself defines defaults
+    for optional fields - this function simply filters and routes kwargs.
 
     Parameters
     ----------
@@ -649,20 +649,18 @@ def build_config(
         Required parameters that must be provided. These are typically
         function parameters like precision, n, dxdt_function.
     **optional
-        Optional parameter overrides. Only non-None values override defaults
-        from the config class.
+        Optional parameter overrides passed to the config constructor.
+        Extra keys not in the config class signature are ignored.
 
     Returns
     -------
     config_class instance
-        Configured attrs object with defaults + required + optional overrides.
+        Configured attrs object.
 
     Raises
     ------
     TypeError
         If config_class is not an attrs class.
-    ValueError
-        If required fields of config_class are missing after merge.
 
     Examples
     --------
@@ -674,26 +672,20 @@ def build_config(
 
     Notes
     -----
-    The helper automatically:
-    - Extracts defaults from config_class attrs fields
-    - Merges: defaults <- required <- optional (non-None)
-    - Filters out None values from optional kwargs
-    - Validates all required config fields are present
-    - Ignores extra keys not in config class fields
+    The helper:
+    - Merges required and optional kwargs
+    - Converts field names to aliases for underscore-prefixed attrs fields
+    - Filters to only valid fields (ignores extra keys)
+    - Lets attrs handle defaults for unspecified optional parameters
     """
     if not has(config_class):
         raise TypeError(
             f"{config_class.__name__} is not an attrs class"
         )
 
-    # Extract field info from config class
-    defaults = {}
-    required_fields = set()
+    # Build mapping of valid field names/aliases and field->alias conversion
     valid_fields = set()
-    # Map field names to aliases for underscore-prefixed attrs fields
-    # attrs uses aliases for constructor args: _foo field -> foo constructor arg
     field_to_alias = {}
-    alias_to_field = {}
 
     for field in fields(config_class):
         valid_fields.add(field.name)
@@ -701,42 +693,11 @@ def build_config(
         if field.alias is not None:
             valid_fields.add(field.alias)
             field_to_alias[field.name] = field.alias
-            alias_to_field[field.alias] = field.name
-        if field.default is not NOTHING:
-            # Has default value - extract it
-            # Use alias as key if available (attrs expects alias in __init__)
-            key = field.alias if field.alias is not None else field.name
-            if isinstance(field.default, Factory):
-                defaults[key] = field.default.factory()
-            else:
-                defaults[key] = field.default
-        else:
-            # No default - this is a required field
-            # Use alias for validation if available
-            if field.alias is not None:
-                required_fields.add(field.alias)
-            else:
-                required_fields.add(field.name)
 
-    # Filter optional kwargs to remove None values
-    # (None means "use default", not "set to None")
-    filtered_optional = {
-        k: v for k, v in optional.items() if v is not None
-    }
+    # Merge required and optional kwargs
+    merged = {**required, **optional}
 
-    # Merge: defaults <- required <- filtered_optional
-    merged = {**defaults, **required, **filtered_optional}
-
-    # Validate all required config fields are present
-    merged_keys = set(merged.keys())
-    missing = required_fields - merged_keys
-    if missing:
-        raise ValueError(
-            f"{config_class.__name__} missing required fields: {missing}"
-        )
-
-    # Filter to only valid fields (ignore extra keys)
-    # Convert field names to aliases where needed for attrs __init__
+    # Filter to only valid fields and convert field names to aliases
     final = {}
     for k, v in merged.items():
         if k in valid_fields:

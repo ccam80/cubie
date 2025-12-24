@@ -289,6 +289,26 @@ def test_split_applicable_settings_with_function():
     assert missing == {"required"}
     assert unused == {"extra"}
 
+
+def test_split_applicable_settings_filters_none_values():
+    """Verify split_applicable_settings filters out None values."""
+    class Example:
+        def __init__(self, required, optional=0, another=1):
+            self.required = required
+            self.optional = optional
+            self.another = another
+
+    filtered, missing, unused = split_applicable_settings(
+        Example,
+        {"required": 1, "optional": None, "another": 5},
+        warn_on_unused=False,
+    )
+    # None value for 'optional' should be filtered out
+    assert filtered == {"required": 1, "another": 5}
+    assert "optional" not in filtered
+    assert missing == set()
+
+
 def dummy_function():
     """Dummy function for timing tests."""
     return 42
@@ -576,31 +596,24 @@ class TestBuildConfig:
         assert config.optional_float == 2.5
         assert config.optional_str == 'custom'
 
-    def test_build_config_none_ignored(self):
-        """Verify None values don't override defaults."""
-        config = build_config(
-            SimpleTestConfig,
-            required={'precision': np.float32, 'n': 2},
-            optional_float=None,
-            optional_str=None,
-        )
-        assert config.optional_float == 1.0
-        assert config.optional_str == 'default'
-
-    def test_build_config_partial_none(self):
-        """Verify mix of None and non-None optional values."""
+    def test_build_config_passes_values_directly(self):
+        """Verify build_config passes all values directly to attrs.
+        
+        Note: None filtering happens upstream in split_applicable_settings.
+        If None values reach build_config, they are passed through to attrs.
+        """
+        # This test verifies the pass-through behavior
         config = build_config(
             SimpleTestConfig,
             required={'precision': np.float32, 'n': 2},
             optional_float=3.14,
-            optional_str=None,
         )
         assert config.optional_float == 3.14
         assert config.optional_str == 'default'
 
-    def test_build_config_missing_required(self):
-        """Verify error on missing required fields."""
-        with pytest.raises(ValueError, match="missing required fields"):
+    def test_build_config_attrs_handles_missing_required(self):
+        """Verify attrs raises error on missing required fields."""
+        with pytest.raises(TypeError):
             build_config(
                 SimpleTestConfig,
                 required={'precision': np.float32},
