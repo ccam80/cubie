@@ -69,11 +69,13 @@ class NewtonKrylovConfig:
     n: int = attrs.field(validator=getype_validator(int, 1))
     residual_function: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     linear_solver_function: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     _newton_tolerance: float = attrs.field(
         default=1e-3,

@@ -51,7 +51,8 @@ class ImplicitStepConfig(BaseStepConfig):
     )
     solver_function = attrs.field(
         default=None,
-        validator=attrs.validators.optional(is_device_validator)
+        validator=attrs.validators.optional(is_device_validator),
+        eq=False
     )
 
     @property

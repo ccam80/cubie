@@ -40,7 +40,7 @@ class SingleIntegratorRunCache(CUDAFunctionCache):
     single_integrator_function
         Compiled CUDA loop callable ready for execution on device.
     """
-    single_integrator_function: Callable = attrs.field()
+    single_integrator_function: Callable = attrs.field(eq=False)
 
 class SingleIntegratorRunCore(CUDAFactory):
     """Coordinate a single ODE integration loop and its dependencies.

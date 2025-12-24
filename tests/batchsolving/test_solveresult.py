@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from cubie import Solver
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
 
 Array = np.ndarray
@@ -355,7 +355,7 @@ class TestSolveResultProperties:
         active = result.active_outputs
 
         assert isinstance(active, ActiveOutputs)
-        assert active == solver_with_arrays.active_output_arrays
+        assert active == solver_with_arrays.active_outputs
 
 
 class TestSolveResultDefaultBehavior:

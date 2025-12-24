@@ -178,31 +178,38 @@ class ODELoopConfig:
     )
     save_state_fn: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     update_summaries_fn: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     save_summaries_fn: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     step_controller_fn: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     step_function: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     driver_function: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     observables_fn: Optional[Callable] = field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     _dt0: Optional[float] = field(
         default=0.01,

@@ -87,8 +87,9 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.local_memory_elements
 
     @property
-    def persistent_local_elements(self):
-        return self._loop.persistent_local_required
+    def persistent_local_elements(self) -> int:
+        """Return total persistent local-memory elements required by the loop."""
+        return self._loop.persistent_local_elements
 
     @property
     def compiled_loop_function(self) -> Callable:

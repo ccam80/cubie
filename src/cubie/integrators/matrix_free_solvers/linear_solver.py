@@ -64,11 +64,13 @@ class LinearSolverConfig:
     n: int = attrs.field(validator=getype_validator(int, 1))
     operator_apply: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     preconditioner: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
+        eq=False
     )
     linear_correction_type: str = attrs.field(
         default="minimal_residual",

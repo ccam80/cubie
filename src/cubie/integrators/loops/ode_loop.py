@@ -782,7 +782,7 @@ class IVPLoop(CUDAFactory):
         return buffer_registry.local_buffer_size(self)
 
     @property
-    def persistent_local_memory_elements(self) -> int:
+    def persistent_local_elements(self) -> int:
         """Return the loop's persistent local-memory requirement."""
         return buffer_registry.persistent_local_buffer_size(self)
 

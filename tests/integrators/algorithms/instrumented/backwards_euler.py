@@ -4,7 +4,7 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
-from cubie import PrecisionDType
+from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import \
     BackwardsEulerStepConfig, ALGO_CONSTANTS, BE_DEFAULTS

@@ -366,18 +366,22 @@ class BaseStepConfig(ABC):
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     observables_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     driver_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(validators.is_callable()),
+        eq=False
     )
 
     @property
