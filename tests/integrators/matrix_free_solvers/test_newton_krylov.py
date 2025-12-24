@@ -62,7 +62,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
-        local_persistent = cuda.local.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -73,7 +73,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             a_ij,
             base,
             shared,
-            local_persistent,
+            persistent_local,
             counters,
         )
 
@@ -379,7 +379,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
-        local_persistent = cuda.local.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -390,7 +390,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             a_ij,
             base,
             shared,
-            local_persistent,
+            persistent_local,
             counters,
         )
 

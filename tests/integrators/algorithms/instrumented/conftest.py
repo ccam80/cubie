@@ -257,9 +257,9 @@ def instrumented_step_results(
     # Bind step-specific functions/values in the same way as device_step_results
     step_function = instrumented_step_object.step_function
     numba_precision = from_dtype(precision)
-    shared_elems = instrumented_step_object.shared_memory_required
+    shared_elems = instrumented_step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, instrumented_step_object.persistent_local_required)
+    persistent_len = max(1, instrumented_step_object.persistent_local_elements)
     driver_function = None if driver_array is None else driver_array.evaluation_function
     # use system-provided observables function
     observables_function = system.observables_function

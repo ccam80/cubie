@@ -359,17 +359,17 @@ class InstrumentedERKStep(ERKStep):
         return self.tableau.has_error_estimate
 
     @property
-    def shared_memory_required(self) -> int:
+    def shared_memory_elements(self) -> int:
         """Return the number of precision entries required in shared memory."""
         return buffer_registry.shared_buffer_size(self)
 
     @property
-    def local_scratch_required(self) -> int:
+    def local_scratch_elements(self) -> int:
         """Return the number of local precision entries required."""
         return buffer_registry.local_buffer_size(self)
 
     @property
-    def persistent_local_required(self) -> int:
+    def persistent_local_elements(self) -> int:
         """Return the number of persistent local entries required."""
         return buffer_registry.persistent_local_buffer_size(self)
 

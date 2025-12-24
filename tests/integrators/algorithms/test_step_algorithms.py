@@ -507,49 +507,49 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     return {
         "euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": False,
             "is_adaptive": False,
         },
         "backwards_euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "backwards_euler_pc": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "crank_nicolson": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "rosenbrock": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": True,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "erk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_ERK_TABLEAU.stage_count > 1,
             "is_implicit": False,
             "is_adaptive": DEFAULT_ERK_TABLEAU.has_error_estimate,
         },
         "dirk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_DIRK_TABLEAU.stage_count > 1,
             "is_implicit": True,
             "is_adaptive": DEFAULT_DIRK_TABLEAU.has_error_estimate,
@@ -607,9 +607,9 @@ def device_step_results(
     status = np.full(1, 0, dtype=np.int32)
     counters = np.zeros(2, dtype=np.int32)
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(step_size)
 
@@ -715,7 +715,7 @@ def _execute_step_twice(
 ) -> DualStepResult:
     """Run the compiled step twice without clearing shared memory."""
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
 
     step_function = step_object.step_function
     driver_function = (
@@ -750,7 +750,7 @@ def _execute_step_twice(
     counters_second = np.zeros(2, dtype=np.int32)
 
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(solver_settings["dt"])
 

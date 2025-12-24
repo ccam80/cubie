@@ -43,9 +43,10 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - `chore:` - for everything else
 
 ### Architecture-Specific
-- See `AGENTS.md` for detailed style guidelines and project structure
+- See `.github/context/cubie_internal_structure.md` for detailed project structure
 - Never call `build()` directly on CUDAFactory subclasses; access via properties (they auto-cache)
 - No backwards compatibility enforcement - breaking changes expected during development
+- Use descriptive function names rather than minimal ones
 
 ### CUDA Device Code Patterns
 - **Prefer predicated commit over conditional branching** in CUDA device functions
@@ -103,7 +104,7 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 ## Environment Variables
 - **Never modify environment variables** in code (no monkeypatch or similar)
 - Set `NUMBA_ENABLE_CUDASIM` externally for CPU simulation, never in source
-- Only one AGENTS.md file exists (at repo root)
+- Style guidelines are consolidated in `.github/copilot-instructions.md`
 
 ## Dependencies
 - Core: numpy==1.26.4, numba, numba-cuda[cu12], attrs, sympy
@@ -125,6 +126,8 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 
 **Important**: Pipeline coordination is handled by the **default Copilot agent** (you). Custom agents do NOT have the ability to invoke other custom agents. You are responsible for invoking each agent in the proper sequence based on the `return_after` parameter.
 
+**CRITICAL: During pipeline execution, you (the default agent) should NOT read or edit source files directly**. Your role is purely coordination - invoke the appropriate agents and let them do the work. The exception is reading task_list.md to identify task groups for coordination.
+
 **Command variations to recognize:**
 - "run pipeline on issue #X, return after [level]"
 - "execute pipeline for issue #X"
@@ -135,22 +138,26 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 
 1. **Fetch the issue details** using GitHub tools to understand the request
 2. **Invoke plan_new_feature agent** with the issue content
-3. **Invoke subsequent agents in sequence** based on the `return_after` level:
-   - If return_after > plan_new_feature: invoke detailed_implementer
-   - If return_after > detailed_implementer: invoke taskmaster
-   - If return_after > taskmaster: invoke reviewer
-   - If return_after > reviewer AND reviewer suggests edits: invoke taskmaster again (2nd time)
-   - If return_after = docstring_guru: invoke docstring_guru
-4. **Default return_after level**: Use `docstring_guru` for complete implementation
-5. **Default starting agent**: `plan_new_feature` unless specified otherwise
+3. **Invoke detailed_implementer** with plan_new_feature outputs
+4. **For each task group in task_list.md**:
+   a. Invoke **taskmaster** for that specific task group
+   b. Wait for taskmaster to complete
+5. **Invoke run_tests** for complete test verification (once after all taskmasters complete)
+6. **If tests fail**: invoke taskmaster to fix issues, then run_tests again
+7. **Invoke reviewer** to validate implementation
+8. **If reviewer suggests edits**: invoke taskmaster for review edits
+9. **Invoke run_tests** at pipeline exit for final verification
+
+**Default return_after level**: Use `taskmaster_2` for complete implementation
+**Default starting agent**: `plan_new_feature` unless specified otherwise
 
 **Pipeline levels (in order):**
 1. `plan_new_feature` - Creates user stories, overview, and architectural plan
-2. `detailed_implementer` - Creates detailed task list
-3. `taskmaster` - Executes all tasks directly
-4. `reviewer` - Reviews implementation against user stories
-5. `taskmaster_2` - Applies review edits (second invocation of taskmaster)
-6. `docstring_guru` - Adds complete docstrings
+2. `detailed_implementer` - Creates detailed task list with task groups
+3. `taskmaster` - Executes one task group at a time (called per group)
+4. `run_tests` - Runs tests once after all taskmaster invocations complete
+5. `reviewer` - Reviews implementation against user stories
+6. `taskmaster_2` - Applies review edits (additional taskmaster invocation)
 
 **Example interpretation:**
 
@@ -164,15 +171,20 @@ Your action:
 3. Wait for plan_new_feature to complete
 4. Invoke detailed_implementer with plan_new_feature outputs
 5. Wait for detailed_implementer to complete
-6. Invoke taskmaster with detailed_implementer outputs
-7. Wait for taskmaster to complete
-8. Invoke reviewer with taskmaster outputs
-9. Wait for reviewer to complete
-10. If reviewer suggests edits, invoke taskmaster again with review outputs
-11. Wait for taskmaster (2nd) to complete
-12. Invoke docstring_guru with all outputs
-13. Summarize and return to user
+6. Read task_list.md to identify task groups (N groups)
+7. For each task group 1 to N:
+   a. Invoke taskmaster with: "Execute Task Group [i] from task_list.md"
+   b. Wait for taskmaster to complete
+8. Invoke run_tests for full test suite verification
+9. If tests fail, invoke taskmaster to fix, then run_tests again
+10. Invoke reviewer with all outputs
+11. Wait for reviewer to complete
+12. If reviewer suggests edits, invoke taskmaster with review edits
+13. Invoke run_tests for final verification
+14. Summarize and return to user
 ```
+
+**Note**: Reading task_list.md to identify task groups is the only file reading you should do during pipeline execution. Do NOT read source files or make edits yourself.
 
 ### Running the Renamer Agent
 

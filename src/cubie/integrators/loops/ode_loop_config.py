@@ -43,9 +43,9 @@ class ODELoopConfig:
         Number of error elements (typically equals n_states for adaptive).
     n_counters
         Number of counter elements.
-    state_summary_buffer_height
+    state_summaries_buffer_height
         Height of state summary buffer.
-    observable_summary_buffer_height
+    observable_summaries_buffer_height
         Height of observable summary buffer.
     controller_local_len
         Number of persistent local memory elements for the controller.
@@ -90,10 +90,10 @@ class ODELoopConfig:
     n_observables: int = field(default=0, validator=getype_validator(int, 0))
     n_error: int = field(default=0, validator=getype_validator(int, 0))
     n_counters: int = field(default=0, validator=getype_validator(int, 0))
-    state_summary_buffer_height: int = field(
+    state_summaries_buffer_height: int = field(
         default=0, validator=getype_validator(int, 0)
     )
-    observable_summary_buffer_height: int = field(
+    observable_summaries_buffer_height: int = field(
         default=0, validator=getype_validator(int, 0)
     )
     controller_local_len: int = field(

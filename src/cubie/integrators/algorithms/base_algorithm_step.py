@@ -633,17 +633,17 @@ class BaseAlgorithmStep(CUDAFactory):
         return self.compile_settings.can_reuse_accepted_start
 
     @property
-    def shared_memory_required(self) -> int:
+    def shared_memory_elements(self) -> int:
         """Return the precision-entry count of shared memory required."""
         return buffer_registry.shared_buffer_size(self)
 
     @property
-    def local_scratch_required(self) -> int:
+    def local_scratch_elements(self) -> int:
         """Return the precision-entry count of local scratch required."""
         return buffer_registry.local_buffer_size(self)
 
     @property
-    def persistent_local_required(self) -> int:
+    def persistent_local_elements(self) -> int:
         """Return the persistent local precision-entry requirement."""
 
         return buffer_registry.persistent_local_buffer_size(self)

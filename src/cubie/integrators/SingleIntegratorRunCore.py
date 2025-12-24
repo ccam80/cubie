@@ -345,8 +345,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             n_observables=n_observables,
             n_error=self.n_error,
             n_counters=n_counters,
-            state_summary_buffer_height=state_summaries_buffer_height,
-            observable_summary_buffer_height=observable_summaries_buffer_height,
+            state_summaries_buffer_height=state_summaries_buffer_height,
+            observable_summaries_buffer_height=observable_summaries_buffer_height,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -412,15 +412,12 @@ class SingleIntegratorRunCore(CUDAFactory):
         # Capture n whether or not system updated, in case of an algo/step swap
         updates_dict.update({'n': self._system.sizes.states})
 
+        # Capture outputsettings-generated compile settings and pass on
         out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
         if out_rcgnzd:
-            updates_dict.update({
-                'n_saved_states': self._output_functions.n_saved_states,
-                'n_summarised_states':
-                    self._output_functions.n_summarised_states,
-                'compile_flags': self._output_functions.compile_flags,
-            })
+            updates_dict.update({**self._output_functions.buffer_sizes_dict})
 
+        # Capture algorithm-generated compile settings and pass on
         step_recognized = self._switch_algos(updates_dict)
         step_recognized |= self._algo_step.update(updates_dict, silent=True)
         if step_recognized:

@@ -79,9 +79,9 @@ class IVPLoop(CUDAFactory):
         Number of error elements (typically equals n_states for adaptive).
     n_counters
         Number of counter elements.
-    state_summary_buffer_height
+    state_summaries_buffer_height
         Height of state summary buffer.
-    observable_summary_buffer_height
+    observable_summaries_buffer_height
         Height of observable summary buffer.
     state_location
         Memory location for state buffer: 'local' or 'shared'. If None,
@@ -166,8 +166,8 @@ class IVPLoop(CUDAFactory):
         n_observables: int = 0,
         n_error: int = 0,
         n_counters: int = 0,
-        state_summary_buffer_height: int = 0,
-        observable_summary_buffer_height: int = 0,
+        state_summaries_buffer_height: int = 0,
+        observable_summaries_buffer_height: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         dt0: Optional[float] = None,
@@ -204,8 +204,8 @@ class IVPLoop(CUDAFactory):
             'n_observables': n_observables,
             'n_error': n_error,
             'n_counters': n_counters,
-            'state_summary_buffer_height': state_summary_buffer_height,
-            'observable_summary_buffer_height': observable_summary_buffer_height,
+            'state_summaries_buffer_height': state_summaries_buffer_height,
+            'observable_summaries_buffer_height': observable_summaries_buffer_height,
             'precision': precision,
             'compile_flags': compile_flags,
             'dt_save': dt_save,
@@ -267,8 +267,8 @@ class IVPLoop(CUDAFactory):
         n_observables = config.n_observables
         n_error = config.n_error
         n_counters = config.n_counters
-        state_summary_buffer_height = config.state_summary_buffer_height
-        observable_summary_buffer_height = config.observable_summary_buffer_height
+        state_summaries_buffer_height = config.state_summaries_buffer_height
+        observable_summaries_buffer_height = config.observable_summaries_buffer_height
 
         # Register all loop buffers with central registry
 
@@ -309,11 +309,11 @@ class IVPLoop(CUDAFactory):
             precision=precision
         )
         buffer_registry.register(
-            'state_summary', self, state_summary_buffer_height,
+            'state_summary', self, state_summaries_buffer_height,
             config.state_summary_location, precision=precision
         )
         buffer_registry.register(
-            'observable_summary', self, observable_summary_buffer_height,
+            'observable_summary', self, observable_summaries_buffer_height,
             config.observable_summary_location, precision=precision
         )
         buffer_registry.register(
@@ -574,15 +574,13 @@ class IVPLoop(CUDAFactory):
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
                 if summarise:
-                    #reset temp buffers to starting state - will be overwritten
+                    #reset temp buffers to starting state
+                    statesumm_idx = summary_idx * summarise_state_bool
+                    obsumm_idx = summary_idx * summarise_obs_bool
                     save_summaries(state_summary_buffer,
                                    observable_summary_buffer,
-                                   state_summaries_output[
-                                       summary_idx * summarise_state_bool, :
-                                   ],
-                                   observable_summaries_output[
-                                       summary_idx * summarise_obs_bool, :
-                                   ],
+                                   state_summaries_output[statesumm_idx, :],
+                                   observable_summaries_output[obsumm_idx, :],
                                    saves_per_summary)
                 save_idx += int32(1)
 
@@ -742,6 +740,8 @@ class IVPLoop(CUDAFactory):
                             ],
                         )
                         if summarise:
+                            statesumm_idx = summary_idx * summarise_state_bool
+                            obssumm_idx = summary_idx * summarise_obs_bool
                             update_summaries(
                                 state_buffer,
                                 observables_buffer,
@@ -753,12 +753,8 @@ class IVPLoop(CUDAFactory):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
-                                    state_summaries_output[
-                                        summary_idx * summarise_state_bool, :
-                                    ],
-                                    observable_summaries_output[
-                                        summary_idx * summarise_obs_bool, :
-                                    ],
+                                    state_summaries_output[statesumm_idx,:],
+                                    observable_summaries_output[obssumm_idx,:],
                                     saves_per_summary,
                                 )
                                 summary_idx += int32(1)
@@ -778,7 +774,7 @@ class IVPLoop(CUDAFactory):
             (n_states,),  # initial_states
             (n_parameters,),  # parameters
             (100,n_states,6),  # driver_coefficients
-            (32768//8), # local persistent - not really used
+            (32768//8), # local persistent - arbitrary 32kb provided / float64
             (32768//8),  # persistent_local - arbitrary 32kb provided / float64
             (100, n_states), # state_output
             (100, n_observables), # observables_output
