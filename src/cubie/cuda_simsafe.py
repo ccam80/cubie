@@ -139,7 +139,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
-    local = LocalArrayFactory()
+    # local = LocalArrayFactory()
 
     def current_mem_info() -> Tuple[int, int]:
         """Return fake free and total memory values."""
@@ -151,7 +151,6 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         """Stub for setting a memory manager."""
 
 else:  # pragma: no cover - exercised in GPU environments
-    local = cuda.local
     from numba.cuda import (  # type: ignore[attr-defined]
         HostOnlyCUDAMemoryManager,
         MemoryPointer,
@@ -332,7 +331,7 @@ __all__ = [
     "FakeStream",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
-    "local",
+    # "local",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
