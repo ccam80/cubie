@@ -507,49 +507,49 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     return {
         "euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": False,
             "is_adaptive": False,
         },
         "backwards_euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "backwards_euler_pc": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "crank_nicolson": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "rosenbrock": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": True,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "erk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_ERK_TABLEAU.stage_count > 1,
             "is_implicit": False,
             "is_adaptive": DEFAULT_ERK_TABLEAU.has_error_estimate,
         },
         "dirk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_DIRK_TABLEAU.stage_count > 1,
             "is_implicit": True,
             "is_adaptive": DEFAULT_DIRK_TABLEAU.has_error_estimate,
@@ -607,9 +607,9 @@ def device_step_results(
     status = np.full(1, 0, dtype=np.int32)
     counters = np.zeros(2, dtype=np.int32)
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(step_size)
 
@@ -655,6 +655,7 @@ def device_step_results(
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
+        persistent[:] = precision(0.0)
         first_step_flag = int32(1)
         accepted_flag = int32(1)
         result = step_function(
@@ -715,7 +716,7 @@ def _execute_step_twice(
 ) -> DualStepResult:
     """Run the compiled step twice without clearing shared memory."""
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
 
     step_function = step_object.step_function
     driver_function = (
@@ -750,7 +751,7 @@ def _execute_step_twice(
     counters_second = np.zeros(2, dtype=np.int32)
 
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(solver_settings["dt"])
 
@@ -809,6 +810,8 @@ def _execute_step_twice(
 
         for cache_idx in range(shared.shape[0]):
             shared[cache_idx] = zero
+        for pers_idx in range(persistent.shape[0]):
+            persistent[pers_idx] = zero
 
         if driver_function is not None:
             driver_function(zero, driver_coeffs_vec, drivers_current_vec)
@@ -947,7 +950,7 @@ def _execute_cpu_step_twice(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1013,7 +1016,7 @@ def cpu_step_results(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1074,8 +1077,7 @@ def test_two_steps(
     assert all(status == 0 for status in cpu_result.statuses)
     assert gpu_result.statuses == cpu_result.statuses
 
-    tol = {"rtol": 5e-7, "atol": 1e-7} #softened somewhat for rodas3p
-    # implementation
+    tol = {"rtol": 5e-7, "atol": 1e-7}  # Loosened for rosenbrock variants
 
     assert_allclose(
         gpu_result.first_state,
@@ -1242,14 +1244,14 @@ def test_algorithm(
 
 
     if properties is not None and properties["is_implicit"]:
-        if algorithm == "rosenbrock":
-            assert config.max_linear_iters == solver_settings[
+        if isinstance(step_object, GenericRosenbrockWStep):
+            assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
-            assert config.linear_correction_type == solver_settings[
-                "correction_type"
+            assert step_object.linear_correction_type == solver_settings[
+                "linear_correction_type"
             ], "linear_correction_type set"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 solver_settings["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1257,32 +1259,32 @@ def test_algorithm(
         else:
             matrix = config.M
             assert matrix.shape == (system.sizes.states, system.sizes.states)
-            assert config.preconditioner_order == solver_settings[
+            assert step_object.preconditioner_order == solver_settings[
                 "preconditioner_order"
             ], "preconditioner order set"
-            assert config.max_linear_iters == solver_settings[
+            assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
-            assert config.linear_correction_type == solver_settings[
-                "correction_type"
+            assert step_object.linear_correction_type == solver_settings[
+                "linear_correction_type"
             ], "linear_correction_type set"
-            assert config.max_newton_iters == solver_settings[
+            assert step_object.max_newton_iters == solver_settings[
                 "max_newton_iters"
             ], "max_newton_iters set"
-            assert config.newton_max_backtracks == solver_settings[
+            assert step_object.newton_max_backtracks == solver_settings[
                 "newton_max_backtracks"
             ], "newton_max_backtracks set"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 solver_settings["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "krylov_tolerance set"
-            assert config.newton_tolerance == pytest.approx(
+            assert step_object.newton_tolerance == pytest.approx(
                 solver_settings["newton_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_tolerance set"
-            assert config.newton_damping == pytest.approx(
+            assert step_object.newton_damping == pytest.approx(
                 solver_settings["newton_damping"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1290,7 +1292,7 @@ def test_algorithm(
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             updates = {
                 "max_linear_iters": max(
                     1, solver_settings["max_linear_iters"] // 2
@@ -1301,12 +1303,11 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert config.max_linear_iters == updates["max_linear_iters"], \
+            assert step_object.max_linear_iters == updates["max_linear_iters"], \
                 "max_linear_iters update"
-            assert config.linear_correction_type == updates[
-                "linear_correction_type"
-            ], "linear_correction_type update"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.linear_correction_type == updates[
+                "linear_correction_type"], "linear_correction_type update"
+            assert step_object.krylov_tolerance == pytest.approx(
                 updates["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1328,22 +1329,22 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert config.max_newton_iters == updates["max_newton_iters"], \
+            assert step_object.max_newton_iters == updates["max_newton_iters"], \
                 "max_newton_iters update"
-            assert config.preconditioner_order == updates[
+            assert step_object.preconditioner_order == updates[
                 "preconditioner_order"
             ], "preconditioner_order update"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 updates["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "krylov_tolerance update"
-            assert config.newton_tolerance == pytest.approx(
+            assert step_object.newton_tolerance == pytest.approx(
                 updates["newton_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_tolerance update"
-            assert config.newton_damping == pytest.approx(
+            assert step_object.newton_damping == pytest.approx(
                 updates["newton_damping"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,

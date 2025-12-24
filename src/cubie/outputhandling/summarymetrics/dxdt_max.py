@@ -29,10 +29,11 @@ class DxdtMax(SummaryMetric):
     differences and scaled by dt_save in the save function.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the DxdtMax summary metric."""
         super().__init__(
             name="dxdt_max",
+            precision=precision,
             buffer_size=2,
             output_size=1,
             unit_modification="[unit]*s^-1",

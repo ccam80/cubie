@@ -17,7 +17,7 @@ from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
 @pytest.fixture(scope="session")
-def operator_system():
+def operator_system(precision):
     """Build a linear system with a constant Jacobian."""
 
     dxdt = [
@@ -25,7 +25,8 @@ def operator_system():
         "dx1 = c*x0 + d*x1",
     ]
     constants = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
-    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
+    system = create_ODE_system(dxdt, states=["x0", "x1"],
+                               constants=constants, precision=precision)
     return system
 
 

@@ -47,8 +47,12 @@ from cubie.integrators.algorithms import (
 )
 from cubie.integrators.loops import IVPLoop
 from cubie.integrators.matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+    LinearSolver,
+    LinearSolverConfig,
+    LinearSolverCache,
+    NewtonKrylov,
+    NewtonKrylovConfig,
+    NewtonKrylovCache,
 )
 from cubie.integrators.step_control import (
     AdaptiveIController,
@@ -89,8 +93,12 @@ __all__ = [
     "BackwardsEulerPCStep",
     "CrankNicolsonStep",
     "IVPLoop",
-    "linear_solver_factory",
-    "newton_krylov_solver_factory",
+    "LinearSolver",
+    "LinearSolverConfig",
+    "LinearSolverCache",
+    "NewtonKrylov",
+    "NewtonKrylovConfig",
+    "NewtonKrylovCache",
     "AdaptiveIController",
     "AdaptivePIController",
     "AdaptivePIDController",

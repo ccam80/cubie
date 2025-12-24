@@ -6,6 +6,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
@@ -13,6 +14,7 @@ from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
+    build_config,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
@@ -61,18 +63,8 @@ class GustafssonController(BaseAdaptiveStepController):
     def __init__(
         self,
         precision: PrecisionDType,
-        dt_min: float = 1e-6,
-        dt_max: float = 1.0,
-        atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        algorithm_order: int = 2,
         n: int = 1,
-        min_gain: float = 0.2,
-        max_gain: float = 5.0,
-        gamma: float = 0.9,
-        max_newton_iters: int = 0,
-        deadband_min: float = 1.0,
-        deadband_max: float = 1.2,
+        **kwargs,
     ) -> None:
         """Initialise a Gustafsson predictive controller.
 
@@ -80,46 +72,19 @@ class GustafssonController(BaseAdaptiveStepController):
         ----------
         precision
             Precision used for controller calculations.
-        dt_min
-            Minimum allowed step size.
-        dt_max
-            Maximum allowed step size.
-        atol
-            Absolute tolerance specification.
-        rtol
-            Relative tolerance specification.
-        algorithm_order
-            Order of the integration algorithm.
         n
             Number of state variables.
-        min_gain
-            Lower bound for the step size change factor.
-        max_gain
-            Upper bound for the step size change factor.
-        gamma
-            Gustafsson damping factor applied to the gain.
-        max_newton_iters
-            Maximum number of Newton iterations expected during solves.
-        deadband_min
-            Lower gain threshold for holding the previous step size.
-        deadband_max
-            Upper gain threshold for holding the previous step size.
+        **kwargs
+            Optional parameters passed to GustafssonStepControlConfig. See
+            GustafssonStepControlConfig for available parameters including
+            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
+            gamma, max_newton_iters, deadband_min, deadband_max. None values
+            are ignored.
         """
-
-        config = GustafssonStepControlConfig(
-            precision=precision,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            atol=atol,
-            rtol=rtol,
-            algorithm_order=algorithm_order,
-            min_gain=min_gain,
-            max_gain=max_gain,
-            n=n,
-            gamma=gamma,
-            max_newton_iters=max_newton_iters,
-            deadband_min=deadband_min,
-            deadband_max=deadband_max,
+        config = build_config(
+            GustafssonStepControlConfig,
+            required={'precision': precision, 'n': n},
+            **kwargs
         )
 
         super().__init__(config)
@@ -188,6 +153,10 @@ class GustafssonController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the Gustafsson controller.
         """
+        alloc_timestep_buffer = buffer_registry.get_allocator(
+            'timestep_buffer', self
+        )
+
         expo = precision(1.0 / (2 * (algorithm_order + 1)))
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
@@ -206,23 +175,13 @@ class GustafssonController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            # [
-            #     (
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         numba_precision[::1],
-            #         int32,
-            #         int32[::1],
-            #         numba_precision[::1],
-            #     )
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_gustafsson(
-            dt, state, state_prev, error, niters, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out,
+            shared_scratch, persistent_local
         ):  # pragma: no cover - CUDA
             """Gustafsson accept/step controller.
 
@@ -240,18 +199,23 @@ class GustafssonController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
+            timestep_buffer = alloc_timestep_buffer(
+                shared_scratch, persistent_local
+            )
 
             current_dt = dt[0]
-            dt_prev = max(local_temp[0], precision(1e-16))
-            err_prev = max(local_temp[1], precision(1e-16))
+            dt_prev = max(timestep_buffer[0], precision(1e-16))
+            err_prev = max(timestep_buffer[1], precision(1e-16))
 
             nrm2 = typed_zero
             for i in range(n):
@@ -288,8 +252,8 @@ class GustafssonController(BaseAdaptiveStepController):
             dt_new_raw = current_dt * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            local_temp[0] = current_dt
-            local_temp[1] = nrm2
+            timestep_buffer[0] = current_dt
+            timestep_buffer[1] = nrm2
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 

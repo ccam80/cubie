@@ -27,10 +27,11 @@ class Peaks(SummaryMetric):
     valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Peaks summary metric with parameterised sizes."""
         super().__init__(
             name="peaks",
+            precision=precision,
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
             unit_modification="s",
@@ -91,7 +92,7 @@ class Peaks(SummaryMetric):
             npeaks = customisable_variable
             prev = buffer[0]
             prev_prev = buffer[1]
-            peak_counter = int(buffer[2])
+            peak_counter = int32(buffer[2])
 
             if (
                 (current_index >= 2)
@@ -101,7 +102,7 @@ class Peaks(SummaryMetric):
                 if prev > value and prev_prev < prev:
                     # Bingo
                     buffer[3 + peak_counter] = (current_index - 1)
-                    buffer[2] = float(int(buffer[2]) + 1)
+                    buffer[2] = precision(int32(buffer[2]) + 1)
             buffer[0] = value  # Update previous value
             buffer[1] = prev  # Update previous previous value
 

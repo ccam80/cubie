@@ -23,8 +23,10 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 compile_kwargs: dict[str, bool] = (
         {} if CUDA_SIMULATION
         else {
-              'fastmath': {
-                   'nsz': True,
+            'lineinfo': True,
+            # 'debug':True,
+            'fastmath': {
+                'nsz': True,
                    'contract': True,
                    'arcp': True,
               },
@@ -110,7 +112,21 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
     total = 8 * 1024 ** 3
 
 
-if CUDA_SIMULATION:  # pragma: no cover - simulated         
+class LocalArrayFactory:  # pragma: no cover - simulated
+    """Factory for local array allocation in simulation mode.
+
+    Provides a simulation-compatible interface for cuda.local.array().
+    In simulation mode, returns a numpy zeros array instead of a CUDA
+    local memory array.
+    """
+
+    @staticmethod
+    def array(size, dtype):
+        """Allocate a local array with the given size and dtype."""
+        return np.zeros(size, dtype=dtype)
+
+
+if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
 
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
@@ -123,6 +139,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
+    local = LocalArrayFactory()
 
     def current_mem_info() -> Tuple[int, int]:
         """Return fake free and total memory values."""
@@ -134,6 +151,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         """Stub for setting a memory manager."""
 
 else:  # pragma: no cover - exercised in GPU environments
+    local = cuda.local
     from numba.cuda import (  # type: ignore[attr-defined]
         HostOnlyCUDAMemoryManager,
         MemoryPointer,
@@ -220,11 +238,25 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         return predicate
 
     @cuda.jit(
+        device=True,
+        inline=True,
+    )
+    def any_sync(mask, predicate):
+        return predicate
+
+    @cuda.jit(
             device=True,
             inline=True,
     )
     def syncwarp(mask):
         pass
+
+    @cuda.jit(
+            device=True,
+            inline=True,
+    )
+    def stwt(array, index, value):
+        array[index] = value
 
 else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
@@ -256,8 +288,24 @@ else:  # pragma: no cover - relies on GPU runtime
         inline=True,
         **compile_kwargs,
     )
+    def any_sync(mask, predicate):
+        return cuda.any_sync(mask, predicate)
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
     def syncwarp(mask):
         return cuda.syncwarp(mask)
+
+    @cuda.jit(
+            device=True,
+            inline=True,
+            **compile_kwargs,
+    )
+    def stwt(array, index, value):
+        cuda.stwt(array, index, value)
 
 
 def is_cudasim_enabled() -> bool:
@@ -284,6 +332,7 @@ __all__ = [
     "FakeStream",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
+    "local",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
@@ -295,5 +344,6 @@ __all__ = [
     "is_cuda_array",
     "is_cudasim_enabled",
     "set_cuda_memory_manager",
-    "selp"
+    "selp",
+    "stwt"
 ]

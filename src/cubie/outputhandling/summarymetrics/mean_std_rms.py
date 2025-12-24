@@ -32,10 +32,11 @@ class MeanStdRms(SummaryMetric):
     The output array contains [mean, std, rms] in that order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the MeanStdRms composite metric."""
         super().__init__(
             name="mean_std_rms",
+            precision=precision,
             buffer_size=3,
             output_size=3,
             unit_modification="[unit]",

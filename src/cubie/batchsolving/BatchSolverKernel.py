@@ -6,7 +6,7 @@ from warnings import warn
 
 import numpy as np
 from numba import cuda, float64, float32
-from numba import int32, int16
+from numba import int32
 
 import attrs
 
@@ -18,15 +18,15 @@ from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays,
-    ActiveOutputs,
-)
+    OutputArrays, )
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     SingleRunOutputSizes,
 )
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import PrecisionDType, unpack_dict_values
 
@@ -159,19 +159,16 @@ class BatchSolverKernel(CUDAFactory):
             shared_memory_elements=(
                 self.single_integrator.shared_memory_elements
             ),
-            ActiveOutputs=ActiveOutputs(),
-            # placeholder, updated after arrays allocate
+            compile_flags=self.single_integrator.output_compile_flags,
         )
         self.setup_compile_settings(initial_config)
 
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
-        # Allocate/update to set active outputs then refresh compile settings
         self.output_arrays.update(self)
         self.update_compile_settings(
             {
-                "ActiveOutputs": self.output_arrays.active_outputs,
                 "local_memory_elements": (
                     self.single_integrator.local_memory_elements
                 ),
@@ -277,11 +274,7 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
-        # Queue allocations
-        self.input_arrays.update(self, inits, params, driver_coefficients)
-        self.output_arrays.update(self)
-
-        # Refresh compile-critical settings (may trigger rebuild)
+        # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
@@ -292,9 +285,12 @@ class BatchSolverKernel(CUDAFactory):
                 "shared_memory_elements": (
                     self.single_integrator.shared_memory_elements
                 ),
-                "ActiveOutputs": self.output_arrays.active_outputs,
             }
         )
+
+        # Queue allocations
+        self.input_arrays.update(self, inits, params, driver_coefficients)
+        self.output_arrays.update(self)
 
         # Process allocations into chunks
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
@@ -323,6 +319,11 @@ class BatchSolverKernel(CUDAFactory):
             padded_bytes,
             numruns,
         )
+
+        # We need a nonzero number to tell the compiler we're using dynamic
+        # memory. If zero, then the cuda.shared.array(0) call fails as we
+        # can't declare a size-0 static shared memory array.
+        dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
@@ -480,14 +481,14 @@ class BatchSolverKernel(CUDAFactory):
 
         loopfunction = self.single_integrator.device_function
 
-        output_flags = config.ActiveOutputs
+        output_flags = self.active_outputs
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        local_elements_per_run = config.local_memory_elements
+        local_elements_per_run = max(1,config.local_memory_elements)
         shared_elems_per_run = config.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
@@ -496,21 +497,21 @@ class BatchSolverKernel(CUDAFactory):
         )
         # no cover: start
         @cuda.jit(
-            # (
-            #     precision[:, ::1],
-            #     precision[:, ::1],
-            #     precision[:, :, ::1],
-            #     precision[:, :, ::1],
-            #     precision[:, :, ::1],
-            #     precision[:, :, ::1],
-            #     precision[:, :, ::1],
-            #     int32[:, :, :],
-            #     int32[::1],
-            #     float64,
-            #     float64,
-            #     float64,
-            #     int32,
-            # ),
+            (
+                precision[:, ::1],
+                precision[:, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                precision[:, :, ::1],
+                int32[:, :, ::1],
+                int32[::1],
+                float64,
+                float64,
+                float64,
+                int32,
+            ),
             **compile_kwargs,
         )
         def integration_kernel(
@@ -564,10 +565,10 @@ class BatchSolverKernel(CUDAFactory):
             None
                 The device kernel performs integration for its side effects.
             """
-            tx = int16(cuda.threadIdx.x)
-            ty = int16(cuda.threadIdx.y)
+            tx = int32(cuda.threadIdx.x)
+            ty = int32(cuda.threadIdx.y)
             block_index = int32(cuda.blockIdx.x)
-            runs_per_block = cuda.blockDim.y
+            runs_per_block = int32(cuda.blockDim.y)
             run_index = int32(runs_per_block * block_index + ty)
             if run_index >= n_runs:
                 return None
@@ -578,8 +579,8 @@ class BatchSolverKernel(CUDAFactory):
                 local_elements_per_run, dtype=float32
             )
             c_coefficients = cuda.const.array_like(d_coefficients)
-            run_idx_low = ty * run_stride_f32
-            run_idx_high = (
+            run_idx_low = int32(ty * run_stride_f32)
+            run_idx_high = int32(
                 run_idx_low + f32_per_element * shared_elems_per_run
             )
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
@@ -715,15 +716,16 @@ class BatchSolverKernel(CUDAFactory):
         all_unrecognized -= self.single_integrator.update(
                 updates_dict, silent=True
         )
+
         updates_dict.update({
-            "loop_function": self.single_integrator.device_function,
+            "loop_fn": self.single_integrator.device_function,
             "local_memory_elements": (
                 self.single_integrator.local_memory_elements
             ),
             "shared_memory_elements": (
                 self.single_integrator.shared_memory_elements
             ),
-             "ActiveOutputs": self.output_arrays.active_outputs,
+            "compile_flags": self.single_integrator.output_compile_flags,
         })
 
         all_unrecognized -= self.update_compile_settings(
@@ -758,10 +760,16 @@ class BatchSolverKernel(CUDAFactory):
         return self.compile_settings.shared_memory_elements
 
     @property
-    def ActiveOutputs(self) -> ActiveOutputs:
-        """Active output array flags."""
+    def compile_flags(self) -> OutputCompileFlags:
+        """Boolean compile-time controls for which output features are enabled."""
 
-        return self.compile_settings.ActiveOutputs
+        return self.compile_settings.compile_flags
+
+    @property
+    def active_outputs(self) -> ActiveOutputs:
+        """Active output array flags derived from compile_flags."""
+
+        return self.compile_settings.active_outputs
 
     @property
     def shared_memory_needs_padding(self) -> bool:
@@ -911,8 +919,8 @@ class BatchSolverKernel(CUDAFactory):
         division. No summary is recorded for t=0 and partial intervals at
         the tail of integration are excluded.
         """
-
-        return int(self._duration / self.single_integrator.dt_summarise)
+        precision = self.precision
+        return int(precision(self._duration) /precision(self.dt_summarise))
 
     @property
     def warmup_length(self) -> int:
@@ -1033,13 +1041,6 @@ class BatchSolverKernel(CUDAFactory):
         """Indices of summarised observable variables."""
 
         return self.single_integrator.summarised_observable_indices
-
-    @property
-    def active_output_arrays(self) -> "ActiveOutputs":
-        """Active output flags after ensuring arrays are allocated."""
-
-        self.output_arrays.allocate()
-        return self.output_arrays.active_outputs
 
     @property
     def device_state_array(self) -> Any:

@@ -179,6 +179,7 @@ class ODEData:
     @classmethod
     def from_BaseODE_initargs(
         cls,
+        precision: PrecisionDType,
         initial_values: Optional[Dict[str, float]] = None,
         parameters: Optional[Dict[str, float]] = None,
         constants: Optional[Dict[str, float]] = None,
@@ -187,7 +188,6 @@ class ODEData:
         default_parameters: Optional[Dict[str, float]] = None,
         default_constants: Optional[Dict[str, float]] = None,
         default_observable_names: Optional[Dict[str, float]] = None,
-        precision: PrecisionDType = np.float64,
         num_drivers: int = 1,
     ) -> "ODEData":
         """Create :class:`ODEData` from ``BaseODE`` initialization arguments.

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from cubie import merge_kwargs_into_settings
+from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
@@ -148,8 +148,8 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 #         n_parameters=system.sizes.parameters,
 #         n_drivers=system.sizes.drivers,
 #         n_observables=system.sizes.observables,
-#         state_summary_buffer_height=output_functions.state_summaries_buffer_height,
-#         observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+#         state_summaries_buffer_height=output_functions.state_summaries_buffer_height,
+#         observable_summaries_buffer_height=output_functions.observable_summaries_buffer_height,
 #         n_error=n_error,
 #         n_counters=0,
 #     )
@@ -159,7 +159,7 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 #         buffer_settings=buffer_settings,
 #         compile_flags=output_functions.compile_flags,
 #         controller_local_len=step_controller.local_memory_elements,
-#         algorithm_local_len=step_object.persistent_local_required,
+#         algorithm_local_len=step_object.persistent_local_elements,
 #         save_state_func=output_functions.save_state_func,
 #         update_summaries_func=output_functions.update_summaries_func,
 #         save_summaries_func=output_functions.save_summary_metrics_func,
@@ -252,6 +252,7 @@ def test_time_driver_array_matches_function(
     output_functions_function = OutputFunctions(
         function_system.sizes.states,
         function_system.sizes.observables,
+        precision,
         solver_settings["output_types"],
         solver_settings["saved_state_indices"],
         solver_settings["saved_observable_indices"],

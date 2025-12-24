@@ -27,10 +27,11 @@ class NegativePeaks(SummaryMetric):
     occur in valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the NegativePeaks summary metric."""
         super().__init__(
             name="negative_peaks",
+            precision=precision,
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
             unit_modification="s",
@@ -91,16 +92,16 @@ class NegativePeaks(SummaryMetric):
             npeaks = customisable_variable
             prev = buffer[0]
             prev_prev = buffer[1]
-            peak_counter = int(buffer[2])
+            peak_counter = int32(buffer[2])
 
             if (
-                (current_index >= 2)
+                (current_index >= int32(2))
                 and (peak_counter < npeaks)
                 and (prev_prev != precision(0.0))
             ):
                 if prev < value and prev_prev > prev:
                     buffer[3 + peak_counter] = (current_index - 1)
-                    buffer[2] = float(int(buffer[2]) + 1)
+                    buffer[2] = precision(int32(buffer[2]) + 1)
             buffer[0] = value
             buffer[1] = prev
 

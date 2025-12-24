@@ -30,11 +30,10 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 from typing import Callable, Optional
 
 import attrs
-from attrs import validators
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
-from cubie._utils import PrecisionDType, getype_validator
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+from cubie._utils import PrecisionDType, build_config
+from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -48,219 +47,6 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERKTableau,
 )
-
-
-@attrs.define
-class ERKLocalSizes(LocalSizes):
-    """Local array sizes for ERK buffers with nonzero guarantees.
-
-    Attributes
-    ----------
-    stage_rhs : int
-        Stage RHS buffer size.
-    stage_accumulator : int
-        Stage accumulator buffer size.
-    stage_cache : int
-        Stage cache buffer size (for FSAL optimization).
-    """
-
-    stage_rhs: int = attrs.field(validator=getype_validator(int, 0))
-    stage_accumulator: int = attrs.field(validator=getype_validator(int, 0))
-    stage_cache: int = attrs.field(validator=getype_validator(int, 0))
-
-
-@attrs.define
-class ERKSliceIndices(SliceIndices):
-    """Slice container for ERK shared memory buffer layouts.
-
-    Attributes
-    ----------
-    stage_rhs : slice
-        Slice covering the stage RHS buffer (empty if local).
-    stage_accumulator : slice
-        Slice covering the stage accumulator buffer (empty if local).
-    stage_cache : slice
-        Slice covering the stage cache buffer (aliases rhs or accumulator).
-    local_end : int
-        Offset of the end of algorithm-managed shared memory.
-    """
-
-    stage_rhs: slice = attrs.field()
-    stage_accumulator: slice = attrs.field()
-    stage_cache: slice = attrs.field()
-    local_end: int = attrs.field()
-
-
-@attrs.define
-class ERKBufferSettings(BufferSettings):
-    """Configuration for ERK step buffer sizes and memory locations.
-
-    Controls whether stage_rhs and stage_accumulator buffers use shared
-    or local memory. Also manages stage_cache aliasing logic for FSAL
-    optimization.
-
-    Attributes
-    ----------
-    n : int
-        Number of state variables.
-    stage_count : int
-        Number of RK stages.
-    stage_rhs_location : str
-        Memory location for stage RHS buffer: 'local' or 'shared'.
-    stage_accumulator_location : str
-        Memory location for stage accumulator buffer: 'local' or 'shared'.
-    """
-
-    n: int = attrs.field(validator=getype_validator(int, 1))
-    stage_count: int = attrs.field(validator=getype_validator(int, 1))
-    stage_rhs_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-    stage_accumulator_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
-    )
-
-    @property
-    def use_shared_stage_rhs(self) -> bool:
-        """Return True if stage_rhs buffer uses shared memory."""
-        return self.stage_rhs_location == 'shared'
-
-    @property
-    def use_shared_stage_accumulator(self) -> bool:
-        """Return True if stage_accumulator buffer uses shared memory."""
-        return self.stage_accumulator_location == 'shared'
-
-    @property
-    def use_shared_stage_cache(self) -> bool:
-        """Return True if stage_cache should use shared memory.
-
-        stage_cache is shared if either stage_rhs or stage_accumulator
-        is shared (it aliases onto one of them).
-        """
-        return self.use_shared_stage_rhs or self.use_shared_stage_accumulator
-
-    @property
-    def stage_cache_aliases_rhs(self) -> bool:
-        """Return True if stage_cache aliases stage_rhs.
-
-        stage_cache aliases stage_rhs when stage_rhs is in shared memory.
-        """
-        return self.use_shared_stage_rhs
-
-    @property
-    def stage_cache_aliases_accumulator(self) -> bool:
-        """Return True if stage_cache aliases stage_accumulator.
-
-        stage_cache aliases accumulator when stage_rhs is local but
-        accumulator is shared.
-        """
-        return (not self.use_shared_stage_rhs
-                and self.use_shared_stage_accumulator)
-
-    @property
-    def accumulator_length(self) -> int:
-        """Return the length of the stage accumulator buffer."""
-        return max(self.stage_count - 1, 0) * self.n
-
-    @property
-    def shared_memory_elements(self) -> int:
-        """Return total shared memory elements required.
-
-        Includes stage_rhs (n) if shared, and accumulator if shared.
-        """
-        total = 0
-        if self.use_shared_stage_rhs:
-            total += self.n
-        if self.use_shared_stage_accumulator:
-            total += self.accumulator_length
-        return total
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return total local memory elements required.
-
-        Includes stage_rhs (n) if local, accumulator if local,
-        plus persistent_local for stage_cache if not aliased.
-        """
-        total = 0
-        if not self.use_shared_stage_rhs:
-            total += self.n
-        if not self.use_shared_stage_accumulator:
-            total += self.accumulator_length
-        # stage_cache needs persistent local if neither is shared
-        if not self.use_shared_stage_cache:
-            total += self.n
-        return total
-
-    @property
-    def persistent_local_elements(self) -> int:
-        """Return persistent local elements for stage_cache.
-
-        Returns n if stage_cache cannot alias onto shared buffers.
-        """
-        if self.use_shared_stage_cache:
-            return 0
-        return self.n
-
-    @property
-    def local_sizes(self) -> ERKLocalSizes:
-        """Return ERKLocalSizes instance with buffer sizes.
-
-        The returned object provides nonzero sizes suitable for
-        cuda.local.array allocation.
-        """
-        return ERKLocalSizes(
-            stage_rhs=self.n,
-            stage_accumulator=self.accumulator_length,
-            stage_cache=self.n if not self.use_shared_stage_cache else 0,
-        )
-
-    @property
-    def shared_indices(self) -> ERKSliceIndices:
-        """Return ERKSliceIndices instance with shared memory layout.
-
-        The returned object contains slices for each buffer's region
-        in shared memory. Local buffers receive empty slices.
-        """
-        ptr = 0
-
-        if self.use_shared_stage_rhs:
-            stage_rhs_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            stage_rhs_slice = slice(0, 0)
-
-        if self.use_shared_stage_accumulator:
-            stage_accumulator_slice = slice(ptr, ptr + self.accumulator_length)
-            ptr += self.accumulator_length
-        else:
-            stage_accumulator_slice = slice(0, 0)
-
-        # stage_cache aliases rhs or accumulator when either is in shared
-        if self.stage_cache_aliases_rhs:
-            stage_cache_slice = stage_rhs_slice
-        elif self.stage_cache_aliases_accumulator:
-            stage_cache_slice = slice(
-                stage_accumulator_slice.start,
-                stage_accumulator_slice.start + self.n
-            )
-        else:
-            stage_cache_slice = slice(0, 0)
-
-        return ERKSliceIndices(
-            stage_rhs=stage_rhs_slice,
-            stage_accumulator=stage_accumulator_slice,
-            stage_cache=stage_cache_slice,
-            local_end=ptr,
-        )
-
-
-# Buffer location parameters for ERK algorithms
-ALL_ERK_BUFFER_LOCATION_PARAMETERS = {
-    "stage_rhs_location",
-    "stage_accumulator_location",
-}
-
 
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -322,11 +108,13 @@ class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
     tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    buffer_settings: Optional[ERKBufferSettings] = attrs.field(
-        default=None,
-        validator=validators.optional(
-            validators.instance_of(ERKBufferSettings)
-        ),
+    stage_rhs_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    stage_accumulator_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
     )
 
     @property
@@ -348,11 +136,10 @@ class ERKStep(ODEExplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
-        stage_rhs_location: Optional[str] = None,
-        stage_accumulator_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the Runge--Kutta step configuration.
-        
+
         This constructor creates an ERK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
@@ -384,34 +171,37 @@ class ERKStep(ODEExplicitStep):
             (Dormand-Prince 5(4)).
         n_drivers
             Number of driver variables in the system.
-        
+        **kwargs
+            Optional parameters passed to config classes. See ERKStepConfig
+            for available parameters. None values are ignored.
+
         Notes
         -----
         The step controller defaults are selected dynamically:
-        
+
         - If ``tableau.has_error_estimate`` is ``True``:
           Uses :data:`ERK_ADAPTIVE_DEFAULTS` (PI controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`ERK_FIXED_DEFAULTS` (fixed-step controller)
-        
+
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau. Users
         can still override these defaults by explicitly specifying step
         controller settings when creating a :class:`Solver` or calling
         :func:`solve_ivp`.
-        
+
         Examples
         --------
         Create an ERK step with the default Dormand-Prince tableau:
-        
+
         >>> from cubie.integrators.algorithms.generic_erk import ERKStep
         >>> import numpy as np
         >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
         'pi'
-        
+
         Create an ERK step with Classical RK4 (errorless):
-        
+
         >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
         ...     CLASSICAL_RK4_TABLEAU
         ... )
@@ -419,30 +209,20 @@ class ERKStep(ODEExplicitStep):
         >>> step.controller_defaults.step_controller["step_controller"]
         'fixed'
         """
-
-        # Create buffer_settings - only pass locations if explicitly provided
-        buffer_kwargs = {
-            'n': n,
-            'stage_count': tableau.stage_count,
-        }
-        if stage_rhs_location is not None:
-            buffer_kwargs['stage_rhs_location'] = stage_rhs_location
-        if stage_accumulator_location is not None:
-            buffer_kwargs['stage_accumulator_location'] = stage_accumulator_location
-        buffer_settings = ERKBufferSettings(**buffer_kwargs)
-        config_kwargs = {
-            "precision": precision,
-            "n": n,
-            "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
-            "get_solver_helper_fn": get_solver_helper_fn,
-            "tableau": tableau,
-            "buffer_settings": buffer_settings,
-        }
-        
-        config = ERKStepConfig(**config_kwargs)
+        config = build_config(
+            ERKStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'n_drivers': n_drivers,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'tableau': tableau,
+            },
+            **kwargs
+        )
 
         if tableau.has_error_estimate:
             defaults = ERK_ADAPTIVE_DEFAULTS
@@ -450,6 +230,34 @@ class ERKStep(ODEExplicitStep):
             defaults = ERK_FIXED_DEFAULTS
 
         super().__init__(config, defaults)
+        self.register_buffers()
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        tableau = config.tableau
+
+        # Calculate buffer sizes
+        accumulator_length = max(tableau.stage_count - 1, 0) * n
+
+        # Register algorithm buffers using config values
+        buffer_registry.register(
+            'stage_rhs',
+            self,
+            n,
+            config.stage_rhs_location,
+            persistent=True,
+            precision=precision
+        )
+        buffer_registry.register(
+            'stage_accumulator',
+            self,
+            accumulator_length,
+            config.stage_accumulator_location,
+            precision=precision
+        )
 
     def build_step(
         self,
@@ -463,15 +271,14 @@ class ERKStep(ODEExplicitStep):
         """Compile the explicit Runge--Kutta device step."""
 
         config = self.compile_settings
-        precision = self.precision
         tableau = config.tableau
 
         typed_zero = numba_precision(0.0)
-        n_arraysize = n
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
-        accumulator_length = (tableau.stage_count - 1) * n_arraysize
+
+        accumulator_length = (tableau.stage_count - 1) * n
 
         has_driver_function = driver_function is not None
         first_same_as_last = self.first_same_as_last
@@ -487,7 +294,6 @@ class ERKStep(ODEExplicitStep):
         else:
             error_weights = tuple(typed_zero for _ in range(stage_count))
 
-        # Last-step caching optimization (issue #163):
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -500,25 +306,10 @@ class ERKStep(ODEExplicitStep):
         if b_hat_row is not None:
             b_hat_row = int32(b_hat_row)
 
-        # Buffer settings from compile_settings for selective shared/local
-        buffer_settings = config.buffer_settings
-
-        # Unpack boolean flags as compile-time constants
-        stage_rhs_shared = buffer_settings.use_shared_stage_rhs
-        stage_accumulator_shared = buffer_settings.use_shared_stage_accumulator
-        stage_cache_shared = buffer_settings.use_shared_stage_cache
-
-        # Unpack slice indices for shared memory layout
-        shared_indices = buffer_settings.shared_indices
-        stage_rhs_slice = shared_indices.stage_rhs
-        stage_accumulator_slice = shared_indices.stage_accumulator
-        stage_cache_slice = shared_indices.stage_cache
-
-        # Unpack local sizes for local array allocation
-        local_sizes = buffer_settings.local_sizes
-        stage_rhs_local_size = local_sizes.nonzero('stage_rhs')
-        stage_accumulator_local_size = local_sizes.nonzero('stage_accumulator')
-        stage_cache_local_size = local_sizes.nonzero('stage_cache')
+        # Get allocators from buffer registry
+        getalloc = buffer_registry.get_allocator
+        alloc_stage_rhs = getalloc('stage_rhs', self)
+        alloc_stage_accumulator = getalloc('stage_accumulator', self)
 
         # no cover: start
         @cuda.jit(
@@ -534,8 +325,8 @@ class ERKStep(ODEExplicitStep):
             #     numba_precision[::1],
             #     numba_precision,
             #     numba_precision,
-            #     int16,
-            #     int16,
+            #     int32,
+            #     int32,
             #     numba_precision[::1],
             #     numba_precision[::1],
             #     int32[::1],
@@ -561,65 +352,9 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
-            # ----------------------------------------------------------- #
-            # Shared and local buffer guide:
-            # stage_accumulator: size (stage_count-1) * n, shared or local.
-            #   Default behaviour:
-            #       - Holds finished stage rhs * dt for later stage sums.
-            #       - Slice k stores contributions streamed into stage k+1.
-            #   Reuse:
-            #       - stage_cache: first slice (size n)
-            #           - Saves the FSAL rhs when the tableau supports it.
-            #           - Cache survives after the loop so no live slice is hit.
-            # proposed_state: size n, global memory.
-            #   Default behaviour:
-            #       - Starts as the accepted state and gathers stage updates.
-            #       - Each stage applies its weighted increment before moving on.
-            # proposed_drivers / proposed_observables: size n each, global.
-            #   Default behaviour:
-            #       - Refresh to the current stage time before rhs evaluation.
-            #       - Later stages only read the newest values, so nothing lingers.
-            # stage_rhs: size n, shared or local memory.
-            #   Default behaviour:
-            #       - Holds the current stage rhs before scaling by dt.
-            #   Reuse:
-            #       - When FSAL hits we copy cached rhs here before touching
-            #         shared memory, keeping lifetimes separate.
-            # error: size n, global memory (adaptive runs only).
-            #   Default behaviour:
-            #       - Accumulates error-weighted f(y_jn) during the
-            #       loop.
-            #       - Cleared at loop entry so prior steps cannot leak in.
-            # ----------------------------------------------------------- #
 
-            # ----------------------------------------------------------- #
-            # Selective allocation from local or shared memory
-            # ----------------------------------------------------------- #
-            if stage_rhs_shared:
-                stage_rhs = shared[stage_rhs_slice]
-            else:
-                stage_rhs = cuda.local.array(stage_rhs_local_size, precision)
-                for _i in range(stage_rhs_local_size):
-                    stage_rhs[_i] = typed_zero
-
-            if stage_accumulator_shared:
-                stage_accumulator = shared[stage_accumulator_slice]
-            else:
-                stage_accumulator = cuda.local.array(
-                    stage_accumulator_local_size, precision
-                )
-                for _i in range(stage_accumulator_local_size):
-                    stage_accumulator[_i] = typed_zero
-
-            if multistage:
-                # stage_cache persists between steps for FSAL optimization.
-                # When shared, slice from shared memory; when local, use
-                # persistent_local to maintain state between step invocations.
-                if stage_cache_shared:
-                    stage_cache = shared[stage_cache_slice]
-                else:
-                    stage_cache = persistent_local[:stage_cache_local_size]
-            # ----------------------------------------------------------- #
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
+            stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
@@ -633,32 +368,20 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            # Only use cache if all threads in warp can - otherwise no gain
+            # Only use cache if all threads in warp can - otherwise no gain.
             use_cached_rhs = False
             if first_same_as_last and multistage:
                 if not first_step_flag:
                     mask = activemask()
                     all_threads_accepted = all_sync(
                             mask,
-                            accepted_flag != int16(0))
+                            accepted_flag != int32(0))
                     use_cached_rhs = all_threads_accepted
             else:
                 use_cached_rhs = False
 
-            if multistage:
-                if use_cached_rhs:
-                    for idx in range(n):
-                        stage_rhs[idx] = stage_cache[idx]
-                else:
-                    dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        current_time,
-                    )
-            else:
+            # Keep cached rhs if able to, otherwise recalculate.
+            if not multistage or not use_cached_rhs:
                 dxdt_fn(
                     state,
                     parameters,
@@ -786,10 +509,6 @@ class ERKStep(ODEExplicitStep):
                     end_time,
             )
 
-            if first_same_as_last:
-                for idx in range(n):
-                    stage_cache[idx] = stage_rhs[idx]
-
             return int32(0)
 
         return StepCache(step=step)
@@ -803,26 +522,6 @@ class ERKStep(ODEExplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` if algorithm calculates an error estimate."""
         return self.tableau.has_error_estimate
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Return the number of precision entries required in shared memory."""
-        return self.compile_settings.buffer_settings.shared_memory_elements
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Return the number of local precision entries required."""
-        return self.compile_settings.n
-
-    @property
-    def persistent_local_required(self) -> int:
-        """Return the number of persistent local entries required.
-
-        Returns n for stage_cache when neither stage_rhs nor stage_accumulator
-        uses shared memory. When either is shared, stage_cache aliases it.
-        """
-        buffer_settings = self.compile_settings.buffer_settings
-        return buffer_settings.persistent_local_elements
 
     @property
     def order(self) -> int:

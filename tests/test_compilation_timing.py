@@ -2,7 +2,7 @@
 
 import time
 import pytest
-from cubie import create_ODE_system
+from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
 from cubie.time_logger import _default_timelogger
 
