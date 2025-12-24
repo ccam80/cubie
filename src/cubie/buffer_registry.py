@@ -17,7 +17,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import getype_validator, precision_validator
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, local
 
 
 @attrs.define
@@ -133,7 +133,7 @@ class CUDABuffer:
             elif _use_persistent:
                 array = persistent[_persistent_slice]
             else:
-                array = cuda.local.array(_local_size, _precision)
+                array = local.array(_local_size, _precision)
             if _zero:
                 for i in range(elements):
                     array[i] = _precision(0.0)

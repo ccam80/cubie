@@ -112,7 +112,21 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
     total = 8 * 1024 ** 3
 
 
-if CUDA_SIMULATION:  # pragma: no cover - simulated         
+class LocalArrayFactory:  # pragma: no cover - simulated
+    """Factory for local array allocation in simulation mode.
+
+    Provides a simulation-compatible interface for cuda.local.array().
+    In simulation mode, returns a numpy zeros array instead of a CUDA
+    local memory array.
+    """
+
+    @staticmethod
+    def array(size, dtype):
+        """Allocate a local array with the given size and dtype."""
+        return np.zeros(size, dtype=dtype)
+
+
+if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
 
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
@@ -125,6 +139,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
+    local = LocalArrayFactory()
 
     def current_mem_info() -> Tuple[int, int]:
         """Return fake free and total memory values."""
@@ -136,6 +151,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         """Stub for setting a memory manager."""
 
 else:  # pragma: no cover - exercised in GPU environments
+    local = cuda.local
     from numba.cuda import (  # type: ignore[attr-defined]
         HostOnlyCUDAMemoryManager,
         MemoryPointer,
@@ -316,6 +332,8 @@ __all__ = [
     "FakeStream",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
+    "local",
+    "LocalArrayFactory",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
