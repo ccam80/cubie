@@ -3,14 +3,11 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from cubie.batchsolving.arrays.BatchOutputArrays import (
-    ActiveOutputs,
-    OutputArrayContainer,
+from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrayContainer,
     OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.outputhandling.output_config import OutputCompileFlags
 
 
 
@@ -131,17 +128,6 @@ class TestOutputArrayContainer:
         assert container.state.memory_type == "device"
 
 
-
-def test_active_outputs_initialization():
-    """Test ActiveOutputs initialization"""
-    active = ActiveOutputs()
-    assert active.state is False
-    assert active.observables is False
-    assert active.state_summaries is False
-    assert active.observable_summaries is False
-    assert active.status_codes is False
-
-
 class TestOutputArrays:
     """Test the OutputArrays class"""
 
@@ -259,15 +245,6 @@ class TestOutputArrays:
         assert output_arrays_manager._chunks == 2
         assert output_arrays_manager._chunk_axis == "run"
 
-    def test_active_outputs_from_solver(self, output_arrays_manager, solver):
-        """Test active_outputs comes from solver"""
-        solver.kernel.num_runs = 5
-        output_arrays_manager.update(solver)
-
-        result = solver.active_outputs
-        assert isinstance(result, ActiveOutputs)
-        # status_codes is always True when set from compile flags
-        assert result.status_codes is True
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -529,85 +506,3 @@ class TestOutputArraysSpecialCases:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
-
-    def test_active_outputs_after_allocation(
-        self, output_arrays_manager, solver
-    ):
-        """Test active outputs detection after allocation"""
-        # Allocate arrays from solver
-        output_arrays_manager.update(solver)
-
-        # Check active outputs from solver (not output_arrays_manager)
-        result = solver.active_outputs
-        assert isinstance(result, ActiveOutputs)
-        # status_codes is always True when set from compile flags
-        assert result.status_codes is True
-
-
-class TestActiveOutputsFromCompileFlags:
-    """Tests for ActiveOutputs.from_compile_flags factory method."""
-
-    def test_all_flags_true(self):
-        """Test mapping when all compile flags are enabled."""
-        # Use specific flags (summarise_state, summarise_observables) which are
-        # what ActiveOutputs.from_compile_flags() reads; the general 'summarise'
-        # flag is redundant here but included for completeness
-        flags = OutputCompileFlags(
-            save_state=True,
-            save_observables=True,
-            summarise_observables=True,
-            summarise_state=True,
-            save_counters=True,
-        )
-        active = ActiveOutputs.from_compile_flags(flags)
-
-        assert active.state is True
-        assert active.observables is True
-        assert active.state_summaries is True
-        assert active.observable_summaries is True
-        assert active.iteration_counters is True
-        assert active.status_codes is True
-
-    def test_all_flags_false(self):
-        """Test mapping when all compile flags are disabled."""
-        flags = OutputCompileFlags(
-            save_state=False,
-            save_observables=False,
-            summarise_observables=False,
-            summarise_state=False,
-            save_counters=False,
-        )
-        active = ActiveOutputs.from_compile_flags(flags)
-
-        assert active.state is False
-        assert active.observables is False
-        assert active.state_summaries is False
-        assert active.observable_summaries is False
-        assert active.iteration_counters is False
-        # status_codes is ALWAYS True
-        assert active.status_codes is True
-
-    def test_status_codes_always_true(self):
-        """Verify status_codes is always True regardless of flags."""
-        flags = OutputCompileFlags()  # All defaults (False)
-        active = ActiveOutputs.from_compile_flags(flags)
-        assert active.status_codes is True
-
-    def test_partial_flags(self):
-        """Test with only some flags enabled."""
-        flags = OutputCompileFlags(
-            save_state=True,
-            save_observables=False,
-            summarise=True,
-            summarise_observables=False,
-            summarise_state=True,
-            save_counters=False,
-        )
-        active = ActiveOutputs.from_compile_flags(flags)
-
-        assert active.state is True
-        assert active.observables is False
-        assert active.state_summaries is True
-        assert active.observable_summaries is False
-        assert active.iteration_counters is False
-        assert active.status_codes is True

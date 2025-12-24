@@ -18,9 +18,8 @@ from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays,
-    ActiveOutputs,
-)
+    OutputArrays, )
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
@@ -482,7 +481,7 @@ class BatchSolverKernel(CUDAFactory):
 
         loopfunction = self.single_integrator.device_function
 
-        output_flags = config.ActiveOutputs
+        output_flags = self.active_outputs
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
@@ -770,13 +769,7 @@ class BatchSolverKernel(CUDAFactory):
     def active_outputs(self) -> ActiveOutputs:
         """Active output array flags derived from compile_flags."""
 
-        return self.compile_settings.ActiveOutputs
-
-    @property
-    def ActiveOutputs(self) -> ActiveOutputs:
-        """Active output array flags."""
-
-        return self.compile_settings.ActiveOutputs
+        return self.compile_settings.active_outputs
 
     @property
     def shared_memory_needs_padding(self) -> bool:
@@ -926,8 +919,8 @@ class BatchSolverKernel(CUDAFactory):
         division. No summary is recorded for t=0 and partial intervals at
         the tail of integration are excluded.
         """
-
-        return int(self._duration / self.single_integrator.dt_summarise)
+        precision=self.precision
+        return int(precision(self._duration) /precision(self.dt_summarise))
 
     @property
     def warmup_length(self) -> int:
@@ -1048,13 +1041,6 @@ class BatchSolverKernel(CUDAFactory):
         """Indices of summarised observable variables."""
 
         return self.single_integrator.summarised_observable_indices
-
-    @property
-    def active_output_arrays(self) -> "ActiveOutputs":
-        """Active output flags after ensuring arrays are allocated."""
-
-        self.output_arrays.allocate()
-        return self.active_outputs
 
     @property
     def device_state_array(self) -> Any:

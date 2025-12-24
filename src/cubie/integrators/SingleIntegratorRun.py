@@ -88,7 +88,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
     @property
     def persistent_local_elements(self):
-        return self._loop.persistent_local_required
+        return self._loop.persistent_local_elements
 
     @property
     def compiled_loop_function(self) -> Callable:

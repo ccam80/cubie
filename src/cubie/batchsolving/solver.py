@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import numpy as np
 
 from cubie._utils import PrecisionDType
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
@@ -907,9 +907,9 @@ class Solver:
         )
 
     @property
-    def active_output_arrays(self) -> ActiveOutputs:
+    def active_outputs(self) -> ActiveOutputs:
         """Expose active output array containers."""
-        return self.kernel.active_output_arrays
+        return self.kernel.active_outputs
 
     @property
     def state(self):

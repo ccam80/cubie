@@ -4,6 +4,7 @@ from typing import Callable, Optional
 
 import attrs
 import numba
+from attrs import validators as val
 from numpy import float32
 
 from cubie._utils import (
@@ -13,10 +14,82 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
+
+@attrs.define
+class ActiveOutputs:
+    """
+    Track which output arrays are actively being used.
+
+    This class provides boolean flags indicating which output types are
+    currently active based on array sizes and allocation status.
+
+    Parameters
+    ----------
+    state
+        Whether state output is active.
+    observables
+        Whether observables output is active.
+    state_summaries
+        Whether state summaries output is active.
+    observable_summaries
+        Whether observable summaries output is active.
+    status_codes
+        Whether status code output is active.
+    """
+
+    state: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    observables: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    state_summaries: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    observable_summaries: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    status_codes: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    iteration_counters: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+
+    @classmethod
+    def from_compile_flags(cls, flags: OutputCompileFlags) -> "ActiveOutputs":
+        """
+        Create ActiveOutputs from compile flags.
+
+        Parameters
+        ----------
+        flags
+            The compile flags determining which outputs are active.
+
+        Returns
+        -------
+        ActiveOutputs
+            Instance with flags derived from compile flags.
+
+        Notes
+        -----
+        Maps OutputCompileFlags to ActiveOutputs:
+        - save_state → state
+        - save_observables → observables
+        - summarise_state → state_summaries
+        - summarise_observables → observable_summaries
+        - save_counters → iteration_counters
+        - status_codes is always True (always written during execution)
+        """
+        return cls(
+            state=flags.save_state,
+            observables=flags.save_observables,
+            state_summaries=flags.summarise_state,
+            observable_summaries=flags.summarise_observables,
+            status_codes=True,
+            iteration_counters=flags.save_counters,
+        )
 
 @attrs.define
 class BatchSolverConfig:
@@ -44,6 +117,7 @@ class BatchSolverConfig:
     loop_fn: Optional[Callable] = attrs.field(
         default=None,
         validator=attrs.validators.optional(is_device_validator),
+        eq=False
     )
     local_memory_elements: int = attrs.field(
         default=0,
@@ -59,7 +133,7 @@ class BatchSolverConfig:
     )
 
     @property
-    def ActiveOutputs(self) -> ActiveOutputs:
+    def active_outputs(self) -> ActiveOutputs:
         """Derive ActiveOutputs from compile_flags."""
         return ActiveOutputs.from_compile_flags(self.compile_flags)
 
@@ -74,3 +148,4 @@ class BatchSolverConfig:
         """Simulator-safe precision compatible with CUDA kernels."""
 
         return simsafe_dtype(self.precision)
+

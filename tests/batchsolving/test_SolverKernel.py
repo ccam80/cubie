@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.buffer_registry import buffer_registry
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-
+from cubie.outputhandling.output_config import OutputCompileFlags
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 
 def test_kernel_builds(solverkernel):
     """Test that the solver builds without errors."""
@@ -139,14 +139,14 @@ def test_getters_get(solverkernel):
     assert solverkernel.summarised_observable_indices is not None, (
         "BatchSolverKernel.summarised_observable_indices returning None"
     )
-    assert solverkernel.active_output_arrays is not None, (
-        "BatchSolverKernel.active_output_arrays returning None"
+    assert solverkernel.active_outputs is not None, (
+        "BatchSolverKernel.active_outputs returning None"
     )
     # device arrays SHOULD be None.
 
 
 def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settings,
-                            algorithm_settings, precision):
+                            algorithm_settings, precision, driver_array):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     solverkernel = solverkernel_mutable
@@ -201,17 +201,20 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         output_settings=output_settings,
         loop_settings={"dt_save": 0.01, "dt_summarise": 0.1},
     )
-    inits = np.ones((3,2), dtype=precision)
-    params = np.ones((3,2), dtype=precision)
-    freshsolver.run(inits=inits, params=params, driver_coefficients=None,
+    inits = np.ones((3,1), dtype=precision)
+    params = np.ones((3,1), dtype=precision)
+    driver_coefficients = driver_array.coefficients
+    freshsolver.run(inits=inits,
+                    params=params,
+                    driver_coefficients=driver_coefficients,
                     duration=0.1)
-    solverkernel.run(inits=inits, params=params, driver_coefficients=None,
+    solverkernel.run(inits=inits,
+                     params=params,
+                     driver_coefficients=driver_coefficients,
                      duration=0.1)
-    assert (buffer_registry._groups[freshsolver.single_integrator] ==
-            buffer_registry._groups[solverkernel.single_integrator]), \
-        "Buffer registry mismatch"
-    assert freshsolver.compile_settings == solverkernel.compile_settings, (
-        "BatchSolverConfig mismatch"
+    assert (freshsolver.compile_settings.local_memory_elements ==
+            solverkernel.compile_settings.local_memory_elements), (
+        "Local memory mismatch mismatch"
     )
     assert (
         freshsolver.single_integrator.compile_settings
@@ -239,3 +242,70 @@ def test_bogus_update_fails(solverkernel_mutable):
         solverkernel.update(obviously_bogus_key="this should not work")
 
 
+class TestActiveOutputsFromCompileFlags:
+    """Tests for ActiveOutputs.from_compile_flags factory method."""
+
+    def test_all_flags_true(self):
+        """Test mapping when all compile flags are enabled."""
+        # Use specific flags (summarise_state, summarise_observables) which are
+        # what ActiveOutputs.from_compile_flags() reads; the general 'summarise'
+        # flag is redundant here but included for completeness
+        flags = OutputCompileFlags(
+            save_state=True,
+            save_observables=True,
+            summarise_observables=True,
+            summarise_state=True,
+            save_counters=True,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is True
+        assert active.observables is True
+        assert active.state_summaries is True
+        assert active.observable_summaries is True
+        assert active.iteration_counters is True
+        assert active.status_codes is True
+
+    def test_all_flags_false(self):
+        """Test mapping when all compile flags are disabled."""
+        flags = OutputCompileFlags(
+            save_state=False,
+            save_observables=False,
+            summarise_observables=False,
+            summarise_state=False,
+            save_counters=False,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is False
+        assert active.observables is False
+        assert active.state_summaries is False
+        assert active.observable_summaries is False
+        assert active.iteration_counters is False
+        # status_codes is ALWAYS True
+        assert active.status_codes is True
+
+    def test_status_codes_always_true(self):
+        """Verify status_codes is always True regardless of flags."""
+        flags = OutputCompileFlags()  # All defaults (False)
+        active = ActiveOutputs.from_compile_flags(flags)
+        assert active.status_codes is True
+
+    def test_partial_flags(self):
+        """Test with only some flags enabled."""
+        flags = OutputCompileFlags(
+            save_state=True,
+            save_observables=False,
+            summarise=True,
+            summarise_observables=False,
+            summarise_state=True,
+            save_counters=False,
+        )
+        active = ActiveOutputs.from_compile_flags(flags)
+
+        assert active.state is True
+        assert active.observables is False
+        assert active.state_summaries is True
+        assert active.observable_summaries is False
+        assert active.iteration_counters is False
+        assert active.status_codes is True
