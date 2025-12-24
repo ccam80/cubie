@@ -690,9 +690,15 @@ def build_config(
     defaults = {}
     required_fields = set()
     valid_fields = set()
+    # Map aliases to field names for underscore-prefixed attrs fields
+    alias_to_field = {}
 
     for field in fields(config_class):
         valid_fields.add(field.name)
+        # Handle attrs auto-aliasing: _foo -> foo alias
+        if field.alias is not None:
+            valid_fields.add(field.alias)
+            alias_to_field[field.alias] = field.name
         if field.default is not NOTHING:
             # Has default value - extract it
             if isinstance(field.default, Factory):
@@ -702,6 +708,9 @@ def build_config(
         else:
             # No default - this is a required field
             required_fields.add(field.name)
+            # Also accept alias for required field validation
+            if field.alias is not None:
+                required_fields.add(field.alias)
 
     # Filter optional kwargs to remove None values
     # (None means "use default", not "set to None")
@@ -713,7 +722,20 @@ def build_config(
     merged = {**defaults, **required, **filtered_optional}
 
     # Validate all required config fields are present
-    missing = required_fields - set(merged.keys())
+    # Check that either the field name or its alias is provided
+    merged_keys = set(merged.keys())
+    missing = set()
+    for req_field in required_fields:
+        # Skip alias entries in required_fields check
+        if req_field in alias_to_field:
+            continue
+        # Check if field name or its alias is present
+        alias = next(
+            (a for a, f in alias_to_field.items() if f == req_field), None
+        )
+        if req_field not in merged_keys:
+            if alias is None or alias not in merged_keys:
+                missing.add(req_field)
     if missing:
         raise ValueError(
             f"{config_class.__name__} missing required fields: {missing}"

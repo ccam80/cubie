@@ -12,6 +12,7 @@ value problems. The source code is available on `Github
    systems
    drivers
    algorithms
+   optional_arguments
    speed
    cuda
    userfunctions

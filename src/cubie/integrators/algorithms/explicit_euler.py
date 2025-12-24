@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \

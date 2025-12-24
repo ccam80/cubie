@@ -8,6 +8,7 @@ from numba.cuda.random import create_xoroshiro128p_states
 from numpy import float32
 
 from cubie._utils import (
+    build_config,
     clamp_factory,
     get_noise_32,
     get_noise_64,
@@ -517,3 +518,190 @@ def test_unpack_dict_values_preserves_types():
     assert result['none_val'] is None
     assert result['list_val'] == [1, 2, 3]
     assert unpacked == {'settings'}
+
+
+# =============================================================================
+# Tests for build_config helper function
+# =============================================================================
+
+
+@attrs.define
+class SimpleTestConfig:
+    """Simple attrs config for testing build_config."""
+    precision: type = attrs.field()
+    n: int = attrs.field()
+    optional_float: float = attrs.field(default=1.0)
+    optional_str: str = attrs.field(default='default')
+
+
+@attrs.define
+class ConfigWithFactory:
+    """Config with attrs.Factory default for testing build_config."""
+    precision: type = attrs.field()
+    data: dict = attrs.field(factory=dict)
+    items: list = attrs.field(factory=list)
+
+
+@attrs.define
+class ConfigWithAlias:
+    """Config with underscore-prefixed field (auto-aliased) for testing."""
+    precision: type = attrs.field()
+    _private_value: float = attrs.field(default=0.5, alias='private_value')
+
+
+class TestBuildConfig:
+    """Tests for build_config helper function."""
+
+    def test_build_config_basic(self):
+        """Verify basic config construction with required params only."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 3},
+        )
+        assert config.precision == np.float32
+        assert config.n == 3
+        assert config.optional_float == 1.0
+        assert config.optional_str == 'default'
+
+    def test_build_config_optional_override(self):
+        """Verify optional parameters override defaults."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float64, 'n': 5},
+            optional_float=2.5,
+            optional_str='custom',
+        )
+        assert config.precision == np.float64
+        assert config.n == 5
+        assert config.optional_float == 2.5
+        assert config.optional_str == 'custom'
+
+    def test_build_config_none_ignored(self):
+        """Verify None values don't override defaults."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 2},
+            optional_float=None,
+            optional_str=None,
+        )
+        assert config.optional_float == 1.0
+        assert config.optional_str == 'default'
+
+    def test_build_config_partial_none(self):
+        """Verify mix of None and non-None optional values."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 2},
+            optional_float=3.14,
+            optional_str=None,
+        )
+        assert config.optional_float == 3.14
+        assert config.optional_str == 'default'
+
+    def test_build_config_missing_required(self):
+        """Verify error on missing required fields."""
+        with pytest.raises(ValueError, match="missing required fields"):
+            build_config(
+                SimpleTestConfig,
+                required={'precision': np.float32},
+            )
+
+    def test_build_config_extra_kwargs_ignored(self):
+        """Verify extra kwargs are silently ignored."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 4},
+            extra_param='ignored',
+            another_extra=123,
+        )
+        assert config.precision == np.float32
+        assert config.n == 4
+        assert not hasattr(config, 'extra_param')
+        assert not hasattr(config, 'another_extra')
+
+    def test_build_config_non_attrs_raises(self):
+        """Verify TypeError for non-attrs class."""
+        class RegularClass:
+            def __init__(self, x):
+                self.x = x
+
+        with pytest.raises(TypeError, match="is not an attrs class"):
+            build_config(
+                RegularClass,
+                required={'x': 1},
+            )
+
+    def test_build_config_factory_defaults(self):
+        """Verify attrs.Factory defaults are handled correctly."""
+        config = build_config(
+            ConfigWithFactory,
+            required={'precision': np.float32},
+        )
+        assert config.precision == np.float32
+        assert config.data == {}
+        assert config.items == []
+        assert config.data is not ConfigWithFactory.__attrs_attrs__[1].default
+
+    def test_build_config_factory_override(self):
+        """Verify attrs.Factory defaults can be overridden."""
+        config = build_config(
+            ConfigWithFactory,
+            required={'precision': np.float32},
+            data={'key': 'value'},
+            items=[1, 2, 3],
+        )
+        assert config.data == {'key': 'value'}
+        assert config.items == [1, 2, 3]
+
+    def test_build_config_alias_handling(self):
+        """Verify underscore-prefixed fields with aliases work correctly."""
+        config = build_config(
+            ConfigWithAlias,
+            required={'precision': np.float32},
+            private_value=0.75,
+        )
+        assert config.precision == np.float32
+        assert config._private_value == 0.75
+
+    def test_build_config_alias_default(self):
+        """Verify alias fields use defaults when not overridden."""
+        config = build_config(
+            ConfigWithAlias,
+            required={'precision': np.float64},
+        )
+        assert config._private_value == 0.5
+
+    def test_build_config_with_real_config_class(self):
+        """Test build_config with actual cubie config class."""
+        from cubie.integrators.step_control.fixed_step_controller import (
+            FixedStepControlConfig
+        )
+        config = build_config(
+            FixedStepControlConfig,
+            required={'precision': np.float32, 'n': 3, 'dt': 0.01},
+        )
+        assert config.precision == np.float32
+        assert config.n == 3
+
+    def test_build_config_required_in_optional_overrides(self):
+        """Verify required fields can also be in optional kwargs."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32},
+            n=7,
+        )
+        assert config.n == 7
+
+    def test_build_config_empty_required(self):
+        """Verify empty required dict works when all fields have defaults."""
+        @attrs.define
+        class AllOptionalConfig:
+            value: int = attrs.field(default=42)
+            name: str = attrs.field(default='test')
+
+        config = build_config(
+            AllOptionalConfig,
+            required={},
+        )
+        assert config.value == 42
+        assert config.name == 'test'
