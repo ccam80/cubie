@@ -159,7 +159,7 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 #         buffer_settings=buffer_settings,
 #         compile_flags=output_functions.compile_flags,
 #         controller_local_len=step_controller.local_memory_elements,
-#         algorithm_local_len=step_object.persistent_local_required,
+#         algorithm_local_len=step_object.persistent_local_elements,
 #         save_state_func=output_functions.save_state_func,
 #         update_summaries_func=output_functions.update_summaries_func,
 #         save_summaries_func=output_functions.save_summary_metrics_func,
