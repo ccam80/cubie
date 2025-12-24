@@ -148,8 +148,8 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
 #         n_parameters=system.sizes.parameters,
 #         n_drivers=system.sizes.drivers,
 #         n_observables=system.sizes.observables,
-#         state_summary_buffer_height=output_functions.state_summaries_buffer_height,
-#         observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
+#         state_summaries_buffer_height=output_functions.state_summaries_buffer_height,
+#         observable_summaries_buffer_height=output_functions.observable_summaries_buffer_height,
 #         n_error=n_error,
 #         n_counters=0,
 #     )

@@ -201,9 +201,15 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         output_settings=output_settings,
         loop_settings={"dt_save": 0.01, "dt_summarise": 0.1},
     )
-    _ = freshsolver.kernel
-    _ = solverkernel.kernel
-    assert buffer_registry._groups[freshsolver] == buffer_registry._groups[solverkernel]
+    inits = np.ones((3,2), dtype=precision)
+    params = np.ones((3,2), dtype=precision)
+    freshsolver.run(inits=inits, params=params, driver_coefficients=None,
+                    duration=0.1)
+    solverkernel.run(inits=inits, params=params, driver_coefficients=None,
+                     duration=0.1)
+    assert (buffer_registry._groups[freshsolver.single_integrator] ==
+            buffer_registry._groups[solverkernel.single_integrator]), \
+        "Buffer registry mismatch"
     assert freshsolver.compile_settings == solverkernel.compile_settings, (
         "BatchSolverConfig mismatch"
     )

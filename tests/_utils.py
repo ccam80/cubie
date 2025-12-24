@@ -806,9 +806,9 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
-    shared_bytes = singleintegratorrun.shared_memory_bytes
+    shared_bytes = max(4,singleintegratorrun.shared_memory_bytes)
     shared_elements = singleintegratorrun.shared_memory_elements
-    persistent_required = singleintegratorrun.local_persistent_elements
+    persistent_required = singleintegratorrun.persistent_local_elements
     localmem_required = singleintegratorrun.local_memory_elements
 
     loop_fn = singleintegratorrun.device_function

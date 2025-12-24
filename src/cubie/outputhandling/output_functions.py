@@ -350,3 +350,8 @@ class OutputFunctions(CUDAFactory):
     def summary_unit_modifications(self) -> dict[int, str]:
         """Mapping of summary indices to unit modification strings."""
         return self.compile_settings.summary_unit_modifications
+
+    @property
+    def buffer_sizes_dict(self) -> dict[str, int]:
+        """Dictionary of buffer sizes for each output type."""
+        return self.compile_settings.buffer_sizes_dict
