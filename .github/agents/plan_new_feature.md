@@ -150,7 +150,7 @@ Keep this document concise.
 - Research thoroughly before planning
 - Consider CuBIE's architecture: CUDA kernels via Numba, attrs classes, precision handling
 - Ensure plans align with repository conventions
-- Follow repository structure documented in .github/copilot-instructions.md
+- Follow conventions in .github/copilot-instructions.md and structure in .github/context/cubie_internal_structure.md
 - Consider GPU memory constraints
 - Plan for both CUDA and CUDASIM environments where applicable
 

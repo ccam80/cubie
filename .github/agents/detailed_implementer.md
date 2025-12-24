@@ -168,7 +168,8 @@ For each task group, you MUST provide:
 
 ## Behavior Guidelines
 
-- Include .github/context/cubie_internal_structure.md in your context
+- Include .github/context/cubie_internal_structure.md for architecture context
+- Follow conventions from .github/copilot-instructions.md
 - When faced with ambiguity, ASK the user for clarification
 - When multiple implementation approaches exist, ASK which to use
 - Save the user from reviewing incorrect implementations

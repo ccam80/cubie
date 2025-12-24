@@ -38,11 +38,11 @@ The pipeline supports automatic agent chaining via the `return_after` argument:
 1. **plan_new_feature**: Returns `user_stories.md`, `human_overview.md`, `agent_plan.md`
 2. **detailed_implementer**: Returns above + `task_list.md`
 3. **taskmaster**: Returns above + `task_list.md` updated with implementation outcomes
-4. **reviewer**: Returns above + `review_report.md`
-5. **taskmaster_2**: Returns above + edits applied from review + updated `review_report.md`
-6. **docstring_guru**: Returns above + source files with complete docstrings
+4. **run_tests**: Returns above + `test_results.md`
+5. **reviewer**: Returns above + `review_report.md`
+6. **taskmaster_2**: Returns above + edits applied from review + updated `review_report.md`
 
-**narrative_documenter** exists outside this pipeline and is called separately.
+**docstring_guru**, **narrative_documenter**, and **renamer** exist outside this pipeline and are called separately.
 
 ### 1. plan_new_feature
 **Role**: Expert project manager and technical architect  
@@ -175,10 +175,7 @@ The agent pipeline is coordinated by the **default Copilot agent** (not by the c
 
 **Pipeline Flow (coordinated by default Copilot agent)**:
 ```
-plan_new_feature → detailed_implementer → [taskmaster → run_tests] (per group) → run_tests → reviewer → taskmaster (edits) → run_tests → docstring_guru
-                                                                                                                                              ↓
-                                                                                                                                narrative_documenter
-                                                                                                                                (called separately)
+plan_new_feature → detailed_implementer → [taskmaster (per group)] → run_tests → reviewer → taskmaster (edits) → run_tests
 ```
 
 **Return After Levels**:
@@ -192,22 +189,18 @@ plan_new_feature → detailed_implementer → [taskmaster → run_tests] (per gr
    - Returns: above + task_list.md
 
 3. **return_after=taskmaster**: 
-   - plan_new_feature → detailed_implementer → [taskmaster + run_tests per group] (stops)
-   - Returns: above + task_list.md with implementation outcomes
+   - plan_new_feature → detailed_implementer → [taskmaster per group] → run_tests (stops)
+   - Returns: above + task_list.md with implementation outcomes + test_results.md
 
 4. **return_after=reviewer**: 
-   - plan_new_feature → detailed_implementer → [taskmaster + run_tests per group] → run_tests → reviewer (stops)
+   - plan_new_feature → detailed_implementer → [taskmaster per group] → run_tests → reviewer (stops)
    - Returns: above + review_report.md
 
 5. **return_after=taskmaster_2**: 
    - Full pipeline + taskmaster applies review edits + run_tests (stops)
-   - Returns: above + applied review edits + updated review_report.md
+   - Returns: above + applied review edits + updated review_report.md + test_results.md
 
-6. **return_after=docstring_guru**: 
-   - Complete pipeline including review edits + run_tests + docstring_guru (stops)
-   - Returns: above + source files with complete docstrings
-
-**narrative_documenter** and **renamer** are called separately, outside this pipeline.
+**renamer** is called separately, outside this pipeline.
 
 ### Standard Feature Development Flow
 
@@ -241,16 +234,11 @@ User Request with return_after parameter
 │ │                       │ → Creates tests            │
 │ │                       │ → Updates task_list.md     │
 │ └───────────────────────┘                            │
-│     ↓                                                │
-│ ┌───────────────────────┐                            │
-│ │ run_tests             │ → Runs tests for group     │
-│ │                       │ → Reports failures         │
-│ │                       │ → If fail: taskmaster fix  │
-│ └───────────────────────┘                            │
 └───────────────────────────────────────────────────────┘
     ↓ (after all task groups complete)
 ┌───────────────────────┐
 │ run_tests             │ → Full test verification
+│                       │ → Saves test_results.md
 │                       │ → Before reviewer
 └───────────────────────┘
     ↓ (if return_after > taskmaster)
@@ -270,46 +258,15 @@ User Request with return_after parameter
     ↓
 ┌───────────────────────┐
 │ run_tests             │ → Final test verification
-│                       │ → Before docstring_guru
-└───────────────────────┘
-    ↓ (if return_after = docstring_guru)
-    ↓ (default Copilot agent invokes next agent)
-┌───────────────────────┐
-│ docstring_guru        │ → Processes inline comments
-│                       │ → Summarizes general comments in Notes
-│                       │ → Keeps helpful comments
-│                       │ → Updates API reference (touched files)
-│                       │ → Searches narrative docs for usage
-│                       │ → Updates cubie_internal_structure.md
-│                       │ → FINAL STEP
+│                       │ → Saves test_results.md
 └───────────────────────┘
 
 Separate workflow (called independently by default Copilot agent):
-┌───────────────────────┐
-│ narrative_documenter  │ → Accepts function updates from docstring_guru
-│                       │ → Creates RST docs (how-to, user guide)
-│                       │ → Updates narrative docs if API changed
-└───────────────────────┘
-
 ┌───────────────────────┐
 │ renamer               │ → Manages name_info.md tracking file
 │                       │ → Scans files and documents all names (update_list)
 │                       │ → Recommends better names (recommend)
 │                       │ → Executes renames across codebase (rename)
-└───────────────────────┘
-```
-
-### Documentation-Only Flow
-
-For documentation work without code changes:
-
-```
-User Request
-    ↓
-┌───────────────────────┐
-│ docstring_guru        │ → For API doc enforcement
-│          OR           │
-│ narrative_documenter  │ → For user-facing docs (independent)
 └───────────────────────┘
 ```
 
@@ -342,21 +299,22 @@ User Request (e.g., "run renamer on src/cubie/integrators")
 
 The most powerful way to use the agents is with the `return_after` argument, which automatically executes the entire pipeline to a specific level:
 
-**Complete implementation with review edits and docstrings**:
+**Complete implementation with review edits**:
 ```
 @plan_new_feature I need to add support for Rosenbrock-W integration methods
 to CuBIE. Research the algorithm, review how our current integrators work,
 and create a plan for implementation.
 
-return_after: docstring_guru
+return_after: taskmaster_2
 ```
 This will:
 1. plan_new_feature creates plans
 2. detailed_implementer creates task_list.md
-3. taskmaster executes all tasks directly
-4. reviewer validates and suggests edits
-5. taskmaster applies review edits
-6. docstring_guru adds complete documentation
+3. taskmaster executes all task groups
+4. run_tests verifies tests
+5. reviewer validates and suggests edits
+6. taskmaster applies review edits
+7. run_tests verifies final state
 
 **Implementation without review**:
 ```
@@ -520,11 +478,9 @@ See individual agent files for detailed tool usage instructions.
    - `detailed_implementer`: Planning + task breakdown, want to review tasks
    - `taskmaster`: Planning + implementation + tests, want to review code before review
    - `reviewer`: Planning + implementation + tests + review, want to see review before edits
-   - `taskmaster_2`: Planning + implementation + review + edits + tests, want to review before docstrings
-   - `docstring_guru`: Complete pipeline including docstrings
-4. **Call narrative_documenter separately**: It's outside the main pipeline
-5. **Call renamer separately**: Use for name rationalization work
-6. **Manual invocation still supported**: Call agents individually if you need fine-grained control
+   - `taskmaster_2`: Planning + implementation + review + edits + tests (complete pipeline)
+4. **Call docstring_guru, narrative_documenter, and renamer separately**: They exist outside the main pipeline
+5. **Manual invocation still supported**: Call agents individually if you need fine-grained control
 
 ### For Agents
 
@@ -551,10 +507,12 @@ These are enforced in agent instructions:
   * Runs tests with NUMBA_ENABLE_CUDASIM=1
   * Excludes nocudasim and specific_algos by default
   * Provides failure summaries, not full tracebacks
+  * Saves test_results.md for the next agent
 - **reviewer**: 
   * Validate against user_stories.md
   * Be harsh but fair
 - **docstring_guru**: 
+  * Exists outside main pipeline
   * Can edit any code or docs files
   * Process and summarize inline comments appropriately
 - **narrative_documenter**: 

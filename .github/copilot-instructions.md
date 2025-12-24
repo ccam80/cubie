@@ -142,25 +142,22 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 4. **For each task group in task_list.md**:
    a. Invoke **taskmaster** for that specific task group
    b. Wait for taskmaster to complete
-   c. Invoke **run_tests** to verify the task group's tests
-   d. If tests fail, invoke taskmaster again to fix issues
-5. **Invoke run_tests** for complete test verification before reviewer
-6. **Invoke reviewer** to validate implementation
-7. **If reviewer suggests edits**: invoke taskmaster for review edits
-8. **Invoke run_tests** at pipeline exit for final verification
-9. **If return_after = docstring_guru**: invoke docstring_guru
+5. **Invoke run_tests** for complete test verification (once after all taskmasters complete)
+6. **If tests fail**: invoke taskmaster to fix issues, then run_tests again
+7. **Invoke reviewer** to validate implementation
+8. **If reviewer suggests edits**: invoke taskmaster for review edits
+9. **Invoke run_tests** at pipeline exit for final verification
 
-**Default return_after level**: Use `docstring_guru` for complete implementation
+**Default return_after level**: Use `reviewer` for complete implementation
 **Default starting agent**: `plan_new_feature` unless specified otherwise
 
 **Pipeline levels (in order):**
 1. `plan_new_feature` - Creates user stories, overview, and architectural plan
 2. `detailed_implementer` - Creates detailed task list with task groups
 3. `taskmaster` - Executes one task group at a time (called per group)
-4. `run_tests` - Runs tests after each taskmaster invocation
+4. `run_tests` - Runs tests once after all taskmaster invocations complete
 5. `reviewer` - Reviews implementation against user stories
 6. `taskmaster_2` - Applies review edits (additional taskmaster invocation)
-7. `docstring_guru` - Adds complete docstrings
 
 **Example interpretation:**
 
@@ -178,14 +175,12 @@ Your action:
 7. For each task group 1 to N:
    a. Invoke taskmaster with: "Execute Task Group [i] from task_list.md"
    b. Wait for taskmaster to complete
-   c. Invoke run_tests with tests listed in "Tests to Run" for that group
-   d. If tests fail, invoke taskmaster to fix (repeat until pass or limit)
 8. Invoke run_tests for full test suite verification
-9. Invoke reviewer with all outputs
-10. Wait for reviewer to complete
-11. If reviewer suggests edits, invoke taskmaster with review edits
-12. Invoke run_tests for final verification
-13. Invoke docstring_guru with all outputs
+9. If tests fail, invoke taskmaster to fix, then run_tests again
+10. Invoke reviewer with all outputs
+11. Wait for reviewer to complete
+12. If reviewer suggests edits, invoke taskmaster with review edits
+13. Invoke run_tests for final verification
 14. Summarize and return to user
 ```
 

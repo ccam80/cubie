@@ -5,6 +5,8 @@ tools:
   - bash
   - read
   - view
+  - edit
+  - create
 ---
 
 # Run Tests Agent
@@ -31,7 +33,8 @@ Then proceed according to your role as defined below.
 
 **Can Read**: All files in repository
 
-**Cannot Edit**: Any files (this is a read-only testing agent)
+**Can Create/Edit**:
+- `.github/active_plans/<feature_name>/test_results.md` - Test results summary to pass as context to next agent
 
 ## Role
 
@@ -158,12 +161,12 @@ NUMBA_ENABLE_CUDASIM=1 pytest [test_paths]
 
 For large test runs, add `--tb=no` to reduce output, then re-run specific failures with `--tb=short` to get details.
 
-### Timeout Issues
+### Timeout Limit
 
-If tests take too long:
-1. Report partial results
-2. Note which tests were still running
-3. Suggest running a smaller subset
+**CRITICAL**: Test runs have a **4-minute hard cap**. If tests are still running after 4 minutes:
+1. Terminate the test run
+2. Report partial results collected so far
+3. Note which tests were still running when terminated
 
 ## Behavior Guidelines
 
@@ -173,6 +176,7 @@ If tests take too long:
 - Focus on actionable information
 - If all tests pass, say so clearly
 - If task_list.md specifies tests, run exactly those tests
+- Save test results to `.github/active_plans/<feature_name>/test_results.md` for the next agent
 
 ## Tools and When to Use Them
 
@@ -218,12 +222,12 @@ Your action:
 ## Pipeline Integration
 
 This agent is called by the default Copilot agent during pipeline execution:
-- After each taskmaster invocation (per task group)
+- After all taskmaster invocations complete (once per task_list.md)
 - Before reviewer invocation
-- At pipeline exit
+- At pipeline exit (after any review edits)
 
 When called in pipeline context, you receive:
 - Reference to task_list.md with tests to verify
-- Specific test files added by taskmaster
+- All test files created by taskmaster across all task groups
 
-Report results clearly so the pipeline can determine whether to proceed or halt.
+**Output**: Save results to `.github/active_plans/<feature_name>/test_results.md` so the next agent can use them as context.
