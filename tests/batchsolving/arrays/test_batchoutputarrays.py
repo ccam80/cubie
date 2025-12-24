@@ -141,68 +141,6 @@ def test_active_outputs_initialization():
     assert active.observable_summaries is False
     assert active.status_codes is False
 
-def test_update_from_outputarrays_all_active(
-    output_arrays_manager, sample_output_arrays
-):
-
-    """Test update_from_outputarrays with all arrays active"""
-    # Set up arrays in the manager
-    output_arrays_manager.host.state.array = sample_output_arrays["state"]
-    output_arrays_manager.host.observables.array = sample_output_arrays[
-        "observables"
-    ]
-    output_arrays_manager.host.state_summaries.array = sample_output_arrays[
-        "state_summaries"
-    ]
-    output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
-        "observable_summaries"
-    ]
-    output_arrays_manager.host.status_codes.array = sample_output_arrays[
-        "status_codes"
-    ]
-
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.state is True
-    assert active.observables is True
-    assert active.state_summaries is True
-    assert active.observable_summaries is True
-    assert active.status_codes is True
-
-def test_update_from_outputarrays_size_one_arrays(
-    output_arrays_manager
-):
-    """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
-    # Set up size-1 arrays (treated as artifacts)
-    output_arrays_manager.host.state.array = np.array([[[1]]])
-    output_arrays_manager.host.observables.array = np.array([[[1]]])
-    output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
-    output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
-    output_arrays_manager.host.status_codes.array = np.array([[[1]]])
-
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.state is False  # Size 1 treated as inactive
-    assert active.observables is False  # Size 1 treated as inactive
-    assert active.state_summaries is False  # None
-    assert active.observable_summaries is False  # None
-    assert active.status_codes is False
-
-
-def test_iteration_counters_marked_active_for_single_save(
-    output_arrays_manager,
-):
-    """Counters should be active even when only one save is present."""
-    output_arrays_manager.host.iteration_counters.array = np.zeros(
-        (1, 4, 1), dtype=np.int32
-    )
-    active = ActiveOutputs()
-    active.update_from_outputarrays(output_arrays_manager)
-
-    assert active.iteration_counters is True
-
 
 class TestOutputArrays:
     """Test the OutputArrays class"""
@@ -325,11 +263,6 @@ class TestOutputArrays:
         """Test _active_outputs property"""
         solver.kernel.num_runs = 5
         output_arrays_manager.update(solver)
-
-        # Set active outputs from compile flags (new behavior)
-        compile_flags = solver.kernel.single_integrator.output_compile_flags
-        active = ActiveOutputs.from_compile_flags(compile_flags)
-        output_arrays_manager.set_active_outputs(active)
 
         result = output_arrays_manager.active_outputs
         assert isinstance(result, ActiveOutputs)
@@ -601,18 +534,14 @@ class TestOutputArraysSpecialCases:
         self, output_arrays_manager, solver
     ):
         """Test active outputs detection after allocation"""
-        # Allocate arrays from solver
+        # Allocate arrays from solver (update() derives ActiveOutputs internally)
         output_arrays_manager.update(solver)
 
-        # Set active outputs from compile flags (new behavior)
-        compile_flags = solver.kernel.single_integrator.output_compile_flags
-        active = ActiveOutputs.from_compile_flags(compile_flags)
-        output_arrays_manager.set_active_outputs(active)
-
-        # Check active outputs - should match what was set
+        # Check active outputs - should be set from compile flags by update()
         result = output_arrays_manager.active_outputs
         assert isinstance(result, ActiveOutputs)
-        assert result is active
+        # status_codes is always True when set from compile flags
+        assert result.status_codes is True
 
 
 class TestActiveOutputsFromCompileFlags:
@@ -682,27 +611,3 @@ class TestActiveOutputsFromCompileFlags:
         assert active.observable_summaries is False
         assert active.iteration_counters is False
         assert active.status_codes is True
-
-
-class TestOutputArraysSetActiveOutputs:
-    """Tests for OutputArrays.set_active_outputs method."""
-
-    def test_set_active_outputs(self, output_arrays_manager):
-        """Test that set_active_outputs stores the provided instance."""
-        flags = OutputCompileFlags(
-            save_state=True,
-            save_observables=True,
-            summarise=False,
-            summarise_observables=False,
-            summarise_state=False,
-            save_counters=True,
-        )
-        active = ActiveOutputs.from_compile_flags(flags)
-        output_arrays_manager.set_active_outputs(active)
-
-        result = output_arrays_manager.active_outputs
-        assert result is active
-        assert result.state is True
-        assert result.observables is True
-        assert result.status_codes is True
-        assert result.iteration_counters is True

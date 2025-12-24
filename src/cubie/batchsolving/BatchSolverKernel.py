@@ -150,9 +150,6 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
-        # Derive ActiveOutputs from compile flags (authoritative source)
-        # Note: Can't use _refresh_active_outputs() here since output_arrays
-        # doesn't exist yet. Must create ActiveOutputs before BatchSolverConfig.
         compile_flags = self.single_integrator.output_compile_flags
         active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
 
@@ -172,8 +169,6 @@ class BatchSolverKernel(CUDAFactory):
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
-        # Set active outputs on output_arrays and update arrays
-        self.output_arrays.set_active_outputs(active_outputs)
         self.output_arrays.update(self)
         self.update_compile_settings(
             {
@@ -216,26 +211,6 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         return memory_manager
-
-    def _refresh_active_outputs(self) -> ActiveOutputs:
-        """Derive ActiveOutputs from current compile flags.
-
-        Returns
-        -------
-        ActiveOutputs
-            Instance with flags derived from the single integrator's
-            output compile flags.
-
-        Notes
-        -----
-        This method provides the single source of truth for ActiveOutputs
-        by deriving them from OutputCompileFlags. It also updates the
-        output_arrays with the new ActiveOutputs.
-        """
-        compile_flags = self.single_integrator.output_compile_flags
-        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
-        self.output_arrays.set_active_outputs(active_outputs)
-        return active_outputs
 
     def run(
         self,
@@ -302,14 +277,9 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
-        # Queue allocations
-        self.input_arrays.update(self, inits, params, driver_coefficients)
-        self.output_arrays.update(self)
-
-        # Derive ActiveOutputs from compile flags (authoritative source)
-        active_outputs = self._refresh_active_outputs()
-
-        # Refresh compile-critical settings (may trigger rebuild)
+        # Refresh compile-critical settings before array updates
+        compile_flags = self.single_integrator.output_compile_flags
+        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
         self.update_compile_settings(
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
@@ -323,6 +293,10 @@ class BatchSolverKernel(CUDAFactory):
                 "ActiveOutputs": active_outputs,
             }
         )
+
+        # Queue allocations
+        self.input_arrays.update(self, inits, params, driver_coefficients)
+        self.output_arrays.update(self)
 
         # Process allocations into chunks
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
@@ -744,7 +718,8 @@ class BatchSolverKernel(CUDAFactory):
                 updates_dict, silent=True
         )
         # Derive ActiveOutputs from updated compile flags
-        active_outputs = self._refresh_active_outputs()
+        compile_flags = self.single_integrator.output_compile_flags
+        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
 
         updates_dict.update({
             "loop_function": self.single_integrator.device_function,

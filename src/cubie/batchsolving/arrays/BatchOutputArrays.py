@@ -1,6 +1,5 @@
 """Manage output array lifecycles for batch solver executions."""
 
-import warnings
 from typing import TYPE_CHECKING, Dict, Union
 
 if TYPE_CHECKING:
@@ -181,60 +180,6 @@ class ActiveOutputs:
             iteration_counters=flags.save_counters,
         )
 
-    def update_from_outputarrays(self, output_arrays: "OutputArrays") -> None:
-        """
-        Update active outputs based on OutputArrays instance.
-
-        .. deprecated::
-            Use :meth:`from_compile_flags` instead. This method uses flawed
-            size-based logic that fails for size-1 arrays.
-
-        Parameters
-        ----------
-        output_arrays
-            The OutputArrays instance to check for active outputs.
-
-        Returns
-        -------
-        None
-            Flags are updated in place.
-
-        Notes
-        -----
-        An output is considered active when the corresponding array exists
-        and represents more than a single placeholder element.
-        """
-        warnings.warn(
-            "update_from_outputarrays is deprecated and will be removed in a "
-            "future version. Use ActiveOutputs.from_compile_flags() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.state = (
-            output_arrays.host.state.array is not None
-            and output_arrays.host.state.array.size > 1
-        )
-        self.observables = (
-            output_arrays.host.observables.array is not None
-            and output_arrays.host.observables.array.size > 1
-        )
-        self.state_summaries = (
-            output_arrays.host.state_summaries.array is not None
-            and output_arrays.host.state_summaries.array.size > 1
-        )
-        self.observable_summaries = (
-            output_arrays.host.observable_summaries.array is not None
-            and output_arrays.host.observable_summaries.array.size > 1
-        )
-        self.status_codes = (
-            output_arrays.host.status_codes.array is not None
-            and output_arrays.host.status_codes.array.size > 1
-        )
-        counters = output_arrays.host.iteration_counters.array
-        self.iteration_counters = (
-            counters is not None and counters.shape[1] == 4
-        )
-
 
 @attrs.define
 class OutputArrays(BaseArrayManager):
@@ -310,12 +255,25 @@ class OutputArrays(BaseArrayManager):
         ----------
         solver_instance
             The solver instance providing configuration and sizing information.
+            Accepts either BatchSolverKernel directly or Solver (which has a
+            .kernel attribute).
 
         Returns
         -------
         None
             This method updates cached arrays in place.
         """
+        # Handle both Solver and BatchSolverKernel by checking for
+        # single_integrator attribute
+        if hasattr(solver_instance, 'single_integrator'):
+            kernel = solver_instance
+        else:
+            kernel = solver_instance.kernel
+
+        # Derive ActiveOutputs from compile flags (authoritative source)
+        compile_flags = kernel.single_integrator.output_compile_flags
+        self._active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
+
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays, shape_only=True)
         self.allocate()
@@ -324,22 +282,6 @@ class OutputArrays(BaseArrayManager):
     def active_outputs(self) -> ActiveOutputs:
         """Active output configuration."""
         return self._active_outputs
-
-    def set_active_outputs(self, active_outputs: ActiveOutputs) -> None:
-        """
-        Set active outputs from external source.
-
-        Parameters
-        ----------
-        active_outputs
-            ActiveOutputs instance to store.
-
-        Returns
-        -------
-        None
-            Stores the provided ActiveOutputs instance.
-        """
-        self._active_outputs = active_outputs
 
     @property
     def state(self) -> ArrayTypes:
@@ -413,20 +355,35 @@ class OutputArrays(BaseArrayManager):
         Parameters
         ----------
         solver_instance
-            The solver instance to extract configuration from.
+            The solver instance to extract configuration from. Accepts either
+            BatchSolverKernel directly or Solver (which has a .kernel
+            attribute).
 
         Returns
         -------
         OutputArrays
             A new OutputArrays instance configured for the solver.
         """
+        # Handle both Solver and BatchSolverKernel by checking for
+        # single_integrator attribute
+        if hasattr(solver_instance, 'single_integrator'):
+            kernel = solver_instance
+        else:
+            kernel = solver_instance.kernel
+
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        return cls(
+        instance = cls(
             sizes=sizes,
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
         )
+        # Derive ActiveOutputs from compile flags (authoritative source)
+        compile_flags = kernel.single_integrator.output_compile_flags
+        instance._active_outputs = ActiveOutputs.from_compile_flags(
+            compile_flags
+        )
+        return instance
 
     def update_from_solver(
         self, solver_instance: "BatchSolverKernel"
