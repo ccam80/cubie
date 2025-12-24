@@ -3,7 +3,6 @@ from typing import Callable, Optional, Union
 
 import numpy as np
 from numba import cuda, int32
-from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
 from cubie._utils import PrecisionDType, _expand_dtype, build_config

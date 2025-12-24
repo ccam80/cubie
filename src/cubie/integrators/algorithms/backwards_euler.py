@@ -152,7 +152,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
         n = int32(n)
-        
+
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, self.solver,
@@ -163,7 +163,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         alloc_increment_cache = buffer_registry.get_allocator(
             'increment_cache', self
         )
-        
+
         solver_fn = solver_function
 
         @cuda.jit(

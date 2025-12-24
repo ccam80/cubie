@@ -35,7 +35,7 @@ CN_DEFAULTS = StepControlDefaults(
 @attrs.define
 class CrankNicolsonStepConfig(ImplicitStepConfig):
     """Configuration for Crank-Nicolson step."""
-    
+
     dxdt_location: str = attrs.field(
         default='local',
         validator=attrs.validators.in_(['local', 'shared'])

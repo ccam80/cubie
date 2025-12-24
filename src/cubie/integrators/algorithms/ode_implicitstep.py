@@ -166,7 +166,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
-        
+
         Parameters
         ----------
         updates_dict : dict, optional
@@ -175,12 +175,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Suppress warnings for unrecognized parameters.
         **kwargs
             Additional parameters to update.
-        
+
         Returns
         -------
         set[str]
             Names of parameters that were successfully recognized.
-        
+
         Notes
         -----
         Delegates solver parameters to owned solver instance.
@@ -190,10 +190,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
-        
+
         if not all_updates:
             return set()
-        
+
         recognized = set()
 
         recognized |= self.solver.update(all_updates, silent=True)
@@ -245,7 +245,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         n_drivers: int,
     ) -> StepCache:
         """Build and return the implicit step device function.
-        
+
         Parameters
         ----------
         dxdt_fn
@@ -262,7 +262,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Dimension of the state vector.
         n_drivers
             Number of driver signals provided to the system.
-        
+
         Returns
         -------
         StepCache
@@ -317,7 +317,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             residual_function=residual,
             n = self.compile_settings.n
         )
-        
+
         self.update_compile_settings(
                 solver_function=self.solver.device_function
         )
@@ -387,14 +387,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the maximum number of Newton backtracking steps."""
         val = getattr(self.solver, 'newton_max_backtracks', None)
         return int(val) if val is not None else None
-    
+
     @property
     def settings_dict(self) -> dict:
         """Return merged algorithm and solver settings.
-        
+
         Combines implicit step configuration (beta, gamma, M, etc.)
         with solver settings (Newton and linear solver parameters).
-        
+
         Returns
         -------
         dict

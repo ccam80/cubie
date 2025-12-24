@@ -237,7 +237,6 @@ class DIRKStep(ODEImplicitStep):
                 name='solver'
         )
 
-        # Register buffers
         buffer_registry.register(
             'stage_increment',
             self,
@@ -316,7 +315,7 @@ class DIRKStep(ODEImplicitStep):
             preconditioner=preconditioner,
             residual_function=residual,
         )
-        
+
         self.update_compile_settings(
                 {'solver_function': self.solver.device_function}
         )

@@ -64,7 +64,6 @@ def test_loop(
     output_functions,
     tolerance,
 ):
-    # Be a little looser for odd controller/algo combos
     atol=tolerance.abs_loose
     rtol=tolerance.rel_loose
     assert_integration_outputs(

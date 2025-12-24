@@ -240,7 +240,7 @@ class FIRKStep(ODEImplicitStep):
         # Calculate buffer sizes
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
-        
+
         _,_ = buffer_registry.get_child_allocators(
                 self,
                 self.solver,
@@ -332,7 +332,7 @@ class FIRKStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
-        
+
         nonlinear_solver = solver_function
 
         n = int32(n)
@@ -368,7 +368,7 @@ class FIRKStep(ODEImplicitStep):
         alloc_stage_increment = getalloc('stage_increment', self)
         alloc_stage_driver_stack = getalloc('stage_driver_stack', self)
         alloc_stage_state = getalloc('stage_state', self)
-        
+
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, nonlinear_solver)

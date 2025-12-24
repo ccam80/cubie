@@ -6,7 +6,8 @@ import numpy as np
 from numpy._typing import ArrayLike
 from attrs import field, define, validators
 
-from cubie._utils import PrecisionDType, _expand_dtype, build_config
+from cubie._utils import build_config
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig,
