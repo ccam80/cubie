@@ -159,8 +159,6 @@ class BatchSolverKernel(CUDAFactory):
             shared_memory_elements=(
                 self.single_integrator.shared_memory_elements
             ),
-            ActiveOutputs=ActiveOutputs(),
-            # placeholder, updated after arrays allocate
         )
         self.setup_compile_settings(initial_config)
 
@@ -323,6 +321,11 @@ class BatchSolverKernel(CUDAFactory):
             padded_bytes,
             numruns,
         )
+
+        # We need a nonzero number to tell the compiler we're using dynamic
+        # memory. If zero, then the cuda.shared.array(0) call fails as we
+        # can't declare a size-0 static shared memory array.
+        dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))

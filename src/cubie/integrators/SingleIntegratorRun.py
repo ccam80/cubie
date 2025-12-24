@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 import numpy as np
 
 from cubie._utils import PrecisionDType
-from cubie.buffer_registry import buffer_registry
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
 from cubie.odesystems.ODEData import SystemSizes
 
@@ -72,7 +71,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared-memory elements required by the loop."""
-        return buffer_registry.shared_buffer_size(self._loop)
+        return self._loop.shared_memory_elements
 
     @property
     def shared_memory_bytes(self) -> int:
@@ -85,11 +84,11 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def local_memory_elements(self) -> int:
         """Return total persistent local-memory requirement."""
-        return buffer_registry.local_buffer_size(self._loop)
+        return self._loop.local_memory_elements
 
     @property
-    def local_persistent_elements(self):
-        return buffer_registry.persistent_local_buffer_size(self._loop)
+    def persistent_local_elements(self):
+        return self._loop.persistent_local_required
 
     @property
     def compiled_loop_function(self) -> Callable:
@@ -339,22 +338,22 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._algo_step.is_adaptive
 
     @property
-    def shared_memory_required_step(self) -> int:
+    def shared_memory_elements_step(self) -> int:
         """Return algorithm shared-memory requirements."""
 
-        return self._algo_step.shared_memory_required
+        return self._algo_step.shared_memory_elements
 
     @property
-    def local_scratch_required_step(self) -> int:
+    def local_scratch_elements_step(self) -> int:
         """Return scratch local-memory requirements for the algorithm."""
 
-        return self._algo_step.local_scratch_required
+        return self._algo_step.local_scratch_elements
 
     @property
     def local_memory_required_step(self) -> int:
         """Return persistent local-memory requirements for the algorithm."""
 
-        return self._algo_step.persistent_local_required
+        return self._algo_step.persistent_local_elements
 
     @property
     def implicit_step(self) -> bool:

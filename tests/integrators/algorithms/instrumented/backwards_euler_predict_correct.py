@@ -280,7 +280,7 @@ class InstrumentedBackwardsEulerPCStep(InstrumentedBackwardsEulerStep):
         return StepCache(step=step, nonlinear_solver=solver_function)
 
     @property
-    def local_scratch_required(self) -> int:
+    def local_scratch_elements(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
         return 0
