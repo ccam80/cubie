@@ -27,6 +27,7 @@ from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     SingleRunOutputSizes,
 )
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import PrecisionDType, unpack_dict_values
 
@@ -150,9 +151,6 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
-        compile_flags = self.single_integrator.output_compile_flags
-        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
-
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
@@ -162,7 +160,7 @@ class BatchSolverKernel(CUDAFactory):
             shared_memory_elements=(
                 self.single_integrator.shared_memory_elements
             ),
-            ActiveOutputs=active_outputs,
+            compile_flags=self.single_integrator.output_compile_flags,
         )
         self.setup_compile_settings(initial_config)
 
@@ -278,8 +276,6 @@ class BatchSolverKernel(CUDAFactory):
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
         # Refresh compile-critical settings before array updates
-        compile_flags = self.single_integrator.output_compile_flags
-        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
         self.update_compile_settings(
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
@@ -290,7 +286,6 @@ class BatchSolverKernel(CUDAFactory):
                 "shared_memory_elements": (
                     self.single_integrator.shared_memory_elements
                 ),
-                "ActiveOutputs": active_outputs,
             }
         )
 
@@ -722,9 +717,6 @@ class BatchSolverKernel(CUDAFactory):
         all_unrecognized -= self.single_integrator.update(
                 updates_dict, silent=True
         )
-        # Derive ActiveOutputs from updated compile flags
-        compile_flags = self.single_integrator.output_compile_flags
-        active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
 
         updates_dict.update({
             "loop_function": self.single_integrator.device_function,
@@ -734,7 +726,7 @@ class BatchSolverKernel(CUDAFactory):
             "shared_memory_elements": (
                 self.single_integrator.shared_memory_elements
             ),
-            "ActiveOutputs": active_outputs,
+            "compile_flags": self.single_integrator.output_compile_flags,
         })
 
         all_unrecognized -= self.update_compile_settings(
@@ -767,6 +759,18 @@ class BatchSolverKernel(CUDAFactory):
         """Number of precision elements required in shared memory per run."""
 
         return self.compile_settings.shared_memory_elements
+
+    @property
+    def compile_flags(self) -> OutputCompileFlags:
+        """Output compile flags from compile settings."""
+
+        return self.compile_settings.compile_flags
+
+    @property
+    def active_outputs(self) -> ActiveOutputs:
+        """Active output array flags derived from compile_flags."""
+
+        return self.compile_settings.ActiveOutputs
 
     @property
     def ActiveOutputs(self) -> ActiveOutputs:
@@ -1050,7 +1054,7 @@ class BatchSolverKernel(CUDAFactory):
         """Active output flags after ensuring arrays are allocated."""
 
         self.output_arrays.allocate()
-        return self.output_arrays.active_outputs
+        return self.active_outputs
 
     @property
     def device_state_array(self) -> Any:

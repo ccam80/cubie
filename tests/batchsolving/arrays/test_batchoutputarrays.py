@@ -259,12 +259,12 @@ class TestOutputArrays:
         assert output_arrays_manager._chunks == 2
         assert output_arrays_manager._chunk_axis == "run"
 
-    def test_active_outputs_property(self, output_arrays_manager, solver):
-        """Test _active_outputs property"""
+    def test_active_outputs_from_solver(self, output_arrays_manager, solver):
+        """Test active_outputs comes from solver"""
         solver.kernel.num_runs = 5
         output_arrays_manager.update(solver)
 
-        result = output_arrays_manager.active_outputs
+        result = solver.active_outputs
         assert isinstance(result, ActiveOutputs)
         # status_codes is always True when set from compile flags
         assert result.status_codes is True
@@ -534,11 +534,11 @@ class TestOutputArraysSpecialCases:
         self, output_arrays_manager, solver
     ):
         """Test active outputs detection after allocation"""
-        # Allocate arrays from solver (update() derives ActiveOutputs internally)
+        # Allocate arrays from solver
         output_arrays_manager.update(solver)
 
-        # Check active outputs - should be set from compile flags by update()
-        result = output_arrays_manager.active_outputs
+        # Check active outputs from solver (not output_arrays_manager)
+        result = solver.active_outputs
         assert isinstance(result, ActiveOutputs)
         # status_codes is always True when set from compile flags
         assert result.status_codes is True

@@ -811,6 +811,16 @@ class Solver:
         return self.kernel.precision
 
     @property
+    def compile_flags(self):
+        """Expose output compile flags from the kernel."""
+        return self.kernel.compile_flags
+
+    @property
+    def active_outputs(self):
+        """Expose active outputs from the kernel."""
+        return self.kernel.active_outputs
+
+    @property
     def system_sizes(self):
         """Expose cached system size metadata."""
         return self.kernel.system_sizes

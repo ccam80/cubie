@@ -14,6 +14,7 @@ from cubie._utils import (
     precision_validator,
 )
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
@@ -31,8 +32,8 @@ class BatchSolverConfig:
         Number of precision elements required in local memory per run.
     shared_memory_elements
         Number of precision elements required in shared memory per run.
-    ActiveOutputs
-        Flags describing which output buffers participate in a run.
+    compile_flags
+        Boolean compile-time controls for output features.
     """
 
     precision: PrecisionDType = attrs.field(
@@ -52,10 +53,15 @@ class BatchSolverConfig:
         default=0,
         validator=getype_validator(int, 0),
     )
-    ActiveOutputs: ActiveOutputs = attrs.field(
-        factory=ActiveOutputs,
-        validator=attrs.validators.instance_of(ActiveOutputs),
+    compile_flags: OutputCompileFlags = attrs.field(
+        factory=OutputCompileFlags,
+        validator=attrs.validators.instance_of(OutputCompileFlags),
     )
+
+    @property
+    def ActiveOutputs(self) -> ActiveOutputs:
+        """Derive ActiveOutputs from compile_flags."""
+        return ActiveOutputs.from_compile_flags(self.compile_flags)
 
     @property
     def numba_precision(self) -> type:

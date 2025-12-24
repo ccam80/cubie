@@ -198,8 +198,6 @@ class OutputArrays(BaseArrayManager):
         Container for host-side arrays.
     device
         Container for device-side arrays.
-    _active_outputs
-        Tracker for which outputs are currently active.
 
     Notes
     -----
@@ -221,11 +219,6 @@ class OutputArrays(BaseArrayManager):
     device: OutputArrayContainer = attrs.field(
         factory=OutputArrayContainer.device_factory,
         validator=val.instance_of(OutputArrayContainer),
-        init=False,
-    )
-    _active_outputs: ActiveOutputs = attrs.field(
-        default=ActiveOutputs(),
-        validator=val.instance_of(ActiveOutputs),
         init=False,
     )
 
@@ -255,33 +248,15 @@ class OutputArrays(BaseArrayManager):
         ----------
         solver_instance
             The solver instance providing configuration and sizing information.
-            Accepts either BatchSolverKernel directly or Solver (which has a
-            .kernel attribute).
 
         Returns
         -------
         None
             This method updates cached arrays in place.
         """
-        # Handle both Solver and BatchSolverKernel by checking for
-        # single_integrator attribute
-        if hasattr(solver_instance, 'single_integrator'):
-            kernel = solver_instance
-        else:
-            kernel = solver_instance.kernel
-
-        # Derive ActiveOutputs from compile flags (authoritative source)
-        compile_flags = kernel.single_integrator.output_compile_flags
-        self._active_outputs = ActiveOutputs.from_compile_flags(compile_flags)
-
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays, shape_only=True)
         self.allocate()
-
-    @property
-    def active_outputs(self) -> ActiveOutputs:
-        """Active output configuration."""
-        return self._active_outputs
 
     @property
     def state(self) -> ArrayTypes:
@@ -355,35 +330,20 @@ class OutputArrays(BaseArrayManager):
         Parameters
         ----------
         solver_instance
-            The solver instance to extract configuration from. Accepts either
-            BatchSolverKernel directly or Solver (which has a .kernel
-            attribute).
+            The solver instance to extract configuration from.
 
         Returns
         -------
         OutputArrays
             A new OutputArrays instance configured for the solver.
         """
-        # Handle both Solver and BatchSolverKernel by checking for
-        # single_integrator attribute
-        if hasattr(solver_instance, 'single_integrator'):
-            kernel = solver_instance
-        else:
-            kernel = solver_instance.kernel
-
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        instance = cls(
+        return cls(
             sizes=sizes,
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
         )
-        # Derive ActiveOutputs from compile flags (authoritative source)
-        compile_flags = kernel.single_integrator.output_compile_flags
-        instance._active_outputs = ActiveOutputs.from_compile_flags(
-            compile_flags
-        )
-        return instance
 
     def update_from_solver(
         self, solver_instance: "BatchSolverKernel"
