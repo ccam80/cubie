@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from cubie.buffer_registry import buffer_registry
 from tests._utils import _build_enhanced_algorithm_settings
 from cubie import SymbolicODE
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -550,6 +551,8 @@ def solver_settings_override2(request):
 def solver_settings(solver_settings_override, solver_settings_override2,
     system, precision):
     """Create LoopStepConfig with default solver configuration."""
+    # Clear the buffer_registry singleton when we set up a new system
+    buffer_registry.reset()
     defaults = {
         "algorithm": "euler",
         "system_type": "nonlinear",
