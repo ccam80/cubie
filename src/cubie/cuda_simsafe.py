@@ -333,7 +333,6 @@ __all__ = [
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
     "local",
-    "LocalArrayFactory",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
