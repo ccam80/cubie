@@ -352,7 +352,7 @@ class ArrayInterpolator(CUDAFactory):
         wrap = self.wrap
         boundary_condition = self.boundary_condition
         pad_clamped = (not wrap) and (boundary_condition == 'clamped')
-        zero_value = self.precision(0.0)
+        zero_value = precision(0.0)
         evaluation_start = precision(start_time - (
             resolution if pad_clamped else precision(0.0)))
         # no cover: start
@@ -431,7 +431,7 @@ class ArrayInterpolator(CUDAFactory):
                            int32(num_segments - 1), seg)
                 tau = scaled - precision(seg)
 
-            for input_index in range(num_inputs):
+            for input_index in range(int32(num_inputs)):
                 acc = zero_value
                 for k in range(int32(order), int32(0), int32(-1)):
                     acc = acc * tau + precision(k) * (
