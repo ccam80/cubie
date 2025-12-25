@@ -10,10 +10,10 @@ from numba import int32
 
 import attrs
 
-from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs, CUDA_SIMULATION
+from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs, CUDA_SIMULATION
 from numpy.typing import NDArray
 
+from cubie.buffer_registry import buffer_registry
 from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -496,14 +496,24 @@ class BatchSolverKernel(CUDAFactory):
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
 
-        # Create allocator device function following buffer_registry pattern
+        # Get allocator for loop's persistent local memory via buffer registry
+        # In CUDASIM mode, this allocator returns a slice of shared memory
+        # In real CUDA mode, it returns a slice of persistent local memory
+        _, alloc_local_scratch = buffer_registry.get_child_allocators(
+            self, self.single_integrator._loop, name="loop"
+        )
+
+        # Create device function to get persistent local array
+        # In CUDASIM: local buffers use shared memory, so return dummy
+        # In real CUDA: create actual cuda.local.array
         if CUDA_SIMULATION:
             @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def alloc_local_scratch():
-                return np.zeros(local_elements_per_run, dtype=np.float32)
+            def get_persistent_local(shared):
+                # Dummy array - won't be used since allocators use shared
+                return shared[:1]
         else:
             @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def alloc_local_scratch():
+            def get_persistent_local(shared):
                 return cuda.local.array(local_elements_per_run, dtype=float32)
 
         # no cover: start
@@ -585,7 +595,8 @@ class BatchSolverKernel(CUDAFactory):
                 return None
             shared_memory = cuda.shared.array(0, dtype=float32)
 
-            local_scratch = alloc_local_scratch()
+            persistent_local = get_persistent_local(shared_memory)
+            local_scratch = alloc_local_scratch(shared_memory, persistent_local)
             c_coefficients = cuda.const.array_like(d_coefficients)
             run_idx_low = int32(ty * run_stride_f32)
             run_idx_high = int32(

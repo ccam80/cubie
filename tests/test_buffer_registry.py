@@ -7,6 +7,7 @@ from cubie.buffer_registry import (
     CUDABuffer,
     BufferRegistry,
 )
+from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
 class MockFactory:
@@ -108,6 +109,7 @@ class TestBufferRegistry:
         size = self.registry.shared_buffer_size(self.factory)
         assert size == 100
 
+    @pytest.mark.nocudasim
     def test_local_buffer_size_minimum_one(self):
         self.registry.register('zero_size', self.factory, 0, 'local')
         size = self.registry.local_buffer_size(self.factory)
@@ -255,6 +257,7 @@ class TestPersistentLocal:
         self.factory = MockFactory()
         yield
 
+    @pytest.mark.nocudasim
     def test_persistent_flag_distinguishes_local_types(self):
         self.registry.register('local_buf', self.factory, 10, 'local')
         self.registry.register(
@@ -362,6 +365,7 @@ class TestCrossLocationAliasing:
         self.parent = MockFactory()
         yield
 
+    @pytest.mark.nocudasim
     def test_shared_buffer_can_alias_local_parent(self):
         """Shared buffer aliasing local parent falls back to own allocation."""
         self.registry.register('parent', self.parent, 100, 'local')
@@ -372,6 +376,7 @@ class TestCrossLocationAliasing:
         size = self.registry.shared_buffer_size(self.parent)
         assert size == 30  # Child allocated separately
 
+    @pytest.mark.nocudasim
     def test_local_buffer_can_alias_shared_parent(self):
         """Local buffer aliasing shared parent uses local allocation."""
         self.registry.register('parent', self.parent, 100, 'shared')
@@ -616,8 +621,8 @@ class TestBufferRegistryUpdate:
 def test_local_buffer_allocator_cudasim():
     """Test that local buffer allocator works in CUDASIM mode.
 
-    Verifies that the conditional cuda.local.array fix produces
-    a valid array in simulation mode.
+    Verifies that in CUDASIM mode, local buffers are redirected to
+    shared memory to avoid cuda.local.array calls.
     """
     registry = BufferRegistry()
     factory = MockFactory()
@@ -629,10 +634,11 @@ def test_local_buffer_allocator_cudasim():
     # Get allocator - this should work without cuda.local.array errors
     allocator = registry.get_allocator('local_buf', factory)
 
-    # In CUDASIM, allocator should return a numpy array
-    # when called with dummy shared/persistent arrays
-    shared = np.zeros(1, dtype=np.float32)
-    persistent = np.zeros(1, dtype=np.float32)
+    # In CUDASIM, the allocator uses shared memory for local buffers
+    # Shared array must be large enough to hold the buffer
+    shared_size = registry.shared_buffer_size(factory)
+    shared = np.zeros(shared_size, dtype=np.float32)
+    persistent = np.zeros(1, dtype=np.float32)  # Dummy, won't be used
     result = allocator(shared, persistent)
 
     assert result is not None

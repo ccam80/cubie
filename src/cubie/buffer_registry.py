@@ -125,35 +125,19 @@ class CUDABuffer:
         _zero = zero
         elements = int32(self.size)
 
-        if CUDA_SIMULATION:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def allocate_buffer(shared, persistent):
-                """Allocate buffer from appropriate memory region."""
-                if _use_shared:
-                    array = shared[_shared_slice]
-                elif _use_persistent:
-                    array = persistent[_persistent_slice]
-                else:
-                    # CUDASIM: use numpy.zeros instead of cuda.local.array
-                    array = np.zeros(_local_size, dtype=_precision)
-                if _zero:
-                    for i in range(elements):
-                        array[i] = _precision(0.0)
-                return array
-        else:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def allocate_buffer(shared, persistent):
-                """Allocate buffer from appropriate memory region."""
-                if _use_shared:
-                    array = shared[_shared_slice]
-                elif _use_persistent:
-                    array = persistent[_persistent_slice]
-                else:
-                    array = cuda.local.array(_local_size, _precision)
-                if _zero:
-                    for i in range(elements):
-                        array[i] = _precision(0.0)
-                return array
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def allocate_buffer(shared, persistent):
+            """Allocate buffer from appropriate memory region."""
+            if _use_shared:
+                array = shared[_shared_slice]
+            elif _use_persistent:
+                array = persistent[_persistent_slice]
+            else:
+                array = cuda.local.array(_local_size, _precision)
+            if _zero:
+                for i in range(elements):
+                    array[i] = _precision(0.0)
+            return array
 
         return allocate_buffer
 
@@ -331,6 +315,15 @@ class BufferGroup:
             layout[name] = slice(offset, offset + entry.size)
             self._alias_consumption[name] = 0
             offset += entry.size
+
+        # Step 1b: In CUDASIM mode, also allocate non-persistent local buffers
+        # in shared memory to avoid cuda.local.array calls
+        if CUDA_SIMULATION:
+            for name, entry in self.entries.items():
+                if entry.location == 'local':  # Both persistent and non-persistent
+                    size = max(entry.size, 1)  # cuda.local.array requires >= 1
+                    layout[name] = slice(offset, offset + size)
+                    offset += size
 
         # Step 2: Process aliased buffers
         for name, entry in self.entries.items():
