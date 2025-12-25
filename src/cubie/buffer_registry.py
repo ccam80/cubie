@@ -922,6 +922,49 @@ class BufferRegistry:
 
         return alloc_shared, alloc_persistent
 
+    def get_toplevel_allocators(
+        self,
+        kernel: object,
+    ) -> Tuple[Callable, Callable]:
+        """Create allocators for top-level kernel shared and persistent memory.
+
+        Returns a tuple of two device functions for use in CUDA kernels:
+        - A shared memory allocator that declares cuda.shared.array(0, ...)
+        - A persistent local allocator that handles CUDASIM compatibility
+
+        Parameters
+        ----------
+        kernel
+            Kernel instance with `local_memory_elements` and `precision`
+            properties.
+
+        Returns
+        -------
+        Tuple[Callable, Callable]
+            (alloc_shared, alloc_persistent) device functions.
+            - alloc_shared: () -> shared memory array
+            - alloc_persistent: (shared) -> persistent local array
+        """
+        from numba import float32
+
+        persistent_size = max(1, kernel.local_memory_elements)
+        precision = kernel.precision
+
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def alloc_shared():
+            return cuda.shared.array(0, dtype=float32)
+
+        if CUDA_SIMULATION:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def alloc_persistent(shared):
+                return shared[:1]
+        else:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def alloc_persistent(shared):
+                return cuda.local.array(persistent_size, dtype=float32)
+
+        return alloc_shared, alloc_persistent
+
 
 # Module-level singleton instance
 buffer_registry = BufferRegistry()
