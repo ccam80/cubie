@@ -495,6 +495,17 @@ class BatchSolverKernel(CUDAFactory):
         run_stride_f32 = int(
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
+
+        # Create allocator device function following buffer_registry pattern
+        if CUDA_SIMULATION:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def alloc_local_scratch():
+                return np.zeros(local_elements_per_run, dtype=np.float32)
+        else:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def alloc_local_scratch():
+                return cuda.local.array(local_elements_per_run, dtype=float32)
+
         # no cover: start
         @cuda.jit(
             (
@@ -574,14 +585,7 @@ class BatchSolverKernel(CUDAFactory):
                 return None
             shared_memory = cuda.shared.array(0, dtype=float32)
 
-            # Declare shared memory in 32b units to allow for skewing/padding
-            if CUDA_SIMULATION:
-                local_scratch = np.zeros(local_elements_per_run,
-                                         dtype=np.float32)
-            else:
-                local_scratch = cuda.local.array(
-                    local_elements_per_run, dtype=float32
-                )
+            local_scratch = alloc_local_scratch()
             c_coefficients = cuda.const.array_like(d_coefficients)
             run_idx_low = int32(ty * run_stride_f32)
             run_idx_high = int32(

@@ -36,6 +36,14 @@ ALLOWED_PRECISIONS = {
     np.dtype(np.float64),
 }
 
+ALLOWED_BUFFER_DTYPES = {
+    np.dtype(np.float16),
+    np.dtype(np.float32),
+    np.dtype(np.float64),
+    np.dtype(np.int32),
+    np.dtype(np.int64),
+}
+
 
 def precision_converter(value: PrecisionDType) -> type[np.floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
@@ -58,6 +66,19 @@ def precision_validator(
     if np.dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
+        )
+
+
+def buffer_dtype_validator(
+    _: object,
+    __: Attribute,
+    value: type,
+) -> None:
+    """Validate that value is a supported buffer dtype (float or int)."""
+    if np.dtype(value) not in ALLOWED_BUFFER_DTYPES:
+        raise ValueError(
+            "Buffer dtype must be one of float16, float32, float64, "
+            "int32, or int64",
         )
 
 

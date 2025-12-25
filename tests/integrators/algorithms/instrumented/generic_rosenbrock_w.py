@@ -195,6 +195,17 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             precision=precision
         )
 
+        buffer_registry.register(
+            'base_state_placeholder', self, 1,
+            config.base_state_placeholder_location,
+            precision=np.int32
+        )
+        buffer_registry.register(
+            'krylov_iters_out', self, 1,
+            config.krylov_iters_out_location,
+            precision=np.int32
+        )
+
     def build_implicit_helpers(
         self,
     ) -> Callable:
@@ -321,6 +332,8 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         alloc_stage_store = getalloc('stage_store', self)
         alloc_cached_auxiliaries = getalloc('cached_auxiliaries', self)
         alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_base_state_placeholder = getalloc('base_state_placeholder', self)
+        alloc_krylov_iters_out = getalloc('krylov_iters_out', self)
 
 
         # no cover: start
@@ -368,8 +381,10 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
-            base_state_placeholder = cuda.local.array(1, int32)
-            krylov_iters_out = cuda.local.array(1, int32)
+            base_state_placeholder = alloc_base_state_placeholder(
+                shared, persistent_local
+            )
+            krylov_iters_out = alloc_krylov_iters_out(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # ----------------------------------------------------------- #

@@ -16,7 +16,7 @@ from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
-from cubie._utils import getype_validator, precision_validator
+from cubie._utils import getype_validator, buffer_dtype_validator
 from cubie.cuda_simsafe import compile_kwargs, CUDA_SIMULATION
 
 
@@ -54,7 +54,7 @@ class CUDABuffer:
     )
     precision: type = attrs.field(
         default=np.float32,
-        validator=precision_validator
+        validator=buffer_dtype_validator
     )
 
     @property

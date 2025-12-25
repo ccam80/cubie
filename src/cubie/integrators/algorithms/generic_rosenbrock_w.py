@@ -51,7 +51,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
 
@@ -136,6 +135,14 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
         validator=attrs.validators.in_(['local', 'shared'])
     )
     cached_auxiliaries_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    base_state_placeholder_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+    krylov_iters_out_location: str = attrs.field(
         default='local',
         validator=attrs.validators.in_(['local', 'shared'])
     )
@@ -274,6 +281,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             precision=precision
         )
 
+        buffer_registry.register(
+            'base_state_placeholder', self, 1,
+            config.base_state_placeholder_location,
+            precision=np.int32
+        )
+        buffer_registry.register(
+            'krylov_iters_out', self, 1,
+            config.krylov_iters_out_location,
+            precision=np.int32
+        )
+
     def build_implicit_helpers(
         self,
     ) -> Callable:
@@ -398,6 +416,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         alloc_stage_store = getalloc('stage_store', self)
         alloc_cached_auxiliaries = getalloc('cached_auxiliaries', self)
         alloc_stage_increment = getalloc('stage_increment', self)
+        alloc_base_state_placeholder = getalloc('base_state_placeholder', self)
+        alloc_krylov_iters_out = getalloc('krylov_iters_out', self)
 
         # no cover: start
         @cuda.jit(
@@ -446,12 +466,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_store = alloc_stage_store(shared, persistent_local)
             cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
             stage_increment = alloc_stage_increment(shared, persistent_local)
-            if CUDA_SIMULATION:
-                base_state_placeholder = np.zeros(1, dtype=np.int32)
-                krylov_iters_out = np.zeros(1, dtype=np.int32)
-            else:
-                base_state_placeholder = cuda.local.array(1, int32)
-                krylov_iters_out = cuda.local.array(1, int32)
+            base_state_placeholder = alloc_base_state_placeholder(
+                shared, persistent_local
+            )
+            krylov_iters_out = alloc_krylov_iters_out(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             # ----------------------------------------------------------- #
