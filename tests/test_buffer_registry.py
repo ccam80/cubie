@@ -28,6 +28,7 @@ class TestCUDABuffer:
         assert not entry.is_local
         assert not entry.is_persistent_local
 
+    @pytest.mark.nocudasim
     def test_create_local_entry(self):
         entry = CUDABuffer(
             name='test_buffer',
@@ -39,6 +40,7 @@ class TestCUDABuffer:
         assert not entry.is_shared
         assert not entry.is_persistent_local
 
+    @pytest.mark.nocudasim
     def test_create_persistent_local_entry(self):
         entry = CUDABuffer(
             name='test_buffer',
@@ -157,6 +159,7 @@ class TestBufferRegistry:
         size = self.registry.local_buffer_size(self.factory)
         assert size == 1  # max(0, 1) = 1
 
+    @pytest.mark.nocudasim
     def test_persistent_local_size(self):
         self.registry.register(
             'persist', self.factory, 50, 'local', persistent=True
@@ -343,6 +346,7 @@ class TestPersistentLocal:
         assert self.registry.local_buffer_size(self.factory) == 10
         assert self.registry.persistent_local_buffer_size(self.factory) == 20
 
+    @pytest.mark.nocudasim
     def test_persistent_layout_computed_correctly(self):
         self.registry.register(
             'persist1', self.factory, 30, 'local', persistent=True
@@ -538,6 +542,7 @@ class TestCrossLocationAliasing:
         # Total size should be 140 (max slice.stop)
         assert size == 140
 
+    @pytest.mark.nocudasim
     def test_persistent_alias_of_nonpersistent_local_allowed(self):
         """Persistent buffer can now alias non-persistent local."""
         self.registry.register('parent', self.parent, 100, 'local')
@@ -776,7 +781,7 @@ class TestToplevelAllocators:
         yield
 
     def test_toplevel_allocators_single_definition(self):
-        """Verify get_toplevel_allocators returns callable persistent allocator."""
+        """Verify get_toplevel_allocators returns callable allocators."""
 
         class MockKernel:
             local_memory_elements = 10
@@ -787,9 +792,8 @@ class TestToplevelAllocators:
             kernel
         )
 
-        # alloc_shared is None (shared memory should be allocated directly)
-        assert alloc_shared is None
-        # alloc_persistent should be callable
+        # Both allocators should be callable
+        assert callable(alloc_shared)
         assert callable(alloc_persistent)
 
         # alloc_persistent should be a single function (not mode-dependent)

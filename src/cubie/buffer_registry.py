@@ -64,12 +64,24 @@ class CUDABuffer:
 
     @property
     def is_persistent_local(self) -> bool:
-        """Return True if buffer uses persistent local memory."""
+        """Return True if buffer uses persistent local memory.
+        
+        Returns False in CUDASIM mode since local buffers are redirected
+        to shared memory.
+        """
+        if CUDA_SIMULATION:
+            return False
         return self.location == 'local' and self.persistent
 
     @property
     def is_local(self) -> bool:
-        """Return True if buffer uses local (non-persistent) memory."""
+        """Return True if buffer uses local (non-persistent) memory.
+        
+        Returns False in CUDASIM mode since local buffers are redirected
+        to shared memory.
+        """
+        if CUDA_SIMULATION:
+            return False
         return self.location == 'local' and not self.persistent
 
     @property
@@ -329,12 +341,10 @@ class BufferGroup:
         for name, entry in self.entries.items():
             if not entry._use_shared or entry.aliases is not None:
                 continue
-            # Use max(size, 1) for local buffers (cuda.local.array compat)
-            size = max(entry.size, 1) if entry.location == 'local' else entry.size
-            layout[name] = slice(offset, offset + size)
+            layout[name] = slice(offset, offset + entry.size)
             if entry.is_shared:
                 self._alias_consumption[name] = 0
-            offset += size
+            offset += entry.size
 
         # Step 2: Process aliased buffers
         for name, entry in self.entries.items():
@@ -940,8 +950,7 @@ class BufferRegistry:
         """Create allocators for top-level kernel shared and persistent memory.
 
         Returns a tuple of two device functions for use in CUDA kernels:
-        - A placeholder for shared memory (caller should use cuda.shared.array
-          directly to avoid CUDASIM intermittent failures)
+        - A shared memory allocator that returns cuda.shared.array(0, ...)
         - A persistent local allocator that handles CUDASIM compatibility
 
         Parameters
@@ -952,12 +961,13 @@ class BufferRegistry:
 
         Returns
         -------
-        Tuple[None, Callable]
-            (None, alloc_persistent) where:
-            - First element is None (shared memory should be allocated
-              directly in kernel)
+        Tuple[Callable, Callable]
+            (alloc_shared, alloc_persistent) device functions where:
+            - alloc_shared: () -> shared memory array
             - alloc_persistent: (shared) -> persistent local array
         """
+        from numba import float32
+
         persistent_size = max(1, kernel.local_memory_elements)
         precision = kernel.precision
         numba_precision = from_dtype(precision)
@@ -966,13 +976,17 @@ class BufferRegistry:
         _is_cudasim = CUDA_SIMULATION
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def alloc_shared():
+            return cuda.shared.array(0, dtype=float32)
+
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_persistent(shared):
             if _is_cudasim:
                 return shared[:1]
             else:
                 return cuda.local.array(persistent_size, dtype=numba_precision)
 
-        return None, alloc_persistent
+        return alloc_shared, alloc_persistent
 
 
 # Module-level singleton instance

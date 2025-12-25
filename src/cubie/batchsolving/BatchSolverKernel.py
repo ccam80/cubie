@@ -495,7 +495,9 @@ class BatchSolverKernel(CUDAFactory):
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
 
-        # Get persistent memory allocator from buffer registry
+        # Get memory allocators from buffer registry
+        # Note: alloc_shared is provided but we call cuda.shared.array directly
+        # in the kernel to avoid CUDASIM intermittent failures
         _, alloc_persistent = buffer_registry.get_toplevel_allocators(self)
 
         # no cover: start
