@@ -17,7 +17,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import getype_validator, buffer_dtype_validator
-from cubie.cuda_simsafe import compile_kwargs, CUDA_SIMULATION
+from cubie.cuda_simsafe import compile_kwargs, CUDA_SIMULATION, from_dtype
 
 
 @attrs.define
@@ -71,6 +71,23 @@ class CUDABuffer:
     def is_local(self) -> bool:
         """Return True if buffer uses local (non-persistent) memory."""
         return self.location == 'local' and not self.persistent
+
+    @property
+    def _use_shared(self) -> bool:
+        """Return True if buffer should use shared memory allocation.
+
+        Returns True when:
+        - Buffer location is 'shared', OR
+        - Buffer location is 'local' AND CUDA_SIMULATION is True
+
+        This property encapsulates CUDASIM mode awareness so layout
+        methods don't need explicit CUDA_SIMULATION checks.
+        """
+        if self.is_shared:
+            return True
+        if CUDA_SIMULATION and self.location == 'local':
+            return True
+        return False
 
     def build_allocator(
         self,
@@ -308,22 +325,16 @@ class BufferGroup:
         layout = {}
         self._alias_consumption.clear()
 
-        # Step 1: Allocate non-aliased shared buffers
+        # Step 1: Allocate non-aliased buffers that use shared memory
         for name, entry in self.entries.items():
-            if entry.location != 'shared' or entry.aliases is not None:
+            if not entry._use_shared or entry.aliases is not None:
                 continue
-            layout[name] = slice(offset, offset + entry.size)
-            self._alias_consumption[name] = 0
-            offset += entry.size
-
-        # Step 1b: In CUDASIM mode, also allocate non-persistent local buffers
-        # in shared memory to avoid cuda.local.array calls
-        if CUDA_SIMULATION:
-            for name, entry in self.entries.items():
-                if entry.location == 'local':  # Both persistent and non-persistent
-                    size = max(entry.size, 1)  # cuda.local.array requires >= 1
-                    layout[name] = slice(offset, offset + size)
-                    offset += size
+            # Use max(size, 1) for local buffers (cuda.local.array compat)
+            size = max(entry.size, 1) if entry.location == 'local' else entry.size
+            layout[name] = slice(offset, offset + size)
+            if entry.is_shared:
+                self._alias_consumption[name] = 0
+            offset += size
 
         # Step 2: Process aliased buffers
         for name, entry in self.entries.items():
@@ -332,7 +343,7 @@ class BufferGroup:
 
             parent_entry = self.entries[entry.aliases]
 
-            if parent_entry.is_shared:
+            if parent_entry._use_shared:
                 # Parent is shared - check if we can alias it
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
@@ -929,7 +940,8 @@ class BufferRegistry:
         """Create allocators for top-level kernel shared and persistent memory.
 
         Returns a tuple of two device functions for use in CUDA kernels:
-        - A shared memory allocator that declares cuda.shared.array(0, ...)
+        - A placeholder for shared memory (caller should use cuda.shared.array
+          directly to avoid CUDASIM intermittent failures)
         - A persistent local allocator that handles CUDASIM compatibility
 
         Parameters
@@ -940,30 +952,27 @@ class BufferRegistry:
 
         Returns
         -------
-        Tuple[Callable, Callable]
-            (alloc_shared, alloc_persistent) device functions.
-            - alloc_shared: () -> shared memory array
+        Tuple[None, Callable]
+            (None, alloc_persistent) where:
+            - First element is None (shared memory should be allocated
+              directly in kernel)
             - alloc_persistent: (shared) -> persistent local array
         """
-        from numba import float32
-
         persistent_size = max(1, kernel.local_memory_elements)
         precision = kernel.precision
+        numba_precision = from_dtype(precision)
+
+        # Compile-time constant captured in closure
+        _is_cudasim = CUDA_SIMULATION
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def alloc_shared():
-            return cuda.shared.array(0, dtype=float32)
-
-        if CUDA_SIMULATION:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def alloc_persistent(shared):
+        def alloc_persistent(shared):
+            if _is_cudasim:
                 return shared[:1]
-        else:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
-            def alloc_persistent(shared):
-                return cuda.local.array(persistent_size, dtype=float32)
+            else:
+                return cuda.local.array(persistent_size, dtype=numba_precision)
 
-        return alloc_shared, alloc_persistent
+        return None, alloc_persistent
 
 
 # Module-level singleton instance

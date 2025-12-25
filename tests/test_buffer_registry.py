@@ -58,6 +58,48 @@ class TestCUDABuffer:
                 location='invalid',
             )
 
+    def test_use_shared_returns_true_for_shared_buffer(self):
+        """Verify _use_shared returns True for buffers with location='shared'."""
+        entry = CUDABuffer(
+            name='test_buffer',
+            size=100,
+            location='shared',
+        )
+        assert entry._use_shared is True
+
+    @pytest.mark.nocudasim
+    def test_use_shared_returns_false_for_local_buffer_in_real_cuda(self):
+        """Verify _use_shared returns False for local buffers in real CUDA."""
+        entry = CUDABuffer(
+            name='test_buffer',
+            size=50,
+            location='local',
+            persistent=False,
+        )
+        assert entry._use_shared is False
+
+    @pytest.mark.sim_only
+    def test_use_shared_returns_true_for_local_buffer_in_cudasim(self):
+        """Verify _use_shared returns True for local buffers in CUDASIM."""
+        entry = CUDABuffer(
+            name='test_buffer',
+            size=50,
+            location='local',
+            persistent=False,
+        )
+        assert entry._use_shared is True
+
+    @pytest.mark.sim_only
+    def test_use_shared_returns_true_for_persistent_local_in_cudasim(self):
+        """Verify _use_shared returns True for persistent local in CUDASIM."""
+        entry = CUDABuffer(
+            name='test_buffer',
+            size=25,
+            location='local',
+            persistent=True,
+        )
+        assert entry._use_shared is True
+
 
 class TestBufferRegistry:
     """Tests for BufferRegistry singleton."""
@@ -191,6 +233,40 @@ class TestLayoutComputation:
         self.registry.register('buf2', self.factory, 50, 'shared')
         assert context._shared_layout is None
 
+    @pytest.mark.sim_only
+    def test_build_shared_layout_includes_local_in_cudasim(self):
+        """Verify local buffers appear in shared_layout in CUDASIM mode."""
+        self.registry.register('shared_buf', self.factory, 100, 'shared')
+        self.registry.register('local_buf', self.factory, 50, 'local')
+
+        # Trigger layout computation
+        _ = self.registry.shared_buffer_size(self.factory)
+        context = self.registry._groups[self.factory]
+        layout = context._shared_layout
+
+        # Both buffers should be in shared layout in CUDASIM
+        assert 'shared_buf' in layout
+        assert 'local_buf' in layout
+        # Local buffer should follow shared buffer
+        assert layout['shared_buf'] == slice(0, 100)
+        assert layout['local_buf'] == slice(100, 150)
+
+    @pytest.mark.nocudasim
+    def test_build_shared_layout_excludes_local_in_real_cuda(self):
+        """Verify local buffers do NOT appear in shared_layout in real CUDA."""
+        self.registry.register('shared_buf', self.factory, 100, 'shared')
+        self.registry.register('local_buf', self.factory, 50, 'local')
+
+        # Trigger layout computation
+        _ = self.registry.shared_buffer_size(self.factory)
+        context = self.registry._groups[self.factory]
+        layout = context._shared_layout
+
+        # Only shared buffer should be in layout in real CUDA
+        assert 'shared_buf' in layout
+        assert 'local_buf' not in layout
+        assert layout['shared_buf'] == slice(0, 100)
+
 
 class TestGetAllocator:
     """Tests for allocator generation."""
@@ -286,6 +362,31 @@ class TestPersistentLocal:
         # Total size is 70
         total = self.registry.persistent_local_buffer_size(self.factory)
         assert total == 70
+
+    @pytest.mark.sim_only
+    def test_local_sizes_empty_in_cudasim(self):
+        """Verify local_buffer_size returns 0 when local buffers in shared."""
+        self.registry.register('local_buf', self.factory, 50, 'local')
+
+        # In CUDASIM, local buffers are redirected to shared memory
+        # so local_buffer_size should return 0
+        assert self.registry.local_buffer_size(self.factory) == 0
+
+        # Verify the buffer is in shared layout instead
+        context = self.registry._groups[self.factory]
+        assert 'local_buf' in context.shared_layout
+
+    @pytest.mark.nocudasim
+    def test_local_sizes_populated_in_real_cuda(self):
+        """Verify local_buffer_size returns correct sizes in real CUDA."""
+        self.registry.register('local_buf', self.factory, 50, 'local')
+
+        # In real CUDA, local buffers should be in local_sizes
+        assert self.registry.local_buffer_size(self.factory) == 50
+
+        # Verify the buffer is NOT in shared layout
+        context = self.registry._groups[self.factory]
+        assert 'local_buf' not in context.shared_layout
 
 
 class TestBufferUpdate:
@@ -451,6 +552,26 @@ class TestCrossLocationAliasing:
             self.parent
         )
         assert persist_size == 30
+
+    @pytest.mark.sim_only
+    def test_shared_alias_of_local_works_in_cudasim(self):
+        """Shared buffer aliasing local parent works correctly in CUDASIM."""
+        self.registry.register('parent', self.parent, 100, 'local')
+        self.registry.register(
+            'child', self.parent, 30, 'shared', aliases='parent'
+        )
+        # In CUDASIM, local parent is in shared layout via _use_shared
+        # So child can alias parent's shared memory
+        group = self.registry._groups[self.parent]
+        _ = self.registry.shared_buffer_size(self.parent)
+        layout = group._shared_layout
+
+        # Parent should be in shared layout (due to CUDASIM)
+        assert 'parent' in layout
+        # Child should alias parent (overlapping slices)
+        assert 'child' in layout
+        assert layout['parent'] == slice(0, 100)
+        assert layout['child'] == slice(0, 30)  # Overlaps parent
 
 
 class TestPrecisionValidation:
@@ -643,3 +764,75 @@ def test_local_buffer_allocator_cudasim():
 
     assert result is not None
     assert len(result) == 10
+
+
+class TestToplevelAllocators:
+    """Tests for get_toplevel_allocators method."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_registry(self):
+        """Create a fresh registry for each test."""
+        self.registry = BufferRegistry()
+        yield
+
+    def test_toplevel_allocators_single_definition(self):
+        """Verify get_toplevel_allocators returns callable persistent allocator."""
+
+        class MockKernel:
+            local_memory_elements = 10
+            precision = np.float32
+
+        kernel = MockKernel()
+        alloc_shared, alloc_persistent = self.registry.get_toplevel_allocators(
+            kernel
+        )
+
+        # alloc_shared is None (shared memory should be allocated directly)
+        assert alloc_shared is None
+        # alloc_persistent should be callable
+        assert callable(alloc_persistent)
+
+        # alloc_persistent should be a single function (not mode-dependent)
+        # Test that it has consistent attributes regardless of mode
+        assert hasattr(alloc_persistent, '__call__')
+
+    @pytest.mark.sim_only
+    def test_toplevel_allocators_cudasim_returns_shared_slice(self):
+        """Verify alloc_persistent returns shared slice in CUDASIM mode."""
+
+        class MockKernel:
+            local_memory_elements = 10
+            precision = np.float32
+
+        kernel = MockKernel()
+        alloc_shared, alloc_persistent = self.registry.get_toplevel_allocators(
+            kernel
+        )
+
+        # Create mock shared memory array
+        shared = np.zeros(100, dtype=np.float32)
+
+        # In CUDASIM, alloc_persistent should return a slice of shared
+        result = alloc_persistent(shared)
+
+        # Result should be a view into shared memory (slice)
+        assert result is not None
+        assert len(result) == 1  # Returns shared[:1]
+
+    @pytest.mark.nocudasim
+    def test_toplevel_allocators_real_cuda_returns_local_array(self):
+        """Verify alloc_persistent returns local array in real CUDA mode."""
+
+        class MockKernel:
+            local_memory_elements = 10
+            precision = np.float32
+
+        kernel = MockKernel()
+        alloc_shared, alloc_persistent = self.registry.get_toplevel_allocators(
+            kernel
+        )
+
+        # In real CUDA, the function uses cuda.local.array
+        # We can verify the function is a device function
+        from cubie.cuda_simsafe import is_devfunc
+        assert is_devfunc(alloc_persistent)

@@ -495,15 +495,8 @@ class BatchSolverKernel(CUDAFactory):
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
 
-        # Get allocators for loop's persistent local memory
-        _, alloc_local_scratch = buffer_registry.get_child_allocators(
-            self, self.single_integrator._loop, name="loop"
-        )
-
-        # Get top-level memory allocators
-        alloc_shared, alloc_persistent = buffer_registry.get_toplevel_allocators(
-            self
-        )
+        # Get persistent memory allocator from buffer registry
+        _, alloc_persistent = buffer_registry.get_toplevel_allocators(self)
 
         # no cover: start
         @cuda.jit(
@@ -582,10 +575,9 @@ class BatchSolverKernel(CUDAFactory):
             run_index = int32(runs_per_block * block_index + ty)
             if run_index >= n_runs:
                 return None
-            shared_memory = alloc_shared()
+            shared_memory = cuda.shared.array(0, dtype=float32)
 
             persistent_local = alloc_persistent(shared_memory)
-            local_scratch = alloc_local_scratch(shared_memory, persistent_local)
             c_coefficients = cuda.const.array_like(d_coefficients)
             run_idx_low = int32(ty * run_stride_f32)
             run_idx_high = int32(
@@ -614,7 +606,7 @@ class BatchSolverKernel(CUDAFactory):
                 rx_params,
                 c_coefficients,
                 rx_shared_memory,
-                local_scratch,
+                persistent_local,
                 rx_state,
                 rx_observables,
                 rx_state_summaries,
