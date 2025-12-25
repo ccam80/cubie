@@ -305,7 +305,7 @@ class NewtonKrylov(CUDAFactory):
         get_alloc = buffer_registry.get_allocator
         alloc_delta = get_alloc('delta', self)
         alloc_residual = get_alloc('residual', self)
-        alloc_residual_temp =get_alloc('residual_temp', self)
+        alloc_residual_temp = get_alloc('residual_temp', self)
         alloc_stage_base_bt = get_alloc('stage_base_bt', self)
         alloc_krylov_iters_local = get_alloc('krylov_iters_local', self)
 
