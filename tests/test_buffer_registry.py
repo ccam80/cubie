@@ -189,6 +189,49 @@ class TestLayoutComputation:
         self.registry.register('buf2', self.factory, 50, 'shared')
         assert context._shared_layout is None
 
+    def test_build_layouts_populates_all_caches(self):
+        """build_layouts() populates all three layout caches."""
+        self.registry.register('shared', self.factory, 100, 'shared')
+        self.registry.register(
+            'persist', self.factory, 50, 'local', persistent=True
+        )
+        self.registry.register('local', self.factory, 25, 'local')
+
+        group = self.registry._groups[self.factory]
+
+        # All caches should be None initially
+        assert group._shared_layout is None
+        assert group._persistent_layout is None
+        assert group._local_sizes is None
+
+        # Call build_layouts
+        group.build_layouts()
+
+        # All caches should be populated
+        assert group._shared_layout is not None
+        assert group._persistent_layout is not None
+        assert group._local_sizes is not None
+
+        # Verify contents
+        assert 'shared' in group._shared_layout
+        assert 'persist' in group._persistent_layout
+        assert 'local' in group._local_sizes
+
+    def test_build_layouts_early_return_when_populated(self):
+        """build_layouts() returns early when all caches populated."""
+        self.registry.register('shared', self.factory, 100, 'shared')
+        group = self.registry._groups[self.factory]
+
+        # First call populates
+        group.build_layouts()
+        original_layout = group._shared_layout
+
+        # Second call should be no-op
+        group.build_layouts()
+
+        # Should be exact same object (not rebuilt)
+        assert group._shared_layout is original_layout
+
 
 class TestGetAllocator:
     """Tests for allocator generation."""
@@ -446,6 +489,119 @@ class TestCrossLocationAliasing:
             self.parent
         )
         assert persist_size == 30
+
+    def test_aliased_shared_child_of_local_parent_gets_shared_allocation(self):
+        """Shared child aliasing local parent allocates in shared layout."""
+        self.registry.register('parent', self.parent, 100, 'local')
+        self.registry.register(
+            'child', self.parent, 30, 'shared', aliases='parent'
+        )
+
+        shared_size = self.registry.shared_buffer_size(self.parent)
+        local_size = self.registry.local_buffer_size(self.parent)
+
+        # Child should be in shared (fallback)
+        assert shared_size == 30
+        # Parent in local
+        assert local_size == 100
+
+    def test_aliased_persistent_child_of_local_parent_gets_persistent(self):
+        """Persistent child aliasing local parent allocates in persistent."""
+        self.registry.register('parent', self.parent, 100, 'local')
+        self.registry.register(
+            'child', self.parent, 30, 'local',
+            persistent=True, aliases='parent'
+        )
+
+        persist_size = self.registry.persistent_local_buffer_size(
+            self.parent
+        )
+        local_size = self.registry.local_buffer_size(self.parent)
+
+        # Child should be in persistent (fallback)
+        assert persist_size == 30
+        # Parent in local
+        assert local_size == 100
+
+    def test_aliased_local_child_of_shared_parent_gets_local(self):
+        """Local child aliasing shared parent allocates in local."""
+        self.registry.register('parent', self.parent, 100, 'shared')
+        self.registry.register(
+            'child', self.parent, 30, 'local', aliases='parent'
+        )
+
+        shared_size = self.registry.shared_buffer_size(self.parent)
+        local_size = self.registry.local_buffer_size(self.parent)
+
+        # Parent in shared
+        assert shared_size == 100
+        # Child in local (fallback)
+        assert local_size == 30
+
+
+class TestDeterministicLayouts:
+    """Tests for deterministic layout building order."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_registry(self):
+        self.registry = BufferRegistry()
+        self.parent = MockFactory()
+        yield
+
+    def test_property_access_order_shared_first(self):
+        """Accessing shared_layout first produces same result."""
+        self.registry.register('parent', self.parent, 100, 'shared')
+        self.registry.register(
+            'child', self.parent, 30, 'shared', aliases='parent'
+        )
+        self.registry.register('local', self.parent, 20, 'local')
+
+        group = self.registry._groups[self.parent]
+
+        # Access shared first
+        shared = group.shared_layout.copy()
+        persistent = group.persistent_layout.copy()
+        local = group.local_sizes.copy()
+
+        # Invalidate and access in different order
+        group.invalidate_layouts()
+
+        # Access local first
+        local2 = group.local_sizes.copy()
+        persistent2 = group.persistent_layout.copy()
+        shared2 = group.shared_layout.copy()
+
+        assert shared == shared2
+        assert persistent == persistent2
+        assert local == local2
+
+    def test_property_access_order_persistent_first(self):
+        """Accessing persistent_layout first produces same result."""
+        self.registry.register(
+            'persist', self.parent, 50, 'local', persistent=True
+        )
+        self.registry.register('shared', self.parent, 100, 'shared')
+        self.registry.register(
+            'child', self.parent, 30, 'shared', aliases='shared'
+        )
+
+        group = self.registry._groups[self.parent]
+
+        # Access persistent first
+        persistent = group.persistent_layout.copy()
+        shared = group.shared_layout.copy()
+        local = group.local_sizes.copy()
+
+        # Invalidate and access shared first
+        group.invalidate_layouts()
+
+        shared2 = group.shared_layout.copy()
+        local2 = group.local_sizes.copy()
+        persistent2 = group.persistent_layout.copy()
+
+        assert shared == shared2
+        assert persistent == persistent2
+        assert local == local2
 
 
 class TestPrecisionValidation:

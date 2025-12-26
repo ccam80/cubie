@@ -185,6 +185,132 @@ class BufferGroup:
         self._local_sizes = None
         self._alias_consumption.clear()
 
+    def build_layouts(self) -> None:
+        """Build all buffer layouts in deterministic order.
+
+        Orchestrates layout building to ensure consistent results
+        regardless of which property is accessed first:
+
+        1. Build non-aliased shared buffers into _shared_layout
+        2. Build non-aliased persistent buffers into _persistent_layout
+        3. Build non-aliased local buffers into _local_sizes
+        4. Call layout_aliases() to handle all aliased entries
+
+        All three layout caches are fully populated after this
+        method completes.
+        """
+        # If all layouts already built, nothing to do
+        if (self._shared_layout is not None
+                and self._persistent_layout is not None
+                and self._local_sizes is not None):
+            return
+
+        # Clear state for fresh build
+        self._alias_consumption.clear()
+        self._shared_layout = {}
+        self._persistent_layout = {}
+        self._local_sizes = {}
+
+        # Phase 1: Non-aliased shared buffers
+        shared_offset = 0
+        for name, entry in self.entries.items():
+            if entry.is_shared and entry.aliases is None:
+                self._shared_layout[name] = slice(
+                    shared_offset, shared_offset + entry.size
+                )
+                self._alias_consumption[name] = 0
+                shared_offset += entry.size
+
+        # Phase 2: Non-aliased persistent buffers
+        persistent_offset = 0
+        for name, entry in self.entries.items():
+            if entry.is_persistent_local and entry.aliases is None:
+                self._persistent_layout[name] = slice(
+                    persistent_offset, persistent_offset + entry.size
+                )
+                self._alias_consumption[name] = 0
+                persistent_offset += entry.size
+
+        # Phase 3: Non-aliased local buffers
+        for name, entry in self.entries.items():
+            if entry.is_local and entry.aliases is None:
+                self._local_sizes[name] = max(entry.size, 1)
+
+        # Phase 4: Process all aliased entries
+        self.layout_aliases()
+
+    def layout_aliases(self) -> None:
+        """Process all aliased entries and assign to appropriate layouts.
+
+        For each entry with aliases is not None:
+        - If parent is shared with available space: overlap within parent
+        - Else fallback based on entry's own type:
+          - is_shared: allocate in _shared_layout
+          - is_persistent_local: allocate in _persistent_layout
+          - is_local: add to local pile (processed at end)
+
+        Local pile entries are added to _local_sizes after all
+        aliasing decisions are made.
+        """
+        local_pile = []
+
+        # Compute current offsets from existing layouts
+        shared_offset = 0
+        if self._shared_layout:
+            shared_offset = max(s.stop for s in self._shared_layout.values())
+
+        persistent_offset = 0
+        if self._persistent_layout:
+            persistent_offset = max(
+                s.stop for s in self._persistent_layout.values()
+            )
+
+        # Process aliased entries
+        for name, entry in self.entries.items():
+            if entry.aliases is None:
+                continue
+
+            parent_entry = self.entries[entry.aliases]
+            aliased = False
+
+            # Check if parent is in shared layout and has space
+            # Only shared buffers can alias shared parents
+            if entry.is_shared and entry.aliases in self._shared_layout:
+                consumed = self._alias_consumption.get(entry.aliases, 0)
+                available = parent_entry.size - consumed
+
+                if entry.size <= available:
+                    # Overlap within parent's shared memory
+                    parent_slice = self._shared_layout[entry.aliases]
+                    start = parent_slice.start + consumed
+                    self._shared_layout[name] = slice(
+                        start, start + entry.size
+                    )
+                    self._alias_consumption[entry.aliases] = (
+                        consumed + entry.size
+                    )
+                    aliased = True
+
+            # Fallback based on entry's own type
+            if not aliased:
+                if entry.is_shared:
+                    self._shared_layout[name] = slice(
+                        shared_offset, shared_offset + entry.size
+                    )
+                    shared_offset += entry.size
+                elif entry.is_persistent_local:
+                    self._persistent_layout[name] = slice(
+                        persistent_offset, persistent_offset + entry.size
+                    )
+                    persistent_offset += entry.size
+                else:
+                    # is_local: collect for batch processing
+                    local_pile.append(entry)
+
+        # Process local pile
+        for entry in local_pile:
+            self._local_sizes[entry.name] = max(entry.size, 1)
+
     def register(
         self,
         name: str,
@@ -281,168 +407,44 @@ class BufferGroup:
 
         return recognized, changed
 
-    def build_shared_layout(self) -> Dict[str, slice]:
-        """Compute slice indices for shared memory buffers.
-
-        Implements correct aliasing semantics where aliased children
-        deliberately OVERLAP their parent buffers to reuse memory.
-        When a child aliases a shared parent with sufficient space,
-        the child slices directly into the parent's memory region.
-
-        Aliasing behavior:
-        - Child aliases shared parent with space: child OVERLAPS parent
-        - Child aliases shared parent without space: fresh allocation
-        - Child aliases local parent: fresh shared allocation
-        - Non-aliased buffer: fresh allocation
-
-        All allocations use the SAME shared array; aliased buffers
-        reuse parent memory via deliberate overlap.
-
-        Returns
-        -------
-        Dict[str, slice]
-            Single unified mapping of buffer names to shared memory
-            slices.
-        """
-        offset = 0
-        layout = {}
-        self._alias_consumption.clear()
-
-        # Step 1: Allocate non-aliased shared buffers
-        for name, entry in self.entries.items():
-            if entry.location != 'shared' or entry.aliases is not None:
-                continue
-            layout[name] = slice(offset, offset + entry.size)
-            self._alias_consumption[name] = 0
-            offset += entry.size
-
-        # Step 2: Process aliased buffers
-        for name, entry in self.entries.items():
-            if entry.aliases is None or entry.location != 'shared':
-                continue
-
-            parent_entry = self.entries[entry.aliases]
-
-            if parent_entry.is_shared:
-                # Parent is shared - check if we can alias it
-                consumed = self._alias_consumption.get(entry.aliases, 0)
-                available = parent_entry.size - consumed
-
-                if entry.size <= available:
-                    # Alias within parent (WITH OVERLAP - reuse memory)
-                    parent_slice = layout[entry.aliases]
-                    start = parent_slice.start + consumed
-                    layout[name] = slice(start, start + entry.size)
-                    self._alias_consumption[entry.aliases] = (
-                        consumed + entry.size
-                    )
-                else:
-                    # Parent full, allocate fresh shared space
-                    layout[name] = slice(offset, offset + entry.size)
-                    offset += entry.size
-            else:
-                # Parent is local, allocate fresh shared space for child
-                layout[name] = slice(offset, offset + entry.size)
-                offset += entry.size
-
-        return layout
-
     @property
     def shared_layout(self) -> Dict[str, slice]:
         """Return shared memory layout.
-        
+
         Returns
         -------
         Dict[str, slice]
             Mapping of buffer names to shared memory slices.
         """
         if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
+            self.build_layouts()
         return self._shared_layout
 
-    def build_persistent_layout(self) -> Dict[str, slice]:
-        """Compute slice indices for persistent local buffers.
-
-        Implements cross-location aliasing for persistent buffers:
-        - If parent is persistent and has sufficient remaining space,
-          alias slices within parent
-        - Otherwise allocate new persistent space
+    @property
+    def persistent_layout(self) -> Dict[str, slice]:
+        """Return persistent local memory layout.
 
         Returns
         -------
         Dict[str, slice]
-            Mapping of buffer names to persistent_local slices.
+            Mapping of buffer names to persistent local slices.
         """
-        offset = 0
-        layout = {}
+        if self._persistent_layout is None:
+            self.build_layouts()
+        return self._persistent_layout
 
-        # Process non-aliased persistent buffers first
-        for name, entry in self.entries.items():
-            if not entry.is_persistent_local or entry.aliases is not None:
-                continue
-            layout[name] = slice(offset, offset + entry.size)
-            self._alias_consumption[name] = 0
-            offset += entry.size
-
-        # Process aliased persistent buffers
-        for name, entry in self.entries.items():
-            if not entry.is_persistent_local or entry.aliases is None:
-                continue
-
-            parent_entry = self.entries[entry.aliases]
-
-            if parent_entry.is_persistent_local:
-                # Parent is persistent - check if space available
-                consumed = self._alias_consumption.get(entry.aliases, 0)
-                available = parent_entry.size - consumed
-
-                if entry.size <= available:
-                    # Alias fits within parent
-                    parent_slice = layout[entry.aliases]
-                    start = parent_slice.start + consumed
-                    layout[name] = slice(start, start + entry.size)
-                    self._alias_consumption[entry.aliases] = (
-                        consumed + entry.size
-                    )
-                else:
-                    # Parent too small, allocate new persistent space
-                    layout[name] = slice(offset, offset + entry.size)
-                    offset += entry.size
-            else:
-                # Parent is not persistent, allocate new persistent space
-                layout[name] = slice(offset, offset + entry.size)
-                offset += entry.size
-
-        return layout
-
-    def build_local_sizes(self) -> Dict[str, int]:
-        """Compute sizes for local (non-persistent) buffers.
-
-        Only allocates local memory for buffers that are not already
-        allocated in shared or persistent memory via aliasing.
+    @property
+    def local_sizes(self) -> Dict[str, int]:
+        """Return local buffer sizes.
 
         Returns
         -------
         Dict[str, int]
             Mapping of buffer names to local array sizes.
         """
-        # Ensure shared and persistent layouts are computed first
-        if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
-        if self._persistent_layout is None:
-            self._persistent_layout = self.build_persistent_layout()
-
-        sizes = {}
-        for name, entry in self.entries.items():
-            if entry.is_local:
-                # Check if this buffer was already allocated via aliasing
-                if (name in self._shared_layout
-                        or name in self._persistent_layout):
-                    # Already allocated elsewhere, skip local allocation
-                    continue
-                # cuda.local.array requires size >= 1
-                sizes[name] = max(entry.size, 1)
-        return sizes
+        if self._local_sizes is None:
+            self.build_layouts()
+        return self._local_sizes
 
     def shared_buffer_size(self) -> int:
         """Return total shared memory elements.
@@ -452,12 +454,10 @@ class BufferGroup:
         int
             Total shared memory elements needed (end of last slice).
         """
-        if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
-
-        if not self._shared_layout:
+        layout = self.shared_layout
+        if not layout:
             return 0
-        return max(s.stop for s in self._shared_layout.values())
+        return max(s.stop for s in layout.values())
 
     def local_buffer_size(self) -> int:
         """Return total local memory elements.
@@ -467,10 +467,7 @@ class BufferGroup:
         int
             Total local memory elements (max(size, 1) for each).
         """
-        if self._local_sizes is None:
-            self._local_sizes = self.build_local_sizes()
-
-        return sum(self._local_sizes.values())
+        return sum(self.local_sizes.values())
 
     def persistent_local_buffer_size(self) -> int:
         """Return total persistent local elements.
@@ -480,12 +477,10 @@ class BufferGroup:
         int
             Total persistent_local elements needed (end of last slice).
         """
-        if self._persistent_layout is None:
-            self._persistent_layout = self.build_persistent_layout()
-
-        if not self._persistent_layout:
+        layout = self.persistent_layout
+        if not layout:
             return 0
-        return max(s.stop for s in self._persistent_layout.values())
+        return max(s.stop for s in layout.values())
 
     def get_allocator(self, name: str, zero: bool = False) -> Callable:
         """Generate CUDA device function for buffer allocation.
@@ -514,10 +509,9 @@ class BufferGroup:
 
         Notes
         -----
-        The layout building phase (build_shared_layout and
-        build_persistent_layout) determines which memory region each
-        buffer uses and assigns slices accordingly. This method simply
-        retrieves those pre-computed slices and creates an allocator
+        The layout building phase (build_layouts) determines which memory
+        region each buffer uses and assigns slices accordingly. This method
+        simply retrieves those pre-computed slices and creates an allocator
         that uses them.
 
         For aliased buffers, the layout builder assigns slices that
@@ -529,18 +523,10 @@ class BufferGroup:
 
         entry = self.entries[name]
 
-        # Ensure layouts are computed
-        if self._shared_layout is None:
-            self._shared_layout = self.build_shared_layout()
-        if self._persistent_layout is None:
-            self._persistent_layout = self.build_persistent_layout()
-        if self._local_sizes is None:
-            self._local_sizes = self.build_local_sizes()
-
-        # Get slice from appropriate layout
-        shared_slice = self._shared_layout.get(name)
-        persistent_slice = self._persistent_layout.get(name)
-        local_size = self._local_sizes.get(name)
+        # Get slice from appropriate layout (properties trigger build)
+        shared_slice = self.shared_layout.get(name)
+        persistent_slice = self.persistent_layout.get(name)
+        local_size = self.local_sizes.get(name)
 
         return entry.build_allocator(
             shared_slice, persistent_slice, local_size, zero

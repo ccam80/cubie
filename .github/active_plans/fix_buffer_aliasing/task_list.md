@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/fix_buffer_aliasing/agent_plan.md
 
 ## Task Group 1: Add build_layouts() Orchestration Method
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -86,12 +86,19 @@
 - tests/test_buffer_registry.py::TestLayoutComputation::test_build_layouts_populates_all_caches
 - tests/test_buffer_registry.py::TestLayoutComputation::test_build_layouts_early_return_when_populated
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/buffer_registry.py (46 lines added)
+- Functions/Methods Added/Modified:
+  * build_layouts() added to BufferGroup class (lines 188-233)
+- Implementation Summary:
+  Added build_layouts() method that orchestrates buffer layout building in a deterministic three-phase process: (1) non-aliased shared buffers, (2) non-aliased persistent buffers, (3) call layout_aliases() for aliased entries. Includes early return when all layouts already populated.
+- Issues Flagged: None. Note: layout_aliases() method does not exist yet (to be added in Task Group 2), so build_layouts() cannot be called until Task Group 2 is complete. 
 
 ---
 
 ## Task Group 2: Add layout_aliases() Method
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -200,12 +207,19 @@
 - tests/test_buffer_registry.py::TestLayoutComputation::test_layout_aliases_fallback_when_parent_full
 - tests/test_buffer_registry.py::TestLayoutComputation::test_layout_aliases_respects_entry_type
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/buffer_registry.py (70 lines added)
+- Functions/Methods Added/Modified:
+  * layout_aliases() added to BufferGroup class (lines 235-304)
+- Implementation Summary:
+  Added layout_aliases() method that processes all aliased entries and assigns them to appropriate layouts. For each aliased entry: checks if parent is in shared layout with available space for overlap, otherwise falls back based on entry's own type (is_shared -> _shared_layout, is_persistent_local -> _persistent_layout, is_local -> collected into local_pile and processed at end into _local_sizes).
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 3: Update Property Accessors to Use build_layouts()
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2
 
 **Required Context**:
@@ -373,12 +387,25 @@
 **Tests to Run**:
 - tests/test_buffer_registry.py::TestLayoutComputation::test_property_access_order_invariant
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/buffer_registry.py (net ~20 lines changed)
+- Functions/Methods Added/Modified:
+  * shared_layout property in BufferGroup - modified to call build_layouts()
+  * persistent_layout property in BufferGroup - added new property
+  * local_sizes property in BufferGroup - added new property
+  * shared_buffer_size() in BufferGroup - modified to use shared_layout property
+  * local_buffer_size() in BufferGroup - modified to use local_sizes property
+  * persistent_local_buffer_size() in BufferGroup - modified to use persistent_layout property
+  * get_allocator() in BufferGroup - modified to use properties instead of direct layout access
+- Implementation Summary:
+  Updated the shared_layout property to call build_layouts() instead of build_shared_layout(). Added two new properties: persistent_layout and local_sizes, which also call build_layouts() when their cached values are None. Updated all size methods (shared_buffer_size, local_buffer_size, persistent_local_buffer_size) to use the properties instead of directly accessing cached values. Updated get_allocator() to use the three properties, which triggers build_layouts() via the property accessor if layouts are not yet computed.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 4: Remove Aliasing Logic from Original Build Methods
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, 3
 
 **Required Context**:
@@ -417,12 +444,21 @@
 **Tests to Run**:
 - tests/test_buffer_registry.py (full file to ensure no regressions)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/buffer_registry.py (150 lines removed)
+- Functions/Methods Added/Modified:
+  * build_shared_layout() removed from BufferGroup class
+  * build_persistent_layout() removed from BufferGroup class
+  * build_local_sizes() removed from BufferGroup class
+- Implementation Summary:
+  Removed the three obsolete build methods (build_shared_layout, build_persistent_layout, build_local_sizes) that were replaced by the new build_layouts() orchestration method and layout_aliases() method. These methods are no longer needed since the property accessors (shared_layout, persistent_layout, local_sizes) now call build_layouts() which handles all layout computation in a deterministic order.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 5: Add Deterministic Behavior Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, 3, 4
 
 **Required Context**:
@@ -621,7 +657,16 @@
 - tests/test_buffer_registry.py::TestCrossLocationAliasing
 - tests/test_buffer_registry.py::TestLayoutComputation
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/test_buffer_registry.py (110 lines added)
+- Functions/Methods Added/Modified:
+  * TestDeterministicLayouts class added with 2 test methods
+  * TestCrossLocationAliasing class extended with 3 new test methods
+  * TestLayoutComputation class extended with 2 new test methods
+- Implementation Summary:
+  Added comprehensive tests for deterministic layout building behavior. Created TestDeterministicLayouts class with tests verifying layout order invariance when accessing properties in different orders. Added tests to TestCrossLocationAliasing verifying fallback behavior for cross-location aliasing (shared child of local parent, persistent child of local parent, local child of shared parent). Added tests to TestLayoutComputation verifying build_layouts() populates all caches and returns early when already populated.
+- Issues Flagged: None 
 
 ---
 
