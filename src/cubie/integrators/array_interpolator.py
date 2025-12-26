@@ -378,9 +378,10 @@ class ArrayInterpolator(CUDAFactory):
             out : device array
                 Output array to populate with evaluated input values.
             """
-
+            # Just in case, should no-op if input is precision-type
+            time = precision(time)
             scaled = (time - evaluation_start) * inv_resolution
-            scaled_floor = math.floor(scaled)
+            scaled_floor = precision(math.floor(scaled))
             idx = int32(scaled_floor)
 
             if wrap:
@@ -392,7 +393,7 @@ class ArrayInterpolator(CUDAFactory):
                 seg = selp(idx < int32(0), int32(0), idx)
                 seg = selp(seg >= num_segments,
                            int32(num_segments - 1), seg)
-                tau = scaled - precision(seg)
+                tau = precision(scaled - precision(seg))
 
             # Evaluate polynomials using Horner's rule
             for input_index in range(num_inputs):
@@ -415,9 +416,9 @@ class ArrayInterpolator(CUDAFactory):
             out,
         ) -> None:
             """Evaluate the derivative of each driver polynomial."""
-
+            time = precision(time)
             scaled = (time - evaluation_start) * inv_resolution
-            scaled_floor = math.floor(scaled)
+            scaled_floor = precision(math.floor(scaled))
             idx = int32(scaled_floor)
 
             if wrap:
@@ -429,7 +430,7 @@ class ArrayInterpolator(CUDAFactory):
                 seg = selp(idx < int32(0), int32(0), idx)
                 seg = selp(seg >= num_segments,
                            int32(num_segments - 1), seg)
-                tau = scaled - precision(seg)
+                tau = precision(scaled - precision(seg))
 
             for input_index in range(int32(num_inputs)):
                 acc = zero_value
