@@ -278,6 +278,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             'stage_increment', self, n,
             config.stage_store_location,
             aliases='stage_store',
+            persistent=True,
             precision=precision
         )
 
