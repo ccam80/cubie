@@ -416,16 +416,16 @@ class TestCrossLocationAliasing:
         assert size == 30  # Child allocated separately
 
     def test_local_buffer_can_alias_shared_parent(self):
-        """Local buffer aliasing shared parent uses local allocation."""
+        """Local buffer aliasing shared parent overlaps in shared memory."""
         self.registry.register('parent', self.parent, 100, 'shared')
         self.registry.register(
             'child', self.parent, 30, 'local', aliases='parent'
         )
-        # Child should be in local, not shared
+        # Child overlaps parent in shared memory when space available
         shared_size = self.registry.shared_buffer_size(self.parent)
         local_size = self.registry.local_buffer_size(self.parent)
-        assert shared_size == 100  # Only parent
-        assert local_size == 30  # Child in local
+        assert shared_size == 100  # Only parent (child overlaps)
+        assert local_size == 0  # Child in shared, not local
 
     def test_alias_fallback_when_parent_too_small(self):
         """Alias falls back to own allocation when parent insufficient."""
@@ -523,8 +523,8 @@ class TestCrossLocationAliasing:
         # Parent in local
         assert local_size == 100
 
-    def test_aliased_local_child_of_shared_parent_gets_local(self):
-        """Local child aliasing shared parent allocates in local."""
+    def test_aliased_local_child_of_shared_parent_gets_shared(self):
+        """Local child aliasing shared parent overlaps in shared memory."""
         self.registry.register('parent', self.parent, 100, 'shared')
         self.registry.register(
             'child', self.parent, 30, 'local', aliases='parent'
@@ -535,8 +535,8 @@ class TestCrossLocationAliasing:
 
         # Parent in shared
         assert shared_size == 100
-        # Child in local (fallback)
-        assert local_size == 30
+        # Child overlaps parent in shared, not in local
+        assert local_size == 0
 
 
 class TestDeterministicLayouts:

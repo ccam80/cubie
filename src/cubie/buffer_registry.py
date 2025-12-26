@@ -274,8 +274,7 @@ class BufferGroup:
             aliased = False
 
             # Check if parent is in shared layout and has space
-            # Only shared buffers can alias shared parents
-            if entry.is_shared and entry.aliases in self._shared_layout:
+            if entry.aliases in self._shared_layout:
                 consumed = self._alias_consumption.get(entry.aliases, 0)
                 available = parent_entry.size - consumed
 
