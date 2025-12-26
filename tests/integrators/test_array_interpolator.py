@@ -54,8 +54,10 @@ def wrapping_inputs(precision) -> Tuple[ArrayInterpolator, ArrayInterpolator]:
     times = np.linspace(0.0, 4.0, 6, dtype=precision)
     values = np.array([0.0, 1.5, -0.75, 2.25, -3.0, 0.0], dtype=precision)
     clamp_input_dict = {"values": values, "time": times, "order": 3,
-                        'wrap': False}
-    wrap_input_dict = {"values": values, "time": times, "order": 3, 'wrap': True}
+                        'wrap': False, 'boundary_condition': 'clamped'}
+    wrap_input_dict = {"values": values, "time": times, "order": 3, 'wrap':
+        True,
+                       'boundary_condition': 'periodic'}
     clamp = ArrayInterpolator(
         precision=precision,
         input_dict=clamp_input_dict,
@@ -108,7 +110,7 @@ def _cpu_evaluate(
     num_segments = coefficients.shape[0]
     scaled = precision((time - evaluation_start) * inv_res)
     scaled_floor = precision(np.floor(scaled))
-    idx = int(scaled_floor)
+    idx = np.int32(scaled_floor)
 
     if wrap:
         segment = idx % num_segments
@@ -130,7 +132,7 @@ def _cpu_evaluate(
     for input_index in range(coefficients.shape[1]):
         coeffs = coefficients[segment, input_index]
         acc = zero_value
-        for k in range(coeffs.size - 1, -1, -1):
+        for k in range(np.int32(coeffs.size - 1), np.int32(-1), np.int32(-1)):
             acc = acc * tau + coeffs[k]
         if wrap or in_range:
             out[input_index] = acc
@@ -538,22 +540,28 @@ def test_wrap_vs_clamp_evaluation(
         ]
     )
 
+    # There's 2-3 ULP of accumulated difference between the two,
+    # attributable to FMA operations in the accumulation, so we go for 5e-7
+    # tolerance (2.5ULP)
     np.testing.assert_allclose(
         clamp_gpu,
         clamp_cpu,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight * 5,
+        atol=tolerance.abs_tight * 5,
         err_msg=(
             "clamp device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(clamp_gpu)}\n"
             f"cpu:\n{np.array2string(clamp_cpu)}"
         ),
     )
+
+
+
     np.testing.assert_allclose(
         wrap_gpu,
         wrap_cpu,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight*5,
+        atol=tolerance.abs_tight*5,
         err_msg=(
             "wrap device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(wrap_gpu)}\n"
@@ -806,8 +814,8 @@ def test_natural_boundary_supports_higher_orders(precision, tolerance) -> None:
         np.testing.assert_allclose(
             value,
             0.0,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_tight * 2, # 1 ULP @0.0
+            atol=tolerance.abs_tight * 2, # 1 ULP @1.0
             err_msg=(
                 "natural boundary derivative failed to vanish\n"
                 f"segment={segment} derivative={derivative} value={value}"

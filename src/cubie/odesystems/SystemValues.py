@@ -446,7 +446,8 @@ class SystemValues:
                     f", or parameters, or constants)",
                 )
         if any(
-            np.can_cast(value, self.precision) is False
+            not isinstance(value, (int, float, np.integer,
+                                    np.floating))
             for value in recognised.values()
         ):
             raise TypeError(
