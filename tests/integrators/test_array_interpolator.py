@@ -540,22 +540,28 @@ def test_wrap_vs_clamp_evaluation(
         ]
     )
 
+    # There's 2-3 ULP of accumulated difference between the two,
+    # attributable to FMA operations in the accumulation, so we go for 5e-7
+    # tolerance (2.5ULP)
     np.testing.assert_allclose(
         clamp_gpu,
         clamp_cpu,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight * 5,
+        atol=tolerance.abs_tight * 5,
         err_msg=(
             "clamp device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(clamp_gpu)}\n"
             f"cpu:\n{np.array2string(clamp_cpu)}"
         ),
     )
+
+
+
     np.testing.assert_allclose(
         wrap_gpu,
         wrap_cpu,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight*5,
+        atol=tolerance.abs_tight*5,
         err_msg=(
             "wrap device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(wrap_gpu)}\n"
@@ -808,8 +814,8 @@ def test_natural_boundary_supports_higher_orders(precision, tolerance) -> None:
         np.testing.assert_allclose(
             value,
             0.0,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_tight * 2, # 1 ULP @0.0
+            atol=tolerance.abs_tight * 2, # 1 ULP @1.0
             err_msg=(
                 "natural boundary derivative failed to vanish\n"
                 f"segment={segment} derivative={derivative} value={value}"
