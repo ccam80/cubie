@@ -47,12 +47,12 @@ script_start = perf_counter()
 #
 # algorithm_type = 'dirk'
 # algorithm_tableau_name ='l_stable_sdirk_4'
-# algorithm_type = 'erk'
-# algorithm_tableau_name = 'tsit5'
+algorithm_type = 'erk'
+algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ros3p'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -66,30 +66,59 @@ precision = np.float32
 # System Definition (Lorenz system)
 # -------------------------------------------------------------------------
 # Lorenz system constants
-constants = {'sigma_': 10.0, 'beta_': 8.0 / 3.0}
+# constants = {'sigma_': 10.0, 'beta_': 8.0 / 3.0}
+constants = {}
 
 # System dimensions
 n_states = 3
-n_parameters = 1
-n_observables = 0
-n_drivers = 0
+n_parameters = 7
+n_observables = 6
+n_drivers = 1  # Set to 1 to enable driver profiling (set to 0 to disable)
 n_counters = 4
-
-driver_input_dict = None
 
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(1.0)
+duration = precision(0.01)
 warmup = precision(0.0)
-dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
+dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.1)
+dt_save = precision(0.01)
 dt_summarise = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
-output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]']
+output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]', 'd2xdt2_max',
+                'dxdt_min']
+# output_types = ['state']
+
+
+# -------------------------------------------------------------------------
+# Driver Input Configuration
+# -------------------------------------------------------------------------
+beat_duration = 0.8
+pig7_driver = np.genfromtxt(
+                    "C:/local_working_projects/cubie/src/scratch"
+                    "/pig_7_TVE_normalised.csv",
+                    delimiter=",",
+                    dtype=precision,
+                )[:, np.newaxis]
+pig7_driver = np.concatenate([pig7_driver,
+                             np.asarray(((pig7_driver[0,0],),),
+                                         dtype=precision)],
+                             axis=0)
+_driver_dt = beat_duration / pig7_driver.shape[0]
+_driver_times = np.linspace(0.0,
+                            beat_duration,
+                            pig7_driver.shape[0],
+                            dtype=precision)
+# Generate sinusoidal driver signal(s) with distinct frequencies
+_driver_values = {'d1': pig7_driver[:,0]}
+driver_input_dict = {
+    'dt': float(_driver_dt),
+    't0': 0.0,
+    **_driver_values,
+}
 
 # -------------------------------------------------------------------------
 # Implicit Solver Parameters (DIRK only)
@@ -126,6 +155,8 @@ safety = precision(0.9)
 # Tolerances for adaptive step control
 atol_value = precision(1e-8)
 rtol_value = precision(1e-8)
+
+cached_aux_count = 0
 
 saved_state_indices = np.arange(n_states, dtype=np.int_)
 saved_observable_indices = np.arange(n_observables, dtype=np.int_)
@@ -361,8 +392,7 @@ def get_strides(
 
 # AUTO-GENERATED DXDT FACTORY
 def dxdt_factory(constants, precision):
-    sigma_ = precision(constants["sigma_"])
-    beta_ = precision(constants["beta_"])
+    """Auto-generated dxdt factory."""
 
     @cuda.jit(
         # (precision[::1],
@@ -375,40 +405,62 @@ def dxdt_factory(constants, precision):
         inline=True,
     )
     def dxdt(state, parameters, drivers, observables, out, t):
-        out[2] = -beta_ * state[2] + state[0] * state[1]
-        _cse0 = -state[1]
-        out[1] = _cse0 + state[0] * (parameters[0] - state[2])
-        out[0] = sigma_ * (-_cse0 - state[0])
+        out[2] = observables[5] - observables[3]
+        _cse0 = -observables[4]
+        out[0] = observables[3] + _cse0
+        out[1] = -observables[5] - _cse0
 
     return dxdt
 
 
 # AUTO-GENERATED OBSERVABLES FACTORY
 def observables_factory(constants, precision):
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+    """Auto-generated observables factory."""
+
     @cuda.jit(
-            # (precision[::1],
-            #  precision[::1],
-            #  precision[::1],
-            #  precision[::1],
-            #  precision),
-            device=True,
-            inline=True)
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision),
+        device=True,
+        inline=True,
+    )
     def get_observables(state, parameters, drivers, observables, t):
-        pass
+        observables[0] = parameters[1] * state[1]
+        observables[1] = parameters[2] * state[2]
+        observables[2] = drivers[0] * parameters[0] * state[0]
+        _cse0 = -observables[1]
+        observables[4] = (
+            (-observables[0] + observables[2]) / parameters[4]
+            if (observables[0] < observables[2])
+            else (precision(0))
+        )
+        observables[3] = (
+            (-_cse0 - observables[2]) / parameters[3]
+            if (observables[1] > observables[2])
+            else (precision(0))
+        )
+        observables[5] = (_cse0 + observables[0]) / parameters[5]
 
     return get_observables
+
+
 # AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
+    """Auto-generated Neumann preconditioner.
+    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
+    Neumann series. Returns device function:
+      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
+    where `jvp` is a caller-provided scratch buffer for J*v.
+    """
     n = int32(3)
     gamma = precision(gamma)
     beta = precision(beta)
     order = int32(order)
     beta_inv = precision(1.0 / beta)
     h_eff_factor = precision(gamma * beta_inv)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -421,7 +473,8 @@ def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
         #  precision[::1],
         #  precision[::1]),
         device=True,
-        inline=True)
+        inline=True,
+    )
     def preconditioner(
         state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp
     ):
@@ -431,29 +484,50 @@ def neumann_preconditioner(constants, precision, beta=1.0, gamma=1.0, order=1):
             out[i] = v[i]
         h_eff = h * h_eff_factor * a_ij
         for _ in range(order):
-            j_00 = -sigma_
-            j_01 = sigma_
-            j_10 = -a_ij*state[2] + parameters[0] - base_state[2]
-            j_11 = precision(-1)
-            j_12 = -a_ij*state[0] - base_state[0]
-            j_20 = a_ij*state[1] + base_state[1]
-            j_21 = a_ij*state[0] + base_state[0]
-            j_22 = -beta_
-            jvp[0] = j_00*out[0] + j_01*out[1]
-            jvp[1] = j_10*out[0] + j_11*out[1] + j_12*out[2]
-            jvp[2] = j_20*out[0] + j_21*out[1] + j_22*out[2]
+            aux_1 = parameters[1] * (a_ij * state[1] + base_state[1])
+            aux_2 = parameters[2] * (a_ij * state[2] + base_state[2])
+            _cse0 = parameters[0] * drivers[0]
+            _cse1 = parameters[3] ** -1
+            _cse4 = parameters[4] ** -1
+            _cse6 = parameters[5] ** -1
+            aux_3 = _cse0 * (a_ij * state[0] + base_state[0])
+            _cse12 = parameters[2] * _cse6
+            _cse11 = parameters[1] * _cse6
+            _cse5 = aux_1 < aux_3
+            _cse3 = aux_2 > aux_3
+            j_12 = _cse12
+            j_21 = _cse11
+            _cse9 = parameters[1] * (-_cse4 if _cse5 else (precision(0)))
+            _cse8 = _cse0 * (_cse4 if _cse5 else (precision(0)))
+            _cse10 = parameters[2] * (_cse1 if _cse3 else (precision(0)))
+            _cse7 = _cse0 * (-_cse1 if _cse3 else (precision(0)))
+            j_01 = -_cse9
+            j_11 = -_cse11 + _cse9
+            j_10 = _cse8
+            j_22 = -_cse10 - _cse12
+            j_02 = _cse10
+            j_00 = _cse7 - _cse8
+            j_20 = -_cse7
+            jvp[1] = j_10 * out[0] + j_11 * out[1] + j_12 * out[2]
+            jvp[0] = j_00 * out[0] + j_01 * out[1] + j_02 * out[2]
+            jvp[2] = j_20 * out[0] + j_21 * out[1] + j_22 * out[2]
             for i in range(n):
                 out[i] = v[i] + h_eff * jvp[i]
         for i in range(n):
             out[i] = beta_inv * out[i]
+
     return preconditioner
+
 
 # AUTO-GENERATED NONLINEAR RESIDUAL FACTORY
 def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated nonlinear residual for implicit updates.
+    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).
+    Order is ignored, included for compatibility with preconditioner API.
+    """
     beta = precision(beta)
     gamma = precision(gamma)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -464,28 +538,49 @@ def stage_residual(constants, precision, beta=1.0, gamma=1.0, order=None):
         #  precision[::1],
         #  precision[::1]),
         device=True,
-        inline=True)
+        inline=True,
+    )
     def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
-        _cse0 = a_ij*u[1]
-        _cse1 = a_ij*u[0] + base_state[0]
-        _cse2 = a_ij*u[2] + base_state[2]
-        _cse4 = precision(1.00000)*beta
-        _cse5 = gamma*h
-        _cse3 = _cse0 + base_state[1]
-        dx_0 = sigma_*(_cse0 - _cse1 + base_state[1])
-        dx_2 = _cse1*_cse3 - _cse2*beta_
-        dx_1 = _cse1*(-_cse2 + parameters[0]) - _cse3
-        out[0] = _cse4*u[0] - _cse5*dx_0
-        out[2] = _cse4*u[2] - _cse5*dx_2
-        out[1] = _cse4*u[1] - _cse5*dx_1
+        aux_1 = parameters[1] * (a_ij * u[1] + base_state[1])
+        aux_2 = parameters[2] * (a_ij * u[2] + base_state[2])
+        aux_3 = parameters[0] * drivers[0] * (a_ij * u[0] + base_state[0])
+        _cse2 = precision(1.00000) * beta
+        _cse3 = gamma * h
+        aux_6 = (aux_1 - aux_2) / parameters[5]
+        _cse0 = -aux_3
+        _cse1 = -aux_6
+        aux_5 = (
+            (-_cse0 - aux_1) / parameters[4]
+            if (aux_1 < aux_3)
+            else (precision(0))
+        )
+        aux_4 = (
+            (_cse0 + aux_2) / parameters[3]
+            if (aux_2 > aux_3)
+            else (precision(0))
+        )
+        dx_1 = _cse1 + aux_5
+        dx_2 = -_cse1 - aux_4
+        dx_0 = aux_4 - aux_5
+        out[1] = _cse2 * u[1] - _cse3 * dx_1
+        out[2] = _cse2 * u[2] - _cse3 * dx_2
+        out[0] = _cse2 * u[0] - _cse3 * dx_0
+
     return residual
+
 
 # AUTO-GENERATED LINEAR OPERATOR FACTORY
 def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated linear operator.
+    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
+    Returns device function:
+      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)
+    argument 'order' is ignored, included for compatibility with
+    preconditioner API.
+    """
     beta = precision(beta)
     gamma = precision(gamma)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -497,31 +592,51 @@ def linear_operator(constants, precision, beta=1.0, gamma=1.0, order=None):
         #  precision[::1],
         #  precision[::1]),
         device=True,
-        inline=True)
-    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):
+        inline=True,
+    )
+    def operator_apply(
+        state, parameters, drivers, base_state, t, h, a_ij, v, out
+    ):
         m_00 = precision(1.00000)
         m_11 = precision(1.00000)
         m_22 = precision(1.00000)
-        j_00 = -sigma_
-        j_01 = sigma_
-        j_10 = -a_ij*state[2] + parameters[0] - base_state[2]
-        j_11 = precision(-1)
-        j_12 = -a_ij*state[0] - base_state[0]
-        j_20 = a_ij*state[1] + base_state[1]
-        j_21 = a_ij*state[0] + base_state[0]
-        j_22 = -beta_
-        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1]) + beta*m_00*v[0]
+        aux_1 = parameters[1] * (a_ij * state[1] + base_state[1])
+        aux_2 = parameters[2] * (a_ij * state[2] + base_state[2])
+        _cse0 = parameters[0] * drivers[0]
+        _cse1 = parameters[3] ** -1
+        _cse4 = parameters[4] ** -1
+        _cse6 = parameters[5] ** -1
+        aux_3 = _cse0 * (a_ij * state[0] + base_state[0])
+        _cse12 = parameters[2] * _cse6
+        _cse11 = parameters[1] * _cse6
+        _cse5 = aux_1 < aux_3
+        _cse3 = aux_2 > aux_3
+        j_12 = _cse12
+        j_21 = _cse11
+        _cse9 = parameters[1] * (-_cse4 if _cse5 else (precision(0)))
+        _cse8 = _cse0 * (_cse4 if _cse5 else (precision(0)))
+        _cse10 = parameters[2]*(_cse1 if _cse3 else (precision(0)))
+        _cse7 = _cse0*(-_cse1 if _cse3 else (precision(0)))
+        j_01 = -_cse9
+        j_11 = -_cse11 + _cse9
+        j_10 = _cse8
+        j_22 = -_cse10 - _cse12
+        j_02 = _cse10
+        j_00 = _cse7 - _cse8
+        j_20 = -_cse7
+        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1] + j_02*v[2]) + beta*m_00*v[0]
         out[1] = -a_ij*gamma*h*(j_10*v[0] + j_11*v[1] + j_12*v[2]) + beta*m_11*v[1]
         out[2] = -a_ij*gamma*h*(j_20*v[0] + j_21*v[1] + j_22*v[2]) + beta*m_22*v[2]
     return operator_apply
 
-
 # AUTO-GENERATED N-STAGE RESIDUAL FACTORY
 def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated FIRK residual for flattened stage increments.
+    Handles 3 stages with ``s * n`` unknowns.
+    Order is ignored, included for compatibility with preconditioner API.
+    """
     beta = precision(beta)
     gamma = precision(gamma)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -543,264 +658,70 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
         a_2_0 = precision(0.376403062700467)
         a_2_1 = precision(0.512485826188422)
         a_2_2 = precision(0.111111111111111)
-        _cse0 = -base_state[1]
-        _cse5 = -parameters[0]
-        _cse8 = precision(1.00000)*beta
-        _cse9 = gamma*h
-        _cse1 = a_0_0*u[1]
-        _cse2 = a_0_1*u[4]
-        _cse6 = a_0_0*u[2] + a_0_1*u[5] + a_0_2*u[8] + base_state[2]
-        _cse4 = a_0_0*u[0] + a_0_1*u[3] + a_0_2*u[6] + base_state[0]
-        _cse3 = a_0_2*u[7]
-        _cse10 = a_1_0*u[1]
-        _cse11 = a_1_1*u[4]
-        _cse12 = a_1_2*u[7]
-        _cse14 = a_1_0*u[2] + a_1_1*u[5] + a_1_2*u[8] + base_state[2]
-        _cse13 = a_1_0*u[0] + a_1_1*u[3] + a_1_2*u[6] + base_state[0]
-        _cse16 = a_2_0*u[1]
-        _cse17 = a_2_1*u[4]
-        _cse19 = a_2_0*u[0] + a_2_1*u[3] + a_2_2*u[6] + base_state[0]
-        _cse18 = a_2_2*u[7]
-        _cse20 = a_2_0*u[2] + a_2_1*u[5] + a_2_2*u[8] + base_state[2]
-        dx_0_0 = sigma_*(-_cse0 + _cse1 + _cse2 + _cse3 - _cse4)
-        _cse7 = _cse1 + _cse2 + _cse3 + base_state[1]
-        _cse15 = _cse10 + _cse11 + _cse12 + base_state[1]
-        dx_1_0 = sigma_*(-_cse0 + _cse10 + _cse11 + _cse12 - _cse13)
-        dx_2_0 = sigma_*(-_cse0 + _cse16 + _cse17 + _cse18 - _cse19)
-        _cse21 = _cse16 + _cse17 + _cse18 + base_state[1]
-        out[0] = _cse8*u[0] - _cse9*dx_0_0
-        dx_0_1 = _cse4*(-_cse5 - _cse6) - _cse7
-        dx_0_2 = _cse4*_cse7 - _cse6*beta_
-        dx_1_1 = _cse13*(-_cse14 - _cse5) - _cse15
-        dx_1_2 = _cse13*_cse15 - _cse14*beta_
-        out[3] = _cse8*u[3] - _cse9*dx_1_0
-        out[6] = _cse8*u[6] - _cse9*dx_2_0
-        dx_2_2 = _cse19*_cse21 - _cse20*beta_
-        dx_2_1 = _cse19*(-_cse20 - _cse5) - _cse21
-        out[1] = _cse8*u[1] - _cse9*dx_0_1
-        out[2] = _cse8*u[2] - _cse9*dx_0_2
-        out[4] = _cse8*u[4] - _cse9*dx_1_1
-        out[5] = _cse8*u[5] - _cse9*dx_1_2
-        out[8] = _cse8*u[8] - _cse9*dx_2_2
-        out[7] = _cse8*u[7] - _cse9*dx_2_1
+        _cse0 = parameters[3]**-1
+        _cse2 = parameters[4]**-1
+        _cse3 = parameters[5]**-1
+        _cse5 = precision(1.00000)*beta
+        _cse6 = gamma*h
+        aux_0_1 = parameters[1]*(a_0_0*u[1] + a_0_1*u[4] + a_0_2*u[7] + base_state[1])
+        aux_0_3 = parameters[0]*(a_0_0*u[0] + a_0_1*u[3] + a_0_2*u[6] + base_state[0])*drivers[0]
+        aux_0_2 = parameters[2]*(a_0_0*u[2] + a_0_1*u[5] + a_0_2*u[8] + base_state[2])
+        aux_1_3 = parameters[0]*(a_1_0*u[0] + a_1_1*u[3] + a_1_2*u[6] + base_state[0])*drivers[1]
+        aux_1_2 = parameters[2]*(a_1_0*u[2] + a_1_1*u[5] + a_1_2*u[8] + base_state[2])
+        aux_1_1 = parameters[1]*(a_1_0*u[1] + a_1_1*u[4] + a_1_2*u[7] + base_state[1])
+        aux_2_1 = parameters[1]*(a_2_0*u[1] + a_2_1*u[4] + a_2_2*u[7] + base_state[1])
+        aux_2_3 = parameters[0]*(a_2_0*u[0] + a_2_1*u[3] + a_2_2*u[6] + base_state[0])*drivers[2]
+        aux_2_2 = parameters[2]*(a_2_0*u[2] + a_2_1*u[5] + a_2_2*u[8] + base_state[2])
+        _cse1 = -aux_0_3
+        aux_0_6 = _cse3*(aux_0_1 - aux_0_2)
+        _cse7 = -aux_1_3
+        aux_1_6 = _cse3*(aux_1_1 - aux_1_2)
+        _cse9 = -aux_2_3
+        aux_2_6 = _cse3*(aux_2_1 - aux_2_2)
+        aux_0_5 = (_cse2*(-_cse1 - aux_0_1) if (aux_0_1 < aux_0_3) else (precision(0)))
+        aux_0_4 = (_cse0*(_cse1 + aux_0_2) if (aux_0_2 > aux_0_3) else (precision(0)))
+        _cse4 = -aux_0_6
+        aux_1_4 = (_cse0*(_cse7 + aux_1_2) if (aux_1_2 > aux_1_3) else (precision(0)))
+        aux_1_5 = (_cse2*(-_cse7 - aux_1_1) if (aux_1_1 < aux_1_3) else (precision(0)))
+        _cse8 = -aux_1_6
+        aux_2_5 = (_cse2*(-_cse9 - aux_2_1) if (aux_2_1 < aux_2_3) else (precision(0)))
+        aux_2_4 = (_cse0*(_cse9 + aux_2_2) if (aux_2_2 > aux_2_3) else (precision(0)))
+        _cse10 = -aux_2_6
+        dx_0_0 = aux_0_4 - aux_0_5
+        dx_0_1 = _cse4 + aux_0_5
+        dx_0_2 = -_cse4 - aux_0_4
+        dx_1_0 = aux_1_4 - aux_1_5
+        dx_1_2 = -_cse8 - aux_1_4
+        dx_1_1 = _cse8 + aux_1_5
+        dx_2_0 = aux_2_4 - aux_2_5
+        dx_2_2 = -_cse10 - aux_2_4
+        dx_2_1 = _cse10 + aux_2_5
+        out[0] = _cse5*u[0] - _cse6*dx_0_0
+        out[1] = _cse5*u[1] - _cse6*dx_0_1
+        out[2] = _cse5*u[2] - _cse6*dx_0_2
+        out[3] = _cse5*u[3] - _cse6*dx_1_0
+        out[5] = _cse5*u[5] - _cse6*dx_1_2
+        out[4] = _cse5*u[4] - _cse6*dx_1_1
+        out[6] = _cse5*u[6] - _cse6*dx_2_0
+        out[8] = _cse5*u[8] - _cse6*dx_2_2
+        out[7] = _cse5*u[7] - _cse6*dx_2_1
     return residual
 
-# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY
-def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=None):
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
-    gamma = precision(gamma)
-    beta = precision(beta)
-    @cuda.jit(
-        # (precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision,
-        #  precision,
-        #  precision,
-        #  precision[::1],
-        #  precision[::1]),
-        device=True,
-        inline=True)
-    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):
-        a_0_0 = precision(0.196815477223660)
-        a_0_1 = precision(-0.0655354258501984)
-        a_0_2 = precision(0.0237709743482202)
-        a_1_0 = precision(0.394424314739087)
-        a_1_1 = precision(0.292073411665228)
-        a_1_2 = precision(-0.0415487521259979)
-        a_2_0 = precision(0.376403062700467)
-        a_2_1 = precision(0.512485826188422)
-        a_2_2 = precision(0.111111111111111)
-        j_01_0 = sigma_
-        j_11_0 = precision(-1)
-        j_01_1 = sigma_
-        j_11_1 = precision(-1)
-        j_01_2 = sigma_
-        j_11_2 = precision(-1)
-        _cse5 = -parameters[0]
-        _cse9 = -sigma_
-        _cse10 = -beta_
-        _cse11 = precision(1.00000)*beta
-        _cse12 = gamma*h
-        _cse1 = a_0_0*state[1]
-        _cse2 = a_0_1*state[4]
-        _cse6 = a_0_0*state[2] + a_0_1*state[5] + a_0_2*state[8] + base_state[2]
-        _cse4 = a_0_0*state[0] + a_0_1*state[3] + a_0_2*state[6] + base_state[0]
-        _cse3 = a_0_2*state[7]
-        _cse13 = a_1_0*state[1]
-        _cse14 = a_1_1*state[4]
-        _cse17 = a_1_0*state[2] + a_1_1*state[5] + a_1_2*state[8] + base_state[2]
-        _cse16 = a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0]
-        _cse15 = a_1_2*state[7]
-        _cse20 = a_2_0*state[1]
-        _cse21 = a_2_1*state[4]
-        _cse22 = a_2_2*state[7]
-        _cse24 = a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2]
-        _cse23 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
-        j_00_2 = _cse9
-        j_00_0 = _cse9
-        j_00_1 = _cse9
-        j_22_2 = _cse10
-        j_22_0 = _cse10
-        j_22_1 = _cse10
-        _cse7 = -_cse5 - _cse6
-        j_12_0 = -_cse4
-        j_21_0 = _cse4
-        _cse8 = _cse1 + _cse2 + _cse3 + base_state[1]
-        _cse18 = -_cse17 - _cse5
-        j_21_1 = _cse16
-        j_12_1 = -_cse16
-        _cse19 = _cse13 + _cse14 + _cse15 + base_state[1]
-        _cse26 = _cse20 + _cse21 + _cse22 + base_state[1]
-        _cse25 = -_cse24 - _cse5
-        j_12_2 = -_cse23
-        j_21_2 = _cse23
-        jvp_2_0 = j_00_2*v[0] + j_01_2*v[1]
-        jvp_0_0 = j_00_0*v[0] + j_01_0*v[1]
-        jvp_1_0 = j_00_1*v[0] + j_01_1*v[1]
-        j_10_0 = _cse7
-        j_20_0 = _cse8
-        j_10_1 = _cse18
-        j_20_1 = _cse19
-        j_20_2 = _cse26
-        j_10_2 = _cse25
-        out[6] = _cse11*v[6] - _cse12*jvp_2_0
-        out[0] = _cse11*v[0] - _cse12*jvp_0_0
-        out[3] = _cse11*v[3] - _cse12*jvp_1_0
-        jvp_0_1 = j_10_0*v[0] + j_11_0*v[1] + j_12_0*v[2]
-        jvp_0_2 = j_20_0*v[0] + j_21_0*v[1] + j_22_0*v[2]
-        jvp_1_1 = j_10_1*v[0] + j_11_1*v[1] + j_12_1*v[2]
-        jvp_1_2 = j_20_1*v[0] + j_21_1*v[1] + j_22_1*v[2]
-        jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
-        jvp_2_1 = j_10_2*v[0] + j_11_2*v[1] + j_12_2*v[2]
-        out[1] = _cse11*v[1] - _cse12*jvp_0_1
-        out[2] = _cse11*v[2] - _cse12*jvp_0_2
-        out[4] = _cse11*v[4] - _cse12*jvp_1_1
-        out[5] = _cse11*v[5] - _cse12*jvp_1_2
-        out[8] = _cse11*v[8] - _cse12*jvp_2_2
-        out[7] = _cse11*v[7] - _cse12*jvp_2_1
-    return operator_apply
-
-# AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY
-def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, order=1):
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
-    total_n = int32(9)
-    gamma = precision(gamma)
-    beta = precision(beta)
-    order = int32(order)
-    beta_inv = precision(1.0 / beta)
-    h_eff_factor = precision(gamma * beta_inv)
-    stage_width = int32(3)
-    @cuda.jit(
-        # (precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision,
-        #  precision,
-        #  precision,
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1]),
-        device=True,
-        inline=True)
-    def preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp):
-        for i in range(total_n):
-            out[i] = v[i]
-        h_eff = h * h_eff_factor
-        for _ in range(order):
-            a_0_0 = precision(0.196815477223660)
-            a_0_1 = precision(-0.0655354258501984)
-            a_0_2 = precision(0.0237709743482202)
-            a_1_0 = precision(0.394424314739087)
-            a_1_1 = precision(0.292073411665228)
-            a_1_2 = precision(-0.0415487521259979)
-            a_2_0 = precision(0.376403062700467)
-            a_2_1 = precision(0.512485826188422)
-            a_2_2 = precision(0.111111111111111)
-            j_01_0 = sigma_
-            j_11_0 = precision(-1)
-            j_01_1 = sigma_
-            j_11_1 = precision(-1)
-            j_01_2 = sigma_
-            j_11_2 = precision(-1)
-            _cse5 = -parameters[0]
-            _cse9 = -sigma_
-            _cse10 = -beta_
-            _cse1 = a_0_0*state[1]
-            _cse2 = a_0_1*state[4]
-            _cse6 = a_0_0*state[2] + a_0_1*state[5] + a_0_2*state[8] + base_state[2]
-            _cse4 = a_0_0*state[0] + a_0_1*state[3] + a_0_2*state[6] + base_state[0]
-            _cse3 = a_0_2*state[7]
-            _cse11 = a_1_0*state[1]
-            _cse12 = a_1_1*state[4]
-            _cse15 = a_1_0*state[2] + a_1_1*state[5] + a_1_2*state[8] + base_state[2]
-            _cse14 = a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0]
-            _cse13 = a_1_2*state[7]
-            _cse18 = a_2_0*state[1]
-            _cse19 = a_2_1*state[4]
-            _cse21 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
-            _cse22 = a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2]
-            _cse20 = a_2_2*state[7]
-            j_00_2 = _cse9
-            j_00_0 = _cse9
-            j_00_1 = _cse9
-            j_22_2 = _cse10
-            j_22_0 = _cse10
-            j_22_1 = _cse10
-            _cse7 = -_cse5 - _cse6
-            j_12_0 = -_cse4
-            j_21_0 = _cse4
-            _cse8 = _cse1 + _cse2 + _cse3 + base_state[1]
-            _cse16 = -_cse15 - _cse5
-            j_21_1 = _cse14
-            j_12_1 = -_cse14
-            _cse17 = _cse11 + _cse12 + _cse13 + base_state[1]
-            j_12_2 = -_cse21
-            j_21_2 = _cse21
-            _cse23 = -_cse22 - _cse5
-            _cse24 = _cse18 + _cse19 + _cse20 + base_state[1]
-            jvp_2_0 = j_00_2*v[0] + j_01_2*v[1]
-            jvp_0_0 = j_00_0*v[0] + j_01_0*v[1]
-            jvp_1_0 = j_00_1*v[0] + j_01_1*v[1]
-            j_10_0 = _cse7
-            j_20_0 = _cse8
-            j_10_1 = _cse16
-            j_20_1 = _cse17
-            j_10_2 = _cse23
-            j_20_2 = _cse24
-            jvp[6] = jvp_2_0
-            jvp[0] = jvp_0_0
-            jvp[3] = jvp_1_0
-            jvp_0_1 = j_10_0*v[0] + j_11_0*v[1] + j_12_0*v[2]
-            jvp_0_2 = j_20_0*v[0] + j_21_0*v[1] + j_22_0*v[2]
-            jvp_1_1 = j_10_1*v[0] + j_11_1*v[1] + j_12_1*v[2]
-            jvp_1_2 = j_20_1*v[0] + j_21_1*v[1] + j_22_1*v[2]
-            jvp_2_1 = j_10_2*v[0] + j_11_2*v[1] + j_12_2*v[2]
-            jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
-            jvp[1] = jvp_0_1
-            jvp[2] = jvp_0_2
-            jvp[4] = jvp_1_1
-            jvp[5] = jvp_1_2
-            jvp[7] = jvp_2_1
-            jvp[8] = jvp_2_2
-            for i in range(total_n):
-                out[i] = v[i] + h_eff * jvp[i]
-        for i in range(total_n):
-            out[i] = beta_inv * out[i]
-    return preconditioner
+# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
+    """Cached Neumann preconditioner using stored auxiliaries.
+    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated
+    Neumann series with cached auxiliaries. Returns device function:
+      preconditioner(
+          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp
+      )
+    """
     n = int32(3)
     order = int32(order)
     gamma = precision(gamma)
     beta = precision(beta)
     beta_inv = precision(1.0 / beta)
     h_eff_factor = precision(gamma * beta_inv)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -822,15 +743,31 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
             out[i] = v[i]
         h_eff = h * h_eff_factor * a_ij
         for _ in range(order):
-            j_00 = -sigma_
-            j_01 = sigma_
-            j_10 = parameters[0] - state[2]
-            j_11 = precision(-1)
-            j_12 = -state[0]
-            j_20 = state[1]
-            j_21 = state[0]
-            j_22 = -beta_
-            jvp[0] = j_00*out[0] + j_01*out[1]
+            aux_1 = parameters[1]*state[1]
+            aux_2 = parameters[2]*state[2]
+            _cse0 = parameters[0]*drivers[0]
+            _cse1 = parameters[3]**-1
+            _cse4 = parameters[4]**-1
+            _cse6 = parameters[5]**-1
+            aux_3 = state[0]*_cse0
+            _cse11 = parameters[1]*_cse6
+            _cse12 = parameters[2]*_cse6
+            _cse3 = (aux_2 > aux_3)
+            _cse5 = (aux_1 < aux_3)
+            j_21 = _cse11
+            j_12 = _cse12
+            _cse7 = _cse0*(-_cse1 if _cse3 else (precision(0)))
+            _cse10 = parameters[2]*(_cse1 if _cse3 else (precision(0)))
+            _cse9 = parameters[1]*(-_cse4 if _cse5 else (precision(0)))
+            _cse8 = _cse0*(_cse4 if _cse5 else (precision(0)))
+            j_20 = -_cse7
+            j_22 = -_cse10 - _cse12
+            j_02 = _cse10
+            j_11 = -_cse11 + _cse9
+            j_01 = -_cse9
+            j_10 = _cse8
+            j_00 = _cse7 - _cse8
+            jvp[0] = j_00*out[0] + j_01*out[1] + j_02*out[2]
             jvp[1] = j_10*out[0] + j_11*out[1] + j_12*out[2]
             jvp[2] = j_20*out[0] + j_21*out[1] + j_22*out[2]
             for i in range(n):
@@ -841,10 +778,18 @@ def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, ord
 
 # AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY
 def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated cached linear operator.
+    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)
+    using cached auxiliary intermediates.
+    Returns device function:
+      operator_apply(
+          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out
+      )
+    argument 'order' is ignored, included for compatibility with
+    preconditioner API.
+    """
     beta = precision(beta)
     gamma = precision(gamma)
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -864,23 +809,40 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
         m_00 = precision(1.00000)
         m_11 = precision(1.00000)
         m_22 = precision(1.00000)
-        j_00 = -sigma_
-        j_01 = sigma_
-        j_10 = parameters[0] - state[2]
-        j_11 = precision(-1)
-        j_12 = -state[0]
-        j_20 = state[1]
-        j_21 = state[0]
-        j_22 = -beta_
-        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1]) + beta*m_00*v[0]
+        aux_1 = parameters[1]*state[1]
+        aux_2 = parameters[2]*state[2]
+        _cse0 = parameters[0]*drivers[0]
+        _cse1 = parameters[3]**-1
+        _cse4 = parameters[4]**-1
+        _cse6 = parameters[5]**-1
+        aux_3 = state[0]*_cse0
+        _cse11 = parameters[1]*_cse6
+        _cse12 = parameters[2]*_cse6
+        _cse3 = (aux_2 > aux_3)
+        _cse5 = (aux_1 < aux_3)
+        j_21 = _cse11
+        j_12 = _cse12
+        _cse7 = _cse0*(-_cse1 if _cse3 else (precision(0)))
+        _cse10 = parameters[2]*(_cse1 if _cse3 else (precision(0)))
+        _cse9 = parameters[1]*(-_cse4 if _cse5 else (precision(0)))
+        _cse8 = _cse0*(_cse4 if _cse5 else (precision(0)))
+        j_20 = -_cse7
+        j_22 = -_cse10 - _cse12
+        j_02 = _cse10
+        j_11 = -_cse11 + _cse9
+        j_01 = -_cse9
+        j_10 = _cse8
+        j_00 = _cse7 - _cse8
+        out[0] = -a_ij*gamma*h*(j_00*v[0] + j_01*v[1] + j_02*v[2]) + beta*m_00*v[0]
         out[1] = -a_ij*gamma*h*(j_10*v[0] + j_11*v[1] + j_12*v[2]) + beta*m_11*v[1]
         out[2] = -a_ij*gamma*h*(j_20*v[0] + j_21*v[1] + j_22*v[2]) + beta*m_22*v[2]
     return operator_apply
 
 # AUTO-GENERATED JACOBIAN PREPARATION FACTORY
 def prepare_jac(constants, precision):
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+    """Auto-generated Jacobian auxiliary preparation.
+    Populates cached_aux with intermediate Jacobian values.
+    """
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -895,8 +857,7 @@ def prepare_jac(constants, precision):
 
 # AUTO-GENERATED TIME-DERIVATIVE FACTORY
 def time_derivative_rhs(constants, precision):
-    sigma_ = precision(constants['sigma_'])
-    beta_ = precision(constants['beta_'])
+    """Auto-generated time-derivative factory."""
     @cuda.jit(
         # (precision[::1],
         #  precision[::1],
@@ -910,14 +871,15 @@ def time_derivative_rhs(constants, precision):
     def time_derivative_rhs(
         state, parameters, drivers, driver_dt, observables, out, t
     ):
-        time_dx = precision(0)
-        time_dy = precision(0)
-        time_dz = precision(0)
-        out[0] = time_dx
-        out[1] = time_dy
-        out[2] = time_dz
+        time_dV_h = precision(0)
+        time_dV_a = precision(0)
+        time_dV_v = precision(0)
+        out[0] = time_dV_h
+        out[1] = time_dV_a
+        out[2] = time_dV_v
 
     return time_derivative_rhs
+
 # =========================================================================
 # DRIVER INTERPOLATION INLINE DEVICE FUNCTIONS
 # =========================================================================
@@ -3973,82 +3935,82 @@ def do_nothing_update(
     current_step,
 ):
     pass
-
-def chain_metrics_update(metric_functions, buffer_offsets, buffer_sizes,
-                         function_params, inner_chain=do_nothing_update):
-    n = len(metric_functions)
-
-    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-    def leaf(value, buffer, current_step):
-        inner_chain(value, buffer, current_step)
-
-    fn_chain = leaf
-    for i in range(n - 1, -1, -1):
-        fn = metric_functions[i]
-        boff = int32(buffer_offsets[i])
-        bsz = int32(buffer_sizes[i])
-        param = int32(function_params[i])
-        prev = fn_chain
-
-        @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-        def wrapped(value, buffer, current_step, fn=fn, boff=boff, bsz=bsz,
-                   param=param, nxt=prev):
-            fn(value, buffer[boff:boff + bsz], current_step, param)
-            nxt(value, buffer, current_step)
-
-        fn_chain = wrapped
-
-    return fn_chain
-
 #
-# def chain_metrics_update(
-#     metric_functions,
-#     buffer_offsets,
-#     buffer_sizes,
-#     function_params,
-#     inner_chain=do_nothing_update,
-# ):
-#     if len(metric_functions) == 0:
-#         return do_nothing_update
+# def chain_metrics_update(metric_functions, buffer_offsets, buffer_sizes,
+#                          function_params, inner_chain=do_nothing_update):
+#     n = len(metric_functions)
 #
-#     current_fn = metric_functions[0]
-#     current_offset = buffer_offsets[0]
-#     current_size = buffer_sizes[0]
-#     current_param = function_params[0]
-#
-#     remaining_functions = metric_functions[1:]
-#     remaining_offsets = buffer_offsets[1:]
-#     remaining_sizes = buffer_sizes[1:]
-#     remaining_params = function_params[1:]
-#
-#     @cuda.jit(
-#         device=True,
-#         inline=True,
-#         **compile_kwargs,
-#     )
-#     def wrapper(
-#         value,
-#         buffer,
-#         current_step,
-#     ):
+#     @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+#     def leaf(value, buffer, current_step):
 #         inner_chain(value, buffer, current_step)
-#         current_fn(
-#             value,
-#             buffer[current_offset : current_offset + current_size],
-#             current_step,
-#             current_param,
-#         )
 #
-#     if remaining_functions:
-#         return chain_metrics_update(
-#             remaining_functions,
-#             remaining_offsets,
-#             remaining_sizes,
-#             remaining_params,
-#             wrapper,
-#         )
-#     else:
-#         return wrapper
+#     fn_chain = leaf
+#     for i in range(n - 1, -1, -1):
+#         fn = metric_functions[i]
+#         boff = int32(buffer_offsets[i])
+#         bsz = int32(buffer_sizes[i])
+#         param = int32(function_params[i])
+#         prev = fn_chain
+#
+#         @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+#         def wrapped(value, buffer, current_step, fn=fn, boff=boff, bsz=bsz,
+#                    param=param, nxt=prev):
+#             fn(value, buffer[boff:boff + bsz], current_step, param)
+#             nxt(value, buffer, current_step)
+#
+#         fn_chain = wrapped
+#
+#     return fn_chain
+
+#
+def chain_metrics_update(
+    metric_functions,
+    buffer_offsets,
+    buffer_sizes,
+    function_params,
+    inner_chain=do_nothing_update,
+):
+    if len(metric_functions) == 0:
+        return do_nothing_update
+
+    current_fn = metric_functions[0]
+    current_offset = buffer_offsets[0]
+    current_size = buffer_sizes[0]
+    current_param = function_params[0]
+
+    remaining_functions = metric_functions[1:]
+    remaining_offsets = buffer_offsets[1:]
+    remaining_sizes = buffer_sizes[1:]
+    remaining_params = function_params[1:]
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def wrapper(
+        value,
+        buffer,
+        current_step,
+    ):
+        inner_chain(value, buffer, current_step)
+        current_fn(
+            value,
+            buffer[current_offset : current_offset + current_size],
+            current_step,
+            current_param,
+        )
+
+    if remaining_functions:
+        return chain_metrics_update(
+            remaining_functions,
+            remaining_offsets,
+            remaining_sizes,
+            remaining_params,
+            wrapper,
+        )
+    else:
+        return wrapper
 
 
 def update_summary_factory(
@@ -4153,6 +4115,7 @@ def chain_metrics_save(
     @cuda.jit(
         device=True,
         inline=True,
+        forceinline=True,
         **compile_kwargs,
     )
     def wrapper(
@@ -4614,13 +4577,13 @@ elif algorithm_type == 'dirk':
 elif algorithm_type == 'firk':
     # Build implicit solver components for FIRK (fully implicit)
     # FIRK requires n-stage coupled system solving
-    preconditioner_fn = n_stage_neumann_preconditioner_3(
-        constants,
-        precision,
-        beta=float(beta_solver),
-        gamma=float(gamma_solver),
-        order=preconditioner_order,
-    )
+    # preconditioner_fn = n_stage_neumann_preconditioner_3(
+    #     constants,
+    #     precision,
+    #     beta=float(beta_solver),
+    #     gamma=float(gamma_solver),
+    #     order=preconditioner_order,
+    # )
     residual_fn = n_stage_residual_3(
         constants,
         precision,
@@ -4628,18 +4591,18 @@ elif algorithm_type == 'firk':
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    operator_fn = n_stage_linear_operator_3(
-        constants,
-        precision,
-        beta=float(beta_solver),
-        gamma=float(gamma_solver),
-        order=preconditioner_order,
-    )
+    # operator_fn = n_stage_linear_operator_3(
+    #     constants,
+    #     precision,
+    #     beta=float(beta_solver),
+    #     gamma=float(gamma_solver),
+    #     order=preconditioner_order,
+    # )
 
     linear_solver_fn = linear_solver_inline_factory(
-        operator_fn,
+        # operator_fn,
         n_states * tableau.stage_count,  # Note: all_stages_n
-        preconditioner_fn,
+        # preconditioner_fn,
         krylov_tolerance,
         max_linear_iters,
         precision,
@@ -4694,27 +4657,7 @@ elif algorithm_type == 'rosenbrock':
         linear_correction_type,
     )
 
-    # Placeholder implementations; codegen overwrites during generation.
-    # Placeholder factory; generator injects the real cached auxiliary count.
-    def cached_auxiliary_count_factory():
-        return int32(1)
 
-    @cuda.jit(device=True, inline=True, **compile_kwargs)
-    def prepare_jacobian(
-        state, parameters, drivers_buffer, time_value, cached_auxiliaries
-    ):
-        for idx in range(int(cached_auxiliary_count)):
-            cached_auxiliaries[idx] = numba_precision(0.0)
-
-    @cuda.jit(device=True, inline=True, **compile_kwargs)
-    def time_derivative_rhs(
-        state, parameters, drivers, driver_derivatives, observables, out, t
-    ):
-        for idx in range(out.shape[0]):
-            out[idx] = numba_precision(0.0)
-
-    # Driver time derivative (if drivers present)
-    # Note: interpolator is guaranteed non-None when this condition is True,
     # as it's defined at module level in the driver setup block with the same condition
     if n_drivers > 0 and driver_input_dict is not None:
         driver_del_t = driver_derivative_inline_factory(interpolator)
@@ -4722,12 +4665,12 @@ elif algorithm_type == 'rosenbrock':
         driver_del_t = None
 
     cached_auxiliary_count = int32(
-        max(int32(cached_auxiliary_count_factory()), int32(1))
+        max(int32(cached_aux_count), int32(1))
     )
 
     step_fn = rosenbrock_step_inline_factory(
         linear_solver_cached,
-        prepare_jacobian,
+        prepare_jac,
         time_derivative_rhs,
         dxdt_fn,
         observables_function,
@@ -5457,7 +5400,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
 # MAIN EXECUTION
 # =========================================================================
 
-def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
+def run_debug_integration(n_runs=2**23,ro_min=0.5, ro_max=2.0,
                           start_time=0.0):
     print("=" * 70)
     algo_name = algorithm_type.upper()
@@ -5465,19 +5408,26 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
     print(f"Debug Integration - {algo_name} ({algorithm_tableau_name}) "
           f"with {ctrl_name} controller")
     print("=" * 70)
-    print(f"\nRunning {n_runs:,} integrations with rho in [{rho_min}, {rho_max}]")
+    print(f"\nRunning {n_runs:,} integrations with rho in [{ro_min},"
+          f" {ro_max}]")
 
     # Generate rho values
-    rho_values = np.linspace(rho_min, rho_max, n_runs, dtype=precision)
+    ro_values = np.linspace(ro_min, ro_max, n_runs, dtype=precision)
 
     # Input arrays (NumPy)
     inits = np.zeros((n_runs, n_states), dtype=precision)
-    inits[:, 0] = precision(1.0)
-    inits[:, 1] = precision(0.0)
-    inits[:, 2] = precision(0.0)
+    inits[:, 0] = precision(1.0)/3
+    inits[:, 1] = precision(1.0)/3
+    inits[:, 2] = precision(1.0)/3
 
     params = np.zeros((n_runs, n_parameters), dtype=precision)
-    params[:, 0] = rho_values
+    params[:, 0] = 0.52
+    params[:, 1] = 0.0133
+    params[:, 2] = 0.0624
+    params[:, 3] = 0.012
+    params[:, 4] = ro_values
+    params[:, 5] = 1/114.0
+    params[:, 6] = 2.0
 
     # Create device arrays for inputs (BatchInputArrays pattern)
     d_inits = cuda.device_array((n_runs, n_states), dtype=precision)
@@ -5614,9 +5564,9 @@ def run_debug_integration(n_runs=2**23, rho_min=0.0, rho_max=21.0,
 
 
 if __name__ == "__main__":
-    _, _ , wall1 = run_debug_integration(n_runs=int32(2**23),
+    _, _ , wall1 = run_debug_integration(n_runs=int32(2**3),
                                          start_time=script_start)
-    _, _, wall2 = run_debug_integration(n_runs=int32(2**23))
+    _, _, wall2 = run_debug_integration(n_runs=int32(2**3))
     print(f"Wall clock time 1: {wall1*1000:.3f} ms")
     print(f"Wall clock time 2: {wall2*1000:.3f} ms")
     print(f"Implied Compile time: {(wall1 - wall2) * 1000:.3f}")
