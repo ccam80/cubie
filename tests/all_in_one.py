@@ -2887,7 +2887,8 @@ def rosenbrock_step_inline_factory(
             cached_auxiliaries = cuda.local.array(
                 cached_auxiliary_count_int, numba_precision
             )
-        stage_increment = cuda.local.array(n_arraysize, numba_precision)
+        # Use persistent_local for stage_increment to carry state between steps
+        stage_increment = persistent_local[0:n]
         solver_shared = cuda.local.array(1, numba_precision)
         solver_persistent = cuda.local.array(1, numba_precision)
         krylov_iters = cuda.local.array(1, int32)
@@ -5112,6 +5113,9 @@ base_local_elements = 8
 if algorithm_type == 'erk':
     stage_cache_needs_local = not use_shared_erk_stage_cache
     stage_cache_local_size = n_states if stage_cache_needs_local else 0
+elif algorithm_type == 'rosenbrock':
+    # Rosenbrock needs persistent stage_increment for initial guess
+    stage_cache_local_size = n_states
 else:
     stage_cache_local_size = 0
 
