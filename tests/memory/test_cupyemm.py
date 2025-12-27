@@ -1,10 +1,4 @@
 import pytest
-from os import environ
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    pass
-else:
-    pass
 
 from cubie.memory.cupy_emm import _numba_stream_ptr
 from cubie.memory.cupy_emm import current_cupy_stream

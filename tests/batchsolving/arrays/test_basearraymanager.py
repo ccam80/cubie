@@ -12,15 +12,12 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.memory.array_requests import ArrayResponse, ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
+from cubie.cuda_simsafe import MappedNDArray
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as MappedNDArray,
-    )
     from numpy import zeros as mapped_array
     from numpy import zeros as device_array
 else:
-    from numba.cuda.cudadrv.devicearray import MappedNDArray
     from numba.cuda import mapped_array, device_array
 
 

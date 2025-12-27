@@ -628,7 +628,9 @@ class DriverEvaluator:
         segments: Optional[int] = None,
         order: Optional[int] = None,
     ) -> tuple[Array, bool]:
-        """Return Horner evaluations and range flag for ``coefficients``."""
+        """Return Horner evaluations and range flag for ``coefficients``.
+
+        Busybody AI over-checking left in place."""
 
         segment_count = self._segments if segments is None else int(segments)
         if segment_count <= 0 or self._width == 0:
@@ -643,14 +645,12 @@ class DriverEvaluator:
         scaled = precision(
             (time_value - self._evaluation_start) * self._inv_dt
         )
-        scaled_floor = math.floor(precision(scaled))
-        idx = int(scaled_floor)
+        scaled_floor = precision(math.floor(scaled))
+        idx = np.int32(scaled_floor)
 
         if self.wrap:
             segment = idx % segment_count
-            if segment < 0:
-                segment += segment_count
-            tau = precision(scaled - precision(scaled_floor))
+            tau = scaled - scaled_floor
             in_range = True
         else:
             max_segment = segment_count - 1
