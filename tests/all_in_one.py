@@ -79,11 +79,11 @@ n_counters = 4
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.01)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.01)
+dt_save = precision(0.2)
 dt_summarise = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
@@ -706,6 +706,283 @@ def n_stage_residual_3(constants, precision, beta=1.0, gamma=1.0, order=None):
         out[8] = _cse5*u[8] - _cse6*dx_2_2
         out[7] = _cse5*u[7] - _cse6*dx_2_1
     return residual
+# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY
+def n_stage_linear_operator_3(constants, precision, beta=1.0, gamma=1.0, order=None):
+    """Auto-generated FIRK linear operator for flattened stages.
+    Handles 3 stages with ``s * n`` unknowns.
+    Order is ignored, included for compatibility with preconditioner API.
+    """
+    gamma = precision(gamma)
+    beta = precision(beta)
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):
+        a_0_0 = precision(0.196815477223660)
+        a_0_1 = precision(-0.0655354258501984)
+        a_0_2 = precision(0.0237709743482202)
+        a_1_0 = precision(0.394424314739087)
+        a_1_1 = precision(0.292073411665228)
+        a_1_2 = precision(-0.0415487521259979)
+        a_2_0 = precision(0.376403062700467)
+        a_2_1 = precision(0.512485826188422)
+        a_2_2 = precision(0.111111111111111)
+        _cse0_0 = parameters[0]*drivers[0]
+        _cse1_0 = parameters[3]**-1
+        _cse4_0 = parameters[4]**-1
+        _cse6_0 = parameters[5]**-1
+        _cse0_1 = parameters[0]*drivers[1]
+        _cse1_1 = parameters[3]**-1
+        _cse4_1 = parameters[4]**-1
+        _cse6_1 = parameters[5]**-1
+        _cse0_2 = parameters[0]*drivers[2]
+        _cse1_2 = parameters[3]**-1
+        _cse4_2 = parameters[4]**-1
+        _cse6_2 = parameters[5]**-1
+        aux_2_0 = parameters[2]*(a_0_0*state[2] + a_0_1*state[5] + a_0_2*state[8] + base_state[2])
+        aux_1_0 = parameters[1]*(a_0_0*state[1] + a_0_1*state[4] + a_0_2*state[7] + base_state[1])
+        aux_1_1 = parameters[1]*(a_1_0*state[1] + a_1_1*state[4] + a_1_2*state[7] + base_state[1])
+        aux_2_1 = parameters[1]*(a_2_0*state[1] + a_2_1*state[4] + a_2_2*state[7] + base_state[1])
+        aux_1_2 = parameters[1]*(a_2_0*state[1] + a_2_1*state[4] + a_2_2*state[7] + base_state[1])
+        aux_2_2 = parameters[2]*(a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2])
+        aux_3_0 = _cse0_0*(a_0_0*state[0] + a_0_1*state[3] + a_0_2*state[6] + base_state[0])
+        _cse11_0 = parameters[1]*_cse6_0
+        _cse12_0 = parameters[2]*_cse6_0
+        aux_3_1 = _cse0_1*(a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0])
+        _cse11_1 = parameters[1]*_cse6_1
+        _cse12_1 = parameters[2]*_cse6_1
+        aux_3_2 = _cse0_2*(a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0])
+        _cse12_2 = parameters[2]*_cse6_2
+        _cse11_2 = parameters[1]*_cse6_2
+        _cse5_0 = (aux_1_0 < aux_3_0)
+        _cse3_0 = (aux_2_0 > aux_3_0)
+        j_21_0 = _cse11_0
+        j_12_0 = _cse12_0
+        _cse5_1 = (aux_1_1 < aux_3_1)
+        _cse3_1 = (aux_2_1 > aux_3_1)
+        j_21_1 = _cse11_1
+        j_12_1 = _cse12_1
+        _cse3_2 = (aux_2_2 > aux_3_2)
+        _cse5_2 = (aux_1_2 < aux_3_2)
+        j_12_2 = _cse12_2
+        j_21_2 = _cse11_2
+        _cse8_0 = _cse0_0*(_cse4_0 if _cse5_0 else (precision(0)))
+        _cse9_0 = parameters[1]*(-_cse4_0 if _cse5_0 else (precision(0)))
+        _cse10_0 = parameters[2]*(_cse1_0 if _cse3_0 else (precision(0)))
+        _cse7_0 = _cse0_0*(-_cse1_0 if _cse3_0 else (precision(0)))
+        _cse8_1 = _cse0_1*(_cse4_1 if _cse5_1 else (precision(0)))
+        _cse9_1 = parameters[1]*(-_cse4_1 if _cse5_1 else (precision(0)))
+        _cse7_1 = _cse0_1*(-_cse1_1 if _cse3_1 else (precision(0)))
+        _cse10_1 = parameters[2]*(_cse1_1 if _cse3_1 else (precision(0)))
+        _cse10_2 = parameters[2]*(_cse1_2 if _cse3_2 else (precision(0)))
+        _cse7_2 = _cse0_2*(-_cse1_2 if _cse3_2 else (precision(0)))
+        _cse9_2 = parameters[1]*(-_cse4_2 if _cse5_2 else (precision(0)))
+        _cse8_2 = _cse0_2*(_cse4_2 if _cse5_2 else (precision(0)))
+        j_10_0 = _cse8_0
+        j_01_0 = -_cse9_0
+        j_11_0 = -_cse11_0 + _cse9_0
+        j_22_0 = -_cse10_0 - _cse12_0
+        j_02_0 = _cse10_0
+        j_00_0 = _cse7_0 - _cse8_0
+        j_20_0 = -_cse7_0
+        j_10_1 = _cse8_1
+        j_01_1 = -_cse9_1
+        j_11_1 = -_cse11_1 + _cse9_1
+        j_00_1 = _cse7_1 - _cse8_1
+        j_20_1 = -_cse7_1
+        j_02_1 = _cse10_1
+        j_22_1 = -_cse10_1 - _cse12_1
+        j_22_2 = -_cse10_2 - _cse12_2
+        j_02_2 = _cse10_2
+        j_20_2 = -_cse7_2
+        j_11_2 = -_cse11_2 + _cse9_2
+        j_01_2 = -_cse9_2
+        j_00_2 = _cse7_2 - _cse8_2
+        j_10_2 = _cse8_2
+        jvp_0_1 = j_10_0*v[0] + j_11_0*v[1] + j_12_0*v[2]
+        jvp_0_0 = j_00_0*v[0] + j_01_0*v[1] + j_02_0*v[2]
+        jvp_0_2 = j_20_0*v[0] + j_21_0*v[1] + j_22_0*v[2]
+        jvp_1_1 = j_10_1*v[0] + j_11_1*v[1] + j_12_1*v[2]
+        jvp_1_0 = j_00_1*v[0] + j_01_1*v[1] + j_02_1*v[2]
+        jvp_1_2 = j_20_1*v[0] + j_21_1*v[1] + j_22_1*v[2]
+        jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
+        jvp_2_0 = j_00_2*v[0] + j_01_2*v[1] + j_02_2*v[2]
+        jvp_2_1 = j_10_2*v[0] + j_11_2*v[1] + j_12_2*v[2]
+        out[1] = precision(1.00000)*beta*v[1] - gamma*h*jvp_0_1
+        out[0] = precision(1.00000)*beta*v[0] - gamma*h*jvp_0_0
+        out[2] = precision(1.00000)*beta*v[2] - gamma*h*jvp_0_2
+        out[4] = precision(1.00000)*beta*v[4] - gamma*h*jvp_1_1
+        out[3] = precision(1.00000)*beta*v[3] - gamma*h*jvp_1_0
+        out[5] = precision(1.00000)*beta*v[5] - gamma*h*jvp_1_2
+        out[8] = precision(1.00000)*beta*v[8] - gamma*h*jvp_2_2
+        out[6] = precision(1.00000)*beta*v[6] - gamma*h*jvp_2_0
+        out[7] = precision(1.00000)*beta*v[7] - gamma*h*jvp_2_1
+    return operator_apply
+
+# AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY
+def n_stage_neumann_preconditioner_3(constants, precision, beta=1.0, gamma=1.0, order=1):
+    """Auto-generated FIRK Neumann preconditioner.
+    Handles 3 stages with ``s * n`` unknowns.
+    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using
+    a truncated Neumann series applied to flattened stages.
+    Returns device function:
+      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp)
+    """
+    total_n = int32(9)
+    gamma = precision(gamma)
+    beta = precision(beta)
+    order = int32(order)
+    beta_inv = precision(1.0 / beta)
+    h_eff_factor = precision(gamma * beta_inv)
+    stage_width = int32(3)
+    @cuda.jit(
+        # (precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1],
+        #  precision,
+        #  precision,
+        #  precision,
+        #  precision[::1],
+        #  precision[::1],
+        #  precision[::1]),
+        device=True,
+        inline=True)
+    def preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp):
+        for i in range(total_n):
+            out[i] = v[i]
+        h_eff = h * h_eff_factor
+        for _ in range(order):
+            a_0_0 = precision(0.196815477223660)
+            a_0_1 = precision(-0.0655354258501984)
+            a_0_2 = precision(0.0237709743482202)
+            a_1_0 = precision(0.394424314739087)
+            a_1_1 = precision(0.292073411665228)
+            a_1_2 = precision(-0.0415487521259979)
+            a_2_0 = precision(0.376403062700467)
+            a_2_1 = precision(0.512485826188422)
+            a_2_2 = precision(0.111111111111111)
+            __cse3 = parameters[0]*drivers[0]
+            __cse4 = parameters[3]**-1
+            __cse6 = parameters[4]**-1
+            __cse7 = parameters[5]**-1
+            __cse13 = parameters[0]*drivers[1]
+            __cse20 = parameters[0]*drivers[2]
+            __cse0 = parameters[1]*(a_0_0*state[1] + a_0_1*state[4] + a_0_2*state[7] + base_state[1])
+            __cse1 = parameters[2]*(a_0_0*state[2] + a_0_1*state[5] + a_0_2*state[8] + base_state[2])
+            __cse2 = a_0_0*state[0] + a_0_1*state[3] + a_0_2*state[6] + base_state[0]
+            __cse10 = parameters[1]*(a_1_0*state[1] + a_1_1*state[4] + a_1_2*state[7] + base_state[1])
+            __cse12 = a_1_0*state[0] + a_1_1*state[3] + a_1_2*state[6] + base_state[0]
+            __cse18 = parameters[2]*(a_2_0*state[2] + a_2_1*state[5] + a_2_2*state[8] + base_state[2])
+            __cse17 = parameters[1]*(a_2_0*state[1] + a_2_1*state[4] + a_2_2*state[7] + base_state[1])
+            __cse19 = a_2_0*state[0] + a_2_1*state[3] + a_2_2*state[6] + base_state[0]
+            _cse0_0 = __cse3
+            _cse1_0 = __cse4
+            _cse1_2 = __cse4
+            _cse1_1 = __cse4
+            _cse4_1 = __cse6
+            _cse4_0 = __cse6
+            _cse4_2 = __cse6
+            _cse6_0 = __cse7
+            _cse6_2 = __cse7
+            _cse6_1 = __cse7
+            _cse0_1 = __cse13
+            _cse0_2 = __cse20
+            aux_1_0 = __cse0
+            aux_2_0 = __cse1
+            aux_1_1 = __cse10
+            aux_2_2 = __cse18
+            aux_2_1 = __cse17
+            aux_1_2 = __cse17
+            aux_3_0 = __cse2*_cse0_0
+            _cse11_0 = parameters[1]*_cse6_0
+            _cse12_0 = parameters[2]*_cse6_0
+            _cse12_2 = parameters[2]*_cse6_2
+            _cse11_2 = parameters[1]*_cse6_2
+            _cse11_1 = parameters[1]*_cse6_1
+            _cse12_1 = parameters[2]*_cse6_1
+            aux_3_1 = __cse12*_cse0_1
+            aux_3_2 = __cse19*_cse0_2
+            _cse5_0 = (aux_1_0 < aux_3_0)
+            _cse3_0 = (aux_2_0 > aux_3_0)
+            j_21_0 = _cse11_0
+            j_12_0 = _cse12_0
+            j_12_2 = _cse12_2
+            j_21_2 = _cse11_2
+            j_21_1 = _cse11_1
+            j_12_1 = _cse12_1
+            _cse5_1 = (aux_1_1 < aux_3_1)
+            _cse3_1 = (aux_2_1 > aux_3_1)
+            _cse3_2 = (aux_2_2 > aux_3_2)
+            _cse5_2 = (aux_1_2 < aux_3_2)
+            _cse8_0 = _cse0_0*(_cse4_0 if _cse5_0 else (precision(0)))
+            _cse9_0 = parameters[1]*(-_cse4_0 if _cse5_0 else (precision(0)))
+            _cse10_0 = parameters[2]*(_cse1_0 if _cse3_0 else (precision(0)))
+            _cse7_0 = _cse0_0*(-_cse1_0 if _cse3_0 else (precision(0)))
+            _cse8_1 = _cse0_1*(_cse4_1 if _cse5_1 else (precision(0)))
+            _cse9_1 = parameters[1]*(-_cse4_1 if _cse5_1 else (precision(0)))
+            _cse7_1 = _cse0_1*(-_cse1_1 if _cse3_1 else (precision(0)))
+            _cse10_1 = parameters[2]*(_cse1_1 if _cse3_1 else (precision(0)))
+            _cse10_2 = parameters[2]*(_cse1_2 if _cse3_2 else (precision(0)))
+            _cse7_2 = _cse0_2*(-_cse1_2 if _cse3_2 else (precision(0)))
+            _cse9_2 = parameters[1]*(-_cse4_2 if _cse5_2 else (precision(0)))
+            _cse8_2 = _cse0_2*(_cse4_2 if _cse5_2 else (precision(0)))
+            j_10_0 = _cse8_0
+            __cse9 = -_cse9_0
+            j_22_0 = -_cse10_0 - _cse12_0
+            j_02_0 = _cse10_0
+            j_00_0 = _cse7_0 - _cse8_0
+            j_20_0 = -_cse7_0
+            j_10_1 = _cse8_1
+            __cse16 = -_cse9_1
+            j_00_1 = _cse7_1 - _cse8_1
+            j_20_1 = -_cse7_1
+            j_02_1 = _cse10_1
+            j_22_1 = -_cse10_1 - _cse12_1
+            j_22_2 = -_cse10_2 - _cse12_2
+            j_02_2 = _cse10_2
+            j_20_2 = -_cse7_2
+            __cse23 = -_cse9_2
+            j_00_2 = _cse7_2 - _cse8_2
+            j_10_2 = _cse8_2
+            j_01_0 = __cse9
+            j_11_0 = -__cse9 - _cse11_0
+            jvp_0_2 = j_20_0*v[0] + j_21_0*v[1] + j_22_0*v[2]
+            j_01_1 = __cse16
+            j_11_1 = -__cse16 - _cse11_1
+            jvp_1_2 = j_20_1*v[0] + j_21_1*v[1] + j_22_1*v[2]
+            jvp_2_2 = j_20_2*v[0] + j_21_2*v[1] + j_22_2*v[2]
+            j_11_2 = -__cse23 - _cse11_2
+            j_01_2 = __cse23
+            jvp_0_0 = j_00_0*v[0] + j_01_0*v[1] + j_02_0*v[2]
+            jvp_0_1 = j_10_0*v[0] + j_11_0*v[1] + j_12_0*v[2]
+            jvp[2] = jvp_0_2
+            jvp_1_0 = j_00_1*v[0] + j_01_1*v[1] + j_02_1*v[2]
+            jvp_1_1 = j_10_1*v[0] + j_11_1*v[1] + j_12_1*v[2]
+            jvp[5] = jvp_1_2
+            jvp[8] = jvp_2_2
+            jvp_2_1 = j_10_2*v[0] + j_11_2*v[1] + j_12_2*v[2]
+            jvp_2_0 = j_00_2*v[0] + j_01_2*v[1] + j_02_2*v[2]
+            jvp[0] = jvp_0_0
+            jvp[1] = jvp_0_1
+            jvp[3] = jvp_1_0
+            jvp[4] = jvp_1_1
+            jvp[7] = jvp_2_1
+            jvp[6] = jvp_2_0
+            for i in range(total_n):
+                out[i] = v[i] + h_eff * jvp[i]
+        for i in range(total_n):
+            out[i] = beta_inv * out[i]
+    return preconditioner
 
 # AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY
 def neumann_preconditioner_cached(constants, precision, beta=1.0, gamma=1.0, order=1):
@@ -5564,9 +5841,9 @@ def run_debug_integration(n_runs=2**23,ro_min=0.5, ro_max=2.0,
 
 
 if __name__ == "__main__":
-    _, _ , wall1 = run_debug_integration(n_runs=int32(2**3),
+    _, _ , wall1 = run_debug_integration(n_runs=int32(2**23),
                                          start_time=script_start)
-    _, _, wall2 = run_debug_integration(n_runs=int32(2**3))
+    _, _, wall2 = run_debug_integration(n_runs=int32(2**23))
     print(f"Wall clock time 1: {wall1*1000:.3f} ms")
     print(f"Wall clock time 2: {wall2*1000:.3f} ms")
     print(f"Implied Compile time: {(wall1 - wall2) * 1000:.3f}")
