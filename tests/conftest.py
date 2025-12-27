@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
 import os
 
+from numba import cuda
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
@@ -35,6 +36,9 @@ from tests.integrators.cpu_reference import (
     DriverEvaluator,
     run_reference_loop,
 )
+import json
+from collections import defaultdict
+
 from tests._utils import _driver_sequence, run_device_loop
 from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
@@ -49,9 +53,10 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
-import json
-from collections import defaultdict
 
+@cuda.jit()
+def kick():
+    array = cuda.local.array(1, dtype=np.float32)
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -175,6 +180,27 @@ def pytest_collection_modifyitems(config, items):
             items.remove(item)
             items.append(item)
     pass
+
+#
+# --------------------------------------------------------------------------- #
+#                            numba.cuda import kick                           #
+# --------------------------------------------------------------------------- #
+# This is an attempt to stop "numba.cuda has no attribute 'local' errors
+# When "from numba import cuda" is included in this function (rather than at
+# the top of the conftest module, it fails when run, but works in the debugger
+def pytest_sessionstart(session):
+    """
+    Called after the Session object has been created and before test collection
+    and execution begins.
+    """
+    print("\n--- Performing session setup (pytest_sessionstart) ---")
+    try:
+        kick[1,1]()
+    except:
+        kick[1,1]()
+
+    print("--- Session setup complete ---")
+# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #
