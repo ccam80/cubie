@@ -109,6 +109,10 @@ class NewtonKrylovConfig:
         default='local',
         validator=validators.in_(["local", "shared"])
     )
+    krylov_iters_local_location: str = attrs.field(
+        default='local',
+        validator=validators.in_(["local", "shared"])
+    )
 
     @property
     def newton_tolerance(self) -> float:
@@ -156,6 +160,7 @@ class NewtonKrylovConfig:
             'residual_location': self.residual_location,
             'residual_temp_location': self.residual_temp_location,
             'stage_base_bt_location': self.stage_base_bt_location,
+            'krylov_iters_local_location': self.krylov_iters_local_location,
         }
 
 
@@ -254,6 +259,13 @@ class NewtonKrylov(CUDAFactory):
             config.stage_base_bt_location,
             precision=precision
         )
+        buffer_registry.register(
+            'krylov_iters_local',
+            self,
+            1,
+            config.krylov_iters_local_location,
+            precision=np.int32
+        )
 
     def build(self) -> NewtonKrylovCache:
         """Compile Newton-Krylov solver device function.
@@ -293,8 +305,9 @@ class NewtonKrylov(CUDAFactory):
         get_alloc = buffer_registry.get_allocator
         alloc_delta = get_alloc('delta', self)
         alloc_residual = get_alloc('residual', self)
-        alloc_residual_temp =get_alloc('residual_temp', self)
+        alloc_residual_temp = get_alloc('residual_temp', self)
         alloc_stage_base_bt = get_alloc('stage_base_bt', self)
+        alloc_krylov_iters_local = get_alloc('krylov_iters_local', self)
 
         # Get child allocators for linear solver
         alloc_lin_shared, alloc_lin_persistent = (
@@ -380,7 +393,9 @@ class NewtonKrylov(CUDAFactory):
             has_error = False
             final_status = int32(0)
 
-            krylov_iters_local = cuda.local.array(1, int32)
+            krylov_iters_local = alloc_krylov_iters_local(
+                shared_scratch, persistent_scratch
+            )
 
             iters_count = int32(0)
             total_krylov_iters = int32(0)

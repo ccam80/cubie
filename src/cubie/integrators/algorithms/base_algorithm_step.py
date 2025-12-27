@@ -44,6 +44,10 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     # Solver buffer location parameters
     'preconditioned_vec_location', 'temp_location', 'delta_location',
     'residual_location', 'residual_temp_location', 'stage_base_bt_location',
+    # Newton-Krylov buffer location parameters
+    'krylov_iters_local_location',
+    # Rosenbrock int32 buffer location parameters
+    'base_state_placeholder_location', 'krylov_iters_out_location',
 }
 
 

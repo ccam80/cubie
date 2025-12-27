@@ -16,8 +16,9 @@ from attrs import validators
 import numpy as np
 from numba import cuda, int32
 
-from cubie._utils import getype_validator, precision_validator
-from cubie.cuda_simsafe import compile_kwargs
+from cubie._utils import getype_validator, buffer_dtype_validator
+from cubie.cuda_simsafe import compile_kwargs, from_dtype
+from numba import float32
 
 
 @attrs.define
@@ -54,13 +55,13 @@ class CUDABuffer:
     )
     precision: type = attrs.field(
         default=np.float32,
-        validator=precision_validator
+        validator=buffer_dtype_validator
     )
 
     @property
     def is_shared(self) -> bool:
         """Return True if buffer uses shared memory."""
-        return self.location == 'shared'
+        return self.location == "shared"
 
     @property
     def is_persistent_local(self) -> bool:
@@ -70,7 +71,7 @@ class CUDABuffer:
     @property
     def is_local(self) -> bool:
         """Return True if buffer uses local (non-persistent) memory."""
-        return self.location == 'local' and not self.persistent
+        return self.location == "local" and not self.persistent
 
     def build_allocator(
         self,
@@ -895,6 +896,46 @@ class BufferRegistry:
         # Get and return allocators
         alloc_shared = self.get_allocator(shared_name, parent)
         alloc_persistent = self.get_allocator(persistent_name, parent)
+
+        return alloc_shared, alloc_persistent
+
+    def get_toplevel_allocators(
+        self,
+        kernel: object,
+    ) -> Tuple[Callable, Callable]:
+        """Create allocators for top-level kernel shared and persistent memory.
+
+        Returns a tuple of two device functions for use in CUDA kernels:
+        - A shared memory allocator that returns cuda.shared.array(0, ...)
+        - A persistent local allocator that handles CUDASIM compatibility
+
+        Parameters
+        ----------
+        kernel
+            Kernel instance with `local_memory_elements` and `precision`
+            properties.
+
+        Returns
+        -------
+        Tuple[Callable, Callable]
+            (alloc_shared, alloc_persistent) device functions where:
+            - alloc_shared: () -> shared memory array
+            - alloc_persistent: (shared) -> persistent local array
+        """
+
+        persistent_size = max(1, kernel.local_memory_elements)
+        precision = kernel.precision
+        numba_precision = from_dtype(precision)
+
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def alloc_shared():
+            return cuda.shared.array(0,
+                                     dtype=float32)
+
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def alloc_persistent():
+                return cuda.local.array(persistent_size,
+                                        dtype=numba_precision)
 
         return alloc_shared, alloc_persistent
 

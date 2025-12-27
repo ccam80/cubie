@@ -158,6 +158,10 @@ class ODELoopConfig:
         default='local',
         validator=validators.in_(['shared', 'local'])
     )
+    proposed_counters_location: str = field(
+        default='local',
+        validator=validators.in_(['shared', 'local'])
+    )
 
     precision: PrecisionDType = field(
         default=float32,

@@ -5,16 +5,16 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import numpy as np
-from numba import cuda, float64, float32
+from numba import cuda, float64
 from numba import int32
 
 import attrs
 
-from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs
+from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
+from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
@@ -307,17 +307,24 @@ class BatchSolverKernel(CUDAFactory):
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
 
+        # Use the chunk-local run count for run-chunking, and the full run
+        # count for time-chunking.
+        if chunk_axis == "run":
+            kernel_runs = int(chunk_params.runs)
+        else:
+            kernel_runs = int(numruns)
+
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
         dynamic_sharedmem = int(
-            padded_bytes * min(chunk_params.runs, blocksize)
+            padded_bytes * min(kernel_runs, blocksize)
         )
 
         blocksize, dynamic_sharedmem = self.limit_blocksize(
             blocksize,
             dynamic_sharedmem,
             padded_bytes,
-            numruns,
+            kernel_runs,
         )
 
         # We need a nonzero number to tell the compiler we're using dynamic
@@ -326,7 +333,7 @@ class BatchSolverKernel(CUDAFactory):
         dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
+        BLOCKSPERGRID = int(max(1, np.ceil(kernel_runs / blocksize)))
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
@@ -359,7 +366,7 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_params.duration,
                 chunk_warmup,
                 chunk_t0,
-                numruns,
+                kernel_runs,
             )
             # We don't want to sync between chunks, we should queue runs and
             # transfers in the stream and sync before final result fetch.
@@ -459,8 +466,7 @@ class BatchSolverKernel(CUDAFactory):
         elif chunk_axis == "time":
             chunk_duration = duration / chunks
             chunksize = int(np.ceil(self.output_length / chunks))
-        else:
-            raise ValueError("chunk_axis must be either 'run' or 'time'")
+            chunkruns = numruns
 
         return ChunkParams(
             duration=chunk_duration,
@@ -488,13 +494,17 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        local_elements_per_run = max(1,config.local_memory_elements)
         shared_elems_per_run = config.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
             (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
+
+        # Get memory allocators from buffer registry
+        alloc_shared, alloc_persistent = (
+            buffer_registry.get_toplevel_allocators(self))
+
         # no cover: start
         @cuda.jit(
             (
@@ -572,12 +582,8 @@ class BatchSolverKernel(CUDAFactory):
             run_index = int32(runs_per_block * block_index + ty)
             if run_index >= n_runs:
                 return None
-            shared_memory = cuda.shared.array(0, dtype=float32)
-
-            # Declare shared memory in 32b units to allow for skewing/padding
-            local_scratch = cuda.local.array(
-                local_elements_per_run, dtype=float32
-            )
+            shared_memory = alloc_shared()
+            persistent_local = alloc_persistent()
             c_coefficients = cuda.const.array_like(d_coefficients)
             run_idx_low = int32(ty * run_stride_f32)
             run_idx_high = int32(
@@ -606,7 +612,7 @@ class BatchSolverKernel(CUDAFactory):
                 rx_params,
                 c_coefficients,
                 rx_shared_memory,
-                local_scratch,
+                persistent_local,
                 rx_state,
                 rx_observables,
                 rx_state_summaries,

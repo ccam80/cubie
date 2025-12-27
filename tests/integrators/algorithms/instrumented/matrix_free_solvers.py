@@ -484,6 +484,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         alloc_stage_base_bt = buffer_registry.get_allocator(
             'stage_base_bt', self
         )
+        alloc_krylov_iters_local = buffer_registry.get_allocator(
+            'krylov_iters_local', self
+        )
         
         # Get child allocators for linear solver (same pattern as production)
         alloc_lin_shared, alloc_lin_persistent = (
@@ -568,7 +571,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             has_error = False
             final_status = int32(0)
             
-            krylov_iters_local = cuda.local.array(1, int32)
+            krylov_iters_local = alloc_krylov_iters_local(
+                shared_scratch, persistent_scratch
+            )
             
             iters_count = int32(0)
             total_krylov_iters = int32(0)

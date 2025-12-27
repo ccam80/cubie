@@ -13,7 +13,6 @@ from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
@@ -55,6 +54,7 @@ ALL_LOOP_SETTINGS = {
     "observable_summary_location",
     "dt_location",
     "accept_step_location",
+    "proposed_counters_location",
 }
 
 
@@ -279,6 +279,10 @@ class IVPLoop(CUDAFactory):
         buffer_registry.register(
             'accept_step', self, 1, config.accept_step_location, precision=precision
         )
+        buffer_registry.register(
+            'proposed_counters', self, 2, config.proposed_counters_location,
+            precision=np.int32
+        )
 
     @property
     def precision(self) -> PrecisionDType:
@@ -308,7 +312,6 @@ class IVPLoop(CUDAFactory):
         config = self.compile_settings
 
         precision = config.numba_precision
-        simsafe_int32 = simsafe_dtype(np.int32)
 
         save_state = config.save_state_fn
         update_summaries = config.update_summaries_fn
@@ -345,6 +348,7 @@ class IVPLoop(CUDAFactory):
         alloc_controller_persistent = getalloc('controller_persistent', self, zero=True)
         alloc_dt = getalloc('dt', self, zero=True)
         alloc_accept_step = getalloc('accept_step', self, zero=True)
+        alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
         saves_per_summary = config.saves_per_summary
@@ -484,7 +488,9 @@ class IVPLoop(CUDAFactory):
             accept_step = alloc_accept_step(shared_scratch, persistent_local)
             # ----------------------------------------------------------- #
 
-            proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+            proposed_counters = alloc_proposed_counters(
+                shared_scratch, persistent_local
+            )
             first_step_flag = True
             prev_step_accepted_flag = True
 

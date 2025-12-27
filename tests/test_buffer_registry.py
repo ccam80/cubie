@@ -327,7 +327,6 @@ class TestPersistentLocal:
         total = self.registry.persistent_local_buffer_size(self.factory)
         assert total == 70
 
-
 class TestBufferUpdate:
     """Tests for buffer update functionality."""
 
@@ -608,12 +607,12 @@ class TestPrecisionValidation:
     """Tests for precision validation."""
 
     def test_invalid_precision_raises(self):
-        with pytest.raises(ValueError, match="float16, float32, or float64"):
+        with pytest.raises(ValueError, match="float16, float32, float64"):
             CUDABuffer(
                 name='test',
                 size=10,
                 location='shared',
-                precision=np.int32,
+                precision=np.complex64,
             )
 
     def test_valid_float32_precision(self):
@@ -642,6 +641,24 @@ class TestPrecisionValidation:
             precision=np.float16,
         )
         assert entry.precision == np.float16
+
+    def test_valid_int32_precision(self):
+        entry = CUDABuffer(
+            name='test',
+            size=10,
+            location='shared',
+            precision=np.int32,
+        )
+        assert entry.precision == np.int32
+
+    def test_valid_int64_precision(self):
+        entry = CUDABuffer(
+            name='test',
+            size=10,
+            location='shared',
+            precision=np.int64,
+        )
+        assert entry.precision == np.int64
 
 
 class TestBufferRegistryUpdate:
