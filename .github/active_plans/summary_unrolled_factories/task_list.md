@@ -4,7 +4,7 @@
 
 ## Task Group 1: Fully Unrolled Update Factory
 
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -196,13 +196,24 @@
 - Manual validation by running tests/all_in_one.py and comparing output arrays
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/all_in_one.py (~660 lines added)
+- Functions/Methods Added/Modified:
+  * unrolled_update_summary_factory() in tests/all_in_one.py
+- Implementation Summary:
+  Created `unrolled_update_summary_factory` function at line 4417 in tests/all_in_one.py.
+  The function uses compile-time boolean flags captured in closure for each of the 18 known metrics.
+  Each metric has its own enable flag, offset, size, and param variables extracted at factory call time.
+  The device function iterates over states and observables with conditional execution guarded by boolean flags.
+  Edge cases handled: empty summaries_list returns do_nothing_update_summary, empty state/observable indices skip respective loops.
+  Uses same signature as existing update_summary_factory for drop-in replacement.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Fully Unrolled Save Factory
 
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -383,13 +394,25 @@
 - Manual validation by running tests/all_in_one.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/all_in_one.py (~540 lines added)
+- Functions/Methods Added/Modified:
+  * unrolled_save_summary_factory() in tests/all_in_one.py
+- Implementation Summary:
+  Created `unrolled_save_summary_factory` function after `unrolled_update_summary_factory` in tests/all_in_one.py.
+  The function uses compile-time boolean flags captured in closure for each of the 18 known metrics.
+  Each metric has its own enable flag, buffer offset/size, output offset/size, and param variables extracted at factory call time.
+  Uses `summary_metrics.summaries_output_height()` to compute total_output_size for output slicing.
+  The device function iterates over states and observables with conditional execution guarded by boolean flags.
+  Edge cases handled: empty summaries_list returns do_nothing_save_summary, empty state/observable indices skip respective loops.
+  Uses same signature as existing save_summary_factory for drop-in replacement.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: SymPy Codegen Update Factory
 
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -621,13 +644,27 @@
 - Manual validation by running tests/all_in_one.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/all_in_one.py (~200 lines added)
+- Functions/Methods Added/Modified:
+  * UPDATE_SUMMARY_TEMPLATE constant in tests/all_in_one.py
+  * codegen_update_summary_factory() in tests/all_in_one.py
+- Implementation Summary:
+  Created `UPDATE_SUMMARY_TEMPLATE` string constant following the DXDT_TEMPLATE pattern from dxdt.py.
+  Created `codegen_update_summary_factory` function at line 5796 in tests/all_in_one.py.
+  The function uses code generation with exec() to create CUDA device functions at runtime.
+  Generates constant assignments for all metadata (offsets, sizes, params) and loop body code.
+  Edge cases handled: empty summaries_list returns do_nothing_update_summary before codegen.
+  No states/observables to summarize generates appropriate empty loops or pass.
+  Uses exec() pattern similar to dxdt.py codegen with namespace containing metric update functions.
+  Uses same signature as existing update_summary_factory for drop-in replacement.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: SymPy Codegen Save Factory
 
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 2 and 3
 
 **Required Context**:
@@ -872,7 +909,21 @@
 - Manual validation by running tests/all_in_one.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/all_in_one.py (~200 lines added)
+- Functions/Methods Added/Modified:
+  * SAVE_SUMMARY_TEMPLATE constant in tests/all_in_one.py
+  * codegen_save_summary_factory() in tests/all_in_one.py
+- Implementation Summary:
+  Created `SAVE_SUMMARY_TEMPLATE` string constant following the same pattern as UPDATE_SUMMARY_TEMPLATE.
+  Created `codegen_save_summary_factory` function after `codegen_update_summary_factory` in tests/all_in_one.py.
+  The function uses code generation with exec() to create CUDA device functions at runtime.
+  Generates constant assignments for all metadata (buffer offsets/sizes, output offsets/sizes, params) and loop body code.
+  Edge cases handled: empty summaries_list returns do_nothing_save_summary before codegen.
+  No states/observables to summarize generates appropriate empty loops or pass.
+  Uses exec() pattern with namespace containing metric save functions from INLINE_SAVE_FUNCTIONS.
+  Uses same signature as existing save_summary_factory for drop-in replacement.
+- Issues Flagged: None
 
 ---
 
