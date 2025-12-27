@@ -1802,6 +1802,10 @@ def dirk_step_inline_factory(
     n: int,
     prec,
     tableau,
+    alloc_stage_increment,
+    alloc_stage_accumulator,
+    alloc_solver_scratch,
+    alloc_stage_base,
 ):
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
@@ -1942,21 +1946,20 @@ def dirk_step_inline_factory(
         # ----------------------------------------------------------- #
 
         # ----------------------------------------------------------- #
-        # Selective allocation from local or shared memory
+        # Selective allocation from local or shared memory via allocators
         # ----------------------------------------------------------- #
         if stage_increment_in_shared:
             stage_increment = shared[solver_end:solver_end + n]
         else:
-            stage_increment = cuda.local.array(n_arraysize,
-                                               numba_precision)
+            stage_increment = alloc_stage_increment(shared, persistent_local)
             for _i in range(n_arraysize):
                 stage_increment[_i] = numba_precision(0.0)
 
         if accumulator_in_shared:
             stage_accumulator = shared[acc_start:acc_end]
         else:
-            stage_accumulator = cuda.local.array(
-                accumulator_length_arraysize, numba_precision
+            stage_accumulator = alloc_stage_accumulator(
+                shared, persistent_local
             )
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = numba_precision(0.0)
@@ -1964,8 +1967,7 @@ def dirk_step_inline_factory(
         if solver_scratch_in_shared:
             solver_scratch = shared[solver_start:solver_end]
         else:
-            solver_scratch = cuda.local.array(solver_scratch_local_size,
-                                               numba_precision)
+            solver_scratch = alloc_solver_scratch(shared, persistent_local)
             for _i in range(solver_scratch_local_size):
                 solver_scratch[_i] = numba_precision(0.0)
 
@@ -1976,8 +1978,7 @@ def dirk_step_inline_factory(
             if stage_base_in_shared:
                 stage_base = shared[:n]
             else:
-                stage_base = cuda.local.array(n_arraysize,
-                                              numba_precision)
+                stage_base = alloc_stage_base(shared, persistent_local)
                 for _i in range(n_arraysize):
                     stage_base[_i] = numba_precision(0.0)
 
@@ -2253,6 +2254,8 @@ def erk_step_inline_factory(
     n,
     prec,
     tableau,
+    alloc_stage_rhs,
+    alloc_stage_accumulator,
 ):
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
@@ -2344,7 +2347,7 @@ def erk_step_inline_factory(
         if stage_rhs_in_shared:
             stage_rhs = shared[:n]
         else:
-            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
+            stage_rhs = alloc_stage_rhs(shared, persistent_local)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -2352,9 +2355,7 @@ def erk_step_inline_factory(
         if stage_accumulator_in_shared:
             stage_accumulator = shared[n:n + accumulator_length]
         else:
-            stage_accumulator = cuda.local.array(
-                accumulator_length, dtype=numba_precision
-            )
+            stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
 
         # stage_cache for FSAL: alias onto stage_rhs if shared, else
         # accumulator if shared (bottom n_states), else use persistent_local
@@ -2562,6 +2563,10 @@ def firk_step_inline_factory(
     n,
     prec,
     tableau,
+    alloc_stage_state,
+    alloc_solver_scratch,
+    alloc_stage_increment,
+    alloc_stage_driver_stack,
 ):
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
@@ -2570,16 +2575,6 @@ def firk_step_inline_factory(
     # int32 versions for iterators
     n = int32(n)
     stage_count = int32(tableau.stage_count)
-    all_stages_n = int32(stage_count) * int32(n)
-    solver_scratch_size = int32(2) * all_stages_n
-    stage_driver_stack_size = int32(stage_count) * int32(n_drivers)
-    stage_state_size = int32(n)
-
-    # int versions for cuda.local.array sizes
-    all_stages_n_ary = int(all_stages_n)
-    solver_scratch_ary = int(solver_scratch_size)
-    stage_driver_stack_local_size = max(int(stage_driver_stack_size), 1)
-    stage_state_size_ary = int(stage_state_size)
 
     # Compile-time toggles
     has_driver_function = driver_function is not None and n_drivers > 0
@@ -2603,52 +2598,6 @@ def firk_step_inline_factory(
         b_hat_row = int32(b_hat_row)
 
     ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
-
-    # Memory location flags captured at compile time from global scope
-    solver_scratch_shared = use_shared_firk_solver_scratch
-    stage_increment_shared = use_shared_firk_stage_increment
-    stage_driver_stack_shared = use_shared_firk_stage_driver_stack
-    stage_state_shared = use_shared_firk_stage_state
-
-
-    # Shared memory indices (only used when corresponding flag is True)
-    shared_pointer = int32(0)
-
-    # Solver scratch
-    solver_scratch_start = shared_pointer
-    solver_scratch_end = (
-        solver_scratch_start + solver_scratch_size
-        if solver_scratch_shared
-        else solver_scratch_start
-    )
-    shared_pointer = solver_scratch_end
-
-    # Stage increment
-    stage_increment_start = shared_pointer
-    stage_increment_end = (
-        stage_increment_start + all_stages_n
-        if stage_increment_shared
-        else stage_increment_start
-    )
-    shared_pointer = stage_increment_end
-
-    # Stage driver stack
-    stage_driver_stack_start = shared_pointer
-    stage_driver_stack_end = (
-        stage_driver_stack_start + stage_driver_stack_local_size
-        if stage_driver_stack_shared
-        else stage_driver_stack_start
-    )
-    shared_pointer = stage_driver_stack_end
-
-    # Stage state
-    stage_state_start = shared_pointer
-    stage_state_end = (
-        stage_state_start + stage_state_size
-        if stage_state_shared
-        else stage_state_start
-    )
-    shared_pointer = stage_state_end
 
     @cuda.jit(
         # [
@@ -2692,36 +2641,11 @@ def firk_step_inline_factory(
         persistent_local,
         counters,
     ):
-        # Allocate buffers based on configuration flags
-        if stage_state_shared:
-            stage_state = shared[stage_state_start:stage_state_end]
-        else:
-            stage_state = cuda.local.array(
-                stage_state_size_ary, numba_precision
-            )
-
-        if solver_scratch_shared:
-            solver_scratch = shared[solver_scratch_start:solver_scratch_end]
-        else:
-            solver_scratch = cuda.local.array(
-                solver_scratch_ary, numba_precision
-            )
-
-        if stage_increment_shared:
-            stage_increment = shared[stage_increment_start:stage_increment_end]
-        else:
-            stage_increment = cuda.local.array(
-                all_stages_n_ary, numba_precision
-            )
-
-        if stage_driver_stack_shared:
-            stage_driver_stack = shared[
-                stage_driver_stack_start:stage_driver_stack_end
-            ]
-        else:
-            stage_driver_stack = cuda.local.array(
-                stage_driver_stack_local_size, numba_precision
-            )
+        # Allocate buffers using allocators
+        stage_state = alloc_stage_state(shared, persistent_local)
+        solver_scratch = alloc_solver_scratch(shared, persistent_local)
+        stage_increment = alloc_stage_increment(shared, persistent_local)
+        stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
 
         current_time = time_scalar
         end_time = current_time + dt_scalar
@@ -2853,6 +2777,14 @@ def rosenbrock_step_inline_factory(
     prec,
     tableau,
     cached_auxiliary_count,
+    alloc_stage_rhs,
+    alloc_stage_store,
+    alloc_cached_auxiliaries,
+    alloc_stage_increment,
+    alloc_solver_shared,
+    alloc_solver_persistent,
+    alloc_krylov_iters,
+    alloc_base_state_placeholder,
 ):
     numba_precision = numba_from_dtype(prec)
     typed_zero = numba_precision(0.0)
@@ -2861,9 +2793,6 @@ def rosenbrock_step_inline_factory(
     n = int32(n)
     stage_count = int32(tableau.stage_count)
     stages_except_first = stage_count - int32(1)
-
-    # int versions for cuda.local.array sizes
-    n_arraysize = int(n)
     stage_count_int = int(stage_count)
 
 
@@ -2890,46 +2819,6 @@ def rosenbrock_step_inline_factory(
         b_row = int32(b_row)
     if b_hat_row is not None:
         b_hat_row = int32(b_hat_row)
-
-    # Memory location flags captured at compile time from global scope
-    stage_rhs_shared = use_shared_rosenbrock_stage_rhs
-    stage_store_shared = use_shared_rosenbrock_stage_store
-    cached_auxiliaries_shared = use_shared_rosenbrock_cached_auxiliaries
-
-    stage_store_elements = stage_count * n
-    cached_auxiliary_count = max(int32(cached_auxiliary_count), int32(1))
-
-    # int versions for cuda.local.array sizes
-    stage_store_elements = int(stage_store_elements)
-    cached_auxiliary_count_int = int(cached_auxiliary_count)
-
-    # Shared memory indices
-    shared_pointer = int32(0)
-
-    # Stage RHS
-    stage_rhs_start = shared_pointer
-    stage_rhs_end = (
-        stage_rhs_start + n if stage_rhs_shared else stage_rhs_start
-    )
-    shared_pointer = stage_rhs_end
-
-    # Stage store
-    stage_store_start = shared_pointer
-    stage_store_end = (
-        stage_store_start + stage_store_elements
-        if stage_store_shared
-        else stage_store_start
-    )
-    shared_pointer = stage_store_end
-
-    # Cached auxiliaries
-    cached_aux_start = shared_pointer
-    cached_aux_end = (
-        cached_aux_start + cached_auxiliary_count
-        if cached_auxiliaries_shared
-        else cached_aux_start
-    )
-    shared_pointer = cached_aux_end
 
     @cuda.jit(
         # [
@@ -2973,30 +2862,17 @@ def rosenbrock_step_inline_factory(
         persistent_local,
         counters,
     ):
-        # Allocate buffers based on configuration flags
-        if stage_rhs_shared:
-            stage_rhs = shared[stage_rhs_start:stage_rhs_end]
-        else:
-            stage_rhs = cuda.local.array(n_arraysize, numba_precision)
-
-        if stage_store_shared:
-            stage_store = shared[stage_store_start:stage_store_end]
-        else:
-            stage_store = cuda.local.array(
-                stage_store_elements, numba_precision
-            )
-
-        if cached_auxiliaries_shared:
-            cached_auxiliaries = shared[cached_aux_start:cached_aux_end]
-        else:
-            cached_auxiliaries = cuda.local.array(
-                cached_auxiliary_count_int, numba_precision
-            )
-        stage_increment = cuda.local.array(n_arraysize, numba_precision)
-        solver_shared = cuda.local.array(1, numba_precision)
-        solver_persistent = cuda.local.array(1, numba_precision)
-        krylov_iters = cuda.local.array(1, int32)
-        base_state_placeholder = cuda.local.array(1, numba_precision)
+        # Allocate buffers using allocators
+        stage_rhs = alloc_stage_rhs(shared, persistent_local)
+        stage_store = alloc_stage_store(shared, persistent_local)
+        cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+        stage_increment = alloc_stage_increment(shared, persistent_local)
+        solver_shared = alloc_solver_shared(shared, persistent_local)
+        solver_persistent = alloc_solver_persistent(shared, persistent_local)
+        krylov_iters = alloc_krylov_iters(shared, persistent_local)
+        base_state_placeholder = alloc_base_state_placeholder(
+            shared, persistent_local
+        )
         current_time = time_scalar
         end_time = current_time + dt_scalar
         final_stage_base = n * (stage_count - int32(1))
@@ -4793,6 +4669,12 @@ else:
 
 # Build step function based on algorithm type
 if algorithm_type == 'erk':
+    # Create allocators for ERK step buffers
+    alloc_erk_stage_rhs = create_local_allocator(n_states, precision)
+    alloc_erk_accumulator = create_local_allocator(
+        max((tableau.stage_count - 1) * n_states, 1), precision
+    )
+
     # ERK step for explicit integration
     step_fn = erk_step_inline_factory(
         dxdt_fn,
@@ -4801,6 +4683,8 @@ if algorithm_type == 'erk':
         n_states,
         precision,
         tableau,
+        alloc_erk_stage_rhs,
+        alloc_erk_accumulator,
     )
 elif algorithm_type == 'dirk':
     # Build implicit solver components for DIRK
@@ -4871,6 +4755,16 @@ elif algorithm_type == 'dirk':
         alloc_lin_persistent,
     )
 
+    # Create allocators for DIRK step buffers
+    alloc_dirk_stage_increment = create_local_allocator(n_states, precision)
+    alloc_dirk_accumulator = create_local_allocator(
+        max((tableau.stage_count - 1) * n_states, 1), precision
+    )
+    alloc_dirk_solver_scratch = create_local_allocator(
+        2 * n_states, precision
+    )
+    alloc_dirk_stage_base = create_local_allocator(n_states, precision)
+
     step_fn = dirk_step_inline_factory(
         newton_solver_fn,
         dxdt_fn,
@@ -4880,6 +4774,10 @@ elif algorithm_type == 'dirk':
         n_states,
         precision,
         tableau,
+        alloc_dirk_stage_increment,
+        alloc_dirk_accumulator,
+        alloc_dirk_solver_scratch,
+        alloc_dirk_stage_base,
     )
 elif algorithm_type == 'firk':
     # Build implicit solver components for FIRK (fully implicit)
@@ -4953,6 +4851,19 @@ elif algorithm_type == 'firk':
         alloc_lin_persistent,
     )
 
+    # Create allocators for FIRK step buffers
+    alloc_firk_stage_state = create_local_allocator(n_states, precision)
+    alloc_firk_solver_scratch = create_local_allocator(
+        2 * firk_solver_n, precision
+    )
+    alloc_firk_stage_increment = create_local_allocator(
+        firk_solver_n, precision
+    )
+    firk_driver_stack_size = max(n_drivers * tableau.stage_count, 1)
+    alloc_firk_stage_driver_stack = create_local_allocator(
+        firk_driver_stack_size, precision
+    )
+
     step_fn = firk_step_inline_factory(
         newton_solver_fn,
         dxdt_fn,
@@ -4961,6 +4872,10 @@ elif algorithm_type == 'firk':
         n_states,
         precision,
         tableau,
+        alloc_firk_stage_state,
+        alloc_firk_solver_scratch,
+        alloc_firk_stage_increment,
+        alloc_firk_stage_driver_stack,
     )
 elif algorithm_type == 'rosenbrock':
     # Build linear solver components for Rosenbrock (linearly implicit)
@@ -5007,6 +4922,21 @@ elif algorithm_type == 'rosenbrock':
         max(int32(cached_aux_count), int32(1))
     )
     prepare_jac = prepare_jac_factory({}, precision)
+
+    # Create allocators for Rosenbrock step buffers
+    alloc_ros_stage_rhs = create_local_allocator(n_states, precision)
+    alloc_ros_stage_store = create_local_allocator(
+        tableau.stage_count * n_states, precision
+    )
+    alloc_ros_cached_auxiliaries = create_local_allocator(
+        max(int(cached_auxiliary_count), 1), precision
+    )
+    alloc_ros_stage_increment = create_local_allocator(n_states, precision)
+    alloc_ros_solver_shared = create_local_allocator(1, precision)
+    alloc_ros_solver_persistent = create_local_allocator(1, precision)
+    alloc_ros_krylov_iters = create_int32_local_allocator(1)
+    alloc_ros_base_state_placeholder = create_local_allocator(1, precision)
+
     step_fn = rosenbrock_step_inline_factory(
         linear_solver_cached,
         prepare_jac,
@@ -5019,6 +4949,14 @@ elif algorithm_type == 'rosenbrock':
         precision,
         tableau,
         cached_auxiliary_count,
+        alloc_ros_stage_rhs,
+        alloc_ros_stage_store,
+        alloc_ros_cached_auxiliaries,
+        alloc_ros_stage_increment,
+        alloc_ros_solver_shared,
+        alloc_ros_solver_persistent,
+        alloc_ros_krylov_iters,
+        alloc_ros_base_state_placeholder,
     )
 else:
     raise ValueError(f"Unknown algorithm type: '{algorithm_type}'. "
@@ -5291,6 +5229,31 @@ n_arraysize = int(n_states)
 n_params = int(n_parameters)
 local_scratch_size = int(local_scratch_size)
 
+# Loop buffer allocators (for local memory fallback)
+alloc_loop_state = create_local_allocator(n_states, precision)
+alloc_loop_state_proposal = create_local_allocator(n_states, precision)
+alloc_loop_observables = create_local_allocator(
+    max(n_observables, 1), precision
+)
+alloc_loop_observables_proposal = create_local_allocator(
+    max(n_observables, 1), precision
+)
+alloc_loop_parameters = create_local_allocator(n_parameters, precision)
+alloc_loop_drivers = create_local_allocator(max(n_drivers, 1), precision)
+alloc_loop_drivers_proposal = create_local_allocator(
+    max(n_drivers, 1), precision
+)
+alloc_loop_state_summary = create_local_allocator(n_states, precision)
+alloc_loop_observable_summary = create_local_allocator(
+    max(n_observables, 1), precision
+)
+alloc_loop_scratch = create_local_allocator(
+    max(local_scratch_size, 1), precision
+)
+alloc_loop_counters = create_int32_local_allocator(max(n_counters, 1))
+alloc_loop_error = create_local_allocator(n_states, precision)
+alloc_loop_proposed_counters = create_int32_local_allocator(2)
+
 @cuda.jit(
     # [
     #     (
@@ -5327,92 +5290,91 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     shared_scratch[:] = numba_precision(0.0)
 
     # Allocate buffers based on memory location configuration
-    # Each buffer uses shared memory if its flag is True, otherwise local
+    # Each buffer uses shared memory if its flag is True, otherwise allocator
     if use_shared_loop_state:
         state_buffer = shared_scratch[state_shared_start:state_shared_end]
     else:
-        state_buffer = cuda.local.array(n_arraysize, numba_precision)
+        state_buffer = alloc_loop_state(shared_scratch, persistent_local)
 
     if use_shared_loop_state_proposal:
         state_proposal_buffer = shared_scratch[proposed_state_start:
                                                proposed_state_end]
     else:
-        state_proposal_buffer = cuda.local.array(
-            n_arraysize, numba_precision
+        state_proposal_buffer = alloc_loop_state_proposal(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_observables:
         observables_buffer = shared_scratch[obs_start:obs_end]
     else:
-        observables_buffer = cuda.local.array(
-            obs_nonzero, numba_precision
+        observables_buffer = alloc_loop_observables(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_observables_proposal:
         observables_proposal_buffer = shared_scratch[proposed_obs_start:
                                                      proposed_obs_end]
     else:
-        observables_proposal_buffer = cuda.local.array(
-            obs_nonzero, numba_precision
+        observables_proposal_buffer = alloc_loop_observables_proposal(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_parameters:
         parameters_buffer = shared_scratch[params_start:params_end]
     else:
-        parameters_buffer = cuda.local.array(
-            n_parameters, numba_precision
+        parameters_buffer = alloc_loop_parameters(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_drivers:
         drivers_buffer = shared_scratch[drivers_start:drivers_end]
     else:
-        drivers_buffer = cuda.local.array(drv_nonzero, numba_precision)
+        drivers_buffer = alloc_loop_drivers(shared_scratch, persistent_local)
 
     if use_shared_loop_drivers_proposal:
         drivers_proposal_buffer = shared_scratch[proposed_drivers_start:
                                                  proposed_drivers_end]
     else:
-        drivers_proposal_buffer = cuda.local.array(
-            drv_nonzero, numba_precision
+        drivers_proposal_buffer = alloc_loop_drivers_proposal(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_state_summary:
         state_summary_buffer = shared_scratch[state_summ_start:state_summ_end]
     else:
-        state_summary_buffer = cuda.local.array(
-            n_arraysize, numba_precision
+        state_summary_buffer = alloc_loop_state_summary(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_observable_summary:
         observable_summary_buffer = shared_scratch[obs_summ_start:obs_summ_end]
     else:
-        observable_summary_buffer = cuda.local.array(
-            obs_nonzero, numba_precision
+        observable_summary_buffer = alloc_loop_observable_summary(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_scratch:
         remaining_shared_scratch = shared_scratch[scratch_start:scratch_end]
     else:
-        # Local scratch sized for the algorithm (computed at module level)
-        remaining_shared_scratch = cuda.local.array(
-            local_scratch_size, numba_precision
+        remaining_shared_scratch = alloc_loop_scratch(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_counters:
         counters_since_save = shared_scratch[counters_start:counters_end]
     else:
-        counters_since_save = cuda.local.array(
-            ncnt_nonzero, simsafe_int32
+        counters_since_save = alloc_loop_counters(
+            shared_scratch, persistent_local
         )
 
     if use_shared_loop_error:
         error = shared_scratch[error_start:error_end]
     else:
-        error = cuda.local.array(n_arraysize, numba_precision)
-        for _i in range(n_arraysize):
-            error[_i] = precision(0.0)
+        error = alloc_loop_error(shared_scratch, persistent_local)
 
-    proposed_counters = cuda.local.array(2, dtype=simsafe_int32)
+    proposed_counters = alloc_loop_proposed_counters(
+        shared_scratch, persistent_local
+    )
     dt = persistent_local[local_dt_slice]
     accept_step = persistent_local[local_accept_slice].view(simsafe_int32)
 
@@ -5677,6 +5639,11 @@ run_stride_f32 = int32(
         )
 numba_prec = numba_from_dtype(precision)
 
+# Kernel local scratch allocator
+alloc_kernel_local_scratch = create_local_allocator(
+    local_elements_per_run, np.float32
+)
+
 @cuda.jit(
         # [(
         #         numba_prec[:,::1],
@@ -5708,9 +5675,7 @@ def integration_kernel(inits, params, d_coefficients, state_output,
         return None
 
     shared_memory = cuda.shared.array(0, dtype=float32)
-    local_scratch = cuda.local.array(
-        local_elements_per_run, dtype=float32
-    )
+    local_scratch = alloc_kernel_local_scratch(shared_memory, shared_memory)
     c_coefficients = cuda.const.array_like(d_coefficients)
 
     run_idx_low = int32(tx * run_stride_f32)
