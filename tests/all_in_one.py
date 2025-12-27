@@ -76,20 +76,37 @@ n_drivers = 1  # Set to 1 to enable driver profiling (set to 0 to disable)
 n_counters = 4
 
 # -------------------------------------------------------------------------
+# Time Parameters
+# -------------------------------------------------------------------------
+duration = precision(1.0)
+warmup = precision(0.0)
+dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
+# runs
+dt_save = precision(0.1)
+dt_summarise = precision(0.5)
+dt_max = precision(1e3)
+dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
+
+output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]']
+
+# -------------------------------------------------------------------------
 # Driver Input Configuration
 # -------------------------------------------------------------------------
 # Generate sample driver data for profiling driver interpolation.
-# Uses sinusoidal forcing term sampled over the simulation duration.
+# Uses sinusoidal forcing term sampled to match the simulation duration.
 if n_drivers > 0:
-    _driver_samples = 101  # Number of samples in driver input
-    _driver_dt = 0.01  # Sample spacing
-    _driver_times = np.linspace(0.0, (_driver_samples - 1) * _driver_dt,
+    # Sample spacing chosen so total time matches simulation duration:
+    # (samples - 1) * dt = duration, i.e. 100 * 0.01 = 1.0s
+    _driver_samples = 101
+    _driver_dt = float(duration) / (_driver_samples - 1)
+    _driver_times = np.linspace(0.0, float(duration),
                                 _driver_samples, dtype=precision)
-    # Generate sinusoidal driver signal(s)
+    # Generate sinusoidal driver signal(s) with distinct frequencies
     _driver_values = {}
     for _idx in range(n_drivers):
+        frequency_factor = _idx + 1  # Each driver has unique frequency
         _driver_values[f'driver_{_idx}'] = precision(1.0) + np.sin(
-            2 * np.pi * (_idx + 1) * _driver_times / _driver_times[-1]
+            2 * np.pi * frequency_factor * _driver_times / _driver_times[-1]
         ).astype(precision)
     driver_input_dict = {
         'dt': float(_driver_dt),
@@ -98,20 +115,6 @@ if n_drivers > 0:
     }
 else:
     driver_input_dict = None
-
-# -------------------------------------------------------------------------
-# Time Parameters
-# -------------------------------------------------------------------------
-duration = precision(1.0)
-warmup = precision(0.0)
-dt = precision(1e-3) # TODO: should be able to set starting dt for adaptive
-# runs
-dt_save = precision(0.1)
-dt_summarise = precision(0.5)
-dt_max = precision(1e3)
-dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
-
-output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]']
 
 # -------------------------------------------------------------------------
 # Implicit Solver Parameters (DIRK only)
