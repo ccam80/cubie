@@ -1,4 +1,3 @@
-from os import environ
 
 import numpy as np
 import pytest
@@ -10,11 +9,6 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
 )
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_sizes import BatchInputSizes
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    pass
-else:
-    pass
 
 
 @pytest.fixture(scope="session")
