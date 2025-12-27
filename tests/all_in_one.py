@@ -4480,14 +4480,6 @@ def unrolled_update_summary_factory(
     # Build lookup from parsed_summaries for index positions
     metric_indices = {m: i for i, m in enumerate(parsed_summaries)}
 
-    # All known metrics
-    KNOWN_METRICS = (
-        'mean', 'max', 'min', 'rms', 'std', 'mean_std', 'mean_std_rms',
-        'std_rms', 'extrema', 'peaks', 'negative_peaks', 'max_magnitude',
-        'dxdt_max', 'dxdt_min', 'dxdt_extrema', 'd2xdt2_max', 'd2xdt2_min',
-        'd2xdt2_extrema',
-    )
-
     # Extract per-metric enable flags, offsets, sizes, params
     # mean
     enable_mean = 'mean' in metric_indices
@@ -5145,14 +5137,6 @@ def unrolled_save_summary_factory(
 
     # Build lookup from parsed_summaries for index positions
     metric_indices = {m: i for i, m in enumerate(parsed_summaries)}
-
-    # All known metrics
-    KNOWN_METRICS = (
-        'mean', 'max', 'min', 'rms', 'std', 'mean_std', 'mean_std_rms',
-        'std_rms', 'extrema', 'peaks', 'negative_peaks', 'max_magnitude',
-        'dxdt_max', 'dxdt_min', 'dxdt_extrema', 'd2xdt2_max', 'd2xdt2_min',
-        'd2xdt2_extrema',
-    )
 
     # Extract per-metric enable flags, buffer offsets/sizes, output
     # offsets/sizes, and params
@@ -5919,8 +5903,8 @@ def codegen_update_summary_factory(
         )
         body_lines.append(f"{indent}    base = idx * total_buffer_size")
         body_lines.append(
-            f"{indent}    value = current_observables["
-            f"summarised_observable_indices[idx]]"
+            f"{indent}    value = current_observables"
+            f"[summarised_observable_indices[idx]]"
         )
         for metric in parsed_summaries:
             body_lines.append(
