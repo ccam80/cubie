@@ -152,6 +152,34 @@ class TestTopologicalSort:
         assert symbol_positions[x] < symbol_positions[y]
         assert symbol_positions[y] < symbol_positions[z]
 
+    def test_topological_sort_duplicate_lhs_symbols(self):
+        """Test topological sort with duplicate LHS symbols in list.
+
+        When the input list contains multiple assignments to the same symbol,
+        the later assignment should override earlier ones (dict behavior),
+        and no false circular dependency error should be raised.
+        """
+        x, y, z = sp.symbols("x y z")
+        # List with duplicate assignment to x - later one should take effect
+        assignments = [
+            (x, sp.Integer(1)),
+            (y, x + 1),
+            (x, sp.Integer(2)),  # Duplicate LHS - overrides first x assignment
+            (z, y + 1),
+        ]
+
+        # Should not raise circular dependency error
+        result = topological_sort(assignments)
+
+        # Result should have 3 unique symbols
+        assert len(result) == 3
+        result_dict = dict(result)
+        # Later assignment to x should be used
+        assert result_dict[x] == sp.Integer(2)
+        assert x in result_dict
+        assert y in result_dict
+        assert z in result_dict
+
 
 class TestCseAndStack:
     """Test cases for cse_and_stack function."""

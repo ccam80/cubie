@@ -46,7 +46,7 @@ class ImplicitStepConfig(BaseStepConfig):
     )
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
     preconditioner_order: int = attrs.field(
-        default=1,
+        default=2,
         validator=inrangetype_validator(int, 1, 32)
     )
     solver_function = attrs.field(
