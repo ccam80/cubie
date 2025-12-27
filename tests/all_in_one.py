@@ -47,12 +47,12 @@ script_start = perf_counter()
 #
 # algorithm_type = 'dirk'
 # algorithm_tableau_name ='l_stable_sdirk_4'
-algorithm_type = 'erk'
-algorithm_tableau_name = 'tsit5'
+# algorithm_type = 'erk'
+# algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-# algorithm_type = 'rosenbrock'
-# algorithm_tableau_name = 'ros3p'
+algorithm_type = 'rosenbrock'
+algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -79,12 +79,12 @@ n_counters = 4
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(1.0)
+duration = precision(0.20)
 warmup = precision(0.0)
 dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.2)
-dt_summarise = precision(0.5)
+dt_save = precision(0.1)
+dt_summarise = precision(0.2)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -1116,7 +1116,7 @@ def linear_operator_cached(constants, precision, beta=1.0, gamma=1.0, order=None
     return operator_apply
 
 # AUTO-GENERATED JACOBIAN PREPARATION FACTORY
-def prepare_jac(constants, precision):
+def prepare_jac_factory(constants, precision):
     """Auto-generated Jacobian auxiliary preparation.
     Populates cached_aux with intermediate Jacobian values.
     """
@@ -1133,29 +1133,27 @@ def prepare_jac(constants, precision):
     return prepare_jac
 
 # AUTO-GENERATED TIME-DERIVATIVE FACTORY
-def time_derivative_rhs(constants, precision):
-    """Auto-generated time-derivative factory."""
-    @cuda.jit(
-        # (precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision[::1],
-        #  precision),
-        device=True,
-        inline=True)
-    def time_derivative_rhs(
-        state, parameters, drivers, driver_dt, observables, out, t
-    ):
-        time_dV_h = precision(0)
-        time_dV_a = precision(0)
-        time_dV_v = precision(0)
-        out[0] = time_dV_h
-        out[1] = time_dV_a
-        out[2] = time_dV_v
+"""Auto-generated time-derivative factory."""
+@cuda.jit(
+    # (precision[::1],
+    #  precision[::1],
+    #  precision[::1],
+    #  precision[::1],
+    #  precision[::1],
+    #  precision[::1],
+    #  precision),
+    device=True,
+    inline=True)
+def time_derivative_rhs(
+    state, parameters, drivers, driver_dt, observables, out, t
+):
+    time_dV_h = precision(0)
+    time_dV_a = precision(0)
+    time_dV_v = precision(0)
+    out[0] = time_dV_h
+    out[1] = time_dV_a
+    out[2] = time_dV_v
 
-    return time_derivative_rhs
 
 # =========================================================================
 # DRIVER INTERPOLATION INLINE DEVICE FUNCTIONS
@@ -1257,107 +1255,6 @@ def driver_derivative_inline_factory(interpolator):
             )
 
     return driver_derivative
-
-
-def neumann_preconditioner_factory(constants, prec, beta, gamma, order):
-    n = int32(3)
-    order = int32(order)
-    beta_inv = prec(1.0 / beta)
-    gamma = prec(gamma)
-    h_eff_factor = prec(gamma * beta_inv)
-    sigma = prec(constants['sigma_'])
-    beta_const = prec(constants['beta_'])
-    numba_prec = numba_from_dtype(prec)
-
-    @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1], numba_prec[::1]),
-              device=True, inline=True, **compile_kwargs)
-    def preconditioner(state, parameters, drivers, base_state, t, h, a_ij,
-                       v, out, jvp):
-        for i in range(n):
-            out[i] = v[i]
-        h_eff = h * numba_prec(h_eff_factor) * a_ij
-        for _ in range(order):
-            j_00 = -sigma
-            j_01 = sigma
-            j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-            j_11 = numba_prec(-1)
-            j_12 = -a_ij * state[0] - base_state[0]
-            j_20 = a_ij * state[1] + base_state[1]
-            j_21 = a_ij * state[0] + base_state[0]
-            j_22 = -beta_const
-            jvp[0] = j_00 * out[0] + j_01 * out[1]
-            jvp[1] = j_10 * out[0] + j_11 * out[1] + j_12 * out[2]
-            jvp[2] = j_20 * out[0] + j_21 * out[1] + j_22 * out[2]
-            for i in range(n):
-                out[i] = v[i] + h_eff * jvp[i]
-        for i in range(n):
-            out[i] = numba_prec(beta_inv) * out[i]
-    return preconditioner
-
-
-def stage_residual_factory(constants, prec, beta, gamma, order):
-    sigma = prec(constants['sigma_'])
-    beta_const = prec(constants['beta_'])
-    numba_prec = numba_from_dtype(prec)
-    beta_val = numba_prec(1.0) * numba_prec(beta)
-
-    @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec, numba_prec, numba_prec, numba_prec[::1],
-            #    numba_prec[::1]),
-              device=True, inline=True, **compile_kwargs)
-    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):
-        _cse0 = a_ij * u[1]
-        _cse1 = a_ij * u[0] + base_state[0]
-        _cse2 = a_ij * u[2] + base_state[2]
-        _cse5 = numba_prec(gamma) * h
-        _cse3 = _cse0 + base_state[1]
-        dx_0 = sigma * (_cse0 - _cse1 + base_state[1])
-        dx_2 = _cse1 * _cse3 - _cse2 * beta_const
-        dx_1 = _cse1 * (-_cse2 + parameters[0]) - _cse3
-        out[0] = beta_val * u[0] - _cse5 * dx_0
-        out[2] = beta_val * u[2] - _cse5 * dx_2
-        out[1] = beta_val * u[1] - _cse5 * dx_1
-    return residual
-
-
-def linear_operator_factory(constants, prec, beta, gamma, order):
-    sigma = prec(constants['sigma_'])
-    beta_const = prec(constants['beta_'])
-    gamma = prec(gamma)
-    numba_prec = numba_from_dtype(prec)
-
-    @cuda.jit(
-            # (numba_prec[::1], numba_prec[::1], numba_prec[::1],
-            #    numba_prec[::1], numba_prec, numba_prec, numba_prec,
-            #    numba_prec[::1], numba_prec[::1]),
-              device=True, inline=True, **compile_kwargs)
-    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij,
-                       v, out):
-        m_00 = numba_prec(1.0)
-        m_11 = numba_prec(1.0)
-        m_22 = numba_prec(1.0)
-        j_00 = -sigma
-        j_01 = sigma
-        j_10 = -a_ij * state[2] + parameters[0] - base_state[2]
-        j_11 = numba_prec(-1)
-        j_12 = -a_ij * state[0] - base_state[0]
-        j_20 = a_ij * state[1] + base_state[1]
-        j_21 = a_ij * state[0] + base_state[0]
-        j_22 = -beta_const
-        gamma_val = numba_prec(gamma)
-        beta_val = numba_prec(beta)
-        out[0] = (-a_ij * gamma_val * h * (j_00 * v[0] + j_01 * v[1])
-                  + beta_val * m_00 * v[0])
-        out[1] = (-a_ij * gamma_val * h * (j_10 * v[0] + j_11 * v[1]
-                  + j_12 * v[2]) + beta_val * m_11 * v[1])
-        out[2] = (-a_ij * gamma_val * h * (j_20 * v[0] + j_21 * v[1]
-                  + j_22 * v[2]) + beta_val * m_22 * v[2])
-    return operator_apply
-
 
 # =========================================================================
 # INLINE LINEAR SOLVER FACTORY
@@ -1522,6 +1419,7 @@ def linear_solver_cached_inline_factory(
             state,
             parameters,
             drivers,
+            cached_auxiliaries,
             base_state,
             t,
             h,
@@ -1548,6 +1446,7 @@ def linear_solver_cached_inline_factory(
                     state,
                     parameters,
                     drivers,
+                    cached_auxiliaries,
                     base_state,
                     t,
                     h,
@@ -1564,6 +1463,7 @@ def linear_solver_cached_inline_factory(
                 state,
                 parameters,
                 drivers,
+                cached_auxiliaries,
                 base_state,
                 t,
                 h,
@@ -2838,7 +2738,7 @@ def firk_step_inline_factory(
 
 def rosenbrock_step_inline_factory(
     linear_solver,
-    prepare_jacobian,
+    prepare_jac,
     time_derivative_rhs,
     dxdt_fn,
     observables_function,
@@ -2999,7 +2899,7 @@ def rosenbrock_step_inline_factory(
 
         inv_dt = numba_precision(1.0) / dt_scalar
 
-        prepare_jacobian(
+        prepare_jac(
             state,
             parameters,
             drivers_buffer,
@@ -4799,21 +4699,21 @@ if algorithm_type == 'erk':
     )
 elif algorithm_type == 'dirk':
     # Build implicit solver components for DIRK
-    preconditioner_fn = neumann_preconditioner_factory(
+    preconditioner_fn = neumann_preconditioner(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    residual_fn = stage_residual_factory(
+    residual_fn = stage_residual(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    operator_fn = linear_operator_factory(
+    operator_fn = linear_operator(
         constants,
         precision,
         beta=float(beta_solver),
@@ -4854,13 +4754,13 @@ elif algorithm_type == 'dirk':
 elif algorithm_type == 'firk':
     # Build implicit solver components for FIRK (fully implicit)
     # FIRK requires n-stage coupled system solving
-    # preconditioner_fn = n_stage_neumann_preconditioner_3(
-    #     constants,
-    #     precision,
-    #     beta=float(beta_solver),
-    #     gamma=float(gamma_solver),
-    #     order=preconditioner_order,
-    # )
+    preconditioner_fn = n_stage_neumann_preconditioner_3(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
     residual_fn = n_stage_residual_3(
         constants,
         precision,
@@ -4868,18 +4768,18 @@ elif algorithm_type == 'firk':
         gamma=float(gamma_solver),
         order=preconditioner_order,
     )
-    # operator_fn = n_stage_linear_operator_3(
-    #     constants,
-    #     precision,
-    #     beta=float(beta_solver),
-    #     gamma=float(gamma_solver),
-    #     order=preconditioner_order,
-    # )
+    operator_fn = n_stage_linear_operator_3(
+        constants,
+        precision,
+        beta=float(beta_solver),
+        gamma=float(gamma_solver),
+        order=preconditioner_order,
+    )
 
     linear_solver_fn = linear_solver_inline_factory(
-        # operator_fn,
+        operator_fn,
         n_states * tableau.stage_count,  # Note: all_stages_n
-        # preconditioner_fn,
+        preconditioner_fn,
         krylov_tolerance,
         max_linear_iters,
         precision,
@@ -4909,14 +4809,14 @@ elif algorithm_type == 'firk':
 elif algorithm_type == 'rosenbrock':
     # Build linear solver components for Rosenbrock (linearly implicit)
     # Rosenbrock uses cached Jacobian approximation
-    preconditioner_fn = neumann_preconditioner_factory(
+    preconditioner_fn = neumann_preconditioner_cached(
         constants,
         precision,
         beta=float(beta_solver),
         gamma=float(tableau.gamma),  # Use tableau gamma for Rosenbrock
         order=preconditioner_order,
     )
-    operator_fn = linear_operator_factory(
+    operator_fn = linear_operator_cached(
         constants,
         precision,
         beta=float(beta_solver),
@@ -4944,7 +4844,7 @@ elif algorithm_type == 'rosenbrock':
     cached_auxiliary_count = int32(
         max(int32(cached_aux_count), int32(1))
     )
-
+    prepare_jac = prepare_jac_factory({}, precision)
     step_fn = rosenbrock_step_inline_factory(
         linear_solver_cached,
         prepare_jac,
