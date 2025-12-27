@@ -15,7 +15,6 @@ from cubie.odesystems.symbolic.parsing.parser import (
     TIME_SYMBOL,
 )
 from cubie.odesystems.symbolic.sym_utils import (
-    cse_and_stack,
     render_constant_assignments,
     topological_sort,
     prune_unused_assignments,
@@ -678,10 +677,10 @@ def _build_n_stage_operator_lines(
             update_expr = beta_sym * mv - gamma_sym * h_sym * jvp_value
             eval_exprs.append((out[stage_offset + comp_idx], update_expr))
 
-    if cse:
-        eval_exprs = cse_and_stack(eval_exprs)
-    else:
-        eval_exprs = topological_sort(eval_exprs)
+    # if cse:
+    #     eval_exprs = cse_and_stack(eval_exprs)
+    # else:
+    eval_exprs = topological_sort(eval_exprs)
 
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(
