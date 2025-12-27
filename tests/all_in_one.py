@@ -1121,12 +1121,101 @@ def linear_operator_factory(constants, prec, beta, gamma, order):
 
 
 # =========================================================================
+# ALLOCATOR FACTORY INFRASTRUCTURE
+# =========================================================================
+
+
+def create_local_allocator(size, prec):
+    """Create an allocator closure that returns a local array.
+
+    Mimics buffer_registry.get_allocator() for local memory buffers.
+
+    Parameters
+    ----------
+    size : int
+        Buffer size in elements.
+    prec : dtype
+        NumPy precision type.
+
+    Returns
+    -------
+    Callable
+        Device function (shared, persistent) -> array
+    """
+    _local_size = size
+    _prec = numba_from_dtype(prec)
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def allocate(shared, persistent):
+        return cuda.local.array(_local_size, _prec)
+
+    return allocate
+
+
+def create_int32_local_allocator(size):
+    """Create an allocator closure for int32 local arrays.
+
+    Parameters
+    ----------
+    size : int
+        Buffer size in elements.
+
+    Returns
+    -------
+    Callable
+        Device function (shared, persistent) -> array
+    """
+    _local_size = size
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def allocate(shared, persistent):
+        return cuda.local.array(_local_size, int32)
+
+    return allocate
+
+
+def create_child_allocators(child_shared_size, child_persistent_size, prec):
+    """Create allocator pair for child device function scratch space.
+
+    Mimics buffer_registry.get_child_allocators() for nested solvers.
+    Since we use local arrays, these return fresh local arrays.
+
+    Parameters
+    ----------
+    child_shared_size : int
+        Size of child's shared scratch buffer (0 if not used).
+    child_persistent_size : int
+        Size of child's persistent scratch buffer (0 if not used).
+    prec : dtype
+        NumPy precision type.
+
+    Returns
+    -------
+    tuple
+        (alloc_child_shared, alloc_child_persistent) device function pair
+    """
+    _shared_size = max(child_shared_size, 1)
+    _persistent_size = max(child_persistent_size, 1)
+    _prec = numba_from_dtype(prec)
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def alloc_child_shared(shared, persistent):
+        return cuda.local.array(_shared_size, _prec)
+
+    @cuda.jit(device=True, inline=True, **compile_kwargs)
+    def alloc_child_persistent(shared, persistent):
+        return cuda.local.array(_persistent_size, _prec)
+
+    return alloc_child_shared, alloc_child_persistent
+
+
+# =========================================================================
 # INLINE LINEAR SOLVER FACTORY
 # =========================================================================
 
 def linear_solver_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
-        correction_type
+        correction_type, alloc_precond, alloc_temp
 ):
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
@@ -1155,10 +1244,12 @@ def linear_solver_inline_factory(
         a_ij,
         rhs,
         x,
+        shared,
+        persistent_local,
         krylov_iters_out,
     ):
-        preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
-        temp = cuda.local.array(n_arraysize, numba_prec)
+        preconditioned_vec = alloc_precond(shared, persistent_local)
+        temp = alloc_temp(shared, persistent_local)
 
         operator_apply(
             state, parameters, drivers, base_state, t, h, a_ij, x, temp
@@ -1248,7 +1339,7 @@ def linear_solver_inline_factory(
 
 def linear_solver_cached_inline_factory(
         operator_apply, n, preconditioner, tolerance, max_iters, prec,
-        correction_type
+        correction_type, alloc_precond, alloc_temp
 ):
     numba_prec = numba_from_dtype(prec)
     tol_squared = numba_prec(tolerance * tolerance)
@@ -1276,8 +1367,8 @@ def linear_solver_cached_inline_factory(
         persistent,
         krylov_iters_out,
     ):
-        preconditioned_vec = cuda.local.array(n_arraysize, numba_prec)
-        temp = cuda.local.array(n_arraysize, numba_prec)
+        preconditioned_vec = alloc_precond(shared, persistent)
+        temp = alloc_temp(shared, persistent)
 
         operator_apply(
             state,
@@ -1368,8 +1459,12 @@ def linear_solver_cached_inline_factory(
 # INLINE NEWTON-KRYLOV SOLVER FACTORY
 # =========================================================================
 
-def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
-                                 max_iters, damping, max_backtracks, prec):
+def newton_krylov_inline_factory(
+        residual_fn, linear_solver_fn, n, tolerance, max_iters, damping,
+        max_backtracks, prec, alloc_delta, alloc_residual,
+        alloc_residual_temp, alloc_stage_base_bt, alloc_krylov_iters_local,
+        alloc_lin_shared, alloc_lin_persistent
+):
     numba_prec = numba_from_dtype(prec)
     n_arraysize = int(n)
     n = int32(n)
@@ -1404,12 +1499,15 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         a_ij,
         base_state,
         shared_scratch,
+        persistent_scratch,
         counters,
     ):
-        delta = cuda.local.array(n_arraysize, numba_prec)
-        residual_temp = cuda.local.array(n_arraysize, numba_prec)
-        residual = cuda.local.array(n_arraysize, numba_prec)
-        stage_base_bt = cuda.local.array(n_arraysize, numba_prec)
+        delta = alloc_delta(shared_scratch, persistent_scratch)
+        residual = alloc_residual(shared_scratch, persistent_scratch)
+        residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
+        stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
+        lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
+        lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
 
         residual_fn(
             stage_increment,
@@ -1434,7 +1532,9 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
         final_status = int32(0)
 
         # Local array for linear solver iteration count output
-        krylov_iters_local = cuda.local.array(1, int32)
+        krylov_iters_local = alloc_krylov_iters_local(
+            shared_scratch, persistent_scratch
+        )
 
         iters_count = int32(0)
         total_krylov_iters = int32(0)
@@ -1451,7 +1551,7 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
             )
 
             krylov_iters_local[0] = int32(0)
-            lin_status = linear_solver(
+            lin_status = linear_solver_fn(
                 stage_increment,
                 parameters,
                 drivers,
@@ -1461,6 +1561,8 @@ def newton_krylov_inline_factory(residual_fn, linear_solver, n, tolerance,
                 a_ij,
                 residual,
                 delta,
+                lin_shared,
+                lin_persistent,
                 krylov_iters_local,
             )
 
@@ -1817,6 +1919,7 @@ def dirk_step_inline_factory(
                     diagonal_coeffs[0],
                     stage_base,
                     solver_scratch,
+                    persistent_local,
                     counters,
                 )
                 status_code = int32(status_code | solver_status)
@@ -1918,6 +2021,7 @@ def dirk_step_inline_factory(
                     diagonal_coeffs[stage_idx],
                     stage_base,
                     solver_scratch,
+                    persistent_local,
                     counters,
                 )
                 status_code = int32(status_code | solver_status)
@@ -2512,6 +2616,7 @@ def firk_step_inline_factory(
                 typed_zero,
                 state,
                 solver_scratch,
+                persistent_local,
                 counters,
             )
         )
@@ -4581,6 +4686,10 @@ elif algorithm_type == 'dirk':
         order=preconditioner_order,
     )
 
+    # Create allocators for linear solver buffers
+    alloc_linear_precond = create_local_allocator(n_states, precision)
+    alloc_linear_temp = create_local_allocator(n_states, precision)
+
     linear_solver_fn = linear_solver_inline_factory(
         operator_fn, n_states,
         preconditioner_fn,
@@ -4588,6 +4697,20 @@ elif algorithm_type == 'dirk':
         max_linear_iters,
         precision,
         linear_correction_type,
+        alloc_linear_precond,
+        alloc_linear_temp,
+    )
+
+    # Create allocators for Newton solver buffers
+    alloc_newton_delta = create_local_allocator(n_states, precision)
+    alloc_newton_residual = create_local_allocator(n_states, precision)
+    alloc_newton_residual_temp = create_local_allocator(n_states, precision)
+    alloc_newton_stage_base_bt = create_local_allocator(n_states, precision)
+    alloc_newton_krylov_iters = create_int32_local_allocator(1)
+
+    # Create child allocators for nested linear solver
+    alloc_lin_shared, alloc_lin_persistent = create_child_allocators(
+        n_states, n_states, precision
     )
 
     newton_solver_fn = newton_krylov_inline_factory(
@@ -4599,6 +4722,13 @@ elif algorithm_type == 'dirk':
         newton_damping,
         max_backtracks,
         precision,
+        alloc_newton_delta,
+        alloc_newton_residual,
+        alloc_newton_residual_temp,
+        alloc_newton_stage_base_bt,
+        alloc_newton_krylov_iters,
+        alloc_lin_shared,
+        alloc_lin_persistent,
     )
 
     step_fn = dirk_step_inline_factory(
@@ -4636,25 +4766,51 @@ elif algorithm_type == 'firk':
         order=preconditioner_order,
     )
 
+    # Create allocators for linear solver buffers (FIRK uses n_states * stage_count)
+    firk_solver_n = n_states * tableau.stage_count
+    alloc_linear_precond = create_local_allocator(firk_solver_n, precision)
+    alloc_linear_temp = create_local_allocator(firk_solver_n, precision)
+
     linear_solver_fn = linear_solver_inline_factory(
         operator_fn,
-        n_states * tableau.stage_count,  # Note: all_stages_n
+        firk_solver_n,
         preconditioner_fn,
         krylov_tolerance,
         max_linear_iters,
         precision,
         linear_correction_type,
+        alloc_linear_precond,
+        alloc_linear_temp,
+    )
+
+    # Create allocators for Newton solver buffers (FIRK uses n_states * stage_count)
+    alloc_newton_delta = create_local_allocator(firk_solver_n, precision)
+    alloc_newton_residual = create_local_allocator(firk_solver_n, precision)
+    alloc_newton_residual_temp = create_local_allocator(firk_solver_n, precision)
+    alloc_newton_stage_base_bt = create_local_allocator(firk_solver_n, precision)
+    alloc_newton_krylov_iters = create_int32_local_allocator(1)
+
+    # Create child allocators for nested linear solver
+    alloc_lin_shared, alloc_lin_persistent = create_child_allocators(
+        firk_solver_n, firk_solver_n, precision
     )
 
     newton_solver_fn = newton_krylov_inline_factory(
         residual_fn,
         linear_solver_fn,
-        n_states * tableau.stage_count,  # Note: all_stages_n
+        firk_solver_n,
         newton_tolerance,
         max_newton_iters,
         newton_damping,
         max_backtracks,
         precision,
+        alloc_newton_delta,
+        alloc_newton_residual,
+        alloc_newton_residual_temp,
+        alloc_newton_stage_base_bt,
+        alloc_newton_krylov_iters,
+        alloc_lin_shared,
+        alloc_lin_persistent,
     )
 
     step_fn = firk_step_inline_factory(
@@ -4684,6 +4840,10 @@ elif algorithm_type == 'rosenbrock':
         order=preconditioner_order,
     )
 
+    # Create allocators for linear solver buffers (Rosenbrock)
+    alloc_linear_precond = create_local_allocator(n_states, precision)
+    alloc_linear_temp = create_local_allocator(n_states, precision)
+
     linear_solver_cached = linear_solver_cached_inline_factory(
         operator_fn,
         n_states,
@@ -4692,6 +4852,8 @@ elif algorithm_type == 'rosenbrock':
         max_linear_iters,
         precision,
         linear_correction_type,
+        alloc_linear_precond,
+        alloc_linear_temp,
     )
 
     # Placeholder implementations; codegen overwrites during generation.
