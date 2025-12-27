@@ -72,10 +72,32 @@ constants = {'sigma_': 10.0, 'beta_': 8.0 / 3.0}
 n_states = 3
 n_parameters = 1
 n_observables = 0
-n_drivers = 0
+n_drivers = 1  # Set to 1 to enable driver profiling (set to 0 to disable)
 n_counters = 4
 
-driver_input_dict = None
+# -------------------------------------------------------------------------
+# Driver Input Configuration
+# -------------------------------------------------------------------------
+# Generate sample driver data for profiling driver interpolation.
+# Uses sinusoidal forcing term sampled over the simulation duration.
+if n_drivers > 0:
+    _driver_samples = 101  # Number of samples in driver input
+    _driver_dt = 0.01  # Sample spacing
+    _driver_times = np.linspace(0.0, (_driver_samples - 1) * _driver_dt,
+                                _driver_samples, dtype=precision)
+    # Generate sinusoidal driver signal(s)
+    _driver_values = {}
+    for _idx in range(n_drivers):
+        _driver_values[f'driver_{_idx}'] = precision(1.0) + np.sin(
+            2 * np.pi * (_idx + 1) * _driver_times / _driver_times[-1]
+        ).astype(precision)
+    driver_input_dict = {
+        'dt': float(_driver_dt),
+        't0': 0.0,
+        **_driver_values,
+    }
+else:
+    driver_input_dict = None
 
 # -------------------------------------------------------------------------
 # Time Parameters
