@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.6...v0.1.0) (2025-12-27)
+
+
+### Features
+
+* enable driver interpolator profiling in all_in_one.py ([#419](https://github.com/ccam80/cubie/issues/419)) ([1574ec9](https://github.com/ccam80/cubie/commit/1574ec9b548c8f4690f9ac92e927d69bee2ae571))
+
+
+### Bug Fixes
+
+* correct false circular dependency error in topological_sort ([#422](https://github.com/ccam80/cubie/issues/422)) ([97c13be](https://github.com/ccam80/cubie/commit/97c13bec7dd31c9cfedba6503783c19ee9a9c59a))
+* default neumann preconditioner order set to 2 ([2434358](https://github.com/ccam80/cubie/commit/24343589fa30f28da630517bee26b691bbf48c2a))
+
 ## [0.0.6](https://github.com/ccam80/cubie/compare/v0.0.5...v0.0.6) (2025-12-27)
 
 
