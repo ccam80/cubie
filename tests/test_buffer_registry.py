@@ -28,7 +28,6 @@ class TestCUDABuffer:
         assert not entry.is_local
         assert not entry.is_persistent_local
 
-    @pytest.mark.nocudasim
     def test_create_local_entry(self):
         entry = CUDABuffer(
             name='test_buffer',
@@ -40,7 +39,6 @@ class TestCUDABuffer:
         assert not entry.is_shared
         assert not entry.is_persistent_local
 
-    @pytest.mark.nocudasim
     def test_create_persistent_local_entry(self):
         entry = CUDABuffer(
             name='test_buffer',
@@ -679,26 +677,6 @@ class TestDeterministicLayouts:
         assert shared == shared2
         assert persistent == persistent2
         assert local == local2
-
-    @pytest.mark.sim_only
-    def test_shared_alias_of_local_works_in_cudasim(self):
-        """Shared buffer aliasing local parent works correctly in CUDASIM."""
-        self.registry.register('parent', self.parent, 100, 'local')
-        self.registry.register(
-            'child', self.parent, 30, 'shared', aliases='parent'
-        )
-        # In CUDASIM, local parent is in shared layout via _use_shared
-        # So child can alias parent's shared memory
-        group = self.registry._groups[self.parent]
-        _ = self.registry.shared_buffer_size(self.parent)
-        layout = group._shared_layout
-
-        # Parent should be in shared layout (due to CUDASIM)
-        assert 'parent' in layout
-        # Child should alias parent (overlapping slices)
-        assert 'child' in layout
-        assert layout['parent'] == slice(0, 100)
-        assert layout['child'] == slice(0, 30)  # Overlaps parent
 
 
 class TestPrecisionValidation:

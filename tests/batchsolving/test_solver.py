@@ -1,19 +1,14 @@
 from typing import Iterable
-from os import environ
 
 import pytest
 import numpy as np
+from numba import cuda # noqa - kick cuda import to avoid local module error
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as DeviceNDArray,
-    )
-else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray
+from cubie.cuda_simsafe import DeviceNDArray
 
 
 @pytest.fixture(scope="session")

@@ -47,17 +47,23 @@ every combination of x and y each ranging from 0 to 99.
 Features
 --------
 
-* Forward simulation of non-stiff and (soon) stiff systems of ODEs
+* GPU-Accelerated forward simulation of non-stiff and stiff systems of ODEs
+* Explicit, implicit, and semi-implicit Runge-Kutta methods
+* Rosenbrock-W methods
+* Adaptive time-stepping
+* Interpolation of arbitrary time-domain inputs (forcing terms)
+* Internal derivation of Jacobians using algorithmic symbolic differentiation with explicit chain-rule accumulation.
+* Internal codegen of jacobian product evaluation and time-derivative functions.
 
 Requirements
 ------------
 
-* Python >= 3.8
-* NumPy
+* Python >= 3.10
+* NumPy==1.26.4
 * Numba
 * Numba-CUDA
 * attrs
-* SymPy
+* SymPy>= 1.13.0
 
 Optional Dependencies
 ---------------------
@@ -66,7 +72,7 @@ Optional Dependencies
   consecutive batches of different sizes)
 * Pandas: For DataFrame output support
 * Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
-  :doc:`Drivers <user_guide/drivers>`)
+  :doc:`Drivers <user_guide/drivers>`), but generally useful for visualizing results.
 
 GPU Requirements
 ~~~~~~~~~~~~~~~~
