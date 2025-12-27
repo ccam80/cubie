@@ -17,7 +17,8 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import getype_validator, buffer_dtype_validator
-from cubie.cuda_simsafe import compile_kwargs, CUDA_SIMULATION, from_dtype
+from cubie.cuda_simsafe import compile_kwargs, from_dtype
+from numba import float32
 
 
 @attrs.define
@@ -60,46 +61,17 @@ class CUDABuffer:
     @property
     def is_shared(self) -> bool:
         """Return True if buffer uses shared memory."""
-        return self.location == 'shared'
+        return self.location == "shared"
 
     @property
     def is_persistent_local(self) -> bool:
-        """Return True if buffer uses persistent local memory.
-
-        Returns False in CUDASIM mode since local buffers are redirected
-        to shared memory.
-        """
-        if CUDA_SIMULATION:
-            return False
+        """Return True if buffer uses persistent local memory."""
         return self.location == 'local' and self.persistent
 
     @property
     def is_local(self) -> bool:
-        """Return True if buffer uses local (non-persistent) memory.
-
-        Returns False in CUDASIM mode since local buffers are redirected
-        to shared memory.
-        """
-        if CUDA_SIMULATION:
-            return False
-        return self.location == 'local' and not self.persistent
-
-    @property
-    def _use_shared(self) -> bool:
-        """Return True if buffer should use shared memory allocation.
-
-        Returns True when:
-        - Buffer location is 'shared', OR
-        - Buffer location is 'local' AND CUDA_SIMULATION is True
-
-        This property encapsulates CUDASIM mode awareness so layout
-        methods don't need explicit CUDA_SIMULATION checks.
-        """
-        if self.is_shared:
-            return True
-        if CUDA_SIMULATION and self.location == 'local':
-            return True
-        return False
+        """Return True if buffer uses local (non-persistent) memory."""
+        return self.location == "local" and not self.persistent
 
     def build_allocator(
         self,
@@ -950,25 +922,20 @@ class BufferRegistry:
             - alloc_shared: () -> shared memory array
             - alloc_persistent: (shared) -> persistent local array
         """
-        from numba import float32
 
         persistent_size = max(1, kernel.local_memory_elements)
         precision = kernel.precision
         numba_precision = from_dtype(precision)
 
-        # Compile-time constant captured in closure
-        _is_cudasim = CUDA_SIMULATION
-
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_shared():
-            return cuda.shared.array(0, dtype=float32)
+            return cuda.shared.array(0,
+                                     dtype=float32)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
-        def alloc_persistent(shared):
-            if _is_cudasim:
-                return shared[:1]
-            else:
-                return cuda.local.array(persistent_size, dtype=numba_precision)
+        def alloc_persistent():
+                return cuda.local.array(persistent_size,
+                                        dtype=numba_precision)
 
         return alloc_shared, alloc_persistent
 
