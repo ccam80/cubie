@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 from numba import cuda
-from tests._utils import MID_RUN_PARAMS
 
 
 @pytest.fixture(scope='function')
@@ -48,13 +47,18 @@ def _run_device_step(
     temp = np.asarray(local_mem, dtype=precision) if local_mem is not None \
         else np.zeros(2, dtype=precision)
     niters_val = np.int32(niters)
+    shared_scratch = np.zeros(1, dtype=precision)
+    persistent_local = np.zeros(2, dtype=precision)
 
     @cuda.jit
-    def kernel(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val):
-        device_func(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val)
+    def kernel(dt_val, state_val, state_prev_val, err_val, niters_val,
+               accept_val, shared_val, persistent_val):
+        device_func(dt_val, state_val, state_prev_val, err_val, niters_val,
+                    accept_val, shared_val, persistent_val)
 
-    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept, temp)
-    return StepResult(float(dt[0]), int(accept[0]), temp.copy())
+    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept,
+                 shared_scratch, persistent_local)
+    return StepResult(float(dt[0]), int(accept[0]), persistent_local.copy())
 
 @pytest.fixture(scope='function')
 def device_step_results(step_controller, precision, step_setup):
@@ -160,15 +164,14 @@ class TestControllers:
 
 
 @pytest.mark.parametrize(
-    (
-        "solver_settings_override",
-        "solver_settings_override2",
-    ),
+    "solver_settings_override",
     [
-        (
-            {"algorithm": "rosenbrock"},
-            {"step_controller": "pi", "atol": 1e-3, "rtol": 0.0},
-        ),
+        {
+            "algorithm": "rosenbrock",
+            "step_controller": "pi",
+            "atol": 1e-3,
+            "rtol": 0.0,
+        },
     ],
     indirect=True,
 )
@@ -254,8 +257,6 @@ def test_pi_controller_uses_tableau_order(
         ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
         indirect=True,
     )
-    @pytest.mark.parametrize('solver_settings_override',
-                             [{'dt_min': 1e-6}], indirect=True)
     def test_matches_cpu(
         self,
         step_controller,
@@ -278,9 +279,6 @@ def test_pi_controller_uses_tableau_order(
             atol=tolerance.abs_tight,
         )
 
-    @pytest.mark.parametrize('solver_settings_override',
-                             ({'dt_min': 1e-4, 'dt_max': 0.2},),
-                             indirect=True)
     def test_cpu_gpu_sequence_agree(
         self,
         step_controller,

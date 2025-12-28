@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32, int32
+from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -21,7 +21,7 @@ EE_DEFAULTS = StepControlDefaults(
     }
 )
 
-class ExplicitEulerStep(ODEExplicitStep):
+class InstrumentedExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
 
     def __init__(
@@ -98,41 +98,41 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision,
-                numba_precision,
-                int32,
-                int32,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -259,30 +259,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         # no cover: end
         
         return StepCache(step=step, nonlinear_solver=None)
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Explicit Euler does not reserve shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Explicit Euler does not reserve persistent local storage."""
-
-        return 0
 
     @property
     def threads_per_step(self) -> int:

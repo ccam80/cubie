@@ -16,7 +16,6 @@ from numpy import array_equal
 from numpy.typing import NDArray
 
 from cubie._utils import (
-    gttype_validator,
     opt_gttype_validator,
     PrecisionDType,
     precision_converter,
@@ -139,7 +138,10 @@ class OutputConfig:
     post-initialisation hook applies default indices, validates bounds, and
     ensures at least one output path is active.
     """
-
+    _precision: PrecisionDType = attrs.field(
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     # System dimensions, used to validate indices
     _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
     _max_observables: int = attrs.field(
@@ -181,11 +183,7 @@ class OutputConfig:
         default=0.01,
         validator=opt_gttype_validator(float, 0.0)
     )
-    _precision: PrecisionDType = attrs.field(
-        default=np.float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
 
     def __attrs_post_init__(self) -> None:
         """Perform post-initialisation validation and setup.
@@ -781,6 +779,24 @@ class OutputConfig:
         )
 
     @property
+    def buffer_sizes_dict(self) -> dict[str, int]:
+        """ Returns a dict of buffer sizes to update other objects' settings"""
+        return {
+            'n_saved_states': self.n_saved_states,
+            'n_saved_observables': self.n_saved_observables,
+            'n_summarised_states': self.n_summarised_states,
+            'n_summarised_observables': self.n_summarised_observables,
+            'state_summaries_buffer_height': self.state_summaries_buffer_height,
+            'observable_summaries_buffer_height':
+               self.observable_summaries_buffer_height,
+            'total_summary_buffer_size': self.total_summary_buffer_size,
+            'state_summaries_output_height': self.state_summaries_output_height,
+            'observable_summaries_output_height':
+              self.observable_summaries_output_height,
+            'compile_flags': self.compile_flags
+        }
+
+    @property
     def output_types(self) -> List[str]:
         """Configured output type names in declaration order."""
         return self._output_types
@@ -879,6 +895,7 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
+        precision: PrecisionDType,
         saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
@@ -886,7 +903,6 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         dt_save: Optional[float] = 0.01,
-        precision: Optional[np.dtype] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -940,9 +956,6 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-
-        if precision is None:
-            precision = np.float32
 
         return cls(
             max_states=max_states,

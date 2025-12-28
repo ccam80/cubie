@@ -9,7 +9,7 @@ from cubie.odesystems.symbolic.parsing import ParsedEquations
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_system_defaults():
     states = {"one": 0.9, "foo": 0.5}
     parameters = {"zebra": 0.2, "fox": 0.4}
@@ -42,7 +42,7 @@ def simple_system_defaults():
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def simple_symbols_dict(simple_system_defaults):
     (
         states,
@@ -107,7 +107,7 @@ def complex_equations(indexed_bases):
     return ParsedEquations.from_equations(equations, indexed_bases)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def observables_kernel_system(precision):
     """Return a ``SymbolicODE`` used for observables parity tests."""
 

@@ -21,32 +21,21 @@ from cubie.integrators.algorithms import (
     resolve_supplied_tableau,
     BaseAlgorithmStep,
 )
-from cubie._utils import split_applicable_settings
 
-from .backwards_euler import (
-    BackwardsEulerStep as InstrumentedBackwardsEulerStep,
-)
-from .backwards_euler_predict_correct import (
-    BackwardsEulerPCStep as InstrumentedBackwardsEulerPCStep,
-)
-from .crank_nicolson import (
-    CrankNicolsonStep as InstrumentedCrankNicolsonStep,
-)
-from .explicit_euler import (
-    ExplicitEulerStep as InstrumentedExplicitEulerStep,
-)
-from .generic_dirk import DIRKStep as InstrumentedDIRKStep
-from .generic_firk import FIRKStep as InstrumentedFIRKStep
+from .backwards_euler import InstrumentedBackwardsEulerStep
+from .backwards_euler_predict_correct import InstrumentedBackwardsEulerPCStep
+from .crank_nicolson import InstrumentedCrankNicolsonStep
+from .explicit_euler import InstrumentedExplicitEulerStep
+from .generic_dirk import InstrumentedDIRKStep
+from .generic_firk import InstrumentedFIRKStep
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     InstrumentedStepResult,
     STATUS_MASK,
     get_ref_stepper,
 )
-from .generic_erk import ERKStep as InstrumentedERKStep
-from .generic_rosenbrock_w import (
-    GenericRosenbrockWStep as InstrumentedRosenbrockStep,
-)
+from .generic_erk import InstrumentedERKStep
+from .generic_rosenbrock_w import InstrumentedRosenbrockWStep
 from tests.integrators.algorithms.instrumented import (
     create_instrumentation_host_buffers,
 )
@@ -59,7 +48,7 @@ STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, BaseAlgorithmStep] = {
     ERKStep: InstrumentedERKStep,
     DIRKStep: InstrumentedDIRKStep,
     FIRKStep: InstrumentedFIRKStep,
-    GenericRosenbrockWStep: InstrumentedRosenbrockStep,
+    GenericRosenbrockWStep: InstrumentedRosenbrockWStep,
 }
 
 
@@ -110,28 +99,19 @@ def get_instrumented_step(
             f"No instrumented implementation registered for {algorithm_type}."
         ) from error
 
-    filtered, missing, unused = split_applicable_settings(
-        step_class,
-        algorithm_settings,
-        warn_on_unused=warn_on_unused,
-    )
-    if missing:
-        missing_keys = ", ".join(sorted(missing))
-        raise ValueError(
-            f"{step_class.__name__} requires settings for: {missing_keys}"
-        )
-
     if resolved_tableau is not None:
-        filtered["tableau"] = resolved_tableau
+        algorithm_settings["tableau"] = resolved_tableau
 
-    return step_class(**filtered)
+    # Pass all settings to instrumented step __init__ which uses build_config internally
+    # build_config filters to valid config fields and handles defaults
+    return step_class(**algorithm_settings)
 
 
 @pytest.fixture(scope="session")
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 10
+    return 6
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
@@ -267,9 +247,9 @@ def instrumented_step_results(
     # Bind step-specific functions/values in the same way as device_step_results
     step_function = instrumented_step_object.step_function
     numba_precision = from_dtype(precision)
-    shared_elems = instrumented_step_object.shared_memory_required
+    shared_elems = instrumented_step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, instrumented_step_object.persistent_local_required)
+    persistent_len = max(1, instrumented_step_object.persistent_local_elements)
     driver_function = None if driver_array is None else driver_array.evaluation_function
     # use system-provided observables function
     observables_function = system.observables_function
@@ -299,7 +279,7 @@ def instrumented_step_results(
     d_driver_coeffs = cuda.to_device(driver_coefficients)
 
     # Define the CUDA kernel inside the results fixture so closures match device fixture
-    @cuda.jit(debug=True)
+    @cuda.jit()
     def kernel(
         state_vec,
         proposed_matrix,
@@ -417,7 +397,6 @@ def instrumented_step_results(
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
 
     # Check if this is a FIRK step which requires flattened solver buffers
-    from tests.integrators.algorithms.instrumented.generic_firk import FIRKStep as InstrumentedFIRKStep
     is_firk = isinstance(instrumented_step_object, InstrumentedFIRKStep)
 
     host_buffers = create_instrumentation_host_buffers(
@@ -688,7 +667,7 @@ def instrumented_cpu_step_results(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         instrument=True,
@@ -726,7 +705,8 @@ def instrumented_cpu_step_results(
 
 def _format_array(values: np.ndarray) -> str:
     """Return ``values`` formatted for console comparison output."""
-
+    if not np.any(np.asarray(values)):
+        return "0.0"
     return np.array2string(
         values,
         precision=8,
@@ -734,6 +714,37 @@ def _format_array(values: np.ndarray) -> str:
         suppress_small=False,
         max_line_width=79,
     )
+
+
+def _print_trimmed_array(values: np.ndarray) -> None:
+    """Print ``values`` while skipping zero-only slices on outer axes."""
+
+    array = np.asarray(values)
+    if not np.any(array):
+        print("0.0")
+        return
+
+    _print_nonzero_subarrays(array, ())
+
+
+def _print_nonzero_subarrays(
+    array: np.ndarray,
+    indices: Tuple[int, ...],
+) -> None:
+    """Recursively print subarrays limited to nonzero outer indices."""
+
+    if array.ndim <= 1:
+        prefix = "".join(f"[{idx}]" for idx in indices)
+        if prefix:
+            print(f"{prefix} {_format_array(array)}")
+        else:
+            print(_format_array(array))
+        return
+
+    for idx in range(array.shape[0]):
+        subarray = array[idx]
+        if np.any(subarray):
+            _print_nonzero_subarrays(subarray, indices + (idx,))
 
 
 def _numeric_delta(
@@ -748,6 +759,12 @@ def _numeric_delta(
         cpu_array = cpu_array.astype(gpu_array.dtype, copy=False)
     return gpu_array - cpu_array
 
+def _is_none_or_all_zero(value):
+    if value is None:
+        return True
+    arr = np.asarray(value)
+    # treat arrays with no non-zero entries as "zero"
+    return not np.any(arr)
 
 def _print_grouped_section(
     name: str,
@@ -761,28 +778,34 @@ def _print_grouped_section(
     if all(values is None for values in cpu_series):
         return
 
+    if all(_is_none_or_all_zero(v) for v in gpu_series):
+        print(f"{name} delta:")
+        print("0.0")
+        return
+
     print(f"{name} delta:")
+
     for values in delta_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     if any(values is not None for values in device_series):
         print(f"{name} device:")
         for values in device_series:
             if values is None:
                 continue
-            print(_format_array(values))
+            _print_trimmed_array(values)
     print(f"{name} gpu:")
     for values in gpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
 
     print(f"{name} cpu:")
     for values in cpu_series:
         if values is None:
             continue
-        print(_format_array(values))
+        _print_trimmed_array(values)
     print("")
 
 

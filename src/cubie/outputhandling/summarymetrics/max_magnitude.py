@@ -26,10 +26,11 @@ class MaxMagnitude(SummaryMetric):
     resets to ``0.0`` after each save.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the MaxMagnitude summary metric."""
         super().__init__(
             name="max_magnitude",
+            precision=precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
@@ -53,10 +54,10 @@ class MaxMagnitude(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )
@@ -89,10 +90,10 @@ class MaxMagnitude(SummaryMetric):
                 buffer[0] = abs_value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )

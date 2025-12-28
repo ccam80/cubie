@@ -1,27 +1,17 @@
 import pytest
-from os import environ
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cuda_simsafe import (
-        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
-    )
-else:
-    from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
 
 from cubie.memory.cupy_emm import _numba_stream_ptr
-from cubie.memory.cupy_emm import current_cupy_stream, CuPyAsyncNumbaManager
-from cubie.memory.cupy_emm import CuPySyncNumbaManager
+from cubie.memory.cupy_emm import current_cupy_stream
 from numba import cuda
-import numpy as np
 import cupy as cp
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def stream1():
     return cuda.stream()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def stream2():
     return cuda.stream()
 

@@ -3,7 +3,7 @@
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
-from cubie._utils import PrecisionDType, split_applicable_settings
+from cubie._utils import PrecisionDType
 
 from .adaptive_I_controller import AdaptiveIController
 from .adaptive_PI_controller import AdaptivePIController
@@ -83,17 +83,6 @@ def get_controller(
 
     controller_settings["precision"] = precision
 
-    filtered, missing, unused = split_applicable_settings(
-        controller_type,
-        controller_settings,
-        warn_on_unused=warn_on_unused
-    )
-    if missing:
-        missing_keys = ", ".join(sorted(missing))
-        raise ValueError(
-            f"{controller_type.__name__} requires settings for: "
-            f"{missing_keys}"
-        )
-
-    controller = controller_type(**filtered)
-    return controller
+    # Pass all settings to controller __init__ which uses build_config internally
+    # build_config filters to valid config fields and handles defaults
+    return controller_type(**controller_settings)

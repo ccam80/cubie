@@ -4,7 +4,7 @@ import pytest
 from cubie.batchsolving.SystemInterface import SystemInterface
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def interface(system):
     return SystemInterface.from_system(system)
 
@@ -16,13 +16,12 @@ def test_from_system(interface):
 
 
 @pytest.mark.parametrize(
-    "updates, system_override",
+    "updates",
     [
-        ({"x0": 42.0}, "linear"),
-        ({"p0": 3.14}, "linear"),
-        ({"x0": 1.23, "p1": 4.56}, "linear"),
+        {"x0": 42.0},
+        {"p0": 3.14},
+        {"x0": 1.23, "p1": 4.56},
     ],
-    indirect=["system_override"]
 )
 def test_update(interface, updates):
     interface.update(updates)

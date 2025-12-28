@@ -2,8 +2,6 @@
 
 from typing import Any, Mapping, Optional, Tuple, Type
 
-from cubie._utils import split_applicable_settings
-
 from .base_algorithm_step import BaseAlgorithmStep, BaseStepConfig, ButcherTableau
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
 from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
@@ -13,46 +11,21 @@ from .crank_nicolson import CrankNicolsonStep
 from .explicit_euler import ExplicitEulerStep
 from .generic_dirk import (
     DIRKStep,
-    DIRKBufferSettings,
-    DIRKLocalSizes,
-    DIRKSliceIndices,
-    ALL_DIRK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_dirk_tableaus import DIRK_TABLEAU_REGISTRY, DIRKTableau
 from .generic_firk import (
     FIRKStep,
-    FIRKBufferSettings,
-    FIRKLocalSizes,
-    FIRKSliceIndices,
-    ALL_FIRK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_firk_tableaus import FIRK_TABLEAU_REGISTRY, FIRKTableau
 from .generic_erk import (
     ERKStep,
     ERKTableau,
-    ERKBufferSettings,
-    ERKLocalSizes,
-    ERKSliceIndices,
-    ALL_ERK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_erk_tableaus import ERK_TABLEAU_REGISTRY
 from .generic_rosenbrock_w import (
     GenericRosenbrockWStep,
-    RosenbrockBufferSettings,
-    RosenbrockLocalSizes,
-    RosenbrockSliceIndices,
-    ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS,
 )
 from .generic_rosenbrockw_tableaus import ROSENBROCK_TABLEAUS, RosenbrockTableau
-
-
-# Combined set of all algorithm buffer location parameters
-ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS = (
-    ALL_ERK_BUFFER_LOCATION_PARAMETERS
-    | ALL_DIRK_BUFFER_LOCATION_PARAMETERS
-    | ALL_FIRK_BUFFER_LOCATION_PARAMETERS
-    | ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS
-)
 
 
 __all__ = [
@@ -74,23 +47,8 @@ __all__ = [
     "FIRK_TABLEAU_REGISTRY",
     "ERKTableau",
     "ERK_TABLEAU_REGISTRY",
-    "ERKBufferSettings",
-    "ERKLocalSizes",
-    "ERKSliceIndices",
-    "DIRKBufferSettings",
-    "DIRKLocalSizes",
-    "DIRKSliceIndices",
-    "FIRKBufferSettings",
-    "FIRKLocalSizes",
-    "FIRKSliceIndices",
-    "RosenbrockBufferSettings",
-    "RosenbrockLocalSizes",
-    "RosenbrockSliceIndices",
-    "ALL_ERK_BUFFER_LOCATION_PARAMETERS",
-    "ALL_DIRK_BUFFER_LOCATION_PARAMETERS",
-    "ALL_FIRK_BUFFER_LOCATION_PARAMETERS",
-    "ALL_ROSENBROCK_BUFFER_LOCATION_PARAMETERS",
-    "ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS",
+    "RosenbrockTableau",
+    "ROSENBROCK_TABLEAUS",
 ]
 
 _ALGORITHM_REGISTRY = {
@@ -214,18 +172,9 @@ def get_algorithm_step(
 
     algorithm_settings["precision"] = precision
 
-    filtered, missing, unused = split_applicable_settings(
-        algorithm_type,
-        algorithm_settings,
-        warn_on_unused=warn_on_unused,
-    )
-    if missing:
-        missing_keys = ", ".join(sorted(missing))
-        raise ValueError(
-            f"{algorithm_type.__name__} requires settings for: {missing_keys}"
-        )
-
     if resolved_tableau is not None:
-        filtered["tableau"] = resolved_tableau
+        algorithm_settings["tableau"] = resolved_tableau
 
-    return algorithm_type(**filtered)
+    # Pass all settings to algorithm __init__ which uses build_config internally
+    # build_config filters to valid config fields and handles defaults
+    return algorithm_type(**algorithm_settings)

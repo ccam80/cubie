@@ -352,14 +352,14 @@ class ArrayInterpolator(CUDAFactory):
         wrap = self.wrap
         boundary_condition = self.boundary_condition
         pad_clamped = (not wrap) and (boundary_condition == 'clamped')
-        zero_value = self.precision(0.0)
+        zero_value = precision(0.0)
         evaluation_start = precision(start_time - (
             resolution if pad_clamped else precision(0.0)))
         # no cover: start
         @cuda.jit(
-                (numba_precision,
-                numba_precision[:,:,::1],
-                numba_precision[::1]),
+                # (numba_precision,
+                #  numba_precision[:,:,::1],
+                #  numba_precision[::1]),
                 device=True,
                 inline=True)
         def evaluate_all(
@@ -378,9 +378,10 @@ class ArrayInterpolator(CUDAFactory):
             out : device array
                 Output array to populate with evaluated input values.
             """
-
+            # Just in case, should no-op if input is precision-type
+            time = precision(time)
             scaled = (time - evaluation_start) * inv_resolution
-            scaled_floor = math.floor(scaled)
+            scaled_floor = precision(math.floor(scaled))
             idx = int32(scaled_floor)
 
             if wrap:
@@ -388,24 +389,25 @@ class ArrayInterpolator(CUDAFactory):
                 tau = precision(scaled - scaled_floor)
                 in_range = True
             else:
-                in_range = (scaled >= 0.0) and (scaled <= num_segments)
-                seg = selp(idx < 0, int32(0), idx)
+                in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+                seg = selp(idx < int32(0), int32(0), idx)
                 seg = selp(seg >= num_segments,
                            int32(num_segments - 1), seg)
-                tau = scaled - float(seg)
+                tau = precision(scaled - precision(seg))
 
             # Evaluate polynomials using Horner's rule
             for input_index in range(num_inputs):
                 acc = zero_value
-                for k in range(order, -1, -1):
+                for k in range(int32(order), int32(-1), int32(-1)):
                     acc = acc * tau + coefficients[seg, input_index, k]
                 out[input_index] = acc if in_range else zero_value
         # no cover: end
 
         # no cover: start
-        @cuda.jit([(numba_precision,
-                numba_precision[:,:,::1],
-                numba_precision[::1])],
+        @cuda.jit(
+                # [(numba_precision,
+                #   numba_precision[:,:,::1],
+                #   numba_precision[::1])],
                 device=True,
                 inline=True)
         def evaluate_time_derivative(
@@ -414,9 +416,9 @@ class ArrayInterpolator(CUDAFactory):
             out,
         ) -> None:
             """Evaluate the derivative of each driver polynomial."""
-
+            time = precision(time)
             scaled = (time - evaluation_start) * inv_resolution
-            scaled_floor = math.floor(scaled)
+            scaled_floor = precision(math.floor(scaled))
             idx = int32(scaled_floor)
 
             if wrap:
@@ -424,15 +426,15 @@ class ArrayInterpolator(CUDAFactory):
                 tau = precision(scaled - scaled_floor)
                 in_range = True
             else:
-                in_range = (scaled >= 0.0) and (scaled <= num_segments)
-                seg = selp(idx < 0, int32(0), idx)
+                in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+                seg = selp(idx < int32(0), int32(0), idx)
                 seg = selp(seg >= num_segments,
                            int32(num_segments - 1), seg)
-                tau = scaled - float(seg)
+                tau = precision(scaled - precision(seg))
 
-            for input_index in range(num_inputs):
+            for input_index in range(int32(num_inputs)):
                 acc = zero_value
-                for k in range(order, 0, -1):
+                for k in range(int32(order), int32(0), int32(-1)):
                     acc = acc * tau + precision(k) * (
                         coefficients[seg, input_index, k]
                     )
@@ -560,7 +562,7 @@ class ArrayInterpolator(CUDAFactory):
         device_eval = self.evaluation_function
 
         # no cover: start
-        @cuda.jit
+        @cuda.jit()
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
             if idx < times_device.shape[0]:

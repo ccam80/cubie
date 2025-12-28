@@ -60,11 +60,14 @@ def _run_device_step(
 
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
-    if local_mem is not None:
-        temp = np.asarray(local_mem, dtype=precision)
-    else:
-        temp = np.empty(0, dtype=precision)
     niters_val = np.int32(niters)
+    # Shared scratch and persistent local for new controller signature
+    shared_scratch = np.zeros(1, dtype=precision)
+    # Use passed local_mem or create new persistent local
+    if local_mem is not None:
+        persistent_local = np.asarray(local_mem, dtype=precision)
+    else:
+        persistent_local = np.zeros(2, dtype=precision)
 
     @cuda.jit
     def kernel(
@@ -74,7 +77,8 @@ def _run_device_step(
         err_val,
         niters_val,
         accept_val,
-        temp_val,
+        shared_val,
+        persistent_val,
     ):
         device_func(
             dt_val,
@@ -83,11 +87,13 @@ def _run_device_step(
             err_val,
             niters_val,
             accept_val,
-            temp_val,
+            shared_val,
+            persistent_val,
         )
 
-    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept, temp)
-    return StepResult(precision(dt[0]), int(accept[0]), temp.copy())
+    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept,
+                 shared_scratch, persistent_local)
+    return StepResult(precision(dt[0]), int(accept[0]), persistent_local.copy())
 
 
 def _sequence_inputs(
@@ -123,34 +129,20 @@ def _sequence_inputs(
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override2",
+    "solver_settings_override",
     [
-        {"step_controller": "i"},
-        {"step_controller": "pi"},
-        {"step_controller": "pid"},
-        {"step_controller": "gustafsson"},
+        {"step_controller": "i", "atol": 1e-3,
+            "rtol": 0.0, "algorithm":'crank_nicolson'},
+        {"step_controller": "pi", "atol": 1e-3,
+            "rtol": 0.0, "algorithm":'crank_nicolson'},
+        {"step_controller": "pid", "atol": 1e-3,
+            "rtol": 0.0, "algorithm":'crank_nicolson'},
+        {"step_controller": "gustafsson", "atol": 1e-3,
+            "rtol": 0.0, "algorithm":'crank_nicolson'},
     ],
     ids=("i", "pi", "pid", "gustafsson"),
     indirect=True,
 )
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "dt_min": 1e-4,
-            "dt_max": 0.2,
-            "kp": 0.7,
-            "ki": -0.4,
-            "kd": 0.0,
-            "deadband_min": 0.95,
-            "deadband_max": 1.05,
-            "atol": 1e-3,
-            "rtol": 0.0,
-        }
-    ],
-    indirect=True,
-)
-@pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
 class TestControllerEquivalence:
     """Step controller regression tests for CPU and device implementations."""
 
@@ -275,7 +267,7 @@ class TestControllerEquivalence:
 
     def test_rejection_retains_previous_state(
         self,
-        step_controller,
+        step_controller_mutable,
         cpu_step_controller,
         precision,
         system,
@@ -288,11 +280,13 @@ class TestControllerEquivalence:
         new_state = prev_state + dtype(0.02)
         error_vec = np.full(n_states, dtype(10.0), dtype=dtype)
         local_mem = np.zeros(
-            step_controller.local_memory_elements,
+            step_controller_mutable.local_memory_elements,
             dtype=dtype,
         )
-
-        cpu_step_controller.dt = dtype(step_controller.dt0)
+        cpu_step_controller._prev_dt = dtype(0)
+        cpu_step_controller._prev_nrm2 = dtype(0)
+        cpu_step_controller._prev_prev_nrm2 = dtype(0)
+        cpu_step_controller.dt = dtype(step_controller_mutable.dt0)
         accept_cpu = cpu_step_controller.propose_dt(
             error_vector=error_vec,
             prev_state=prev_state,
@@ -300,9 +294,9 @@ class TestControllerEquivalence:
             niters=3,
         )
         device_result = _run_device_step(
-            step_controller.device_function,
+            step_controller_mutable.device_function,
             dtype,
-            dtype(step_controller.dt0),
+            dtype(step_controller_mutable.dt0),
             error_vec,
             state=new_state,
             state_prev=prev_state,

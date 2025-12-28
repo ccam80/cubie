@@ -3,9 +3,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from cubie.batchsolving.arrays.BatchOutputArrays import (
-    ActiveOutputs,
-    OutputArrayContainer,
+from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrayContainer,
     OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
@@ -13,14 +11,14 @@ from cubie.outputhandling.output_sizes import BatchOutputSizes
 
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_overrides(request):
     if hasattr(request, "param"):
         return request.param
     return {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_test_settings(output_test_overrides):
     settings = {
         "num_runs": 5,
@@ -56,8 +54,10 @@ def output_arrays_manager(precision, solver, output_test_settings,
 
 
 @pytest.fixture(scope="function")
-def sample_output_arrays(solver, output_test_settings, precision):
+def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
+    solver=solver_mutable
+    solver.kernel.duration = 1.0
     num_runs = output_test_settings["num_runs"]
     dtype = precision
 
@@ -75,10 +75,10 @@ def sample_output_arrays(solver, output_test_settings, precision):
             time_points, observables_count, num_runs
         ).astype(dtype),
         "state_summaries": np.random.rand(
-            max(0, time_points - 2), variables_count, num_runs
+            max(0, time_points - 1), variables_count, num_runs
         ).astype(dtype),
         "observable_summaries": np.random.rand(
-            max(0, time_points - 2), observables_count, num_runs
+            max(0, time_points - 1), observables_count, num_runs
         ).astype(dtype),
         "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
@@ -126,67 +126,6 @@ class TestOutputArrayContainer:
         """Test device factory method"""
         container = OutputArrayContainer.device_factory()
         assert container.state.memory_type == "device"
-
-
-class TestActiveOutputs:
-    """Test the ActiveOutputs class"""
-
-    def test_active_outputs_initialization(self):
-        """Test ActiveOutputs initialization"""
-        active = ActiveOutputs()
-        assert active.state is False
-        assert active.observables is False
-        assert active.state_summaries is False
-        assert active.observable_summaries is False
-        assert active.status_codes is False
-
-    def test_update_from_outputarrays_all_active(
-        self, output_arrays_manager, sample_output_arrays
-    ):
-        """Test update_from_outputarrays with all arrays active"""
-        # Set up arrays in the manager
-        output_arrays_manager.host.state.array = sample_output_arrays["state"]
-        output_arrays_manager.host.observables.array = sample_output_arrays[
-            "observables"
-        ]
-        output_arrays_manager.host.state_summaries.array = sample_output_arrays[
-            "state_summaries"
-        ]
-        output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
-            "observable_summaries"
-        ]
-        output_arrays_manager.host.status_codes.array = sample_output_arrays[
-            "status_codes"
-        ]
-
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
-
-        assert active.state is True
-        assert active.observables is True
-        assert active.state_summaries is True
-        assert active.observable_summaries is True
-        assert active.status_codes is True
-
-    def test_update_from_outputarrays_size_one_arrays(
-        self, output_arrays_manager
-    ):
-        """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
-        # Set up size-1 arrays (treated as artifacts)
-        output_arrays_manager.host.state.array = np.array([[[1]]])
-        output_arrays_manager.host.observables.array = np.array([[[1]]])
-        output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
-        output_arrays_manager.host.status_codes.array = np.array([[[1]]])
-
-        active = ActiveOutputs()
-        active.update_from_outputarrays(output_arrays_manager)
-
-        assert active.state is False  # Size 1 treated as inactive
-        assert active.observables is False  # Size 1 treated as inactive
-        assert active.state_summaries is False  # None
-        assert active.observable_summaries is False  # None
-        assert active.status_codes is False
 
 
 class TestOutputArrays:
@@ -306,16 +245,6 @@ class TestOutputArrays:
         assert output_arrays_manager._chunks == 2
         assert output_arrays_manager._chunk_axis == "run"
 
-    def test_active_outputs_property(self, output_arrays_manager, solver):
-        """Test _active_outputs property"""
-        solver.kernel.num_runs = 5
-        output_arrays_manager.update(solver)
-
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Active status depends on whether arrays have size > 1
-        # After allocation from solver, arrays should be active
-        assert active.status_codes is True
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -409,7 +338,9 @@ class TestOutputArrays:
 
 
 @pytest.mark.parametrize(
-    "precision_override", [np.float32, np.float64], indirect=True
+    "solver_settings_override", [{"precision": np.float32},
+                                 {"precision": np.float64}],
+                                 indirect=True,
 )
 def test_dtype(output_arrays_manager, solver, precision):
     """Test OutputArrays with different configurations"""
@@ -481,6 +412,33 @@ def test_output_arrays_with_different_configs(
     "solver_settings_override",
     [
         {
+            "system_type": "three_chamber",
+            "saved_state_indices": None,
+            "saved_observable_indices": None,
+            "output_types": [
+                "state",
+                "observables",
+                "mean",
+                "max",
+                "rms",
+                "peaks[2]",
+            ],
+        },
+{
+            "system_type": "stiff",
+            "saved_state_indices": None,
+            "saved_observable_indices": None,
+            "output_types": [
+                "state",
+                "observables",
+                "mean",
+                "max",
+                "rms",
+                "peaks[2]",
+            ],
+        },
+{
+            "system_type": "linear",
             "saved_state_indices": None,
             "saved_observable_indices": None,
             "output_types": [
@@ -495,14 +453,11 @@ def test_output_arrays_with_different_configs(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize(
-    "system_override",
-    ["three_chamber", "stiff", "linear"],
-    indirect=True,
-)
-def test_output_arrays_with_different_systems(output_arrays_manager, solver):
+def test_output_arrays_with_different_systems(output_arrays_manager,
+                                              solver_mutable):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
+    solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
 
@@ -551,15 +506,3 @@ class TestOutputArraysSpecialCases:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
-
-    def test_active_outputs_after_allocation(
-        self, output_arrays_manager, solver
-    ):
-        """Test active outputs detection after allocation"""
-        # Allocate arrays from solver
-        output_arrays_manager.update(solver)
-
-        # Check active outputs - should be active since arrays have size > 1
-        active = output_arrays_manager.active_outputs
-        assert isinstance(active, ActiveOutputs)
-        # Arrays allocated from solver should typically be active (size > 1)
