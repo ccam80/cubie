@@ -56,19 +56,10 @@ def _settings_to_dict(settings_source):
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "algorithm": "euler",
-            "step_controller": "fixed",
-            "dt": 0.01,
-            "dt_max": 0.01,
-            "dt_save": 0.1,
-            "dt_summarise": 0.3,
-            "duration": 0.3,
-            "output_types": ["state","time", "observables","mean"]
-        },
+        {},
         {
             "algorithm": "bogacki-shampine-32",
-            "step_controller": "pi",
+            "step_controller": "pid",
             "atol": 1e-5,
             "rtol": 1e-5,
             "dt_min": 1e-7,
@@ -176,32 +167,11 @@ class TestSingleIntegratorRun:
 
         assert list(run.output_types) == list(solver_settings["output_types"])
 
-        # Aggregate memory bookkeeping matches contributions from each child.
-        expected_shared = (
-            run._loop.shared_memory_elements
-            + getattr(run._algo_step, "shared_memory_required", 0)
-        )
-        assert run.shared_memory_elements == expected_shared
-        expected_shared_bytes = (
-            expected_shared * np.dtype(run.precision).itemsize
-        )
-        assert run.shared_memory_bytes == expected_shared_bytes
-        expected_local = (
-            run._loop.local_memory_elements
-            + run._algo_step.persistent_local_required
-            + run._step_controller.local_memory_elements
-        )
-        assert run.local_memory_elements == expected_local
         assert run.compiled_loop_function is device_fn
         assert run.threads_per_loop == run._algo_step.threads_per_step
 
         # Properties that simply forward underlying objects.
         loop_props: Dict[str, str] = {
-            "shared_buffer_indices": "shared_buffer_indices",
-            "buffer_indices": "buffer_indices",
-            "local_indices": "local_indices",
-            "shared_memory_elements_loop": "shared_memory_elements",
-            "local_memory_elements_loop": "local_memory_elements",
             "compile_flags": "compile_flags",
             "save_state_fn": "save_state_fn",
             "update_summaries_fn": "update_summaries_fn",
@@ -210,7 +180,6 @@ class TestSingleIntegratorRun:
             "compiled_loop_step_function": "step_function",
         }
         controller_props: Dict[str, str] = {
-            "local_memory_elements_controller": "local_memory_elements",
             "min_gain": "min_gain",
             "max_gain": "max_gain",
             "safety": "safety",
@@ -227,13 +196,9 @@ class TestSingleIntegratorRun:
             "threads_per_step": "threads_per_step",
             "uses_multiple_stages": "is_multistage",
             "adapts_step": "is_adaptive",
-            "shared_memory_required_step": "shared_memory_required",
-            "local_scratch_required_step": "local_scratch_required",
-            "local_memory_required_step": "persistent_local_required",
             "implicit_step": "is_implicit",
             "order": "order",
             "integration_step_function": "step_function",
-            "nonlinear_solver_function": "nonlinear_solver_function",
             "state_count": "n",
             "solver_helper": "get_solver_helper_fn",
             "beta_coefficient": "beta",
@@ -317,7 +282,6 @@ class TestSingleIntegratorRun:
         )
 
 
-@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_update_routes_to_children(
     single_integrator_run_mutable,
     solver_settings,
@@ -420,12 +384,6 @@ def test_update_routes_to_children(
         abs=tolerance.abs_tight,
     )
 
-    expected_local = (
-        run._loop.local_memory_elements
-        + run._algo_step.persistent_local_required
-        + run._step_controller.local_memory_elements
-    )
-    assert run.local_memory_elements == expected_local
 
 
 def test_default_step_controller_settings_applied(
@@ -507,7 +465,7 @@ def test_step_controller_overrides_take_precedence(
         algorithm_settings=algorithm_settings,
     )
 
-    assert run.step_controller == "pi"
+    assert run.step_controller == "pid"
     assert run.dt_min == pytest.approx(override_settings["dt_min"])
     assert run.dt_max == pytest.approx(override_settings["dt_max"])
     controller_settings = run._step_controller.settings_dict
@@ -526,7 +484,7 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         "algorithm": "euler",
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
@@ -545,7 +503,7 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         assert issubclass(compat_warnings[0].category, UserWarning)
         warn_msg = str(compat_warnings[0].message).lower()
         assert "euler" in warn_msg
-        assert "pi" in warn_msg
+        assert "pid" in warn_msg
         assert "fixed" in warn_msg
         
         # Controller should be replaced with fixed
@@ -565,7 +523,7 @@ def test_errorless_rk4_tableau_with_adaptive_warns(system):
         "tableau": CLASSICAL_RK4_TABLEAU,
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
@@ -596,7 +554,7 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
         "tableau": DORMAND_PRINCE_54_TABLEAU,
     }
     step_control_settings = {
-        "step_controller": "pi",
+        "step_controller": "pid",
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }

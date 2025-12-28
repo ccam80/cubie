@@ -170,6 +170,8 @@ def neumann_kernel(precision):
     """
 
     def factory(precond, n, h):
+        scratch_size = n
+
         @cuda.jit
         def kernel(state_init, residual, base_state, out):
             time_scalar = precision(0.0)
@@ -178,7 +180,7 @@ def neumann_kernel(precision):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            scratch = cuda.shared.array(n, precision)
+            scratch = cuda.shared.array(scratch_size, dtype=precision)
             precond(
                 state,
                 parameters,
@@ -198,7 +200,7 @@ def neumann_kernel(precision):
 
 
 @pytest.fixture(scope="function")
-def solver_kernel(precision):
+def solver_kernel():
     """Compile a kernel for linear solver device functions.
 
     Parameters
@@ -211,8 +213,8 @@ def solver_kernel(precision):
     callable
         Factory producing kernels executing ``(state_init, rhs, x)``.
     """
-
-    def factory(solver, n, h):
+    def factory(solver, n, h, precision):
+        scratch_size = 2 * n
         @cuda.jit
         def kernel(state_init, rhs, base_state, x, flag):
             time_scalar = precision(0.0)
@@ -222,7 +224,9 @@ def solver_kernel(precision):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             # Allocate shared memory for solver buffers
-            shared = cuda.shared.array(2 * n, precision)
+            shared = cuda.shared.array(scratch_size, dtype=precision)
+            persistent_local = cuda.local.array(scratch_size, dtype=precision)
+            counters = cuda.local.array(1, np.int32)
             flag[0] = solver(
                 state,
                 parameters,
@@ -234,8 +238,69 @@ def solver_kernel(precision):
                 rhs,
                 x,
                 shared,
+                persistent_local,
+                counters
             )
 
         return kernel
 
     return factory
+
+
+@pytest.fixture(scope="function")
+def linear_solver_instance(request, system_setup, precision):
+    """Instantiate LinearSolver with settings from system_setup."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolver,
+        LinearSolverConfig,
+    )
+    
+    n = system_setup['n']
+    operator = system_setup['operator']
+    
+    overrides = getattr(request, 'param', {})
+    precond_order = overrides.get('preconditioner_order', 1)
+    if precond_order == 0:
+        preconditioner = None
+    else:
+        preconditioner = system_setup['preconditioner'](precond_order)
+    
+    config_dict = {
+        'precision': precision,
+        'n': n,
+        'operator_apply': operator,
+        'preconditioner': preconditioner,
+        'linear_correction_type': overrides.get('linear_correction_type', 'minimal_residual'),
+        'tolerance': overrides.get('tolerance', 1e-8),
+        'max_iters': overrides.get('max_iters', 1000),
+    }
+    
+    config = LinearSolverConfig(**config_dict)
+    return LinearSolver(config)
+
+
+@pytest.fixture(scope="function")
+def newton_solver_instance(request, linear_solver_instance, system_setup, precision):
+    """Instantiate NewtonKrylov with LinearSolver and settings."""
+    from cubie.integrators.matrix_free_solvers.newton_krylov import (
+        NewtonKrylov,
+        NewtonKrylovConfig,
+    )
+    
+    n = system_setup['n']
+    residual = system_setup['residual']
+    
+    overrides = getattr(request, 'param', {})
+    
+    config = NewtonKrylovConfig(
+        precision=precision,
+        n=n,
+        residual_function=residual,
+        linear_solver=linear_solver_instance,
+        tolerance=overrides.get('tolerance', 1e-6),
+        max_iters=overrides.get('max_iters', 100),
+        damping=overrides.get('damping', 0.5),
+        max_backtracks=overrides.get('max_backtracks', 8),
+    )
+    
+    return NewtonKrylov(config)

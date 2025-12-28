@@ -22,9 +22,11 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 # lineinfo is not supported in CUDASIM mode
 compile_kwargs: dict[str, bool] = (
         {} if CUDA_SIMULATION
-        else {"lineinfo": True,
-              'fastmath': {
-                   'nsz': True,
+        else {
+            'lineinfo': True,
+            # 'debug':True,
+            'fastmath': {
+                'nsz': True,
                    'contract': True,
                    'arcp': True,
               },
@@ -110,7 +112,21 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
     total = 8 * 1024 ** 3
 
 
-if CUDA_SIMULATION:  # pragma: no cover - simulated         
+class LocalArrayFactory:  # pragma: no cover - simulated
+    """Factory for local array allocation in simulation mode.
+
+    Provides a simulation-compatible interface for cuda.local.array().
+    In simulation mode, returns a numpy zeros array instead of a CUDA
+    local memory array.
+    """
+
+    @staticmethod
+    def array(size, dtype):
+        """Allocate a local array with the given size and dtype."""
+        return np.zeros(size, dtype=dtype)
+
+
+if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
 
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
@@ -121,7 +137,9 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     MemoryInfo = FakeMemoryInfo
     Stream = FakeStream
     DeviceNDArrayBase = FakeCUDAArray
+    DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
+    # local = LocalArrayFactory()
 
     def current_mem_info() -> Tuple[int, int]:
         """Return fake free and total memory values."""
@@ -147,6 +165,7 @@ else:  # pragma: no cover - exercised in GPU environments
     )
     from numba.cuda.cudadrv.devicearray import (  # type: ignore[attr-defined]
         DeviceNDArrayBase,
+        DeviceNDArray,
         MappedNDArray,
     )
     from numba.cuda.cudadrv.driver import GetIpcHandleMixin  # type: ignore[attr-defined]
@@ -217,6 +236,27 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     def all_sync(mask, predicate):
         return predicate
 
+    @cuda.jit(
+        device=True,
+        inline=True,
+    )
+    def any_sync(mask, predicate):
+        return predicate
+
+    @cuda.jit(
+            device=True,
+            inline=True,
+    )
+    def syncwarp(mask):
+        pass
+
+    @cuda.jit(
+            device=True,
+            inline=True,
+    )
+    def stwt(array, index, value):
+        array[index] = value
+
 else:  # pragma: no cover - relies on GPU runtime
     @cuda.jit(
         device=True,
@@ -242,6 +282,30 @@ else:  # pragma: no cover - relies on GPU runtime
     def all_sync(mask, predicate):
         return cuda.all_sync(mask, predicate)
 
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def any_sync(mask, predicate):
+        return cuda.any_sync(mask, predicate)
+
+    @cuda.jit(
+        device=True,
+        inline=True,
+        **compile_kwargs,
+    )
+    def syncwarp(mask):
+        return cuda.syncwarp(mask)
+
+    @cuda.jit(
+            device=True,
+            inline=True,
+            **compile_kwargs,
+    )
+    def stwt(array, index, value):
+        cuda.stwt(array, index, value)
+
 
 def is_cudasim_enabled() -> bool:
     """Return ``True`` when running under the CUDA simulator."""
@@ -253,9 +317,11 @@ __all__ = [
     "CUDA_SIMULATION",
     "activemask",
     "all_sync",
+    "syncwarp",
     "BaseCUDAMemoryManager",
     "compile_kwargs",
     "DeviceNDArrayBase",
+    "DeviceNDArray",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",
     "FakeHostOnlyCUDAManager",
@@ -265,6 +331,7 @@ __all__ = [
     "FakeStream",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
+    # "local",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
@@ -276,5 +343,6 @@ __all__ = [
     "is_cuda_array",
     "is_cudasim_enabled",
     "set_cuda_memory_manager",
-    "selp"
+    "selp",
+    "stwt"
 ]

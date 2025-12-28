@@ -17,12 +17,11 @@ import warnings
 import attrs
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
-from cubie.integrators.loops.ode_loop import (
-    IVPLoop, LoopBufferSettings, ALL_BUFFER_LOCATION_PARAMETERS
-)
+from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
@@ -41,7 +40,7 @@ class SingleIntegratorRunCache(CUDAFunctionCache):
     single_integrator_function
         Compiled CUDA loop callable ready for execution on device.
     """
-    single_integrator_function: Callable = attrs.field()
+    single_integrator_function: Callable = attrs.field(eq=False)
 
 class SingleIntegratorRunCore(CUDAFactory):
     """Coordinate a single ODE integration loop and its dependencies.
@@ -112,9 +111,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         system_sizes = system.sizes
         n = system_sizes.states
 
+        # Outputsettings may/may not include precision, so we pop it here to
+        # ensure that it gets passed a precision matching system's
+        _ = output_settings.pop("precision", None)
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
+            precision=precision,
             **output_settings,
         )
 
@@ -159,24 +162,29 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         self.setup_compile_settings(config)
+
+
         self._loop = self.instantiate_loop(
-                precision=precision,
-                n_states=system_sizes.states,
-                n_parameters=system_sizes.parameters,
-                n_observables=system_sizes.observables,
-                n_drivers=system_sizes.drivers,
-                controller_local_elements=self._step_controller
-                .local_memory_elements,
-                algorithm_local_elements=self._algo_step
-                .persistent_local_required,
-                compile_flags=self._output_functions.compile_flags,
-                state_summaries_buffer_height= self._output_functions
-                .state_summaries_buffer_height,
-                observable_summaries_buffer_height= self._output_functions
-                .observable_summaries_buffer_height,
-                loop_settings=loop_settings,
-                driver_function=driver_function,
+            precision=precision,
+            n_states=system_sizes.states,
+            n_parameters=system_sizes.parameters,
+            n_observables=system_sizes.observables,
+            n_drivers=system_sizes.drivers,
+            compile_flags=self._output_functions.compile_flags,
+            state_summaries_buffer_height=self._output_functions.state_summaries_buffer_height,
+            observable_summaries_buffer_height=self._output_functions.observable_summaries_buffer_height,
+            loop_settings=loop_settings,
+            driver_function=driver_function,
         )
+
+        # Register algorithm step and controller buffers with loop as parent
+        buffer_registry.get_child_allocators(
+            self._loop, self._algo_step, name="algorithm"
+        )
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
+
 
     @property
     def n_error(self) -> int:
@@ -189,13 +197,13 @@ class SingleIntegratorRunCore(CUDAFactory):
     @property
     def device_function(self):
         """Return the compiled CUDA solver kernel.
-        
+
         Returns
         -------
         callable
             Compiled CUDA device function.
         """
-        return self.get_cached_output('single_integrator_function')
+        return self.get_cached_output("single_integrator_function")
 
     def check_compatibility(
         self,
@@ -287,8 +295,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         n_drivers: int,
         state_summaries_buffer_height: int,
         observable_summaries_buffer_height: int,
-        controller_local_elements: int,
-        algorithm_local_elements: int,
         compile_flags: OutputCompileFlags,
         loop_settings: Dict[str, Any],
         driver_function: Optional[Callable] = None,
@@ -311,10 +317,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             Height of the state summary buffer managed by the outputs.
         observable_summaries_buffer_height
             Height of the observable summary buffer managed by the outputs.
-        controller_local_elements
-            Persistent local memory elements required by the controller.
-        algorithm_local_elements
-            Persistent local memory elements required by the algorithm.
         compile_flags
             Output function compile flags generated by
             :class:`cubie.outputhandling.OutputFunctions`.
@@ -331,35 +333,20 @@ class SingleIntegratorRunCore(CUDAFactory):
         """
         n_counters = 4 if compile_flags.save_counters else 0
         
-        # Extract buffer location kwargs from loop_settings to pass to
-        # LoopBufferSettings. Only pass locations explicitly provided by user.
-        buffer_location_kwargs = {
-            key: loop_settings[key]
-            for key in ALL_BUFFER_LOCATION_PARAMETERS
-            if key in loop_settings
-        }
-        buffer_settings = LoopBufferSettings(
+        loop_kwargs = dict(loop_settings)
+
+        # Build the loop with individual parameters (new API)
+        loop_kwargs.update(
+            precision=precision,
             n_states=n_states,
+            compile_flags=compile_flags,
             n_parameters=n_parameters,
             n_drivers=n_drivers,
             n_observables=n_observables,
-            state_summary_buffer_height=state_summaries_buffer_height,
-            observable_summary_buffer_height=observable_summaries_buffer_height,
             n_error=self.n_error,
             n_counters=n_counters,
-            **buffer_location_kwargs,
-        )
-
-        loop_kwargs = dict(loop_settings)
-        # Remove buffer location kwargs - they're now in buffer_settings
-        for key in ALL_BUFFER_LOCATION_PARAMETERS:
-            loop_kwargs.pop(key, None)
-        loop_kwargs.update(
-            precision=precision,
-            buffer_settings=buffer_settings,
-            compile_flags=compile_flags,
-            controller_local_len=controller_local_elements,
-            algorithm_local_len=algorithm_local_elements,
+            state_summaries_buffer_height=state_summaries_buffer_height,
+            observable_summaries_buffer_height=observable_summaries_buffer_height,
         )
         if "driver_function" not in loop_kwargs:
             loop_kwargs["driver_function"] = driver_function
@@ -411,6 +398,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        # Flatten any nested dict values so that all parameters are
+        # top-level keys before passing to sub-components. For example,
+        # step_controller_settings={'dt_min': 0.01} becomes dt_min=0.01.
+        # This ensures sub-components (algorithm, controller, output
+        # functions) receive only flat parameter sets.
+        updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
+
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
         system_recognized = self._system.update(updates_dict, silent=True)
@@ -418,15 +412,12 @@ class SingleIntegratorRunCore(CUDAFactory):
         # Capture n whether or not system updated, in case of an algo/step swap
         updates_dict.update({'n': self._system.sizes.states})
 
+        # Capture outputsettings-generated compile settings and pass on
         out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
         if out_rcgnzd:
-            updates_dict.update({
-                'n_saved_states': self._output_functions.n_saved_states,
-                'n_summarised_states':
-                    self._output_functions.n_summarised_states,
-                'compile_flags': self._output_functions.compile_flags,
-            })
+            updates_dict.update({**self._output_functions.buffer_sizes_dict})
 
+        # Capture algorithm-generated compile settings and pass on
         step_recognized = self._switch_algos(updates_dict)
         step_recognized |= self._algo_step.update(updates_dict, silent=True)
         if step_recognized:
@@ -448,30 +439,13 @@ class SingleIntegratorRunCore(CUDAFactory):
                 }
             )
 
-        #Recalculate settings derived from changes in children
-        system_sizes=self.system_sizes
-        
-        # Build buffer settings, preserving existing locations unless updated.
-        n_counters = 4 if self._output_functions.compile_flags.save_counters else 0
-        buffer_settings = LoopBufferSettings(
-            n_states=system_sizes.states,
-            n_parameters=system_sizes.parameters,
-            n_drivers=system_sizes.drivers,
-            n_observables=system_sizes.observables,
-            state_summary_buffer_height=self._output_functions
-                .state_summaries_buffer_height,
-            observable_summary_buffer_height=self._output_functions
-                .observable_summaries_buffer_height,
-            n_error=self.n_error,
-            n_counters=n_counters,
+        # Re-register algo and controller buffers to refresh sizing in loop
+        buffer_registry.get_child_allocators(
+                self._loop, self._algo_step, name='algorithm'
         )
-
-        updates_dict.update({
-            'buffer_settings': buffer_settings,
-            'controller_local_len': self._step_controller.local_memory_elements,
-            'algorithm_local_len': self._algo_step.persistent_local_required,
-        })
-
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
         loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)
 
@@ -486,12 +460,15 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         self.check_compatibility()
 
-        return recognized
+        # Include unpacked dict keys in recognized set
+        return recognized | unpacked_keys
 
     def _switch_algos(self, updates_dict):
         if "algorithm" not in updates_dict:
             return set()
         precision = updates_dict.get('precision', self.precision)
+
+        buffer_registry.reset()
 
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
@@ -517,6 +494,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             return set()
         precision = updates_dict.get('precision', self.precision)
 
+        buffer_registry.reset()
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
@@ -532,7 +510,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         updates_dict["step_controller"] = new_controller
         return set("step_controller")
 
-    def build(self) -> Callable:
+    def build(self) -> SingleIntegratorRunCache:
         """Instantiate the step controller, algorithm step, and loop.
 
         Returns
@@ -547,15 +525,22 @@ class SingleIntegratorRunCore(CUDAFactory):
         get_solver_helper_fn = self._system.get_solver_helper
         compiled_fns_dict = {}
         if dxdt_fn != self._algo_step.dxdt_function:
-            compiled_fns_dict['dxdt_function'] = dxdt_fn
+            compiled_fns_dict["dxdt_function"] = dxdt_fn
         if observables_fn != self._algo_step.observables_function:
-            compiled_fns_dict['observables_function'] = observables_fn
+            compiled_fns_dict["observables_function"] = observables_fn
         if get_solver_helper_fn != self._algo_step.get_solver_helper_fn:
             compiled_fns_dict['get_solver_helper_fn'] = get_solver_helper_fn
 
         #Build algorithm fn after change made
         self._algo_step.update(compiled_fns_dict)
 
+        # Re-register algo and controller buffers to refresh sizing in loop
+        buffer_registry.get_child_allocators(
+                self._loop, self._algo_step, name='algorithm'
+        )
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
         compiled_functions = {
             'save_state_fn': self._output_functions.save_state_func,
             'update_summaries_fn': self._output_functions.update_summaries_func,

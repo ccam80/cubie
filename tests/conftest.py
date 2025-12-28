@@ -1,28 +1,24 @@
-from __future__ import annotations
-
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
 import os
 
+from numba import cuda
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from cubie.buffer_registry import buffer_registry
+from tests._utils import _build_enhanced_algorithm_settings
 from cubie import SymbolicODE
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
-from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
-from cubie.integrators.loops.ode_loop import (
-    IVPLoop,
-    ALL_LOOP_SETTINGS,
-    LoopBufferSettings,
-)
+from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
 
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -40,6 +36,9 @@ from tests.integrators.cpu_reference import (
     DriverEvaluator,
     run_reference_loop,
 )
+import json
+from collections import defaultdict
+
 from tests._utils import _driver_sequence, run_device_loop
 from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
@@ -54,6 +53,119 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
+
+@cuda.jit()
+def kick():
+    array = cuda.local.array(1, dtype=np.float32)
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--param-set-report",
+        action="store",
+        default=None,
+        help="Optional path to write a JSON report of test -> parameter-set grouping."
+    )
+
+def _session_param_fixture_names(session):
+    """
+    Return the set of fixture names that are:
+      - defined (arg2fixturedefs),
+      - have scope 'session', and
+      - are parameterized (fixturedef.params exists and is non-empty).
+    """
+    fm = session._fixturemanager
+    names = set()
+    # fm._arg2fixturedefs is a dict mapping fixture name -> list of FixtureDef
+    for name, defs in getattr(fm, "_arg2fixturedefs", {}).items():
+        for fdef in defs:
+            # some fixtures may have no .params attribute (not parameterized)
+            if getattr(fdef, "scope", None) == "session" and getattr(fdef, "params", None):
+                names.add(name)
+                break
+    return names
+
+def _callspec_signature_for_item(item, session_fixture_names):
+    """
+    Return a deterministic signature (tuple) for grouping:
+      - If the item has a callspec and at least one of its param names
+        matches a session-scoped parameterized fixture, use only those keys.
+      - Otherwise, use the item's full callspec (if any).
+      - If no callspec at all, return a sentinel ('__NO_PARAMS__',).
+    Signature is a tuple of (name, repr(value)) sorted by name so dict order doesn't matter.
+    """
+    callspec = getattr(item, "callspec", None)
+    if not callspec or not getattr(callspec, "params", None):
+        return ("__NO_PARAMS__",)
+
+    all_params = dict(callspec.params)
+    # choose keys that match session-scoped parameterized fixtures
+    session_keys = [k for k in all_params.keys() if k in session_fixture_names]
+
+    if session_keys:
+        keys = sorted(session_keys)
+    else:
+        # fallback: group by the full callspec keys
+        keys = sorted(all_params.keys())
+
+    # represent values deterministically; use repr to keep it JSON-serializable-friendly
+    sig = tuple((k, repr(all_params[k])) for k in keys)
+    return sig
+
+def pytest_collection_finish(session):
+    """
+    After collection, group items by the signature that determines session fixture instances,
+    then print a summary and optionally write JSON.
+    """
+    items = list(session.items)
+    session_fixture_names = _session_param_fixture_names(session)
+
+    groups = defaultdict(list)
+    for item in items:
+        sig = _callspec_signature_for_item(item, session_fixture_names)
+        groups[sig].append(item.nodeid)
+
+    # Print summary to terminal
+    total_sets = len(groups)
+    total_tests = len(items)
+    session.config._metadata = getattr(session.config, "_metadata", {})
+    print("\n=== pytest parameter-set grouping report ===")
+    print(f"Total collected tests: {total_tests}")
+    print(f"Unique parameter-sets (groups): {total_sets}")
+    print("Groups (showing signature -> tests):\n")
+
+    # sort groups for stable ordering: place NO_PARAMS last
+    def sig_sort_key(sig):
+        return (sig == ("__NO_PARAMS__",), str(sig))
+
+    for i, sig in enumerate(sorted(groups.keys(), key=sig_sort_key), start=1):
+        tests = groups[sig]
+        print(f"GROUP {i}: {len(tests)} test(s)")
+        if sig == ("__NO_PARAMS__",):
+            print("  signature: (no callspec / no params)")
+        else:
+            # pretty print signature
+            pretty = ", ".join(f"{k}={v}" for k, v in sig)
+            print(f"  signature: {pretty}")
+        for t in tests:
+            print(f"    - {t}")
+        print()
+
+    # optionally dump JSON
+    outpath = session.config.getoption("--param-set-report")
+    if outpath:
+        # produce JSON-serializable structure
+        json_groups = []
+        for sig, tests in groups.items():
+            if sig == ("__NO_PARAMS__",):
+                sig_dict = {}
+            else:
+                sig_dict = {k: v for k, v in sig}
+            json_groups.append({"signature": sig_dict, "tests": tests})
+        with open(outpath, "w", encoding="utf-8") as fh:
+            json.dump({"total_tests": total_tests, "groups": json_groups}, fh, indent=2)
+        print(f"Param-set JSON report written to: {outpath}")
+
+    print("=== end of report ===\n")
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -68,6 +180,27 @@ def pytest_collection_modifyitems(config, items):
             items.remove(item)
             items.append(item)
     pass
+
+#
+# --------------------------------------------------------------------------- #
+#                            numba.cuda import kick                           #
+# --------------------------------------------------------------------------- #
+# This is an attempt to stop "numba.cuda has no attribute 'local' errors
+# When "from numba import cuda" is included in this function (rather than at
+# the top of the conftest module, it fails when run, but works in the debugger
+def pytest_sessionstart(session):
+    """
+    Called after the Session object has been created and before test collection
+    and execution begins.
+    """
+    print("\n--- Performing session setup (pytest_sessionstart) ---")
+    try:
+        kick[1,1]()
+    except:
+        kick[1,1]()
+
+    print("--- Session setup complete ---")
+# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #
@@ -146,37 +279,36 @@ def _build_solver_instance(
     return solver
 
 
-def _build_loop_instance(
-    precision: np.dtype,
+def build_single_integrator_run(
     system: SymbolicODE,
-    step_object: Any,
-    buffer_settings: LoopBufferSettings,
-    output_functions: OutputFunctions,
-    step_controller: Any,
     solver_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator],
-) -> IVPLoop:
-    """Construct an :class:`IVPLoop` instance for device loop tests."""
+    algorithm_settings: Dict[str, Any],
+    step_controller_settings: Dict[str, Any],
+    output_settings: Dict[str, Any],
+    loop_settings: Dict[str, Any],
+    driver_array: Optional[ArrayInterpolator] = None,
+) -> SingleIntegratorRun:
+    """Build a SingleIntegratorRun for tests.
+    
+    This helper creates a fully configured SingleIntegratorRun instance,
+    injecting system functions into algorithm_settings before construction.
+    """
     driver_function = _get_driver_function(driver_array)
-    return IVPLoop(
-        precision=precision,
-        buffer_settings=buffer_settings,
-        compile_flags=output_functions.compile_flags,
-        controller_local_len=step_controller.local_memory_elements,
-        algorithm_local_len=step_object.persistent_local_required,
-        save_state_func=output_functions.save_state_func,
-        update_summaries_func=output_functions.update_summaries_func,
-        save_summaries_func=output_functions.save_summary_metrics_func,
-        step_controller_fn=step_controller.device_function,
-        step_function=step_object.step_function,
+    driver_del_t = _get_driver_del_t(driver_array)
+    
+    # Enhance algorithm_settings with system functions
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
+    
+    return SingleIntegratorRun(
+        system=system,
         driver_function=driver_function,
-        observables_fn=system.observables_function,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        dt0=step_controller.dt0,
-        dt_min=step_controller.dt_min,
-        dt_max=step_controller.dt_max,
-        is_adaptive=step_controller.is_adaptive,
+        driver_del_t=driver_del_t,
+        algorithm_settings=enhanced_algorithm_settings,
+        step_control_settings=step_controller_settings,
+        output_settings=output_settings,
+        loop_settings=loop_settings,
     )
 
 
@@ -200,6 +332,7 @@ def _build_cpu_step_controller(
         precision=precision,
         deadband_min=step_controller_settings["deadband_min"],
         deadband_max=step_controller_settings["deadband_max"],
+        safety=step_controller_settings["safety"],
         max_newton_iters=step_controller_settings["max_newton_iters"],
     )
     if kind == "pi":
@@ -212,29 +345,154 @@ def _build_cpu_step_controller(
     return controller
 
 
+def _get_algorithm_order(algorithm_name_or_tableau):
+    """Get algorithm order without building step object.
+    
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+    
+    Returns
+    -------
+    int
+        Algorithm order.
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias, resolve_supplied_tableau
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+    
+    # Extract order from tableau if available
+    if tableau is not None and hasattr(tableau, 'order'):
+        return tableau.order
+    
+    # Default orders for algorithms without tableaus
+    defaults = {
+        'euler': 1,
+        'backwards_euler': 1,
+        'backwards_euler_pc': 1,
+        'crank_nicolson': 2,
+    }
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_name = algorithm_name_or_tableau.lower()
+        return defaults.get(algorithm_name, 1)
+    
+    return 1
+
+
+def _get_algorithm_is_adaptive(algorithm_name_or_tableau):
+    """Determine if algorithm is adaptive without building step object.
+    
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+    
+    Returns
+    -------
+    bool
+        True if algorithm has embedded error estimate (adaptive).
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias, resolve_supplied_tableau
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+    
+    # Check if tableau has error estimate
+    if tableau is not None and hasattr(tableau, 'has_error_estimate'):
+        return tableau.has_error_estimate
+    
+    # Non-adaptive algorithms by default
+    return False
+
+
+def _get_algorithm_tableau(algorithm_name_or_tableau):
+    """Get tableau for an algorithm without building step object.
+    
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+    
+    Returns
+    -------
+    tableau or None
+        The tableau if available, None otherwise.
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias, resolve_supplied_tableau
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+    
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+    
+    # For rosenbrock without explicit tableau, use default
+    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+    
+    return tableau
+
+
 # ========================================
 # SETTINGS DICTS (override -> fixture -> override -> fixture)
 # ========================================
 
 @pytest.fixture(scope="session")
-def precision_override(request):
-    if hasattr(request, "param"):
-        if request.param is np.float64:
-            return np.float64
+def precision(solver_settings_override, solver_settings_override2):
+    """Return precision from overrides, defaulting to float32.
 
-
-@pytest.fixture(scope="session")
-def precision(precision_override, system_override):
-    """
-    Run tests with float32 by default, upgrade to float64 for stiff problems.
+    Precedence: override2 (class-level) is checked first, then override
+    (method-level). This allows class-level precision to be overridden
+    by individual test methods.
 
     Usage:
-    @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"precision": np.float64}], indirect=True)
     def test_something(precision):
         # precision will be np.float64 here
     """
-    if precision_override is not None:
-        return precision_override
+    # Check override2 first (class-level), then override (method-level)
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'precision' in override:
+            return override['precision']
     return np.float32
 
 
@@ -270,30 +528,21 @@ def tolerance(tolerance_override, precision):
 
 
 @pytest.fixture(scope="session")
-def system_override(request):
-    """Override for system model type, if provided."""
-    if hasattr(request, "param"):
-        if request.param:
-            return request.param
-    return "nonlinear"
+def system(request, solver_settings_override, solver_settings_override2,
+           precision):
+    """Return the appropriate symbolic system, defaulting to nonlinear.
 
-
-@pytest.fixture(scope="session")
-def system(request, system_override, precision):
-    """
-    Return the appropriate symbolic system, defaulting to ``linear``.
-
-    Usage
-    -----
-    @pytest.mark.parametrize(
-        "system_override",
-        ["three_chamber"],
-        indirect=True,
-    )
+    Usage:
+    @pytest.mark.parametrize("solver_settings_override",
+        [{"system_type": "three_chamber"}], indirect=True)
     def test_something(system):
         # system will be the cardiovascular symbolic model here
     """
-    model_type = system_override
+    model_type = 'nonlinear'
+    for override in [solver_settings_override2, solver_settings_override]:
+        if override and 'system_type' in override:
+            model_type = override['system_type']
+            break
 
     if model_type == "linear":
         return build_three_state_linear_system(precision)
@@ -328,23 +577,26 @@ def solver_settings_override2(request):
 def solver_settings(solver_settings_override, solver_settings_override2,
     system, precision):
     """Create LoopStepConfig with default solver configuration."""
+    # Clear the buffer_registry singleton when we set up a new system
+    buffer_registry.reset()
     defaults = {
         "algorithm": "euler",
-        "duration": np.float64(1.0),
+        "system_type": "nonlinear",
+        "duration": np.float64(0.2),
         "warmup": np.float64(0.0),
         "t0": np.float64(0.0),
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
-        "dt_save": precision(0.1),
-        "dt_summarise": precision(0.2),
+        "dt_save": precision(0.05),
+        "dt_summarise": precision(0.05),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
         "summarised_observable_indices": [0, 1],
-        "output_types": ["state"],
+        "output_types": ["state", "time", "observables", "mean"],
         "blocksize": 32,
         "stream": 0,
         "profileCUDA": False,
@@ -357,21 +609,22 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "driverspline_wrap": False,
         "driverspline_boundary_condition": "clamped",
         "krylov_tolerance": precision(1e-6),
-        "correction_type": "minimal_residual",
+        "linear_correction_type": "minimal_residual",
         "newton_tolerance": precision(1e-6),
         "preconditioner_order": 2,
-        "max_linear_iters": 500,
-        "max_newton_iters": 500,
+        "max_linear_iters": 50,
+        "max_newton_iters": 50,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,
-        "min_gain": precision(0.2),
-        "max_gain": precision(2.0),
+        "min_gain": precision(0.1),
+        "max_gain": precision(5.0),
+        "safety": precision(0.9),
         "n": system.sizes.states,
-        "kp": precision(1 / 18),
-        "ki": precision(1 / 9),
-        "kd": precision(1 / 18),
-        "deadband_min": precision(1.0),
-        "deadband_max": precision(1.2),
+        "kp": precision(0.7),
+        "ki": precision(-0.4),
+        "kd": precision(0.0),
+        "deadband_min": precision(0.95),
+        "deadband_max": precision(1.05),
     }
 
     float_keys = {
@@ -401,6 +654,13 @@ def solver_settings(solver_settings_override, solver_settings_override2,
                     defaults[key] = precision(value)
                 else:
                     defaults[key] = value
+
+    # Add derived metadata
+    defaults['algorithm_order'] = _get_algorithm_order(defaults['algorithm'])
+    defaults['n_states'] = system.sizes.states
+    defaults['n_parameters'] = system.sizes.parameters
+    defaults['n_drivers'] = system.sizes.drivers
+    defaults['n_observables'] = system.sizes.observables
 
     return defaults
 
@@ -518,28 +778,20 @@ def cpu_driver_evaluator(
 
 
 @pytest.fixture(scope="session")
-def algorithm_settings(system, solver_settings, driver_array):
+def algorithm_settings(solver_settings):
+    """Filter algorithm configuration from solver_settings dict.
+    
+    Note: Functions (dxdt_function, observables_function, 
+    get_solver_helper_fn, driver_function, driver_del_t) are NOT 
+    included in settings. These are passed directly when building 
+    step objects, not stored in settings dict.
+    """
     settings, _ = merge_kwargs_into_settings(
         kwargs=solver_settings,
         valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
     )
-    driver_function = (
-        driver_array.evaluation_function if driver_array is not None else None
-    )
-    driver_del_t = (
-        driver_array.driver_del_t if driver_array is not None else None
-    )
-    n_drivers = system.num_drivers
-    settings.update(
-        {
-            "driver_function": driver_function,
-            "driver_del_t": driver_del_t,
-            "dxdt_function": system.dxdt_function,
-            "observables_function": system.observables_function,
-            "get_solver_helper_fn": system.get_solver_helper,
-            "n_drivers": n_drivers,
-        }
-    )
+    # n_drivers comes from solver_settings (added in Task Group 1)
+    # Functions are NOT part of algorithm_settings
     return settings
 
 
@@ -553,15 +805,17 @@ def loop_settings(solver_settings):
 
 
 @pytest.fixture(scope="session")
-def step_controller_settings(
-    solver_settings, system, step_object
-):
-    """Base configuration used to instantiate loop step controllers."""
+def step_controller_settings(solver_settings):
+    """Base configuration used to instantiate loop step controllers.
+    
+    algorithm_order comes from solver_settings which was enriched with
+    this metadata during fixture setup.
+    """
     settings, _ = merge_kwargs_into_settings(
         kwargs=solver_settings,
         valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
     )
-    settings.update(algorithm_order=step_object.order)
+    settings.update(algorithm_order=solver_settings['algorithm_order'])
     return settings
 
 
@@ -588,10 +842,12 @@ def memory_settings(solver_settings):
 
 
 @pytest.fixture(scope="session")
-def output_functions(output_settings, system):
+def output_functions(output_settings, system, precision):
+    output_settings.pop("precision", None)
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
+        precision=precision,
         **output_settings,
     )
     return outputfunctions
@@ -619,15 +875,25 @@ def solverkernel(
     memory_settings,
     loop_settings,
 ):
+    """Top-level composite fixture for BatchSolverKernel.
+    
+    Exception to single-fixture rule: Requests both system and driver_array
+    as these are the two fundamental base CUDAFactory fixtures. All other
+    dependencies are settings fixtures.
+    """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for BatchSolverKernel
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         memory_settings=memory_settings,
         loop_settings=loop_settings,
@@ -645,15 +911,25 @@ def solverkernel_mutable(
     memory_settings,
     loop_settings,
 ):
+    """Function-scoped composite fixture for BatchSolverKernel.
+    
+    Exception to single-fixture rule: Requests both system and driver_array
+    as these are the two fundamental base CUDAFactory fixtures. All other
+    dependencies are settings fixtures.
+    """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for BatchSolverKernel
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         memory_settings=memory_settings,
         loop_settings=loop_settings
@@ -701,51 +977,22 @@ def step_controller_mutable(precision, step_controller_settings):
 
 
 @pytest.fixture(scope="session")
-def loop(
-    precision,
-    system,
-    step_object,
-    buffer_settings,
-    output_functions,
-    step_controller,
-    solver_settings,
-    driver_array,
-    loop_settings,
-):
-    return _build_loop_instance(
-        precision=precision,
-        system=system,
-        step_object=step_object,
-        buffer_settings=buffer_settings,
-        output_functions=output_functions,
-        step_controller=step_controller,
-        solver_settings=solver_settings,
-        driver_array=driver_array,
-    )
+def loop(single_integrator_run):
+    """Return the IVPLoop from single_integrator_run.
+    
+    SingleIntegratorRun builds all components internally, including the 
+    loop. Access the cached loop instance rather than rebuilding.
+    """
+    return single_integrator_run._loop
 
 
 @pytest.fixture(scope="function")
-def loop_mutable(
-    precision,
-    system,
-    step_object_mutable,
-    buffer_settings_mutable,
-    output_functions_mutable,
-    step_controller_mutable,
-    solver_settings,
-    driver_array,
-    loop_settings,
-):
-    return _build_loop_instance(
-        precision=precision,
-        system=system,
-        step_object=step_object_mutable,
-        buffer_settings=buffer_settings_mutable,
-        output_functions=output_functions_mutable,
-        step_controller=step_controller_mutable,
-        solver_settings=solver_settings,
-        driver_array=driver_array,
-    )
+def loop_mutable(single_integrator_run_mutable):
+    """Return the IVPLoop from mutable single_integrator_run.
+    
+    Function-scoped variant for mutation-focused tests.
+    """
+    return single_integrator_run_mutable._loop
 
 @pytest.fixture(scope="session")
 def single_integrator_run(
@@ -757,14 +1004,24 @@ def single_integrator_run(
     output_settings,
     loop_settings
 ):
+    """Top-level composite fixture for SingleIntegratorRun.
+    
+    Exception to single-fixture rule: Requests both system and driver_array
+    as these are the two fundamental base CUDAFactory fixtures. All other
+    dependencies are settings fixtures.
+    """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for SingleIntegratorRun
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return SingleIntegratorRun(
         system=system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
         loop_settings=loop_settings
     )
@@ -780,15 +1037,25 @@ def single_integrator_run_mutable(
     output_settings,
     loop_settings,
 ):
+    """Function-scoped composite fixture for SingleIntegratorRun.
+    
+    Exception to single-fixture rule: Requests both system and driver_array
+    as these are the two fundamental base CUDAFactory fixtures. All other
+    dependencies are settings fixtures.
+    """
     driver_function = _get_driver_function(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
+    # Add system functions to algorithm_settings for SingleIntegratorRun
+    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
+        algorithm_settings, system, driver_array
+    )
     return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
-        algorithm_settings=algorithm_settings,
+        algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
     )
 
@@ -799,25 +1066,25 @@ def cpu_system(system):
 
 
 @pytest.fixture(scope="session")
-def step_object(
-    system,
-    algorithm_settings,
-    precision,
-):
-    """Return a step object for the given solver settings."""
-    return get_algorithm_step(precision, algorithm_settings)
+def step_object(single_integrator_run):
+    """Return the step object from single_integrator_run.
+    
+    This avoids double-building by extracting the already-built step object
+    from the composite single_integrator_run fixture.
+    """
+    return single_integrator_run._algo_step
 
 
 @pytest.fixture(scope="function")
-def step_object_mutable(
-    system,
-    algorithm_settings,
-    precision,
-):
-    return get_algorithm_step(precision, algorithm_settings)
+def step_object_mutable(single_integrator_run_mutable):
+    """Return the mutable step object from single_integrator_run_mutable.
+    
+    Function-scoped variant for mutation-focused tests.
+    """
+    return single_integrator_run_mutable._algo_step
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
@@ -854,39 +1121,6 @@ def initial_state(system, precision, request):
         return request_inits
     return system.initial_values.values_array.astype(precision, copy=True)
 
-
-@pytest.fixture(scope="session")
-def buffer_settings(system, output_functions, step_object):
-    """Buffer settings derived from the system and output configuration."""
-    n_error = system.sizes.states if step_object.is_adaptive else 0
-    return LoopBufferSettings(
-        n_states=system.sizes.states,
-        n_parameters=system.sizes.parameters,
-        n_drivers=system.sizes.drivers,
-        n_observables=system.sizes.observables,
-        state_summary_buffer_height=output_functions.state_summaries_buffer_height,
-        observable_summary_buffer_height=output_functions.observable_summaries_buffer_height,
-        n_error=n_error,
-        n_counters=0,
-    )
-
-
-@pytest.fixture(scope="function")
-def buffer_settings_mutable(system, output_functions_mutable, step_object_mutable):
-    """Function-scoped buffer settings derived from the mutable outputs."""
-    n_error = system.sizes.states if step_object_mutable.is_adaptive else 0
-    return LoopBufferSettings(
-        n_states=system.sizes.states,
-        n_parameters=system.sizes.parameters,
-        n_drivers=system.sizes.drivers,
-        n_observables=system.sizes.observables,
-        state_summary_buffer_height=output_functions_mutable.state_summaries_buffer_height,
-        observable_summary_buffer_height=output_functions_mutable.observable_summaries_buffer_height,
-        n_error=n_error,
-        n_counters=0,
-    )
-
-
 # ========================================
 # COMPUTED OUTPUT FIXTURES
 # ========================================
@@ -899,7 +1133,6 @@ def cpu_loop_runner(
     step_controller_settings,
     output_functions,
     cpu_driver_evaluator,
-    step_object,
 ):
     """Return a callable for generating CPU reference loop outputs."""
 
@@ -941,7 +1174,7 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
-        tableau = getattr(step_object, "tableau", None)
+        tableau = _get_algorithm_tableau(solver_settings['algorithm'])
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
@@ -965,7 +1198,7 @@ def cpu_loop_outputs(
     output_functions,
     cpu_driver_evaluator,
     driver_array,
-    step_object,
+    single_integrator_run,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
     inputs = {
@@ -981,6 +1214,8 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
+    # Extract step_object from single_integrator_run
+    step_object = single_integrator_run._algo_step
     tableau = getattr(step_object, "tableau", None)
     return run_reference_loop(
         evaluator=cpu_system,
@@ -995,26 +1230,17 @@ def cpu_loop_outputs(
 
 @pytest.fixture(scope="session")
 def device_loop_outputs(
-    loop,
     system,
     single_integrator_run,
-    step_object,
     initial_state,
     solver_settings,
-    step_controller_settings,
-    output_functions,
-    cpu_system,
     driver_array,
 ):
     """Execute the device loop with the provided configuration."""
     return  run_device_loop(
-        loop=loop,
+        singleintegratorrun=single_integrator_run,
         system=system,
         initial_state=initial_state,
-        output_functions=output_functions,
         solver_config=solver_settings,
-        localmem_required=single_integrator_run.local_memory_elements,
-        sharedmem_required=step_object.shared_memory_required +
-                           loop.shared_memory_elements,
         driver_array=driver_array,
     )

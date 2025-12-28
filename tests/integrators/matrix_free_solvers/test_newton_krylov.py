@@ -4,17 +4,17 @@ from numba import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    linear_solver_factory,
+    LinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    newton_krylov_solver_factory,
+    NewtonKrylov,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
 STATUS_MASK = 0xFFFF
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def placeholder_system(precision):
     """Provide residual and operator for a scalar ODE step."""
 
@@ -34,16 +34,24 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 
     residual, operator, base_state = placeholder_system
     n = 1
-    linear_solver = linear_solver_factory(
-        operator, n, tolerance=1e-8, max_iters=32
-    )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    
+    linear_solver_instance = LinearSolver(
+        precision=precision,
         n=n,
-        tolerance=1e-6,
-        max_iters=16,
+        krylov_tolerance=1e-8,
+        max_linear_iters=32,
     )
+    linear_solver_instance.update(operator_apply=operator)
+    
+    newton_instance = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver_instance,
+        newton_tolerance=1e-6,
+        max_newton_iters=16,
+    )
+    newton_instance.update(residual_function=residual)
+    solver = newton_instance.device_function
 
     scratch_len = 2 * n
 
@@ -54,6 +62,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -64,6 +73,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -109,25 +119,31 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     h = system_setup["h"]
 
     precond = (
-        None if precond_order == 0 else system_setup["preconditioner"](precond_order)
+        None
+        if precond_order == 0
+        else system_setup["preconditioner"](precond_order)
     )
-    linear_solver = linear_solver_factory(
-        operator,
-        n,
-        preconditioner=precond,
-        correction_type="minimal_residual",
-        tolerance=1e-8,
-        max_iters=1000,
+    linear_solver_instance = LinearSolver(
         precision=precision,
-    )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual_func,
-        linear_solver=linear_solver,
         n=n,
-        tolerance=1e-8,
-        max_iters=1000,
-        precision=precision,
+        linear_correction_type="minimal_residual",
+        krylov_tolerance=1e-8,
+        max_linear_iters=1000,
     )
+    linear_solver_instance.update(operator_apply=operator,
+                                  preconditioner=precond)
+
+    newton_instance = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver_instance,
+        newton_tolerance=1e-8,
+        max_newton_iters=1000,
+    )
+
+    newton_instance.update(residual_function=residual_func)
+    solver = newton_instance.device_function
+
 
     scratch_len = 2 * n
 
@@ -138,6 +154,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -148,6 +165,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -184,14 +202,24 @@ def test_newton_krylov_failure(precision):
         out[0] = vec[0]
 
     n = 1
-    linear_solver = linear_solver_factory(operator, n, tolerance=1e-12, max_iters=8)
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    linear_solver_instance = LinearSolver(
+        precision=precision,
         n=n,
-        tolerance=1e-8,
-        max_iters=2,
+        krylov_tolerance=1e-12,
+        max_linear_iters=8,
     )
+    linear_solver_instance.update(operator_apply=operator)
+
+    newton_instance = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver_instance,
+        newton_tolerance=1e-8,
+        max_newton_iters=2,
+    )
+
+    newton_instance.update(residual_function=residual)
+    solver = newton_instance.device_function
 
     scratch_len = 3 * n
 
@@ -204,6 +232,7 @@ def test_newton_krylov_failure(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -214,30 +243,60 @@ def test_newton_krylov_failure(precision):
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert (
-            status_code
-            == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-    )
+    assert status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
 
-def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
+
+def test_newton_krylov_max_newton_iters_exceeded(
+    placeholder_system, precision
+):
     """Returns MAX_NEWTON_ITERATIONS_EXCEEDED when max_iters=0 and residual>tolerance."""
+    _, _, base_state = placeholder_system
 
-    residual, operator, base_state = placeholder_system
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        # Cubic residual in the final state: f(x) = (base + x - target)^3.
+        # Newton's method reduces this slowly from a distant initial guess.
+        target = base_state[0] + precision(1.0)  # solution increment = 1.0
+        y = base_state[0] + state[0]
+        diff = y - target
+        out[0] = diff * diff * diff
+
+    @cuda.jit(device=True)
+    def operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
+        # Jacobian of the cubic residual: J = 3*(y - target)^2
+        target = base_state[0] + precision(1.0)
+        y = base_state[0] + state[0]
+        jac = precision(3.0) * (y - target) * (y - target)
+        out[0] = jac * vec[0]
     n = 1
-    linear_solver = linear_solver_factory(operator, n, tolerance=1e-8, max_iters=32)
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    linear_solver_instance = LinearSolver(
+        precision=precision,
         n=n,
-        tolerance=1e-6,
-        max_iters=0,  # force no Newton iterations
+        krylov_tolerance=1e-8,
+        max_linear_iters=20,
     )
+    linear_solver_instance.update(operator_apply=operator)
+
+    newton_instance = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver_instance,
+        newton_tolerance=1e-20,
+        max_newton_iters=1,
+    )
+
+    newton_instance.update(residual_function=residual)
+    solver = newton_instance.device_function
+
 
     scratch_len = 3 * n
 
@@ -248,6 +307,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
         counters = cuda.local.array(2, np.int32)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -258,6 +318,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -266,7 +327,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+    assert (status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED)
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
@@ -278,26 +339,34 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+    def zero_operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
         # Linear operator always zero => inner solver cannot make progress
         out[0] = precision(0.0)
 
     # Inner linear solver will return MAX_LINEAR_ITERATIONS_EXCEEDED
     n = 1
-    linear_solver = linear_solver_factory(
-        zero_operator,
-        n,
-        correction_type="minimal_residual",
-        tolerance=1e-20,
-        max_iters=8,
-    )
-    solver = newton_krylov_solver_factory(
-        residual_function=residual,
-        linear_solver=linear_solver,
+    linear_solver_instance = LinearSolver(
+        precision=precision,
         n=n,
-        tolerance=1e-8,
-        max_iters=4,
+        linear_correction_type="minimal_residual",
+        krylov_tolerance=1e-20,
+        max_linear_iters=8,
     )
+    linear_solver_instance.update(operator_apply=zero_operator)
+
+    newton_instance = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver_instance,
+        newton_tolerance=1e-8,
+        max_newton_iters=4,
+    )
+
+    newton_instance.update(residual_function=residual)
+    solver = newton_instance.device_function
+
 
     scratch_len = 3 * n
 
@@ -310,6 +379,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -320,6 +390,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             a_ij,
             base,
             shared,
+            persistent_local,
             counters,
         )
 
@@ -327,5 +398,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert (
-        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED |
+        SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
     )

@@ -74,7 +74,7 @@ def topological_sort(
             if incoming_edges[dependent] == 0:
                 queue.append(dependent)
 
-    if len(result) != len(assignments):
+    if len(result) != len(sym_map):
         remaining = all_assignees - {sym for sym, _ in result}
         raise ValueError(
             "Circular dependency detected. Remaining symbols: "

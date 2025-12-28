@@ -1,9 +1,9 @@
 import warnings
 
 import pytest
-from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+from numba import cuda
+
 from cubie.cuda_simsafe import (
-    NumbaCUDAMemoryManager,
     Stream,
 )
 
@@ -158,7 +158,7 @@ def registered_instance(registered_instance_settings):
     return DummyClass(**registered_instance_settings)
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def registered_mgr(mgr, registered_instance):
     mgr.register(
         registered_instance,
@@ -167,6 +167,26 @@ def registered_mgr(mgr, registered_instance):
     )
     return mgr
 
+
+def registered_mgr_context_safe(
+    mem_manager_settings, registered_instance_settings
+):
+    fixed_mem_settings_closure = {"free": 1 * 1024**3, "total": 8 * 1024**3}
+    class TestMemoryManager(MemoryManager):
+        def get_memory_info(self):
+            free = fixed_mem_settings_closure["free"]
+            total = fixed_mem_settings_closure["total"]
+            return free, total
+    manager = TestMemoryManager(**mem_manager_settings)
+    registeree = DummyClass(**registered_instance_settings)
+
+    manager.register(
+        registeree,
+        proportion=registeree.proportion,
+        invalidate_cache_hook=registeree.invalidate_all_hook,
+    )
+
+    return manager, registeree
 
 class TestMemoryManager:
     @pytest.mark.nocudasim
@@ -193,20 +213,30 @@ class TestMemoryManager:
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
 
-    @pytest.mark.cupy
-    def test_set_allocator(self, mgr):
-        """Test that set_allocator sets the allocator correctly
-        test each of "cupy_async", "cupy", "default", checking that
-        (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
-         NumbaCudaMemoryManager, respectively)"""
-        mgr.set_allocator("cupy_async")
-        assert mgr._allocator == CuPyAsyncNumbaManager
-        mgr.set_allocator("cupy")
-        assert mgr._allocator == CuPySyncNumbaManager
-        mgr.set_allocator("default")
-        assert mgr._allocator == NumbaCUDAMemoryManager
-        with pytest.raises(ValueError):
-            mgr.set_allocator("invalid")
+
+    # Can't recover from this - context stays stale. This doesn't reflect a
+    # real use case; reinstate if live memory manager switching is required
+    # @pytest.mark.cupy
+    # @pytest.mark.parametrize("manager_target",
+    #                          [("cupy_async", CuPyAsyncNumbaManager),
+    #                           ("cupy", CuPySyncNumbaManager),
+    #                           ("default", NumbaCUDAMemoryManager)
+    #                         ],
+    #                          ids=["cupy_async", "cupy", "default"])
+    # def test_set_allocator(self, manager_target, mem_manager_settings,
+    #                              registered_instance_settings):
+    #     """Test that set_allocator sets the allocator correctly
+    #     test each of "cupy_async", "cupy", "default", checking that
+    #     (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
+    #      NumbaCudaMemoryManager, respectively)"""
+    #     label, cls = manager_target
+    #     regmgr, instance = registered_mgr_context_safe(
+    #             mem_manager_settings,
+    #             registered_instance_settings
+    #     )
+    #     regmgr.set_allocator(label)
+    #     assert regmgr._allocator == cls
+
 
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
@@ -219,114 +249,150 @@ class TestMemoryManager:
             mgr.set_limit_mode("invalid")
 
     @pytest.mark.nocudasim
-    def test_get_stream(self, registered_mgr, registered_instance):
+    def test_get_stream(self, mem_manager_settings,
+                registered_instance_settings):
         """test that get_stream successfully passes a different stream for
         instances registered in different stream groups"""
-        mgr = registered_mgr
-        instance = registered_instance
-        stream = mgr.get_stream(instance)
+
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        stream = regmgr.get_stream(instance)
         assert isinstance(stream, Stream)
         # Register another instance in a new group
         inst2 = DummyClass()
-        mgr.register(inst2, stream_group="other")
-        stream2 = mgr.get_stream(inst2)
+        regmgr.register(inst2, stream_group="other")
+        stream2 = regmgr.get_stream(inst2)
         assert stream2 is not None
         assert int(stream.handle.value) != int(stream2.handle.value)
 
-    def test_change_stream_group(self, registered_mgr, registered_instance):
+    def test_change_stream_group(
+        self,  mem_manager_settings,
+                registered_instance_settings):
         """test that change_stream_group changes the stream group of an
         instance, and that it raises ValueError if the instance wasn't
         already in a group"""
-        mgr = registered_mgr
-        instance = registered_instance
-        mgr.change_stream_group(instance, "other")
-        assert id(instance) in mgr.stream_groups.groups["other"]
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        regmgr.change_stream_group(instance, "other")
+        assert id(instance) in regmgr.stream_groups.groups["other"]
         dummy = DummyClass()
         with pytest.raises(ValueError):
-            mgr.change_stream_group(dummy, "newgroup")
+            regmgr.change_stream_group(dummy, "newgroup")
 
     @pytest.mark.nocudasim
-    def test_reinit_streams(self, registered_mgr, registered_instance):
+    def test_reinit_streams(
+        self, mem_manager_settings,
+                registered_instance_settings):
         """test that reinit_streams causess a different stream to be
         returned from get_stream"""
-        mgr = registered_mgr
-        instance = registered_instance
-        stream1 = mgr.get_stream(instance)
-        mgr.reinit_streams()
-        stream2 = mgr.get_stream(instance)
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        stream1 = regmgr.get_stream(instance)
+        regmgr.reinit_streams()
+        stream2 = regmgr.get_stream(instance)
         assert int(stream1.handle.value) != int(stream2.handle.value)
 
-    def test_invalidate_all(self, registered_mgr, registered_instance):
+    def test_invalidate_all(
+        self, mem_manager_settings,
+                registered_instance_settings
+    ):
         """Add a new instance with a measurable invalidate hook, and check
         that it is called when invalidate all is called"""
-        mgr = registered_mgr
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
         called = {"flag": False}
 
         def hook():
             called["flag"] = True
 
         inst = DummyClass()
-        mgr.register(inst, invalidate_cache_hook=hook)
-        mgr.invalidate_all()
+        regmgr.register(inst, invalidate_cache_hook=hook)
+        regmgr.invalidate_all()
         assert called["flag"] is True
 
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
-    def test_set_manual_limit_mode(self, registered_mgr, registered_instance):
+    def test_set_manual_limit_mode(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """Test that set_manual_limit_mode sets the instance to manual mode,
         and that it raises ValueError if the instance is already in manual mode"""
-        mgr = registered_mgr
-        instance = registered_instance
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
         instance_id = id(instance)
-        mgr.set_manual_limit_mode(instance, 0.3)
-        assert instance_id in mgr._manual_pool
+        regmgr.set_manual_limit_mode(instance, 0.3)
+        assert instance_id in regmgr._manual_pool
         with pytest.raises(ValueError):
-            mgr.set_manual_limit_mode(instance, 0.2)
+            regmgr.set_manual_limit_mode(instance, 0.2)
 
-    def test_set_auto_limit_mode(self, registered_mgr, registered_instance):
+    def test_set_auto_limit_mode(self, mem_manager_settings,
+                registered_instance_settings):
         """Test that set_auto_limit_mode sets the instance to auto mode"""
-        mgr = registered_mgr
-        instance = registered_instance
-        mgr.set_auto_limit_mode(instance)
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        regmgr.set_auto_limit_mode(instance)
         instance_id = id(instance)
-        assert instance_id not in mgr._manual_pool
+        assert instance_id not in regmgr._manual_pool
 
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": 0.5}], indirect=True
     )
-    def test_proportion(self, registered_mgr, registered_instance):
+    def test_proportion(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """Test that proportion returns the requested proportion if set,
         and 1.0 if not set (auto)"""
-        mgr = registered_mgr
-        instance = registered_instance
-        assert mgr.proportion(instance) == instance.proportion
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        assert regmgr.proportion(instance) == instance.proportion
         # Register auto instance
         inst2 = DummyClass(proportion=None)
-        mgr.register(inst2, proportion=None)
-        assert mgr.proportion(inst2) == 0.5
+        regmgr.register(inst2, proportion=None)
+        assert regmgr.proportion(inst2) == 0.5
 
-    def test_cap(self, registered_mgr, registered_instance):
+    def  test_cap(self, mem_manager_settings,
+                registered_instance_settings):
         """Test that cap returns the correct value"""
-        proportion = (
-            registered_instance.proportion
-            if registered_instance.proportion
-            else 1.0
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
         )
-        testcap = registered_mgr.cap(registered_instance)
-        free, total = registered_mgr.get_memory_info()
+        proportion = instance.proportion
+        testcap = regmgr.cap(instance)
+        free, total = regmgr.get_memory_info()
         solvercap = total * proportion
         assert testcap == solvercap
 
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
-    def test_pool_proportions(self, registered_mgr, registered_instance):
+    def test_pool_proportions(
+        self,mem_manager_settings,
+                registered_instance_settings
+    ):
         """Add a few auto and manual instances, check that the total manual
         and auto pool proportions match expected. Test add and rebalance
         methods along the way"""
-        mgr = registered_mgr
-        instance1 = registered_instance
+        regmgr, instance = registered_mgr_context_safe(
+                mem_manager_settings,
+                registered_instance_settings
+        )
+        instance1 = instance
         instance2 = DummyClass()
         instance3 = DummyClass()
         instance4 = DummyClass()
@@ -334,40 +400,40 @@ class TestMemoryManager:
 
         # already registered
         with pytest.raises(ValueError):
-            mgr.register(instance1)
-        mgr.set_limit_mode("active")
+            regmgr.register(instance1)
+        regmgr.set_limit_mode("active")
 
-        assert mgr.proportion(instance1) == 1.0
-        assert mgr.manual_pool_proportion == 0.0
-        assert mgr.auto_pool_proportion == 1.0
+        assert regmgr.proportion(instance1) == 1.0
+        assert regmgr.manual_pool_proportion == 0.0
+        assert regmgr.auto_pool_proportion == 1.0
 
-        mgr.register(instance2)
-        assert abs(mgr.proportion(instance2) - 0.5) < 1e-6
-        assert abs(mgr.manual_pool_proportion - 0.0) < 1e-6
-        assert abs(mgr.auto_pool_proportion - 1.0) < 1e-6
+        regmgr.register(instance2)
+        assert abs(regmgr.proportion(instance2) - 0.5) < 1e-6
+        assert abs(regmgr.manual_pool_proportion - 0.0) < 1e-6
+        assert abs(regmgr.auto_pool_proportion - 1.0) < 1e-6
 
-        mgr.register(instance3, proportion=0.5)
-        assert abs(mgr.proportion(instance3) - 0.5) < 1e-6
-        assert abs(mgr.manual_pool_proportion - 0.5) < 1e-6
-        assert abs(mgr.auto_pool_proportion - 0.5) < 1e-6
+        regmgr.register(instance3, proportion=0.5)
+        assert abs(regmgr.proportion(instance3) - 0.5) < 1e-6
+        assert abs(regmgr.manual_pool_proportion - 0.5) < 1e-6
+        assert abs(regmgr.auto_pool_proportion - 0.5) < 1e-6
 
-        mgr.register(instance4, proportion=0.4)
-        assert abs(mgr.proportion(instance4) - 0.4) < 1e-6
-        assert abs(mgr.manual_pool_proportion - 0.9) < 1e-6
-        assert abs(mgr.auto_pool_proportion - 0.1) < 1e-6
+        regmgr.register(instance4, proportion=0.4)
+        assert abs(regmgr.proportion(instance4) - 0.4) < 1e-6
+        assert abs(regmgr.manual_pool_proportion - 0.9) < 1e-6
+        assert abs(regmgr.auto_pool_proportion - 0.1) < 1e-6
 
-        mgr.set_auto_limit_mode(instance3)
-        assert abs(mgr.proportion(instance3) - 0.2) < 1e-6
-        assert abs(mgr.manual_pool_proportion - 0.4) < 1e-6
-        assert abs(mgr.auto_pool_proportion - 0.6) < 1e-6
+        regmgr.set_auto_limit_mode(instance3)
+        assert abs(regmgr.proportion(instance3) - 0.2) < 1e-6
+        assert abs(regmgr.manual_pool_proportion - 0.4) < 1e-6
+        assert abs(regmgr.auto_pool_proportion - 0.6) < 1e-6
 
-        mgr.set_manual_limit_mode(instance3, 0.3)
-        assert abs(mgr.proportion(instance3) - 0.3) < 1e-6
-        assert abs(mgr.manual_pool_proportion - 0.7) < 1e-6
-        assert abs(mgr.auto_pool_proportion - 0.3) < 1e-6
+        regmgr.set_manual_limit_mode(instance3, 0.3)
+        assert abs(regmgr.proportion(instance3) - 0.3) < 1e-6
+        assert abs(regmgr.manual_pool_proportion - 0.7) < 1e-6
+        assert abs(regmgr.auto_pool_proportion - 0.3) < 1e-6
 
         with pytest.raises(ValueError):
-            mgr.register(instance5, proportion=0.3)
+            regmgr.register(instance5, proportion=0.3)
 
     def test_set_strides(self, mgr):
         """test that the strides are set correctly"""
@@ -911,14 +977,16 @@ class TestMemoryManager:
         indirect=["fixed_mem_override"],
     )
     def test_allocate_queue_multiple_instances_instance_limit(
-        self, mgr, limit_type, chunk_axis
+        self, mgr, limit_type, chunk_axis, precision
     ):
         """Test allocate_queue with multiple instances using instance limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
         callbacks_called = {
-            "inst1": {"flag": False, "response": ArrayRequest()},
-            "inst2": {"flag": False, "response": ArrayRequest()},
+            "inst1": {"flag": False, "response": ArrayRequest(
+                    dtype=precision)},
+            "inst2": {"flag": False, "response": ArrayRequest(
+                    dtype=precision)},
         }
 
         def hook1(response):
@@ -1128,7 +1196,6 @@ class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_from_device(self, registered_mgr, registered_instance):
         """Test from_device copies values from allocated device arrays correctly."""
-        from numba import cuda
 
         mgr = registered_mgr
         instance = registered_instance

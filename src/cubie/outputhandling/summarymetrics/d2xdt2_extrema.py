@@ -30,10 +30,11 @@ class D2xdt2Extrema(SummaryMetric):
     maximum second derivative followed by minimum second derivative.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the D2xdt2Extrema summary metric."""
         super().__init__(
             name="d2xdt2_extrema",
+            precision=precision,
             buffer_size=4,
             output_size=2,
             unit_modification="[unit]*s^-2",
@@ -59,10 +60,10 @@ class D2xdt2Extrema(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )
@@ -103,10 +104,10 @@ class D2xdt2Extrema(SummaryMetric):
             buffer[0] = value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )

@@ -3,10 +3,10 @@ from typing import Callable, Optional, Union
 
 import numpy as np
 from numba import cuda, int32
-from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
-from cubie._utils import PrecisionDType, _expand_dtype
+from cubie._utils import PrecisionDType, _expand_dtype, build_config
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -37,19 +37,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
     def __init__(
         self,
         precision: PrecisionDType,
-        dt_min: float = 1e-6,
-        dt_max: float = 1.0,
-        atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.7,
-        ki: float = 0.0,
-        kd: float = -0.4,
-        min_gain: float = 0.2,
-        max_gain: float = 5.0,
-        deadband_min: float = 1.0,
-        deadband_max: float = 1.2,
+        **kwargs,
     ) -> None:
         """Initialise a proportional–integral–derivative controller.
 
@@ -57,49 +46,18 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         ----------
         precision
             Precision used for controller calculations.
-        dt_min
-            Minimum allowed step size.
-        dt_max
-            Maximum allowed step size.
-        atol
-            Absolute tolerance specification.
-        rtol
-            Relative tolerance specification.
-        algorithm_order
-            Order of the integration algorithm.
         n
             Number of state variables.
-        kp
-            Proportional gain before scaling for controller order.
-        ki
-            Integral gain before scaling for controller order.
-        kd
-            Derivative gain before scaling for controller order.
-        min_gain
-            Lower bound for the step size change factor.
-        max_gain
-            Upper bound for the step size change factor.
-        deadband_min
-            Lower gain threshold for holding the previous step size.
-        deadband_max
-            Upper gain threshold for holding the previous step size.
+        **kwargs
+            Optional parameters passed to PIDStepControlConfig. See
+            PIDStepControlConfig for available parameters including dt_min,
+            dt_max, atol, rtol, algorithm_order, kp, ki, kd, min_gain,
+            max_gain, deadband_min, deadband_max. None values are ignored.
         """
-
-        config = PIDStepControlConfig(
-            precision=precision,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            atol=atol,
-            rtol=rtol,
-            algorithm_order=algorithm_order,
-            min_gain=min_gain,
-            max_gain=max_gain,
-            kp=kp,
-            ki=ki,
-            kd=kd,
-            deadband_min=deadband_min,
-            deadband_max=deadband_max,
-            n=n,
+        config = build_config(
+            PIDStepControlConfig,
+            required={'precision': precision, 'n': n},
+            **kwargs
         )
 
         super().__init__(config)
@@ -198,6 +156,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the PID controller.
         """
+        alloc_timestep_buffer = buffer_registry.get_allocator(
+            'timestep_buffer', self
+        )
 
         kp = self.kp
         ki = self.ki
@@ -210,6 +171,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         typed_zero = precision(0.0)
         min_gain = precision(min_gain)
         max_gain = precision(max_gain)
+        dt_min = precision(dt_min)
+        dt_max = precision(dt_max)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
@@ -220,17 +183,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         inv_n = precision(1.0 / n)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-            [
-                (
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    int32,
-                    int32[::1],
-                    precision[::1],
-                )
-            ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -242,7 +194,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             error,
             niters,
             accept_out,
-            local_temp
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Proportional–integral–derivative accept/step controller.
 
@@ -260,16 +213,22 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Non-zero when the step is rejected at the minimum size.
             """
-            err_prev = local_temp[0]
-            err_prev_prev = local_temp[1]
+            timestep_buffer = alloc_timestep_buffer(
+                shared_scratch, persistent_local
+            )
+
+            err_prev = timestep_buffer[0]
+            err_prev_prev = timestep_buffer[1]
             nrm2 = typed_zero
 
             for i in range(n):
@@ -304,8 +263,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
-            local_temp[1] = err_prev
-            local_temp[0] = nrm2
+            timestep_buffer[1] = err_prev
+            timestep_buffer[0] = nrm2
 
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret

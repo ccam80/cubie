@@ -7,7 +7,7 @@ from cubie.odesystems.symbolic.symbolicODE import (
 )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def symbolic_input_simple():
     return {
         "observables": ["obs1", "obs2"],
@@ -24,9 +24,10 @@ def symbolic_input_simple():
     }
 
 
-@pytest.fixture(scope="function")
-def simple_ode_strict(symbolic_input_simple):
+@pytest.fixture(scope="session")
+def simple_ode_strict(symbolic_input_simple, precision):
     return SymbolicODE.create(
+        precision=precision,
         dxdt=symbolic_input_simple["dxdt"],
         states=symbolic_input_simple["states"],
         parameters=symbolic_input_simple["parameters"],
@@ -38,9 +39,10 @@ def simple_ode_strict(symbolic_input_simple):
     )
 
 
-@pytest.fixture(scope="function")
-def simple_ode_nonstrict(symbolic_input_simple):
+@pytest.fixture(scope="session")
+def simple_ode_nonstrict(symbolic_input_simple, precision):
     return SymbolicODE.create(
+        precision=precision,
         dxdt=symbolic_input_simple["dxdt"],
         strict=False,
         name="simpletest_nonstrict",
@@ -97,13 +99,13 @@ def test_create_ODE_system_nonstrict(
     assert_array_equal(sys1.num_drivers, sys2.num_drivers)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def built_simple_strict(simple_ode_strict):
     simple_ode_strict.build()
     return simple_ode_strict
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def built_simple_nonstrict(simple_ode_nonstrict):
     simple_ode_nonstrict.build()
     return simple_ode_nonstrict
@@ -142,7 +144,7 @@ def test_time_derivative_helper_available(built_simple_strict):
 class TestSympyStringEquivalence:
     """Test equivalence of SymPy and string input pathways."""
     
-    def test_generated_code_identical(self):
+    def test_generated_code_identical(self, precision):
         """Verify SymPy and string inputs generate identical code."""
         import sympy as sp
         from cubie._utils import is_devfunc
@@ -156,15 +158,17 @@ class TestSympyStringEquivalence:
         
         ode_sympy = SymbolicODE.create(
             dxdt=dxdt_sympy,
-            states={'x': 1.0, 'y': 0.0},
-            parameters={'k': 0.1},
-            name='test_sympy'
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            name="test_sympy",
         )
-        
+
         dxdt_string = ["dx = -k * x", "dy = k * x"]
         
         ode_string = SymbolicODE.create(
             dxdt=dxdt_string,
+            precision=precision,
             states={'x': 1.0, 'y': 0.0},
             parameters={'k': 0.1},
             name='test_string'
@@ -206,7 +210,7 @@ class TestSympyStringEquivalence:
         
         assert hash_sympy == hash_string
     
-    def test_observables_equivalence(self):
+    def test_observables_equivalence(self, precision):
         """Verify observables work identically in both pathways."""
         import sympy as sp
         
@@ -220,6 +224,7 @@ class TestSympyStringEquivalence:
         ode_sympy = SymbolicODE.create(
             dxdt=dxdt_sympy,
             states={'x': 1.0},
+            precision=precision,
             parameters={'k': 0.1},
             observables=['z']
         )
@@ -228,6 +233,7 @@ class TestSympyStringEquivalence:
         
         ode_string = SymbolicODE.create(
             dxdt=dxdt_string,
+            precision=precision,
             states={'x': 1.0},
             parameters={'k': 0.1},
             observables=['z']

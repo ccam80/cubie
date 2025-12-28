@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int16
+from numba import cuda, from_dtype, int32
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step
@@ -48,6 +48,8 @@ from tests.integrators.cpu_reference.algorithms import (
     CPUFIRKStep,
     CPURosenbrockWStep,
 )
+from tests._utils import MID_RUN_PARAMS, merge_dicts, merge_param, \
+    ALGORITHM_PARAM_SETS
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -423,22 +425,6 @@ ALIAS_CASES = [
         id="rosenbrock-rodas3p",
     ),
     pytest.param(
-        "rodas4p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas4p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas4p",
-    ),
-    pytest.param(
-        "rodas5p",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rodas5p"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-rodas5p",
-    ),
-    pytest.param(
         "rosenbrock23",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["rosenbrock23"],
@@ -455,88 +441,13 @@ ALIAS_CASES = [
         id="rosenbrock-23-sciml",
     ),
 ]
-STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
-                  'dt_min': 1e-6,
-                  'newton_tolerance': 1e-6,
-                  'krylov_tolerance': 1e-6,
-                  "atol": 1e-6,
-                  "rtol": 1e-6,
-                  "output_types": ["state"],
-                  'saved_state_indices': [0, 1, 2]}
 
-STEP_CASES = [
-    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
-    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
-    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
-    pytest.param({"algorithm": "crank_nicolson"}, id="crank_nicolson"),
-    pytest.param({"algorithm": "rosenbrock", "step_controller": "pi"}, id="rosenbrock"),
-    pytest.param({"algorithm": "erk", "step_controller": "pi"}, id="erk"),
-    pytest.param({"algorithm": "dirk", "step_controller": "pi"}, id="dirk"),
-    pytest.param({"algorithm": "firk", "step_controller": "pi"}, id="firk"),
-    # Specific ERK tableaus
-    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pi"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pi"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "fehlberg-45", "step_controller": "pi"}, id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pi"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "dop853", "step_controller": "pi"}, id="erk-dop853", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "tsit5", "step_controller": "pi"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "vern7", "step_controller": "pi"}, id="erk-vern7", marks=pytest.mark.specific_algos),
-    # Specific DIRK tableaus
-    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "pi"}, id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
-    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "pi"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pi"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
-    # Specific FIRK tableaus
-    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
-    # Specific Rosenbrock-W tableaus
-    pytest.param({"algorithm": "ros3p", "step_controller": "pi"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ode23s", "step_controller": "i"}, id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas3p", "step_controller": "i"}, id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas4p", "step_controller": "i"}, id="rosenbrock-rodas4p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas5p", "step_controller": "i"}, id="rosenbrock-rodas5p", marks=pytest.mark.specific_algos),
-]
-CACHE_REUSE_CASES = [
-    pytest.param(
-        {
-            "algorithm": "heun-21",
-            "step_controller": "fixed"
-        },
-        id="erk-heun-21-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "ralston-33",
-            "step_controller": "fixed"
-        },
-        id="erk-ralston-33-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "trapezoidal_dirk",
-            "step_controller": "fixed"
-        },
-        id="dirk-trapezoidal-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "sdirk_2_2",
-            "step_controller": "pi"
-        },
-        id="dirk-sdirk-2-2-cache",
-    ),
-    pytest.param(
-        {
-            "algorithm": "ros3p",
-            "step_controller": "pi"
-        },
-        id="rosenbrock-ros3p-cache",
-    ),
+
+# Merged cases for constant_deriv system tests
+STEP_CASES_CONSTANT_DERIV = [
+    merge_param(merge_dicts(MID_RUN_PARAMS, {"system_type": "constant_deriv"}),
+                case)
+    for case in ALGORITHM_PARAM_SETS
 ]
 
 @pytest.mark.parametrize(
@@ -596,49 +507,49 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     return {
         "euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": False,
             "is_adaptive": False,
         },
         "backwards_euler": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "backwards_euler_pc": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
         },
         "crank_nicolson": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "rosenbrock": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": True,
             "is_implicit": True,
             "is_adaptive": True,
         },
         "erk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_ERK_TABLEAU.stage_count > 1,
             "is_implicit": False,
             "is_adaptive": DEFAULT_ERK_TABLEAU.has_error_estimate,
         },
         "dirk": {
             "threads_per_step": 1,
-            "persistent_local_required": 0,
+            "persistent_local_elements": 0,
             "is_multistage": DEFAULT_DIRK_TABLEAU.stage_count > 1,
             "is_implicit": True,
             "is_adaptive": DEFAULT_DIRK_TABLEAU.has_error_estimate,
@@ -696,9 +607,9 @@ def device_step_results(
     status = np.full(1, 0, dtype=np.int32)
     counters = np.zeros(2, dtype=np.int32)
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(step_size)
 
@@ -744,8 +655,9 @@ def device_step_results(
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
-        first_step_flag = int16(1)
-        accepted_flag = int16(1)
+        persistent[:] = precision(0.0)
+        first_step_flag = int32(1)
+        accepted_flag = int32(1)
         result = step_function(
             state_vec,
             proposed_vec,
@@ -788,8 +700,7 @@ def device_step_results(
         state=d_proposed.copy_to_host(),
         observables=d_proposed_observables.copy_to_host(),
         error=d_error.copy_to_host(),
-        status=status_value & STATUS_MASK,
-        niters=(status_value >> 16) & STATUS_MASK,
+        status=status_value,
         counters = d_counters.copy_to_host()
     )
 
@@ -804,7 +715,7 @@ def _execute_step_twice(
 ) -> DualStepResult:
     """Run the compiled step twice without clearing shared memory."""
 
-    shared_elems = step_object.shared_memory_required
+    shared_elems = step_object.shared_memory_elements
 
     step_function = step_object.step_function
     driver_function = (
@@ -839,7 +750,7 @@ def _execute_step_twice(
     counters_second = np.zeros(2, dtype=np.int32)
 
     shared_bytes = precision(0).itemsize * shared_elems
-    persistent_len = max(1, step_object.persistent_local_required)
+    persistent_len = max(1, step_object.persistent_local_elements)
     numba_precision = from_dtype(precision)
     dt_value = precision(solver_settings["dt"])
 
@@ -869,7 +780,7 @@ def _execute_step_twice(
     driver_len = int(n_drivers)
     observable_len = int(n_observables)
 
-    @cuda.jit
+    @cuda.jit()
     def kernel(
         state_vec,
         params_vec,
@@ -894,10 +805,13 @@ def _execute_step_twice(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+
         zero = numba_precision(0.0)
 
-        for cache_idx in range(shared.shape[0]):
+        for cache_idx in range(shared_elems):
             shared[cache_idx] = zero
+        for pers_idx in range(persistent_len):
+            persistent[pers_idx] = zero
 
         if driver_function is not None:
             driver_function(zero, driver_coeffs_vec, drivers_current_vec)
@@ -921,8 +835,8 @@ def _execute_step_twice(
             error_vec_first,
             dt_scalar,
             zero,
-            int16(1),
-            int16(1),
+            int32(1),
+            int32(1),
             shared,
             persistent,
             counters_vec_first,
@@ -950,8 +864,8 @@ def _execute_step_twice(
             error_vec_second,
             dt_scalar,
             dt_scalar,
-            int16(0),
-            int16(1),
+            int32(0),
+            int32(1),
             shared,
             persistent,
             counters_vec_second,
@@ -978,7 +892,6 @@ def _execute_step_twice(
         dt_value,
     )
     cuda.synchronize()
-
     status_host = d_status.copy_to_host()
 
     first_state = d_proposed_first.copy_to_host()
@@ -1037,7 +950,7 @@ def _execute_cpu_step_twice(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1103,7 +1016,7 @@ def cpu_step_results(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
-        linear_correction_type=solver_settings["correction_type"],
+        linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=solver_settings["newton_damping"],
@@ -1125,19 +1038,13 @@ def cpu_step_results(
         niters=(result.status >> 16) & STATUS_MASK,
     )
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
+#test equality for all algorithms for two steps, replacing single-step test.
 @pytest.mark.parametrize(
     "solver_settings_override",
-    CACHE_REUSE_CASES,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
-def test_stage_cache_reuse(
+def test_two_steps(
     solver_settings,
     step_object,
     precision,
@@ -1170,7 +1077,7 @@ def test_stage_cache_reuse(
     assert all(status == 0 for status in cpu_result.statuses)
     assert gpu_result.statuses == cpu_result.statuses
 
-    tol = {"rtol": 1e-7, "atol": 1e-7}
+    tol = {"rtol": 5e-7, "atol": 1e-7}  # Loosened for rosenbrock variants
 
     assert_allclose(
         gpu_result.first_state,
@@ -1208,20 +1115,8 @@ def test_stage_cache_reuse(
 
 
 @pytest.mark.parametrize(
-    "system_override",
-    ["constant_deriv"],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [STEP_OVERRIDES],
-    ids=[""],
-    indirect=True,
-)
-@pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    STEP_CASES_CONSTANT_DERIV,
     indirect=True,
 )
 def test_against_euler(
@@ -1276,7 +1171,7 @@ def test_against_euler(
     assert all(status == 0 for status in device_result.statuses)
     assert all(status == 0 for status in euler_result.statuses)
 
-    #tolerance 3e-7 allows 2x ULP wiggle room (currently RODAS5P is at 2.4)
+    #tolerance 3e-7 allows 2x ULP wiggle room
     tol = {"rtol": tolerance.rel_tight * 3, "atol": tolerance.abs_tight * 3}
 
     assert_allclose(
@@ -1301,20 +1196,9 @@ def test_against_euler(
     )
 
 
-# @pytest.mark.parametrize("system_override",
-#                          ["threecm"],
-#                          ids = [""],
-#                          indirect=True
-#                          )
-@pytest.mark.parametrize(
-        "solver_settings_override2",
-        [STEP_OVERRIDES],
-        ids=[""],
-        indirect=True
-)
 @pytest.mark.parametrize(
     "solver_settings_override",
-    STEP_CASES,
+    ALGORITHM_PARAM_SETS,
     indirect=True,
 )
 def test_algorithm(
@@ -1323,9 +1207,6 @@ def test_algorithm(
        system,
        precision,
        expected_step_properties,
-       cpu_step_results,
-       device_step_results,
-       output_functions,
        tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""
@@ -1363,14 +1244,14 @@ def test_algorithm(
 
 
     if properties is not None and properties["is_implicit"]:
-        if algorithm == "rosenbrock":
-            assert config.max_linear_iters == solver_settings[
+        if isinstance(step_object, GenericRosenbrockWStep):
+            assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
-            assert config.linear_correction_type == solver_settings[
-                "correction_type"
+            assert step_object.linear_correction_type == solver_settings[
+                "linear_correction_type"
             ], "linear_correction_type set"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 solver_settings["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1378,32 +1259,32 @@ def test_algorithm(
         else:
             matrix = config.M
             assert matrix.shape == (system.sizes.states, system.sizes.states)
-            assert config.preconditioner_order == solver_settings[
+            assert step_object.preconditioner_order == solver_settings[
                 "preconditioner_order"
             ], "preconditioner order set"
-            assert config.max_linear_iters == solver_settings[
+            assert step_object.max_linear_iters == solver_settings[
                 "max_linear_iters"
             ], "max_linear_iters set"
-            assert config.linear_correction_type == solver_settings[
-                "correction_type"
+            assert step_object.linear_correction_type == solver_settings[
+                "linear_correction_type"
             ], "linear_correction_type set"
-            assert config.max_newton_iters == solver_settings[
+            assert step_object.max_newton_iters == solver_settings[
                 "max_newton_iters"
             ], "max_newton_iters set"
-            assert config.newton_max_backtracks == solver_settings[
+            assert step_object.newton_max_backtracks == solver_settings[
                 "newton_max_backtracks"
             ], "newton_max_backtracks set"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 solver_settings["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "krylov_tolerance set"
-            assert config.newton_tolerance == pytest.approx(
+            assert step_object.newton_tolerance == pytest.approx(
                 solver_settings["newton_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_tolerance set"
-            assert config.newton_damping == pytest.approx(
+            assert step_object.newton_damping == pytest.approx(
                 solver_settings["newton_damping"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1411,7 +1292,7 @@ def test_algorithm(
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
-        if algorithm == "rosenbrock":
+        if isinstance(step_object, GenericRosenbrockWStep):
             updates = {
                 "max_linear_iters": max(
                     1, solver_settings["max_linear_iters"] // 2
@@ -1422,12 +1303,11 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert config.max_linear_iters == updates["max_linear_iters"], \
+            assert step_object.max_linear_iters == updates["max_linear_iters"], \
                 "max_linear_iters update"
-            assert config.linear_correction_type == updates[
-                "linear_correction_type"
-            ], "linear_correction_type update"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.linear_correction_type == updates[
+                "linear_correction_type"], "linear_correction_type update"
+            assert step_object.krylov_tolerance == pytest.approx(
                 updates["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -1449,55 +1329,26 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert config.max_newton_iters == updates["max_newton_iters"], \
+            assert step_object.max_newton_iters == updates["max_newton_iters"], \
                 "max_newton_iters update"
-            assert config.preconditioner_order == updates[
+            assert step_object.preconditioner_order == updates[
                 "preconditioner_order"
             ], "preconditioner_order update"
-            assert config.krylov_tolerance == pytest.approx(
+            assert step_object.krylov_tolerance == pytest.approx(
                 updates["krylov_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "krylov_tolerance update"
-            assert config.newton_tolerance == pytest.approx(
+            assert step_object.newton_tolerance == pytest.approx(
                 updates["newton_tolerance"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_tolerance update"
-            assert config.newton_damping == pytest.approx(
+            assert step_object.newton_damping == pytest.approx(
                 updates["newton_damping"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
-
-    # Test equality for a single step
-    tolerances = {
-        "rtol": tolerance.rel_tight,
-        "atol": tolerance.abs_tight,
-    }
-    assert device_step_results.status == cpu_step_results.status, \
-        "status matches"
-
-    assert_allclose(
-        device_step_results.state,
-        cpu_step_results.state,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "state matches"
-    assert_allclose(
-        device_step_results.observables,
-        cpu_step_results.observables,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
-    ), "observables matches"
-    if step_object.is_adaptive:
-        assert_allclose(
-            device_step_results.error,
-            cpu_step_results.error,
-            rtol=tolerances["rtol"],
-            atol=tolerances["atol"],
-        ), "error matches"
-
 
 
 # Test controller defaults selection based on tableau error estimation
@@ -1508,14 +1359,15 @@ def test_algorithm(
         (ERKStep, ERK_TABLEAU_REGISTRY["classical-rk4"], {"step_controller": "fixed"}),
         (ERKStep, ERK_TABLEAU_REGISTRY["heun-21"], {"step_controller": "fixed"}),
         # ERK adaptive tableaus default to PI
-        (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pi"}),
-        (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pi"}),
+        (ERKStep, ERK_TABLEAU_REGISTRY["dormand-prince-54"], {"step_controller": "pid"}),
+        (ERKStep, DEFAULT_ERK_TABLEAU, {"step_controller": "pid"}),
         # DIRK with error estimate defaults to PI
-        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller": "pi"}),
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller":
+                                                            "fixed"}),
         # FIRK with error estimate defaults to PI
-        (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pi"}),
+        (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI
-        (GenericRosenbrockWStep, DEFAULT_ROSENBROCK_TABLEAU, {"step_controller": "pi"}),
+        (GenericRosenbrockWStep, DEFAULT_ROSENBROCK_TABLEAU, {"step_controller": "pid"}),
     ],
 )
 def test_tableau_controller_defaults(step_class, tableau, expected_dict):

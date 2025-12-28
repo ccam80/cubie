@@ -5,7 +5,7 @@ from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
 
-from cubie._utils import PrecisionDType, getype_validator
+from cubie._utils import PrecisionDType, getype_validator, build_config
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig,
     BaseStepController,
@@ -75,6 +75,7 @@ class FixedStepController(BaseStepController):
         precision: PrecisionDType,
         dt: float,
         n: int = 1,
+        **kwargs,
     ) -> None:
         """Initialise the fixed step controller.
 
@@ -86,11 +87,19 @@ class FixedStepController(BaseStepController):
             Fixed step size to apply on every iteration.
         n
             Number of state variables advanced by the integrator.
+        **kwargs
+            Optional parameters passed to FixedStepControlConfig. See
+            FixedStepControlConfig for available parameters. None values
+            are ignored.
         """
-
         super().__init__()
-        config = FixedStepControlConfig(precision=precision, n=n, dt=dt)
+        config = build_config(
+            FixedStepControlConfig,
+            required={'precision': precision, 'n': n, 'dt': dt},
+            **kwargs
+        )
         self.setup_compile_settings(config)
+        self.register_buffers()
 
     def build(self) -> ControllerCache:
         """Return a device function that always accepts with fixed step.
@@ -100,23 +109,14 @@ class FixedStepController(BaseStepController):
         Callable
             CUDA device function that keeps the step size constant.
         """
-        precision = self.compile_settings.numba_precision
         @cuda.jit(
-                [(
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    int32,
-                    int32[::1],
-                    precision[::1],
-                )],
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_fixed_step(
-            dt, state, state_prev, error, niters, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out,
+            shared_scratch, persistent_local
         ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 
@@ -134,15 +134,16 @@ class FixedStepController(BaseStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------
             int32
                 Zero, indicating that the current step size should be kept.
             """
-
             accept_out[0] = int32(1)
             return int32(0)
 

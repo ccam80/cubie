@@ -2,14 +2,28 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16, int32
+import attrs
+from numba import cuda, int32
 import numpy as np
 
-from cubie._utils import PrecisionDType
-from cubie.integrators.algorithms import ImplicitStepConfig
+from cubie._utils import PrecisionDType, build_config
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
-from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+from cubie.integrators.algorithms.ode_implicitstep import (
+    ImplicitStepConfig, ODEImplicitStep
+)
+
+
+@attrs.define
+class BackwardsEulerStepConfig(ImplicitStepConfig):
+    """Configuration for Backwards Euler step with buffer location."""
+
+    increment_cache_location: str = attrs.field(
+        default='local',
+        validator=attrs.validators.in_(['local', 'shared'])
+    )
+
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -33,14 +47,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 1,
-        krylov_tolerance: float = 1e-5,
-        max_linear_iters: int = 100,
-        linear_correction_type: str = "minimal_residual",
-        newton_tolerance: float = 1e-5,
-        max_newton_iters: int = 100,
-        newton_damping: float = 0.85,
-        newton_max_backtracks: int = 25,
+        **kwargs,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -58,53 +65,61 @@ class BackwardsEulerStep(ODEImplicitStep):
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
-        preconditioner_order
-            Order of the truncated Neumann preconditioner.
-        krylov_tolerance
-            Tolerance used by the linear solver.
-        max_linear_iters
-            Maximum iterations permitted for the linear solver.
-        linear_correction_type
-            Identifier for the linear correction strategy.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration.
-        max_newton_iters
-            Maximum iterations permitted for the Newton solver.
-        newton_damping
-            Damping factor applied within Newton updates.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver.
+        **kwargs
+            Optional parameters passed to config classes. See
+            BackwardsEulerStepConfig, ImplicitStepConfig, and solver config
+            classes for available parameters. None values are ignored.
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
-        config = ImplicitStepConfig(
-            get_solver_helper_fn=get_solver_helper_fn,
-            beta=beta,
-            gamma=gamma,
-            M=M,
-            n=n,
-            preconditioner_order=preconditioner_order,
-            krylov_tolerance=krylov_tolerance,
-            max_linear_iters=max_linear_iters,
-            linear_correction_type=linear_correction_type,
-            newton_tolerance=newton_tolerance,
-            max_newton_iters=max_newton_iters,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            precision=precision,
+
+        config = build_config(
+            BackwardsEulerStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+                'get_solver_helper_fn': get_solver_helper_fn,
+                'beta': beta,
+                'gamma': gamma,
+                'M': M,
+            },
+            **kwargs
         )
-        super().__init__(config, BE_DEFAULTS.copy())
+
+        super().__init__(config, BE_DEFAULTS.copy(), **kwargs)
+
+        self.register_buffers()
+
+
+    def register_buffers(self) -> None:
+        """Register buffers with buffer_registry."""
+        config = self.compile_settings
+
+        # Register solver child buffers
+        _ = buffer_registry.get_child_allocators(
+            self, self.solver, name='solver_scratch'
+        )
+
+        # Register increment cache buffer
+        buffer_registry.register(
+            'increment_cache',
+            self,
+            config.n,
+            config.increment_cache_location,
+            persistent=True,
+            precision=config.precision
+        )
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -113,14 +128,14 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
         driver_function
             Optional device function evaluating drivers at arbitrary times.
+        solver_function
+            Device function for the Newton-Krylov nonlinear solver.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -133,32 +148,43 @@ class BackwardsEulerStep(ODEImplicitStep):
         StepCache
             Container holding the compiled step function and solver.
         """
-
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-        solver_shared_elements = self.solver_shared_elements
         n = int32(n)
 
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver_scratch')
+        )
+
+        # Get increment cache allocator from buffer_registry
+        alloc_increment_cache = buffer_registry.get_allocator(
+            'increment_cache', self
+        )
+
+        solver_fn = solver_function
+
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision,
-                numba_precision,
-                int16,
-                int16,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -218,10 +244,12 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-            solver_scratch = shared[: solver_shared_elements]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            increment_cache = alloc_increment_cache(shared, persistent_local)
 
             for i in range(n):
-                proposed_state[i] = solver_scratch[i]
+                proposed_state[i] = increment_cache[i]
 
             next_time = time_scalar + dt_scalar
             if has_driver_function:
@@ -240,11 +268,12 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
             )
 
             for i in range(n):
-                solver_scratch[i] = proposed_state[i]
+                increment_cache[i] = proposed_state[i]
                 proposed_state[i] += state[i]
 
             observables_function(
@@ -264,30 +293,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         """Return ``False`` because backward Euler is a single-stage method."""
 
         return False
-
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Backward Euler has no additional shared-memory requirements."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Backward Euler does not reserve persistent local storage."""
-
-        return 0
 
     @property
     def is_adaptive(self) -> bool:

@@ -16,7 +16,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 from numpy.typing import NDArray
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import (
     PrecisionDType,
@@ -27,7 +27,6 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
-
 
 def _format_time_domain_label(label: str, unit: str) -> str:
     """Format a time-domain legend label with unit if not dimensionless.
@@ -127,11 +126,16 @@ class SolveResult:
     Parameters
     ----------
     time_domain_array
-        Optional NumPy array containing time-domain results.
+        NumPy array containing time-domain results.
     summaries_array
-        Optional NumPy array containing summary results.
+        NumPy array containing summary results.
     time
         Optional NumPy array containing time values.
+    iteration_counters
+        NumPy array containing iteration counts per run.
+    status_codes
+        Optional NumPy array containing solver status codes per run (0 for
+        success, nonzero for errors). Shape is (n_runs,) with dtype int32.
     time_domain_legend
         Optional mapping from time-domain indices to labels.
     summaries_legend
@@ -146,21 +150,26 @@ class SolveResult:
         Optional mapping from summary offsets to legend labels.
     """
 
-    time_domain_array: Optional[NDArray] = attrs.field(
+    time_domain_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
-    summaries_array: Optional[NDArray] = attrs.field(
+    summaries_array: NDArray = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+        validator=val.instance_of(np.ndarray),
         eq=attrs.cmp_using(eq=np.array_equal),
     )
     time: Optional[NDArray] = attrs.field(
         default=attrs.Factory(lambda: np.array([])),
         validator=val.optional(val.instance_of(np.ndarray)),
     )
-    iteration_counters: Optional[NDArray] = attrs.field(
+    iteration_counters: NDArray = attrs.field(
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.instance_of(np.ndarray),
+        eq=attrs.cmp_using(eq=np.array_equal),
+    )
+    status_codes: Optional[NDArray] = attrs.field(
         default=None,
         validator=val.optional(val.instance_of(np.ndarray)),
         eq=attrs.cmp_using(eq=np.array_equal),
@@ -192,6 +201,7 @@ class SolveResult:
         cls,
         solver: Union["Solver", "BatchSolverKernel"],
         results_type: str = "full",
+        nan_error_trajectories: bool = True,
     ) -> Union["SolveResult", dict[str, Any]]:
         """Create a :class:`SolveResult` from a solver instance.
 
@@ -205,6 +215,11 @@ class SolveResult:
             ``"full"``. ``raw`` shortcuts all processing and outputs numpy
             arrays that are a direct copy of the host, without legends or
             supporting information.
+        nan_error_trajectories
+            When ``True`` (default), trajectories with nonzero status codes
+            are set to NaN. When ``False``, all trajectories are returned
+            with original values regardless of status. This parameter is
+            ignored when ``results_type`` is ``"raw"``.
 
         Returns
         -------
@@ -219,14 +234,18 @@ class SolveResult:
                 'state_summaries': solver.state_summaries,
                 'observable_summaries': solver.observable_summaries,
                 'iteration_counters': solver.iteration_counters,
+                'status_codes': solver.status_codes,
             }
-        active_outputs = solver.active_output_arrays
+        active_outputs = solver.active_outputs
         state_active = active_outputs.state
         observables_active = active_outputs.observables
         state_summaries_active = active_outputs.state_summaries
         observable_summaries_active = active_outputs.observable_summaries
         solve_settings = solver.solve_info
 
+        # Retrieve status codes for non-raw results
+        status_codes = solver.status_codes
+        iteration_counters = solver.iteration_counters
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
@@ -247,6 +266,34 @@ class SolveResult:
             observable_summaries_active,
         )
 
+        # Process error trajectories when enabled
+        if (nan_error_trajectories and status_codes is not None
+                and status_codes.size > 0):
+            # Find runs with nonzero status codes
+            error_run_indices = np.where(status_codes != 0)[0]
+
+            if len(error_run_indices) > 0:
+                # Get stride order and find run dimension
+                stride_order = solver.state_stride_order
+                run_index = stride_order.index("run")
+
+                # Set error trajectories to NaN using vectorized indexing
+                if time_domain_array.size > 0:
+                    if run_index == 0:
+                        time_domain_array[error_run_indices, :, :] = np.nan
+                    elif run_index == 1:
+                        time_domain_array[:, error_run_indices, :] = np.nan
+                    else:  # run_index == 2
+                        time_domain_array[:, :, error_run_indices] = np.nan
+
+                if summaries_array.size > 0:
+                    if run_index == 0:
+                        summaries_array[error_run_indices, :, :] = np.nan
+                    elif run_index == 1:
+                        summaries_array[:, error_run_indices, :] = np.nan
+                    else:  # run_index == 2
+                        summaries_array[:, :, error_run_indices] = np.nan
+
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
 
         summaries_legend = cls.summary_legend_from_solver(solver)
@@ -256,7 +303,8 @@ class SolveResult:
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
             time=time,
-            iteration_counters=solver.iteration_counters,
+            iteration_counters=iteration_counters,
+            status_codes=status_codes,
             time_domain_legend=time_domain_legend,
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,
@@ -370,8 +418,9 @@ class SolveResult:
         Returns
         -------
         dict[str, Optional[NDArray]]
-            Dictionary containing copies of time, time_domain_array, summaries_array,
-            time_domain_legend, and summaries_legend.
+            Dictionary containing copies of time, time_domain_array,
+            summaries_array, time_domain_legend, summaries_legend, and
+            iteration_counters.
         """
         return {
             "time": self.time.copy() if self.time is not None else None,
@@ -379,6 +428,7 @@ class SolveResult:
             "summaries_array": self.summaries_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
+            "iteration_counters": self.iteration_counters.copy(),
         }
 
     @property
@@ -390,12 +440,13 @@ class SolveResult:
         -------
         dict[str, Optional[NDArray]]
             Dictionary containing time, time_domain_array, time_domain_legend,
-            and individual summary arrays.
+            iteration counters, and individual summary arrays.
         """
         arrays = {
             "time": self.time.copy() if self.time is not None else None,
             "time_domain_array": self.time_domain_array.copy(),
             "time_domain_legend": self.time_domain_legend.copy(),
+            "iteration_counters": self.iteration_counters.copy(),
         }
         arrays.update(**self.per_summary_arrays)
 

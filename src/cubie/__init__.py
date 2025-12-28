@@ -31,6 +31,7 @@ __all__ = [
     "SymbolicODE",
     "create_ODE_system",
     "TimeLogger",
+    "load_cellml_model",
 ]
 
 try:

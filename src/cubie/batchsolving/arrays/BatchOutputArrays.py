@@ -107,90 +107,6 @@ class OutputArrayContainer(ArrayContainer):
 
 
 @attrs.define
-class ActiveOutputs:
-    """
-    Track which output arrays are actively being used.
-
-    This class provides boolean flags indicating which output types are
-    currently active based on array sizes and allocation status.
-
-    Parameters
-    ----------
-    state
-        Whether state output is active.
-    observables
-        Whether observables output is active.
-    state_summaries
-        Whether state summaries output is active.
-    observable_summaries
-        Whether observable summaries output is active.
-    status_codes
-        Whether status code output is active.
-    """
-
-    state: bool = attrs.field(default=False, validator=val.instance_of(bool))
-    observables: bool = attrs.field(
-        default=False, validator=val.instance_of(bool)
-    )
-    state_summaries: bool = attrs.field(
-        default=False, validator=val.instance_of(bool)
-    )
-    observable_summaries: bool = attrs.field(
-        default=False, validator=val.instance_of(bool)
-    )
-    status_codes: bool = attrs.field(
-        default=False, validator=val.instance_of(bool)
-    )
-    iteration_counters: bool = attrs.field(
-        default=False, validator=val.instance_of(bool)
-    )
-
-    def update_from_outputarrays(self, output_arrays: "OutputArrays") -> None:
-        """
-        Update active outputs based on OutputArrays instance.
-
-        Parameters
-        ----------
-        output_arrays
-            The OutputArrays instance to check for active outputs.
-
-        Returns
-        -------
-        None
-            Flags are updated in place.
-
-        Notes
-        -----
-        An output is considered active if the corresponding array exists
-        and has more than one element (size > 1).
-        """
-        self.state = (
-            output_arrays.host.state.array is not None
-            and output_arrays.host.state.array.size > 1
-        )
-        self.observables = (
-            output_arrays.host.observables.array is not None
-            and output_arrays.host.observables.array.size > 1
-        )
-        self.state_summaries = (
-            output_arrays.host.state_summaries.array is not None
-            and output_arrays.host.state_summaries.array.size > 1
-        )
-        self.observable_summaries = (
-            output_arrays.host.observable_summaries.array is not None
-            and output_arrays.host.observable_summaries.array.size > 1
-        )
-        self.status_codes = (
-            output_arrays.host.status_codes.array is not None
-            and output_arrays.host.status_codes.array.size > 1
-        )
-        self.iteration_counters = (
-            output_arrays.host.iteration_counters.array is not None
-            and output_arrays.host.iteration_counters.array.size > 4
-        )
-
-
-@attrs.define
 class OutputArrays(BaseArrayManager):
     """
     Manage batch integration output arrays between host and device.
@@ -207,8 +123,6 @@ class OutputArrays(BaseArrayManager):
         Container for host-side arrays.
     device
         Container for device-side arrays.
-    _active_outputs
-        Tracker for which outputs are currently active.
 
     Notes
     -----
@@ -230,11 +144,6 @@ class OutputArrays(BaseArrayManager):
     device: OutputArrayContainer = attrs.field(
         factory=OutputArrayContainer.device_factory,
         validator=val.instance_of(OutputArrayContainer),
-        init=False,
-    )
-    _active_outputs: ActiveOutputs = attrs.field(
-        default=ActiveOutputs(),
-        validator=val.instance_of(ActiveOutputs),
         init=False,
     )
 
@@ -273,12 +182,6 @@ class OutputArrays(BaseArrayManager):
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays, shape_only=True)
         self.allocate()
-
-    @property
-    def active_outputs(self) -> ActiveOutputs:
-        """Active output configuration derived from host allocations."""
-        self._active_outputs.update_from_outputarrays(self)
-        return self._active_outputs
 
     @property
     def state(self) -> ArrayTypes:

@@ -4,7 +4,7 @@ from typing import Callable, Optional, Union
 from numba import cuda, int32
 from numpy._typing import ArrayLike
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
     AdaptiveStepControlConfig,
@@ -22,16 +22,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
     def __init__(
         self,
         precision: PrecisionDType,
-        dt_min: float = 1e-6,
-        dt_max: float = 1.0,
-        atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
-        algorithm_order: int = 2,
         n: int = 1,
-        min_gain: float = 0.2,
-        max_gain: float = 2.0,
-        deadband_min: float = 1.0,
-        deadband_max: float = 1.2,
+        **kwargs,
     ) -> None:
         """Initialise an integral step controller.
 
@@ -39,40 +31,18 @@ class AdaptiveIController(BaseAdaptiveStepController):
         ----------
         precision
             Precision used for controller calculations.
-        dt_min
-            Minimum allowed step size.
-        dt_max
-            Maximum allowed step size.
-        atol
-            Absolute tolerance specification.
-        rtol
-            Relative tolerance specification.
-        algorithm_order
-            Order of the integration algorithm.
         n
             Number of state variables.
-        min_gain
-            Lower bound for the step size change factor.
-        max_gain
-            Upper bound for the step size change factor.
-        deadband_min
-            Lower gain threshold for holding the previous step size.
-        deadband_max
-            Upper gain threshold for holding the previous step size.
+        **kwargs
+            Optional parameters passed to AdaptiveStepControlConfig. See
+            AdaptiveStepControlConfig for available parameters including
+            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
+            deadband_min, deadband_max. None values are ignored.
         """
-
-        config = AdaptiveStepControlConfig(
-            precision=precision,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            atol=atol,
-            rtol=rtol,
-            algorithm_order=algorithm_order,
-            min_gain=min_gain,
-            max_gain=max_gain,
-            n=n,
-            deadband_min=deadband_min,
-            deadband_max=deadband_max,
+        config = build_config(
+            AdaptiveStepControlConfig,
+            required={'precision': precision, 'n': n},
+            **kwargs
         )
 
         super().__init__(config)
@@ -147,15 +117,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
-                [(
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    precision[::1],
-                    int32,
-                    int32[::1],
-                    precision[::1],
-                )],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -167,7 +128,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
             error,
             niters,
             accept_out,
-            local_temp,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Integral accept/step-size controller.
 
@@ -185,8 +147,10 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
-            local_temp : device array
-                Scratch space provided by the integrator.
+            shared_scratch : device array
+                Shared memory scratch space.
+            persistent_local : device array
+                Persistent local memory for controller state.
 
             Returns
             -------

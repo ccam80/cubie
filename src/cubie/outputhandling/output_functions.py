@@ -20,6 +20,7 @@ from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.update_summaries import update_summary_factory
+from cubie._utils import PrecisionDType
 
 
 # Define the complete set of recognised configuration keys so callers can
@@ -98,21 +99,18 @@ class OutputFunctions(CUDAFactory):
         self,
         max_states: int,
         max_observables: int,
+        precision: PrecisionDType,
         output_types: list[str] = None,
         saved_state_indices: Union[Sequence[int], ArrayLike] = None,
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
         dt_save: Optional[float] = None,
-        precision: Optional[np.dtype] = None,
     ):
         super().__init__()
 
         if output_types is None:
             output_types = ["state"]
-
-        if precision is None:
-            precision = np.float32
 
         # Create and setup output configuration as compile settings
         config = OutputConfig.from_loop_settings(
@@ -352,3 +350,8 @@ class OutputFunctions(CUDAFactory):
     def summary_unit_modifications(self) -> dict[int, str]:
         """Mapping of summary indices to unit modification strings."""
         return self.compile_settings.summary_unit_modifications
+
+    @property
+    def buffer_sizes_dict(self) -> dict[str, int]:
+        """Dictionary of buffer sizes for each output type."""
+        return self.compile_settings.buffer_sizes_dict

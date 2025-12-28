@@ -469,7 +469,7 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
 #: first column simplifying assumption." Applied Numerical Mathematics, 56(10–11).
 
 # Note: the b_hat vector in the paper cited is not used in most libraries; it
-# represents the d (b - b_hat) vector, and the final entry is incorrect (b7
+# represents the d=(b - b_hat) vector, and the final entry is incorrect (b7
 # = -1/66). I can't find explicit derivations for the fix - it is mentioned
 # here https://arxiv.org/pdf/2108.12590#page=1.89 and used in:
 # https://github.com/SciML/OrdinaryDiffEq.jl/blob/master/lib/OrdinaryDiffEqTsit5/src/tsit_tableaus.jl

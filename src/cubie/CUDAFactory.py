@@ -48,8 +48,8 @@ class CUDAFunctionCache:
                                              description)
 
 def _create_placeholder_args(
-    device_function: Any, precision: type = np.float32
-) -> tuple:
+    device_function: Any, precision: type
+) -> tuple: # pragma: no cover
     """Create minimal placeholder arguments for device function.
     
     Parameters
@@ -102,17 +102,35 @@ def _create_placeholder_args(
 
                         # Create array with appropriate dtype and shape
                         if item.dtype == numba.float64:
-                            args += (np.ones(shape, dtype=np.float64),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float64)
+                                ),
+                            )
                         elif item.dtype == numba.float32:
-                            args += (np.ones(shape, dtype=np.float32),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float32)
+                                ),
+                            )
                         elif item.dtype == numba.types.float16:
-                            args += (np.ones(shape, dtype=np.float16),)
+                            args += (
+                                cuda.to_device(
+                                    np.ones(shape, dtype=np.float16)
+                                ),
+                            )
                         elif item.dtype == numba.int64:
-                            args += (np.ones(shape, dtype=np.int64),)
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int64)),
+                            )
                         elif item.dtype == numba.int32:
-                            args += (np.ones(shape, dtype=np.int32),)
-                        elif item.dtype == numba.types.int16:
-                            args += (np.ones(shape, dtype=np.int16),)
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                            )
+                        elif item.dtype == numba.types.int32:
+                            args += (
+                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                            )
                     elif isinstance(item, numba.types.Integer):
                         # Use critical_values if available for this parameter
                         use_critical = (
@@ -128,7 +146,7 @@ def _create_placeholder_args(
                         if item.bitwidth <= 8:
                             args += (np.int8(value),)
                         elif item.bitwidth <= 16:
-                            args += (np.int16(value),)
+                            args += (np.int32(value),)
                         elif item.bitwidth <= 32:
                             args += (np.int32(value),)
                         elif item.bitwidth <= 64:
@@ -193,7 +211,8 @@ def _create_placeholder_args(
         )
         return (default_args,)
 
-def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> None:
+def _run_placeholder_kernel(device_func: Any, placeholder_args: Tuple) -> \
+        None: # pragma: no cover - device code
     """Create minimal CUDA kernel to trigger device function compilation.
 
     Parameters

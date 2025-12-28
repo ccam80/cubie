@@ -4,542 +4,258 @@ This module builds CUDA device functions that implement steepest-descent or
 minimal-residual iterations without forming Jacobian matrices explicitly.
 The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
-
-Buffer settings classes for memory allocation configuration are also defined
-here, providing selective allocation between shared and local memory.
 """
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Set, Dict, Any
 
 import attrs
 from attrs import validators
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import getype_validator, PrecisionDType
-from cubie.BufferSettings import BufferSettings, LocalSizes, SliceIndices
+from cubie._utils import (
+    PrecisionDType,
+    build_config,
+    getype_validator,
+    gttype_validator,
+    inrangetype_validator,
+    is_device_validator,
+    precision_converter,
+    precision_validator,
+)
+from cubie.buffer_registry import buffer_registry
+from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define
-class LinearSolverLocalSizes(LocalSizes):
-    """Local array sizes for linear solver buffers with nonzero guarantees.
+class LinearSolverConfig:
+    """Configuration for LinearSolver compilation.
 
     Attributes
     ----------
-    preconditioned_vec : int
-        Preconditioned vector buffer size.
-    temp : int
-        Temporary vector buffer size.
-    """
-
-    preconditioned_vec: int = attrs.field(validator=getype_validator(int, 0))
-    temp: int = attrs.field(validator=getype_validator(int, 0))
-
-
-@attrs.define
-class LinearSolverSliceIndices(SliceIndices):
-    """Slice container for linear solver shared memory buffer layouts.
-
-    Attributes
-    ----------
-    preconditioned_vec : slice
-        Slice covering the preconditioned vector buffer (empty if local).
-    temp : slice
-        Slice covering the temporary vector buffer.
-    local_end : int
-        Offset of the end of solver-managed shared memory.
-    """
-
-    preconditioned_vec: slice = attrs.field()
-    temp: slice = attrs.field()
-    local_end: int = attrs.field()
-
-
-@attrs.define
-class LinearSolverBufferSettings(BufferSettings):
-    """Configuration for linear solver buffer sizes and memory locations.
-
-    Controls whether preconditioned_vec and temp buffers use shared or
-    local memory during Krylov iteration.
-
-    Attributes
-    ----------
+    precision : PrecisionDType
+        Numerical precision for computations.
     n : int
-        Number of state variables (length of vectors).
+        Length of residual and search-direction vectors.
+    operator_apply : Optional[Callable]
+        Device function applying operator F @ v.
+    preconditioner : Optional[Callable]
+        Device function for approximate inverse preconditioner.
+    linear_correction_type : str
+        Line-search strategy ('steepest_descent' or 'minimal_residual').
+    krylov_tolerance : float
+        Target on squared residual norm for convergence.
+    max_linear_iters : int
+        Maximum iterations permitted.
     preconditioned_vec_location : str
-        Memory location for preconditioned vector: 'local' or 'shared'.
+        Memory location for preconditioned_vec buffer ('local' or 'shared').
     temp_location : str
-        Memory location for temporary vector: 'local' or 'shared'.
+        Memory location for temp buffer ('local' or 'shared').
+    use_cached_auxiliaries : bool
+        Whether to use cached auxiliary arrays (determines signature).
     """
 
+    precision: PrecisionDType = attrs.field(
+        converter=precision_converter,
+        validator=precision_validator
+    )
     n: int = attrs.field(validator=getype_validator(int, 1))
+    operator_apply: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False
+    )
+    preconditioner: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False
+    )
+    linear_correction_type: str = attrs.field(
+        default="minimal_residual",
+        validator=validators.in_(["steepest_descent", "minimal_residual"])
+    )
+    _krylov_tolerance: float = attrs.field(
+        default=1e-6,
+        validator=gttype_validator(float, 0)
+    )
+    max_linear_iters: int = attrs.field(
+        default=100,
+        validator=inrangetype_validator(int, 1, 32767)
+    )
     preconditioned_vec_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
+        default='local',
+        validator=validators.in_(["local", "shared"])
     )
     temp_location: str = attrs.field(
-        default='local', validator=validators.in_(["local", "shared"])
+        default='local',
+        validator=validators.in_(["local", "shared"])
     )
+    use_cached_auxiliaries: bool = attrs.field(default=False)
 
     @property
-    def use_shared_preconditioned_vec(self) -> bool:
-        """Return True if preconditioned_vec uses shared memory."""
-        return self.preconditioned_vec_location == 'shared'
+    def krylov_tolerance(self) -> float:
+        """Return tolerance in configured precision."""
+        return self.precision(self._krylov_tolerance)
 
     @property
-    def use_shared_temp(self) -> bool:
-        """Return True if temp buffer uses shared memory."""
-        return self.temp_location == 'shared'
+    def numba_precision(self) -> type:
+        """Return Numba type for precision."""
+        return from_dtype(np.dtype(self.precision))
 
     @property
-    def shared_memory_elements(self) -> int:
-        """Return total shared memory elements required."""
-        total = 0
-        if self.use_shared_preconditioned_vec:
-            total += self.n
-        if self.use_shared_temp:
-            total += self.n
-        return total
+    def simsafe_precision(self) -> type:
+        """Return CUDA-sim-safe type for precision."""
+        return simsafe_dtype(np.dtype(self.precision))
 
     @property
-    def local_memory_elements(self) -> int:
-        """Return total local memory elements required."""
-        total = 0
-        if not self.use_shared_preconditioned_vec:
-            total += self.n
-        if not self.use_shared_temp:
-            total += self.n
-        return total
-
-    @property
-    def local_sizes(self) -> LinearSolverLocalSizes:
-        """Return LinearSolverLocalSizes instance with buffer sizes.
-
-        The returned object provides nonzero sizes suitable for
-        cuda.local.array allocation.
-        """
-        return LinearSolverLocalSizes(
-            preconditioned_vec=self.n,
-            temp=self.n,
-        )
-
-    @property
-    def shared_indices(self) -> LinearSolverSliceIndices:
-        """Return LinearSolverSliceIndices instance with shared memory layout.
-
-        The returned object contains slices for each buffer's region
-        in shared memory. Local buffers receive empty slices.
-        """
-        ptr = 0
-
-        if self.use_shared_preconditioned_vec:
-            preconditioned_vec_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            preconditioned_vec_slice = slice(0, 0)
-
-        if self.use_shared_temp:
-            temp_slice = slice(ptr, ptr + self.n)
-            ptr += self.n
-        else:
-            temp_slice = slice(0, 0)
-
-        return LinearSolverSliceIndices(
-            preconditioned_vec=preconditioned_vec_slice,
-            temp=temp_slice,
-            local_end=ptr,
-        )
-
-
-def linear_solver_factory(
-    operator_apply: Callable,
-    n: int,
-    preconditioner: Optional[Callable] = None,
-    correction_type: str = "minimal_residual",
-    tolerance: float = 1e-6,
-    max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
-    buffer_settings: Optional[LinearSolverBufferSettings] = None,
-) -> Callable:
-    """Create a CUDA device function implementing steepest-descent or MR.
-
-    Parameters
-    ----------
-    operator_apply
-        Callback that overwrites its output vector with ``F @ v``.
-    n
-        Length of the one-dimensional residual and search-direction vectors.
-    preconditioner
-        Approximate inverse preconditioner invoked as ``(state, parameters,
-        drivers, t, h, residual, z, scratch)``. ``scratch`` can be overwritten.
-        If ``None`` the identity preconditioner is used.
-    correction_type
-        Line-search strategy. Must be ``"steepest_descent"`` or
-        ``"minimal_residual"``.
-    tolerance
-        Target on the squared residual norm that signals convergence.
-    max_iters
-        Maximum number of iterations permitted.
-    precision
-        Floating-point precision used when building the device function.
-    buffer_settings
-        Optional buffer settings controlling memory allocation. When provided,
-        the solver uses selective allocation between shared and local memory.
-        When None (default), all buffers use local memory.
-
-    Returns
-    -------
-    Callable
-        CUDA device function returning ``0`` on convergence and ``4`` when the
-        iteration limit is reached. When buffer_settings specifies shared
-        memory, the function signature includes a shared memory array
-        parameter.
-
-    Notes
-    -----
-    The operator typically has the form ``F = β M - γ h J`` where ``M`` is the
-    mass matrix (often the identity), ``J`` is the Jacobian, ``h`` is the step
-    size, and ``β`` and ``γ`` are scalar parameters captured in the closure.
-    The solver instantiates its own local scratch buffers so callers only need
-    to provide the residual and correction vectors.
-    """
-
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
-    if correction_type not in ("steepest_descent", "minimal_residual"):
-        raise ValueError(
-            "Correction type must be 'steepest_descent' or 'minimal_residual'."
-        )
-    preconditioned = 1 if preconditioner is not None else 0
-    n_val = int32(n)
-    max_iters = int32(max_iters)
-    precision = from_dtype(precision)
-    typed_zero = precision(0.0)
-    tol_squared = precision(tolerance * tolerance)
-
-    # Extract buffer settings as compile-time constants
-    if buffer_settings is None:
-        buffer_settings = LinearSolverBufferSettings(n=n)
-
-    # Unpack boolean flags for selective allocation (compile-time constants)
-    precond_vec_shared = buffer_settings.use_shared_preconditioned_vec
-    temp_shared = buffer_settings.use_shared_temp
-
-    # Unpack slice indices for shared memory layout
-    slice_indices = buffer_settings.shared_indices
-    precond_vec_slice = slice_indices.preconditioned_vec
-    temp_slice = slice_indices.temp
-
-    # Unpack local sizes for local array allocation
-    local_sizes = buffer_settings.local_sizes
-    precond_vec_local_size = local_sizes.nonzero('preconditioned_vec')
-    temp_local_size = local_sizes.nonzero('temp')
-
-    # no cover: start
-    @cuda.jit(
-        [
-            (precision[::1],
-             precision[::1],
-             precision[::1],
-             precision[::1],
-             precision,
-             precision,
-             precision,
-             precision[::1],
-             precision[::1],
-             precision[::1],
-            )
-        ],
-        device=True,
-        inline=True,
-        **compile_kwargs,
-    )
-    def linear_solver(
-        state,
-        parameters,
-        drivers,
-        base_state,
-        t,
-        h,
-        a_ij,
-        rhs,
-        x,
-        shared,
-    ):
-        """Run one preconditioned steepest-descent or minimal-residual solve.
-
-        Parameters
-        ----------
-        state
-            State vector forwarded to the operator and preconditioner.
-        parameters
-            Model parameters forwarded to the operator and preconditioner.
-        drivers
-            External drivers forwarded to the operator and preconditioner.
-        base_state
-            Base state for n-stage operators (unused for single-stage).
-        t
-            Stage time forwarded to the operator and preconditioner.
-        h
-            Step size used by the operator evaluation.
-        a_ij
-            Stage coefficient forwarded to the operator and preconditioner.
-        rhs
-            Right-hand side of the linear system. Overwritten with the current
-            residual.
-        x
-            Iterand provided as the initial guess and overwritten with the
-            final solution.
-        shared
-            Shared memory array for selective buffer allocation.
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return linear solver configuration as dictionary.
 
         Returns
         -------
-        int
-            ``0`` on convergence or ``4`` when the iteration limit is reached.
-
-        Notes
-        -----
-        ``rhs`` is updated in place to hold the running residual, and ``temp``
-        is reused as the scratch vector passed to the preconditioner. The
-        iteration therefore keeps just two auxiliary vectors of length ``n``.
-        The operator, preconditioner behaviour, and correction strategy are
-        fixed by the factory closure, while ``state``, ``parameters``, and
-        ``drivers`` are treated as read-only context values.
+        dict
+            Configuration dictionary containing:
+            - krylov_tolerance: Convergence tolerance for linear solver
+            - max_linear_iters: Maximum iterations permitted
+            - linear_correction_type: Line-search strategy
+            - preconditioned_vec_location: Buffer location for preconditioned vector
+            - temp_location: Buffer location for temporary vector
         """
-
-        # Selective memory allocation based on buffer_settings
-        if precond_vec_shared:
-            preconditioned_vec = shared[precond_vec_slice]
-        else:
-            preconditioned_vec = cuda.local.array(precond_vec_local_size,
-                                                  precision)
-
-        if temp_shared:
-            temp = shared[temp_slice]
-        else:
-            temp = cuda.local.array(temp_local_size, precision)
-
-        operator_apply(state, parameters, drivers, base_state, t, h, a_ij, x, temp)
-        acc = typed_zero
-        for i in range(n_val):
-            residual_value = rhs[i] - temp[i]
-            rhs[i] = residual_value
-            acc += residual_value * residual_value
-        mask = activemask()
-        converged = acc <= tol_squared
-
-        iter_count = int32(0)
-        for _ in range(max_iters):
-            iter_count += int32(1)
-            if preconditioned:
-                preconditioner(
-                    state,
-                    parameters,
-                    drivers,
-                    base_state,
-                    t,
-                    h,
-                    a_ij,
-                    rhs,
-                    preconditioned_vec,
-                    temp,
-                )
-            else:
-                for i in range(n_val):
-                    preconditioned_vec[i] = rhs[i]
-
-            operator_apply(
-                state,
-                parameters,
-                drivers,
-                base_state,
-                t,
-                h,
-                a_ij,
-                preconditioned_vec,
-                temp,
-            )
-            numerator = typed_zero
-            denominator = typed_zero
-            if sd_flag:
-                for i in range(n_val):
-                    zi = preconditioned_vec[i]
-                    numerator += rhs[i] * zi
-                    denominator += temp[i] * zi
-            elif mr_flag:
-                for i in range(n_val):
-                    ti = temp[i]
-                    numerator += ti * rhs[i]
-                    denominator += ti * ti
-
-            alpha = selp(
-                denominator != typed_zero,
-                numerator / denominator,
-                typed_zero,
-            )
-            alpha_effective = selp(converged, precision(0.0), alpha)
-
-            acc = typed_zero
-            for i in range(n_val):
-                x[i] += alpha_effective * preconditioned_vec[i]
-                rhs[i] -= alpha_effective * temp[i]
-                residual_value = rhs[i]
-                acc += residual_value * residual_value
-            converged = converged or (acc <= tol_squared)
-
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
-
-    # no cover: end
-    return linear_solver
+        return {
+            'krylov_tolerance': self.krylov_tolerance,
+            'max_linear_iters': self.max_linear_iters,
+            'linear_correction_type': self.linear_correction_type,
+            'preconditioned_vec_location': self.preconditioned_vec_location,
+            'temp_location': self.temp_location,
+        }
 
 
-def linear_solver_cached_factory(
-    operator_apply: Callable,
-    n: int,
-    preconditioner: Optional[Callable] = None,
-    correction_type: str = "minimal_residual",
-    tolerance: float = 1e-6,
-    max_iters: int = 100,
-    precision: PrecisionDType = np.float64,
-    buffer_settings: Optional[LinearSolverBufferSettings] = None,
-) -> Callable:
-    """Create a CUDA linear solver that forwards cached auxiliaries.
+@attrs.define
+class LinearSolverCache(CUDAFunctionCache):
+    """Cache container for LinearSolver outputs.
 
-    Parameters
+    Attributes
     ----------
-    operator_apply
-        Callback that overwrites its output vector with ``F @ v``.
-    n
-        Length of the one-dimensional residual and search-direction vectors.
-    preconditioner
-        Approximate inverse preconditioner. If ``None`` the identity
-        preconditioner is used.
-    correction_type
-        Line-search strategy. Must be ``"steepest_descent"`` or
-        ``"minimal_residual"``.
-    tolerance
-        Target on the squared residual norm that signals convergence.
-    max_iters
-        Maximum number of iterations permitted.
-    precision
-        Floating-point precision used when building the device function.
-    buffer_settings
-        Optional buffer settings controlling memory allocation. When provided,
-        the solver uses selective allocation between shared and local memory.
-        When None (default), all buffers use local memory.
-
-    Returns
-    -------
-    Callable
-        CUDA device function that runs the linear solver with cached aux.
+    linear_solver : Callable
+        Compiled CUDA device function for linear solving.
     """
 
-    sd_flag = 1 if correction_type == "steepest_descent" else 0
-    mr_flag = 1 if correction_type == "minimal_residual" else 0
-    if correction_type not in ("steepest_descent", "minimal_residual"):
-        raise ValueError(
-            "Correction type must be 'steepest_descent' or 'minimal_residual'."
-        )
-    preconditioned = 1 if preconditioner is not None else 0
-    n_val = int32(n)
-    max_iters = int32(max_iters)
-
-    precision_dtype = np.dtype(precision)
-    precision_scalar = from_dtype(precision_dtype)
-    typed_zero = precision_scalar(0.0)
-    tol_squared = tolerance * tolerance
-
-    # Extract buffer settings as compile-time constants
-    if buffer_settings is None:
-        buffer_settings = LinearSolverBufferSettings(n=n)
-
-    # Unpack boolean flags for selective allocation (compile-time constants)
-    precond_vec_shared = buffer_settings.use_shared_preconditioned_vec
-    temp_shared = buffer_settings.use_shared_temp
-
-    # Unpack slice indices for shared memory layout
-    slice_indices = buffer_settings.shared_indices
-    precond_vec_slice = slice_indices.preconditioned_vec
-    temp_slice = slice_indices.temp
-
-    # Unpack local sizes for local array allocation
-    local_sizes = buffer_settings.local_sizes
-    precond_vec_local_size = local_sizes.nonzero('preconditioned_vec')
-    temp_local_size = local_sizes.nonzero('temp')
-
-    # no cover: start
-    @cuda.jit(
-        device=True,
-        **compile_kwargs,
+    linear_solver: Callable = attrs.field(
+        validator=is_device_validator
     )
-    def linear_solver_cached(
-        state,
-        parameters,
-        drivers,
-        base_state,
-        cached_aux,
-        t,
-        h,
-        a_ij,
-        rhs,
-        x,
-        shared,
-    ):
-        """Run one cached preconditioned steepest-descent or MR solve."""
 
-        # Selective memory allocation based on buffer_settings
-        if precond_vec_shared:
-            preconditioned_vec = shared[precond_vec_slice]
-        else:
-            preconditioned_vec = cuda.local.array(precond_vec_local_size,
-                                                  precision_scalar)
 
-        if temp_shared:
-            temp = shared[temp_slice]
-        else:
-            temp = cuda.local.array(temp_local_size, precision_scalar)
+class LinearSolver(CUDAFactory):
+    """Factory for linear solver device functions.
 
-        operator_apply(
-            state, parameters, drivers, base_state, cached_aux, t, h, a_ij,
-                x, temp
+    Implements steepest-descent or minimal-residual iterations
+    for solving linear systems without forming Jacobian matrices.
+    """
+
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        n: int,
+        **kwargs,
+    ) -> None:
+        """Initialize LinearSolver with parameters.
+
+        Parameters
+        ----------
+        precision : PrecisionDType
+            Numerical precision for computations.
+        n : int
+            Length of residual and search-direction vectors.
+        **kwargs
+            Optional parameters passed to LinearSolverConfig. See
+            LinearSolverConfig for available parameters. None values
+            are ignored.
+        """
+        super().__init__()
+
+        config = build_config(
+            LinearSolverConfig,
+            required={
+                'precision': precision,
+                'n': n,
+            },
+            **kwargs
         )
-        acc = typed_zero
-        for i in range(n_val):
-            residual_value = rhs[i] - temp[i]
-            rhs[i] = residual_value
-            acc += residual_value * residual_value
-        mask = activemask()
-        converged = acc <= tol_squared
+        self.setup_compile_settings(config)
+        self.register_buffers()
 
-        iter_count = int32(0)
-        for _ in range(max_iters):
-            iter_count += int32(1)
-            if preconditioned:
-                preconditioner(
-                    state,
-                    parameters,
-                    drivers,
-                    base_state,
-                    cached_aux,
-                    t,
-                    h,
-                    a_ij,
-                    rhs,
-                    preconditioned_vec,
-                    temp,
-                )
-            else:
-                for i in range(n_val):
-                    preconditioned_vec[i] = rhs[i]
+    def register_buffers(self) -> None:
+        """Register device buffers with buffer_registry."""
 
-            operator_apply(
+        config = self.compile_settings
+        buffer_registry.register(
+            'preconditioned_vec',
+            self,
+            config.n,
+            config.preconditioned_vec_location,
+            precision=config.precision
+        )
+        buffer_registry.register(
+            'temp',
+            self,
+            config.n,
+            config.temp_location,
+            precision=config.precision
+        )
+
+    def build(self) -> LinearSolverCache:
+        """Compile linear solver device function.
+
+        Returns
+        -------
+        LinearSolverCache
+            Container with compiled linear_solver device function.
+
+        Raises
+        ------
+        ValueError
+            If operator_apply is None when build() is called.
+        """
+        config = self.compile_settings
+
+        # Extract parameters from config
+        operator_apply = config.operator_apply
+        preconditioner = config.preconditioner
+        n = config.n
+        linear_correction_type = config.linear_correction_type
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
+        precision = config.precision
+        use_cached_auxiliaries = config.use_cached_auxiliaries
+
+        # Compute flags for correction type
+        sd_flag = linear_correction_type == "steepest_descent"
+        mr_flag = linear_correction_type == "minimal_residual"
+        preconditioned = preconditioner is not None
+
+        # Convert types for device function
+        n_val = int32(n)
+        max_iters_val = int32(max_linear_iters)
+        precision_numba = from_dtype(np.dtype(precision))
+        typed_zero = precision_numba(0.0)
+        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
+
+        # Get allocators from buffer_registry
+        get_alloc = buffer_registry.get_allocator
+        alloc_precond = get_alloc('preconditioned_vec', self)
+        alloc_temp = get_alloc('temp', self)
+
+        # Build device function based on cached auxiliaries flag
+        if use_cached_auxiliaries:
+            # no cover: start
+            @cuda.jit(
+                device=True,
+                inline=True,
+                **compile_kwargs,
+            )
+            def linear_solver_cached(
                 state,
                 parameters,
                 drivers,
@@ -548,44 +264,363 @@ def linear_solver_cached_factory(
                 t,
                 h,
                 a_ij,
-                preconditioned_vec,
-                temp,
-            )
-            numerator = typed_zero
-            denominator = typed_zero
-            if sd_flag:
+                rhs,
+                x,
+                shared,
+                persistent_local,
+                krylov_iters_out,
+            ):
+                """Run one cached preconditioned steepest-descent or MR solve."""
+
+                # Allocate buffers from registry
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
+
+                operator_apply(
+                    state, parameters, drivers, cached_aux, base_state, t, h,
+                    a_ij, x, temp
+                )
+                acc = typed_zero
                 for i in range(n_val):
-                    zi = preconditioned_vec[i]
-                    numerator += rhs[i] * zi
-                    denominator += temp[i] * zi
-            elif mr_flag:
-                for i in range(n_val):
-                    ti = temp[i]
-                    numerator += ti * rhs[i]
-                    denominator += ti * ti
+                    residual_value = rhs[i] - temp[i]
+                    rhs[i] = residual_value
+                    acc += residual_value * residual_value
+                mask = activemask()
+                converged = acc <= tol_squared
 
-            alpha = selp(
-                denominator != typed_zero,
-                numerator / denominator,
-                typed_zero,
+                iter_count = int32(0)
+                for _ in range(max_iters_val):
+                    if all_sync(mask, converged):
+                        break
+
+                    iter_count += int32(1)
+                    if preconditioned:
+                        preconditioner(
+                            state,
+                            parameters,
+                            drivers,
+                            cached_aux,
+                            base_state,
+                            t,
+                            h,
+                            a_ij,
+                            rhs,
+                            preconditioned_vec,
+                            temp,
+                        )
+                    else:
+                        for i in range(n_val):
+                            preconditioned_vec[i] = rhs[i]
+
+                    operator_apply(
+                        state,
+                        parameters,
+                        drivers,
+                        cached_aux,
+                        base_state,
+                        t,
+                        h,
+                        a_ij,
+                        preconditioned_vec,
+                        temp,
+                    )
+                    numerator = typed_zero
+                    denominator = typed_zero
+                    if sd_flag:
+                        for i in range(n_val):
+                            zi = preconditioned_vec[i]
+                            numerator += rhs[i] * zi
+                            denominator += temp[i] * zi
+                    elif mr_flag:
+                        for i in range(n_val):
+                            ti = temp[i]
+                            numerator += ti * rhs[i]
+                            denominator += ti * ti
+
+                    if denominator != typed_zero:
+                        alpha = numerator / denominator
+                    else:
+                        alpha = typed_zero
+
+                    acc = typed_zero
+                    if not converged:
+                        for i in range(n_val):
+                            x[i] += alpha * preconditioned_vec[i]
+                            rhs[i] -= alpha * temp[i]
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+                    else:
+                        for i in range(n_val):
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+
+                    converged = converged or (acc <= tol_squared)
+
+                # Log "exceeded linear iters" status if still not converged
+                final_status = selp(converged, int32(0), int32(4))
+                krylov_iters_out[0] = iter_count
+                return final_status
+
+            # no cover: end
+            return LinearSolverCache(linear_solver=linear_solver_cached)
+
+
+        else:
+            # Device function for non-cached variant
+            # no cover: start
+            @cuda.jit(
+                device=True,
+                inline=True,
+                **compile_kwargs,
             )
-            alpha_effective = selp(converged, precision_scalar(0.0), alpha)
+            def linear_solver(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                rhs,
+                x,
+                shared,
+                persistent_local,
+                krylov_iters_out,
+            ):
+                """Run one preconditioned steepest-descent or minimal-residual solve.
 
-            acc = typed_zero
-            for i in range(n_val):
-                x[i] += alpha_effective * preconditioned_vec[i]
-                rhs[i] -= alpha_effective * temp[i]
-                residual_value = rhs[i]
-                acc += residual_value * residual_value
-            converged = converged or (acc <= tol_squared)
+                Parameters
+                ----------
+                state
+                    State vector forwarded to the operator and preconditioner.
+                parameters
+                    Model parameters forwarded to the operator and preconditioner.
+                drivers
+                    External drivers forwarded to the operator and preconditioner.
+                base_state
+                    Base state for n-stage operators (unused for single-stage).
+                t
+                    Stage time forwarded to the operator and preconditioner.
+                h
+                    Step size used by the operator evaluation.
+                a_ij
+                    Stage coefficient forwarded to the operator and preconditioner.
+                rhs
+                    Right-hand side of the linear system. Overwritten with the current
+                    residual.
+                x
+                    Iterand provided as the initial guess and overwritten with the
+                    final solution.
+                shared
+                    Shared memory array for selective buffer allocation.
+                persistent_local
+                    Persistent local memory array for selective buffer allocation.
+                krylov_iters_out
+                    Single-element int32 array to receive the iteration count.
 
-            if all_sync(mask, converged):
-                return_status = int32(0)
-                return_status |= (iter_count + int32(1)) << 16
-                return return_status
-        return_status = int32(4)
-        return_status |= (iter_count + int32(1)) << 16
-        return return_status
+                Returns
+                -------
+                int
+                    ``0`` on convergence or ``4`` when the iteration limit is reached.
 
-    # no cover: end
-    return linear_solver_cached
+                Notes
+                -----
+                ``rhs`` is updated in place to hold the running residual, and ``temp``
+                is reused as the scratch vector passed to the preconditioner. The
+                iteration therefore keeps just two auxiliary vectors of length ``n``.
+                The operator, preconditioner behaviour, and correction strategy are
+                fixed by the factory closure, while ``state``, ``parameters``, and
+                ``drivers`` are treated as read-only context values.
+                """
+
+                # Allocate buffers from registry
+                preconditioned_vec = alloc_precond(shared, persistent_local)
+                temp = alloc_temp(shared, persistent_local)
+
+                operator_apply(
+                    state, parameters, drivers, base_state, t, h, a_ij, x, temp
+                )
+                acc = typed_zero
+                for i in range(n_val):
+                    residual_value = rhs[i] - temp[i]
+                    rhs[i] = residual_value
+                    acc += residual_value * residual_value
+                mask = activemask()
+                converged = acc <= tol_squared
+
+                iter_count = int32(0)
+                for _ in range(max_iters_val):
+                    if all_sync(mask, converged):
+                        break
+
+                    iter_count += int32(1)
+                    if preconditioned:
+                        preconditioner(
+                            state,
+                            parameters,
+                            drivers,
+                            base_state,
+                            t,
+                            h,
+                            a_ij,
+                            rhs,
+                            preconditioned_vec,
+                            temp,
+                        )
+                    else:
+                        for i in range(n_val):
+                            preconditioned_vec[i] = rhs[i]
+
+                    operator_apply(
+                        state,
+                        parameters,
+                        drivers,
+                        base_state,
+                        t,
+                        h,
+                        a_ij,
+                        preconditioned_vec,
+                        temp,
+                    )
+                    numerator = typed_zero
+                    denominator = typed_zero
+                    if sd_flag:
+                        for i in range(n_val):
+                            zi = preconditioned_vec[i]
+                            numerator += rhs[i] * zi
+                            denominator += temp[i] * zi
+                    elif mr_flag:
+                        for i in range(n_val):
+                            ti = temp[i]
+                            numerator += ti * rhs[i]
+                            denominator += ti * ti
+
+                    if denominator != typed_zero:
+                        alpha = numerator / denominator
+                    else:
+                        alpha = typed_zero
+
+                    acc = typed_zero
+                    if not converged:
+                        for i in range(n_val):
+                            x[i] += alpha * preconditioned_vec[i]
+                            rhs[i] -= alpha * temp[i]
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+                    else:
+                        for i in range(n_val):
+                            residual_value = rhs[i]
+                            acc += residual_value * residual_value
+
+                    converged = converged or (acc <= tol_squared)
+
+                # Log "exceeded linear iters" status if still not converged
+                final_status = selp(converged, int32(0), int32(4))
+                krylov_iters_out[0] = iter_count
+                return final_status
+
+            # no cover: end
+            return LinearSolverCache(linear_solver=linear_solver)
+
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs
+    ) -> Set[str]:
+        """Update compile settings and invalidate cache if changed.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of settings to update.
+        silent : bool, default False
+            If True, suppress warnings about unrecognized keys.
+        **kwargs
+            Additional settings as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of recognized parameter names that were updated.
+        """
+        # Merge updates
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+
+        recognized = set()
+
+        if not all_updates:
+            return recognized
+
+        recognized |= self.update_compile_settings(updates_dict=all_updates, silent=True)
+
+        # Buffer locations will trigger cache invalidation in compile settings
+        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        self.register_buffers()
+        return recognized
+
+    @property
+    def device_function(self) -> Callable:
+        """Return cached linear solver device function."""
+        return self.get_cached_output("linear_solver")
+
+    @property
+    def precision(self) -> PrecisionDType:
+        """Return configured precision."""
+        return self.compile_settings.precision
+
+    @property
+    def n(self) -> int:
+        """Return vector size."""
+        return self.compile_settings.n
+
+    @property
+    def linear_correction_type(self) -> str:
+        """Return correction strategy."""
+        return self.compile_settings.linear_correction_type
+
+    @property
+    def krylov_tolerance(self) -> float:
+        """Return convergence tolerance."""
+        return self.compile_settings.krylov_tolerance
+
+    @property
+    def max_linear_iters(self) -> int:
+        """Return maximum iterations."""
+        return self.compile_settings.max_linear_iters
+
+    @property
+    def use_cached_auxiliaries(self) -> bool:
+        """Return whether cached auxiliaries are used."""
+        return self.compile_settings.use_cached_auxiliaries
+
+    @property
+    def shared_buffer_size(self) -> int:
+        """Return total shared memory elements required."""
+        return buffer_registry.shared_buffer_size(self)
+
+    @property
+    def local_buffer_size(self) -> int:
+        """Return total local memory elements required."""
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_buffer_size(self) -> int:
+        """Return total persistent local memory elements required."""
+        return buffer_registry.persistent_local_buffer_size(self)
+
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return linear solver configuration as dictionary.
+
+        Delegates to compile_settings for configuration state.
+
+        Returns
+        -------
+        dict
+            Configuration dictionary from LinearSolverConfig.settings_dict
+        """
+        return self.compile_settings.settings_dict

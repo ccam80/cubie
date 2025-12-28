@@ -10,8 +10,11 @@ from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetrics,
     register_metric,
 )
+from numpy import float32
 
-summary_metrics: SummaryMetrics = SummaryMetrics()
+#This is the only default datatype in the whole game, look here for type
+# mismatch (unexpected float32)
+summary_metrics: SummaryMetrics = SummaryMetrics(precision=float32)
 
 # Import each metric once, to register it with the summary_metrics object.
 from cubie.outputhandling.summarymetrics import mean  # noqa

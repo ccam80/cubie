@@ -2,9 +2,9 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_explicitstep import (
@@ -30,6 +30,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
+        **kwargs,
     ) -> None:
         """Initialise the explicit Euler step configuration.
 
@@ -48,13 +49,21 @@ class ExplicitEulerStep(ODEExplicitStep):
             times.
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
+        **kwargs
+            Optional parameters passed to config classes. See
+            ExplicitStepConfig for available parameters. None values are
+            ignored.
         """
-        config = ExplicitStepConfig(
-            precision=precision,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            n=n,
+        config = build_config(
+            ExplicitStepConfig,
+            required={
+                'precision': precision,
+                'n': n,
+                'dxdt_function': dxdt_function,
+                'observables_function': observables_function,
+                'driver_function': driver_function,
+            },
+            **kwargs
         )
 
         super().__init__(config, EE_DEFAULTS.copy())
@@ -96,24 +105,24 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         # no cover: start
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision,
-                numba_precision,
-                int16,
-                int16,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -206,29 +215,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         
         return StepCache(step=step, nonlinear_solver=None)
 
-    @property
-    def shared_memory_required(self) -> int:
-        """Shared memory usage expressed in precision-sized entries."""
-
-        return super().shared_memory_required
-
-    @property
-    def local_scratch_required(self) -> int:
-        """Local scratch usage expressed in precision-sized entries."""
-
-        return 0
-
-    @property
-    def algorithm_shared_elements(self) -> int:
-        """Explicit Euler does not reserve shared scratch."""
-
-        return 0
-
-    @property
-    def algorithm_local_elements(self) -> int:
-        """Explicit Euler does not reserve persistent local storage."""
-
-        return 0
 
     @property
     def threads_per_step(self) -> int:

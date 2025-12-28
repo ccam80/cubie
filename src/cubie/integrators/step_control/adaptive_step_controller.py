@@ -44,10 +44,13 @@ def tol_converter(
     """
 
     if np.isscalar(value):
-        tol = np.asarray([value] * self_.n, dtype=self_.precision)
+        tol = np.full(self_.n, value, dtype=self_.precision)
     else:
         tol = np.asarray(value, dtype=self_.precision)
-        if tol.shape[0] != self_.n:
+        # Broadcast single-element arrays to shape (n,)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = np.full(self_.n, tol[0], dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
             raise ValueError("tol must have shape (n,).")
     return tol
 
@@ -64,7 +67,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     _dt_min: float = field(default=1e-6, validator=getype_validator(float, 0))
     _dt_max: Optional[float] = field(
-        default=None, validator=getype_validator(float, 0)
+        default=1.0, validator=getype_validator(float, 0)
     )
     atol: np.ndarray = field(
         default=np.asarray([1e-6]),
@@ -206,6 +209,7 @@ class BaseAdaptiveStepController(BaseStepController):
         """
         super().__init__()
         self.setup_compile_settings(config)
+        self.register_buffers()
 
     def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.

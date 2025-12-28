@@ -6,18 +6,18 @@ updates and CUDA utilities that are shared across the code base.
 import inspect
 from functools import wraps
 from time import time
-from typing import Any, Mapping, Tuple, Union, Optional, Iterable
+from typing import Any, Mapping, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
 import numpy as np
-from numba import cuda, float32, float64, from_dtype, int32
+from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators, Attribute
-from cubie.cuda_simsafe import compile_kwargs, is_devfunc, selp
+from attrs import fields, has, validators, Attribute, Factory, NOTHING
+from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -34,6 +34,14 @@ ALLOWED_PRECISIONS = {
     np.dtype(np.float16),
     np.dtype(np.float32),
     np.dtype(np.float64),
+}
+
+ALLOWED_BUFFER_DTYPES = {
+    np.dtype(np.float16),
+    np.dtype(np.float32),
+    np.dtype(np.float64),
+    np.dtype(np.int32),
+    np.dtype(np.int64),
 }
 
 
@@ -58,6 +66,19 @@ def precision_validator(
     if np.dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
+        )
+
+
+def buffer_dtype_validator(
+    _: object,
+    __: Attribute,
+    value: type,
+) -> None:
+    """Validate that value is a supported buffer dtype (float or int)."""
+    if np.dtype(value) not in ALLOWED_BUFFER_DTYPES:
+        raise ValueError(
+            "Buffer dtype must be one of float16, float32, float64, "
+            "int32, or int64",
         )
 
 
@@ -188,7 +209,7 @@ def split_applicable_settings(
     filtered = {
         key: value
         for key, value in settings.items()
-        if key in accepted
+        if key in accepted and value is not None
     }
     missing = required - filtered.keys()
     unused = set(settings.keys()) - accepted
@@ -291,21 +312,19 @@ def clamp_factory(precision):
     precision = from_dtype(precision)
 
     @cuda.jit(
-        precision(precision, precision, precision),
+        # precision(precision, precision, precision),
         device=True,
         inline=True,
         **compile_kwargs,
     )
     def clamp(value, minimum, maximum):
-        clamped_high = selp(value > maximum, maximum, value)
-        clamped = selp(clamped_high < minimum, minimum, clamped_high)
-        return clamped
+        return max(minimum, min(value, maximum))
 
     return clamp
 
 
 @cuda.jit(
-    (float64[:], float64[:], int32, xoro_type[:]),
+    # (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -337,7 +356,7 @@ def get_noise_64(
 
 
 @cuda.jit(
-    (float32[:], float32[:], int32, xoro_type[:]),
+    # (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -557,3 +576,156 @@ def ensure_nonzero_size(
             return value
     else:
         return value
+
+
+def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
+    """Unpack dict values into flat key-value pairs.
+    
+    When an update() method receives parameters grouped in dicts, this
+    utility flattens them before distributing to sub-components. The
+    original dict keys are tracked separately so they can be marked as
+    recognized even though they don't correspond to actual parameters.
+    
+    Parameters
+    ----------
+    updates_dict
+        Dictionary potentially containing dicts as values
+    
+    Returns
+    -------
+    Tuple[dict, Set[str]]
+        - dict: Flattened dictionary with dict values unpacked
+        - set: Set of original keys that were unpacked dicts
+    
+    Examples
+    --------
+    >>> result, unpacked = unpack_dict_values({
+    ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
+    ...     'precision': np.float32
+    ... })
+    >>> result
+    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
+    >>> unpacked
+    {'step_settings'}
+    
+    Notes
+    -----
+    If a value in the input dict is itself a dict, its key-value pairs
+    are added to the result dict directly, and the original key is
+    tracked in the unpacked set. Regular key-value pairs are preserved
+    as-is.
+    
+    Only unpacks one level deep - nested dicts within dict values are
+    not recursively unpacked. This allows each level of the update chain
+    to handle its own unpacking.
+    
+    Raises
+    ------
+    ValueError
+        If a key appears both as a regular entry and within an unpacked
+        dict, indicating a collision that would lead to ambiguous behavior.
+    """
+    result = {}
+    unpacked_keys = set()
+    for key, value in updates_dict.items():
+        if isinstance(value, dict):
+            # Check for key collisions before unpacking
+            collision_keys = set(value.keys()) & set(result.keys())
+            if collision_keys:
+                raise ValueError(
+                    f"Key collision detected: the following keys appear "
+                    f"both as regular entries and within an unpacked dict: "
+                    f"{sorted(collision_keys)}"
+                )
+            # Unpack the dict value and track the original key
+            result.update(value)
+            unpacked_keys.add(key)
+        else:
+            # Check if key already exists in result
+            if key in result:
+                raise ValueError(
+                    f"Key collision detected: the key '{key}' appears "
+                    f"multiple times in updates_dict."
+                )
+            result[key] = value
+    return result, unpacked_keys
+
+
+def build_config(
+    config_class: type,
+    required: dict,
+    **optional
+) -> Any:
+    """Build attrs config instance from required and optional parameters.
+
+    Merges required parameters with optional overrides and passes them to the
+    attrs config class constructor. The config class itself defines defaults
+    for optional fields - this function simply filters and routes kwargs.
+
+    Parameters
+    ----------
+    config_class : type
+        Attrs class to instantiate (e.g., DIRKStepConfig).
+    required : dict
+        Required parameters that must be provided. These are typically
+        function parameters like precision, n, dxdt_function.
+    **optional
+        Optional parameter overrides passed to the config constructor.
+        Extra keys not in the config class signature are ignored.
+
+    Returns
+    -------
+    config_class instance
+        Configured attrs object.
+
+    Raises
+    ------
+    TypeError
+        If config_class is not an attrs class.
+
+    Examples
+    --------
+    >>> config = build_config(
+    ...     DIRKStepConfig,
+    ...     required={'precision': np.float32, 'n': 3},
+    ...     krylov_tolerance=1e-8
+    ... )
+
+    Notes
+    -----
+    The helper:
+    - Merges required and optional kwargs
+    - Converts field names to aliases for underscore-prefixed attrs fields
+    - Filters to only valid fields (ignores extra keys)
+    - Lets attrs handle defaults for unspecified optional parameters
+    """
+    if not has(config_class):
+        raise TypeError(
+            f"{config_class.__name__} is not an attrs class"
+        )
+
+    # Build mapping of valid field names/aliases and field->alias conversion
+    valid_fields = set()
+    field_to_alias = {}
+
+    for field in fields(config_class):
+        valid_fields.add(field.name)
+        # Handle attrs auto-aliasing: _foo -> foo alias
+        if field.alias is not None:
+            valid_fields.add(field.alias)
+            field_to_alias[field.name] = field.alias
+
+    # Merge required and optional kwargs
+    merged = {**required, **optional}
+
+    # Filter to only valid fields and convert field names to aliases
+    final = {}
+    for k, v in merged.items():
+        if k in valid_fields:
+            # If key is a field name with an alias, use the alias instead
+            if k in field_to_alias:
+                final[field_to_alias[k]] = v
+            else:
+                final[k] = v
+
+    return config_class(**final)
