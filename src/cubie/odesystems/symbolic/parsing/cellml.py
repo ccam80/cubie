@@ -136,7 +136,7 @@ def load_cellml_model(
     Returns
     -------
     SymbolicODE
-        Fully initialized ODE system ready for use with solve_ivp.
+        Initialized ODE system ready for use with solve_ivp.
         State variables are configured with initial values from the
         CellML model, and algebraic equations are set up according
         to the parameters and observables specifications.

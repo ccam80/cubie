@@ -47,12 +47,12 @@ script_start = perf_counter()
 #
 # algorithm_type = 'dirk'
 # algorithm_tableau_name ='l_stable_sdirk_4'
-# algorithm_type = 'erk'
-# algorithm_tableau_name = 'tsit5'
+algorithm_type = 'erk'
+algorithm_tableau_name = 'tsit5'
 # algorithm_type = 'firk'
 # algorithm_tableau_name = 'radau'
-algorithm_type = 'rosenbrock'
-algorithm_tableau_name = 'ros3p'
+# algorithm_type = 'rosenbrock'
+# algorithm_tableau_name = 'ros3p'
 
 # Controller type: 'fixed' (fixed step) or 'pid' (adaptive PID)
 controller_type = 'pid'  # 'fixed' or 'pid'
@@ -79,18 +79,19 @@ n_counters = 4
 # -------------------------------------------------------------------------
 # Time Parameters
 # -------------------------------------------------------------------------
-duration = precision(0.20)
+duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
 # runs
 dt_save = precision(0.1)
-dt_summarise = precision(0.2)
+dt_summarise = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
 output_types = ['state', 'mean', 'max', 'rms', 'peaks[3]', 'd2xdt2_max',
                 'dxdt_min']
 # output_types = ['state']
+summary_factory_type = 'codegen'
 
 
 # -------------------------------------------------------------------------
@@ -384,6 +385,45 @@ def get_strides(
 
     return tuple(strides[dim] for dim in array_native_order)
 
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def selp(pred, true_value, false_value):
+    return cuda.selp(pred, true_value, false_value)
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def activemask():
+    return cuda.activemask()
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def all_sync(mask, predicate):
+    return cuda.all_sync(mask, predicate)
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def any_sync(mask, predicate):
+    return cuda.any_sync(mask, predicate)
+
+@cuda.jit(
+    device=True,
+    inline=True,
+    **compile_kwargs,
+)
+def syncwarp(mask):
+    return cuda.syncwarp(mask)
 
 # =========================================================================
 # AUTO-GENERATED DEVICE FUNCTION FACTORIES
@@ -4414,6 +4454,1759 @@ def save_summary_factory(
     return save_summary_metrics_func
 
 
+def unrolled_update_summary_factory(
+    summaries_buffer_height_per_var: int,
+    summarised_state_indices: tuple,
+    summarised_observable_indices: tuple,
+    summaries_list: tuple,
+):
+    """Generate unrolled summary update device function.
+
+    Uses compile-time boolean flags to conditionally execute each
+    metric update within a single device function body. Each metric
+    is guarded by a boolean captured in closure.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Total buffer size per variable.
+    summarised_state_indices
+        Array of state indices to summarize.
+    summarised_observable_indices
+        Array of observable indices to summarize.
+    summaries_list
+        Tuple of metric names to enable.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for updating summary metrics.
+    """
+    # Convert indices to int32 and compute basic sizes
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+    total_buffer_size = int32(summaries_buffer_height_per_var)
+
+    # Use preprocess_request to get the canonical metric list
+    parsed_summaries = tuple(
+        summary_metrics.preprocess_request(list(summaries_list))
+    )
+    num_metrics = len(parsed_summaries)
+
+    # Compute compile-time boolean flags for loop execution
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+
+    # Handle empty case early
+    if num_metrics == 0:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def do_nothing_update_summary(
+            current_state,
+            current_observables,
+            state_summary_buffer,
+            observable_summary_buffer,
+            current_step,
+        ):
+            pass
+        return do_nothing_update_summary
+
+    # Get buffer metadata from summary_metrics registry
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+
+    # Build lookup from parsed_summaries for index positions
+    metric_indices = {m: i for i, m in enumerate(parsed_summaries)}
+
+    # Extract per-metric enable flags, offsets, sizes, params
+    # mean
+    enable_mean = 'mean' in metric_indices
+    mean_offset = int32(buffer_offsets_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_size = int32(buffer_sizes_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_param = int32(params_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+
+    # max
+    enable_max = 'max' in metric_indices
+    max_offset = int32(buffer_offsets_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_size = int32(buffer_sizes_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_param = int32(params_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+
+    # min
+    enable_min = 'min' in metric_indices
+    min_offset = int32(buffer_offsets_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_size = int32(buffer_sizes_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_param = int32(params_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+
+    # rms
+    enable_rms = 'rms' in metric_indices
+    rms_offset = int32(buffer_offsets_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_size = int32(buffer_sizes_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_param = int32(params_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+
+    # std
+    enable_std = 'std' in metric_indices
+    std_offset = int32(buffer_offsets_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_size = int32(buffer_sizes_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_param = int32(params_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+
+    # mean_std
+    enable_mean_std = 'mean_std' in metric_indices
+    mean_std_offset = int32(buffer_offsets_list[metric_indices['mean_std']]) \
+        if enable_mean_std else int32(0)
+    mean_std_size = int32(buffer_sizes_list[metric_indices['mean_std']]) \
+        if enable_mean_std else int32(0)
+    mean_std_param = int32(params_list[metric_indices['mean_std']]) \
+        if enable_mean_std else int32(0)
+
+    # mean_std_rms
+    enable_mean_std_rms = 'mean_std_rms' in metric_indices
+    mean_std_rms_offset = int32(
+        buffer_offsets_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_size = int32(
+        buffer_sizes_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_param = int32(
+        params_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+
+    # std_rms
+    enable_std_rms = 'std_rms' in metric_indices
+    std_rms_offset = int32(buffer_offsets_list[metric_indices['std_rms']]) \
+        if enable_std_rms else int32(0)
+    std_rms_size = int32(buffer_sizes_list[metric_indices['std_rms']]) \
+        if enable_std_rms else int32(0)
+    std_rms_param = int32(params_list[metric_indices['std_rms']]) \
+        if enable_std_rms else int32(0)
+
+    # extrema
+    enable_extrema = 'extrema' in metric_indices
+    extrema_offset = int32(buffer_offsets_list[metric_indices['extrema']]) \
+        if enable_extrema else int32(0)
+    extrema_size = int32(buffer_sizes_list[metric_indices['extrema']]) \
+        if enable_extrema else int32(0)
+    extrema_param = int32(params_list[metric_indices['extrema']]) \
+        if enable_extrema else int32(0)
+
+    # peaks
+    enable_peaks = 'peaks' in metric_indices
+    peaks_offset = int32(buffer_offsets_list[metric_indices['peaks']]) \
+        if enable_peaks else int32(0)
+    peaks_size = int32(buffer_sizes_list[metric_indices['peaks']]) \
+        if enable_peaks else int32(0)
+    peaks_param = int32(params_list[metric_indices['peaks']]) \
+        if enable_peaks else int32(0)
+
+    # negative_peaks
+    enable_negative_peaks = 'negative_peaks' in metric_indices
+    negative_peaks_offset = int32(
+        buffer_offsets_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_size = int32(
+        buffer_sizes_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_param = int32(
+        params_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+
+    # max_magnitude
+    enable_max_magnitude = 'max_magnitude' in metric_indices
+    max_magnitude_offset = int32(
+        buffer_offsets_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_size = int32(
+        buffer_sizes_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_param = int32(
+        params_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+
+    # dxdt_max
+    enable_dxdt_max = 'dxdt_max' in metric_indices
+    dxdt_max_offset = int32(
+        buffer_offsets_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_size = int32(
+        buffer_sizes_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_param = int32(
+        params_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+
+    # dxdt_min
+    enable_dxdt_min = 'dxdt_min' in metric_indices
+    dxdt_min_offset = int32(
+        buffer_offsets_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_size = int32(
+        buffer_sizes_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_param = int32(
+        params_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+
+    # dxdt_extrema
+    enable_dxdt_extrema = 'dxdt_extrema' in metric_indices
+    dxdt_extrema_offset = int32(
+        buffer_offsets_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_size = int32(
+        buffer_sizes_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_param = int32(
+        params_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+
+    # d2xdt2_max
+    enable_d2xdt2_max = 'd2xdt2_max' in metric_indices
+    d2xdt2_max_offset = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_size = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_param = int32(
+        params_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+
+    # d2xdt2_min
+    enable_d2xdt2_min = 'd2xdt2_min' in metric_indices
+    d2xdt2_min_offset = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_size = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_param = int32(
+        params_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+
+    # d2xdt2_extrema
+    enable_d2xdt2_extrema = 'd2xdt2_extrema' in metric_indices
+    d2xdt2_extrema_offset = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_size = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_param = int32(
+        params_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+
+    # Capture inline update functions in closure
+    update_mean = INLINE_UPDATE_FUNCTIONS['mean']
+    update_max = INLINE_UPDATE_FUNCTIONS['max']
+    update_min = INLINE_UPDATE_FUNCTIONS['min']
+    update_rms = INLINE_UPDATE_FUNCTIONS['rms']
+    update_std = INLINE_UPDATE_FUNCTIONS['std']
+    update_mean_std = INLINE_UPDATE_FUNCTIONS['mean_std']
+    update_mean_std_rms = INLINE_UPDATE_FUNCTIONS['mean_std_rms']
+    update_std_rms = INLINE_UPDATE_FUNCTIONS['std_rms']
+    update_extrema = INLINE_UPDATE_FUNCTIONS['extrema']
+    update_peaks = INLINE_UPDATE_FUNCTIONS['peaks']
+    update_negative_peaks = INLINE_UPDATE_FUNCTIONS['negative_peaks']
+    update_max_magnitude = INLINE_UPDATE_FUNCTIONS['max_magnitude']
+    update_dxdt_max = INLINE_UPDATE_FUNCTIONS['dxdt_max']
+    update_dxdt_min = INLINE_UPDATE_FUNCTIONS['dxdt_min']
+    update_dxdt_extrema = INLINE_UPDATE_FUNCTIONS['dxdt_extrema']
+    update_d2xdt2_max = INLINE_UPDATE_FUNCTIONS['d2xdt2_max']
+    update_d2xdt2_min = INLINE_UPDATE_FUNCTIONS['d2xdt2_min']
+    update_d2xdt2_extrema = INLINE_UPDATE_FUNCTIONS['d2xdt2_extrema']
+
+    # Define the device function with conditional execution
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def update_summary_metrics_func(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
+        if summarise_states:
+            for idx in range(num_summarised_states):
+                base = idx * total_buffer_size
+                value = current_state[summarised_state_indices[idx]]
+
+                # Conditional calls guarded by compile-time booleans
+                if enable_mean:
+                    update_mean(
+                        value,
+                        state_summary_buffer[
+                            base + mean_offset:base + mean_offset + mean_size
+                        ],
+                        current_step,
+                        mean_param,
+                    )
+                if enable_max:
+                    update_max(
+                        value,
+                        state_summary_buffer[
+                            base + max_offset:base + max_offset + max_size
+                        ],
+                        current_step,
+                        max_param,
+                    )
+                if enable_min:
+                    update_min(
+                        value,
+                        state_summary_buffer[
+                            base + min_offset:base + min_offset + min_size
+                        ],
+                        current_step,
+                        min_param,
+                    )
+                if enable_rms:
+                    update_rms(
+                        value,
+                        state_summary_buffer[
+                            base + rms_offset:base + rms_offset + rms_size
+                        ],
+                        current_step,
+                        rms_param,
+                    )
+                if enable_std:
+                    update_std(
+                        value,
+                        state_summary_buffer[
+                            base + std_offset:base + std_offset + std_size
+                        ],
+                        current_step,
+                        std_param,
+                    )
+                if enable_mean_std:
+                    update_mean_std(
+                        value,
+                        state_summary_buffer[
+                            base + mean_std_offset:
+                            base + mean_std_offset + mean_std_size
+                        ],
+                        current_step,
+                        mean_std_param,
+                    )
+                if enable_mean_std_rms:
+                    update_mean_std_rms(
+                        value,
+                        state_summary_buffer[
+                            base + mean_std_rms_offset:
+                            base + mean_std_rms_offset + mean_std_rms_size
+                        ],
+                        current_step,
+                        mean_std_rms_param,
+                    )
+                if enable_std_rms:
+                    update_std_rms(
+                        value,
+                        state_summary_buffer[
+                            base + std_rms_offset:
+                            base + std_rms_offset + std_rms_size
+                        ],
+                        current_step,
+                        std_rms_param,
+                    )
+                if enable_extrema:
+                    update_extrema(
+                        value,
+                        state_summary_buffer[
+                            base + extrema_offset:
+                            base + extrema_offset + extrema_size
+                        ],
+                        current_step,
+                        extrema_param,
+                    )
+                if enable_peaks:
+                    update_peaks(
+                        value,
+                        state_summary_buffer[
+                            base + peaks_offset:
+                            base + peaks_offset + peaks_size
+                        ],
+                        current_step,
+                        peaks_param,
+                    )
+                if enable_negative_peaks:
+                    update_negative_peaks(
+                        value,
+                        state_summary_buffer[
+                            base + negative_peaks_offset:
+                            base + negative_peaks_offset + negative_peaks_size
+                        ],
+                        current_step,
+                        negative_peaks_param,
+                    )
+                if enable_max_magnitude:
+                    update_max_magnitude(
+                        value,
+                        state_summary_buffer[
+                            base + max_magnitude_offset:
+                            base + max_magnitude_offset + max_magnitude_size
+                        ],
+                        current_step,
+                        max_magnitude_param,
+                    )
+                if enable_dxdt_max:
+                    update_dxdt_max(
+                        value,
+                        state_summary_buffer[
+                            base + dxdt_max_offset:
+                            base + dxdt_max_offset + dxdt_max_size
+                        ],
+                        current_step,
+                        dxdt_max_param,
+                    )
+                if enable_dxdt_min:
+                    update_dxdt_min(
+                        value,
+                        state_summary_buffer[
+                            base + dxdt_min_offset:
+                            base + dxdt_min_offset + dxdt_min_size
+                        ],
+                        current_step,
+                        dxdt_min_param,
+                    )
+                if enable_dxdt_extrema:
+                    update_dxdt_extrema(
+                        value,
+                        state_summary_buffer[
+                            base + dxdt_extrema_offset:
+                            base + dxdt_extrema_offset + dxdt_extrema_size
+                        ],
+                        current_step,
+                        dxdt_extrema_param,
+                    )
+                if enable_d2xdt2_max:
+                    update_d2xdt2_max(
+                        value,
+                        state_summary_buffer[
+                            base + d2xdt2_max_offset:
+                            base + d2xdt2_max_offset + d2xdt2_max_size
+                        ],
+                        current_step,
+                        d2xdt2_max_param,
+                    )
+                if enable_d2xdt2_min:
+                    update_d2xdt2_min(
+                        value,
+                        state_summary_buffer[
+                            base + d2xdt2_min_offset:
+                            base + d2xdt2_min_offset + d2xdt2_min_size
+                        ],
+                        current_step,
+                        d2xdt2_min_param,
+                    )
+                if enable_d2xdt2_extrema:
+                    update_d2xdt2_extrema(
+                        value,
+                        state_summary_buffer[
+                            base + d2xdt2_extrema_offset:
+                            base + d2xdt2_extrema_offset + d2xdt2_extrema_size
+                        ],
+                        current_step,
+                        d2xdt2_extrema_param,
+                    )
+
+        if summarise_observables:
+            for idx in range(num_summarised_observables):
+                base = idx * total_buffer_size
+                value = current_observables[
+                    summarised_observable_indices[idx]
+                ]
+
+                # Conditional calls guarded by compile-time booleans
+                if enable_mean:
+                    update_mean(
+                        value,
+                        observable_summary_buffer[
+                            base + mean_offset:base + mean_offset + mean_size
+                        ],
+                        current_step,
+                        mean_param,
+                    )
+                if enable_max:
+                    update_max(
+                        value,
+                        observable_summary_buffer[
+                            base + max_offset:base + max_offset + max_size
+                        ],
+                        current_step,
+                        max_param,
+                    )
+                if enable_min:
+                    update_min(
+                        value,
+                        observable_summary_buffer[
+                            base + min_offset:base + min_offset + min_size
+                        ],
+                        current_step,
+                        min_param,
+                    )
+                if enable_rms:
+                    update_rms(
+                        value,
+                        observable_summary_buffer[
+                            base + rms_offset:base + rms_offset + rms_size
+                        ],
+                        current_step,
+                        rms_param,
+                    )
+                if enable_std:
+                    update_std(
+                        value,
+                        observable_summary_buffer[
+                            base + std_offset:base + std_offset + std_size
+                        ],
+                        current_step,
+                        std_param,
+                    )
+                if enable_mean_std:
+                    update_mean_std(
+                        value,
+                        observable_summary_buffer[
+                            base + mean_std_offset:
+                            base + mean_std_offset + mean_std_size
+                        ],
+                        current_step,
+                        mean_std_param,
+                    )
+                if enable_mean_std_rms:
+                    update_mean_std_rms(
+                        value,
+                        observable_summary_buffer[
+                            base + mean_std_rms_offset:
+                            base + mean_std_rms_offset + mean_std_rms_size
+                        ],
+                        current_step,
+                        mean_std_rms_param,
+                    )
+                if enable_std_rms:
+                    update_std_rms(
+                        value,
+                        observable_summary_buffer[
+                            base + std_rms_offset:
+                            base + std_rms_offset + std_rms_size
+                        ],
+                        current_step,
+                        std_rms_param,
+                    )
+                if enable_extrema:
+                    update_extrema(
+                        value,
+                        observable_summary_buffer[
+                            base + extrema_offset:
+                            base + extrema_offset + extrema_size
+                        ],
+                        current_step,
+                        extrema_param,
+                    )
+                if enable_peaks:
+                    update_peaks(
+                        value,
+                        observable_summary_buffer[
+                            base + peaks_offset:
+                            base + peaks_offset + peaks_size
+                        ],
+                        current_step,
+                        peaks_param,
+                    )
+                if enable_negative_peaks:
+                    update_negative_peaks(
+                        value,
+                        observable_summary_buffer[
+                            base + negative_peaks_offset:
+                            base + negative_peaks_offset + negative_peaks_size
+                        ],
+                        current_step,
+                        negative_peaks_param,
+                    )
+                if enable_max_magnitude:
+                    update_max_magnitude(
+                        value,
+                        observable_summary_buffer[
+                            base + max_magnitude_offset:
+                            base + max_magnitude_offset + max_magnitude_size
+                        ],
+                        current_step,
+                        max_magnitude_param,
+                    )
+                if enable_dxdt_max:
+                    update_dxdt_max(
+                        value,
+                        observable_summary_buffer[
+                            base + dxdt_max_offset:
+                            base + dxdt_max_offset + dxdt_max_size
+                        ],
+                        current_step,
+                        dxdt_max_param,
+                    )
+                if enable_dxdt_min:
+                    update_dxdt_min(
+                        value,
+                        observable_summary_buffer[
+                            base + dxdt_min_offset:
+                            base + dxdt_min_offset + dxdt_min_size
+                        ],
+                        current_step,
+                        dxdt_min_param,
+                    )
+                if enable_dxdt_extrema:
+                    update_dxdt_extrema(
+                        value,
+                        observable_summary_buffer[
+                            base + dxdt_extrema_offset:
+                            base + dxdt_extrema_offset + dxdt_extrema_size
+                        ],
+                        current_step,
+                        dxdt_extrema_param,
+                    )
+                if enable_d2xdt2_max:
+                    update_d2xdt2_max(
+                        value,
+                        observable_summary_buffer[
+                            base + d2xdt2_max_offset:
+                            base + d2xdt2_max_offset + d2xdt2_max_size
+                        ],
+                        current_step,
+                        d2xdt2_max_param,
+                    )
+                if enable_d2xdt2_min:
+                    update_d2xdt2_min(
+                        value,
+                        observable_summary_buffer[
+                            base + d2xdt2_min_offset:
+                            base + d2xdt2_min_offset + d2xdt2_min_size
+                        ],
+                        current_step,
+                        d2xdt2_min_param,
+                    )
+                if enable_d2xdt2_extrema:
+                    update_d2xdt2_extrema(
+                        value,
+                        observable_summary_buffer[
+                            base + d2xdt2_extrema_offset:
+                            base + d2xdt2_extrema_offset + d2xdt2_extrema_size
+                        ],
+                        current_step,
+                        d2xdt2_extrema_param,
+                    )
+
+    return update_summary_metrics_func
+
+
+def unrolled_save_summary_factory(
+    summaries_buffer_height_per_var: int,
+    summarised_state_indices: tuple,
+    summarised_observable_indices: tuple,
+    summaries_list: tuple,
+):
+    """Generate unrolled summary save device function.
+
+    Uses compile-time boolean flags to conditionally execute each
+    metric save within a single device function body. Each metric
+    is guarded by a boolean captured in closure.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Total buffer size per variable.
+    summarised_state_indices
+        Array of state indices to summarize.
+    summarised_observable_indices
+        Array of observable indices to summarize.
+    summaries_list
+        Tuple of metric names to enable.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for saving summary metrics.
+    """
+    # Convert indices to int32 and compute basic sizes
+    num_summarised_states = int32(len(summarised_state_indices))
+    num_summarised_observables = int32(len(summarised_observable_indices))
+    total_buffer_size = int32(summaries_buffer_height_per_var)
+    total_output_size = int32(
+        summary_metrics.summaries_output_height(summaries_list)
+    )
+
+    # Use preprocess_request to get the canonical metric list
+    parsed_summaries = tuple(
+        summary_metrics.preprocess_request(list(summaries_list))
+    )
+    num_metrics = len(parsed_summaries)
+
+    # Compute compile-time boolean flags for loop execution
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+
+    # Handle empty case early
+    if num_metrics == 0:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def do_nothing_save_summary(
+            buffer_state_summaries,
+            buffer_observable_summaries,
+            output_state_summaries_window,
+            output_observable_summaries_window,
+        ):
+            pass
+        return do_nothing_save_summary
+
+    # Get buffer and output metadata from summary_metrics registry
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    output_offsets_list = summary_metrics.output_offsets(summaries_list)
+    output_sizes_list = summary_metrics.output_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+
+    # Build lookup from parsed_summaries for index positions
+    metric_indices = {m: i for i, m in enumerate(parsed_summaries)}
+
+    # Extract per-metric enable flags, buffer offsets/sizes, output
+    # offsets/sizes, and params
+    # mean
+    enable_mean = 'mean' in metric_indices
+    mean_buf_off = int32(buffer_offsets_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_buf_sz = int32(buffer_sizes_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_out_off = int32(output_offsets_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_out_sz = int32(output_sizes_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+    mean_param = int32(params_list[metric_indices['mean']]) \
+        if enable_mean else int32(0)
+
+    # max
+    enable_max = 'max' in metric_indices
+    max_buf_off = int32(buffer_offsets_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_buf_sz = int32(buffer_sizes_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_out_off = int32(output_offsets_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_out_sz = int32(output_sizes_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+    max_param = int32(params_list[metric_indices['max']]) \
+        if enable_max else int32(0)
+
+    # min
+    enable_min = 'min' in metric_indices
+    min_buf_off = int32(buffer_offsets_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_buf_sz = int32(buffer_sizes_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_out_off = int32(output_offsets_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_out_sz = int32(output_sizes_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+    min_param = int32(params_list[metric_indices['min']]) \
+        if enable_min else int32(0)
+
+    # rms
+    enable_rms = 'rms' in metric_indices
+    rms_buf_off = int32(buffer_offsets_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_buf_sz = int32(buffer_sizes_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_out_off = int32(output_offsets_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_out_sz = int32(output_sizes_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+    rms_param = int32(params_list[metric_indices['rms']]) \
+        if enable_rms else int32(0)
+
+    # std
+    enable_std = 'std' in metric_indices
+    std_buf_off = int32(buffer_offsets_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_buf_sz = int32(buffer_sizes_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_out_off = int32(output_offsets_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_out_sz = int32(output_sizes_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+    std_param = int32(params_list[metric_indices['std']]) \
+        if enable_std else int32(0)
+
+    # mean_std
+    enable_mean_std = 'mean_std' in metric_indices
+    mean_std_buf_off = int32(
+        buffer_offsets_list[metric_indices['mean_std']]
+    ) if enable_mean_std else int32(0)
+    mean_std_buf_sz = int32(
+        buffer_sizes_list[metric_indices['mean_std']]
+    ) if enable_mean_std else int32(0)
+    mean_std_out_off = int32(
+        output_offsets_list[metric_indices['mean_std']]
+    ) if enable_mean_std else int32(0)
+    mean_std_out_sz = int32(
+        output_sizes_list[metric_indices['mean_std']]
+    ) if enable_mean_std else int32(0)
+    mean_std_param = int32(
+        params_list[metric_indices['mean_std']]
+    ) if enable_mean_std else int32(0)
+
+    # mean_std_rms
+    enable_mean_std_rms = 'mean_std_rms' in metric_indices
+    mean_std_rms_buf_off = int32(
+        buffer_offsets_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_buf_sz = int32(
+        buffer_sizes_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_out_off = int32(
+        output_offsets_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_out_sz = int32(
+        output_sizes_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+    mean_std_rms_param = int32(
+        params_list[metric_indices['mean_std_rms']]
+    ) if enable_mean_std_rms else int32(0)
+
+    # std_rms
+    enable_std_rms = 'std_rms' in metric_indices
+    std_rms_buf_off = int32(
+        buffer_offsets_list[metric_indices['std_rms']]
+    ) if enable_std_rms else int32(0)
+    std_rms_buf_sz = int32(
+        buffer_sizes_list[metric_indices['std_rms']]
+    ) if enable_std_rms else int32(0)
+    std_rms_out_off = int32(
+        output_offsets_list[metric_indices['std_rms']]
+    ) if enable_std_rms else int32(0)
+    std_rms_out_sz = int32(
+        output_sizes_list[metric_indices['std_rms']]
+    ) if enable_std_rms else int32(0)
+    std_rms_param = int32(
+        params_list[metric_indices['std_rms']]
+    ) if enable_std_rms else int32(0)
+
+    # extrema
+    enable_extrema = 'extrema' in metric_indices
+    extrema_buf_off = int32(
+        buffer_offsets_list[metric_indices['extrema']]
+    ) if enable_extrema else int32(0)
+    extrema_buf_sz = int32(
+        buffer_sizes_list[metric_indices['extrema']]
+    ) if enable_extrema else int32(0)
+    extrema_out_off = int32(
+        output_offsets_list[metric_indices['extrema']]
+    ) if enable_extrema else int32(0)
+    extrema_out_sz = int32(
+        output_sizes_list[metric_indices['extrema']]
+    ) if enable_extrema else int32(0)
+    extrema_param = int32(
+        params_list[metric_indices['extrema']]
+    ) if enable_extrema else int32(0)
+
+    # peaks
+    enable_peaks = 'peaks' in metric_indices
+    peaks_buf_off = int32(
+        buffer_offsets_list[metric_indices['peaks']]
+    ) if enable_peaks else int32(0)
+    peaks_buf_sz = int32(
+        buffer_sizes_list[metric_indices['peaks']]
+    ) if enable_peaks else int32(0)
+    peaks_out_off = int32(
+        output_offsets_list[metric_indices['peaks']]
+    ) if enable_peaks else int32(0)
+    peaks_out_sz = int32(
+        output_sizes_list[metric_indices['peaks']]
+    ) if enable_peaks else int32(0)
+    peaks_param = int32(
+        params_list[metric_indices['peaks']]
+    ) if enable_peaks else int32(0)
+
+    # negative_peaks
+    enable_negative_peaks = 'negative_peaks' in metric_indices
+    negative_peaks_buf_off = int32(
+        buffer_offsets_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_buf_sz = int32(
+        buffer_sizes_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_out_off = int32(
+        output_offsets_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_out_sz = int32(
+        output_sizes_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+    negative_peaks_param = int32(
+        params_list[metric_indices['negative_peaks']]
+    ) if enable_negative_peaks else int32(0)
+
+    # max_magnitude
+    enable_max_magnitude = 'max_magnitude' in metric_indices
+    max_magnitude_buf_off = int32(
+        buffer_offsets_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_buf_sz = int32(
+        buffer_sizes_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_out_off = int32(
+        output_offsets_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_out_sz = int32(
+        output_sizes_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+    max_magnitude_param = int32(
+        params_list[metric_indices['max_magnitude']]
+    ) if enable_max_magnitude else int32(0)
+
+    # dxdt_max
+    enable_dxdt_max = 'dxdt_max' in metric_indices
+    dxdt_max_buf_off = int32(
+        buffer_offsets_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_buf_sz = int32(
+        buffer_sizes_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_out_off = int32(
+        output_offsets_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_out_sz = int32(
+        output_sizes_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+    dxdt_max_param = int32(
+        params_list[metric_indices['dxdt_max']]
+    ) if enable_dxdt_max else int32(0)
+
+    # dxdt_min
+    enable_dxdt_min = 'dxdt_min' in metric_indices
+    dxdt_min_buf_off = int32(
+        buffer_offsets_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_buf_sz = int32(
+        buffer_sizes_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_out_off = int32(
+        output_offsets_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_out_sz = int32(
+        output_sizes_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+    dxdt_min_param = int32(
+        params_list[metric_indices['dxdt_min']]
+    ) if enable_dxdt_min else int32(0)
+
+    # dxdt_extrema
+    enable_dxdt_extrema = 'dxdt_extrema' in metric_indices
+    dxdt_extrema_buf_off = int32(
+        buffer_offsets_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_buf_sz = int32(
+        buffer_sizes_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_out_off = int32(
+        output_offsets_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_out_sz = int32(
+        output_sizes_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+    dxdt_extrema_param = int32(
+        params_list[metric_indices['dxdt_extrema']]
+    ) if enable_dxdt_extrema else int32(0)
+
+    # d2xdt2_max
+    enable_d2xdt2_max = 'd2xdt2_max' in metric_indices
+    d2xdt2_max_buf_off = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_buf_sz = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_out_off = int32(
+        output_offsets_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_out_sz = int32(
+        output_sizes_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+    d2xdt2_max_param = int32(
+        params_list[metric_indices['d2xdt2_max']]
+    ) if enable_d2xdt2_max else int32(0)
+
+    # d2xdt2_min
+    enable_d2xdt2_min = 'd2xdt2_min' in metric_indices
+    d2xdt2_min_buf_off = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_buf_sz = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_out_off = int32(
+        output_offsets_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_out_sz = int32(
+        output_sizes_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+    d2xdt2_min_param = int32(
+        params_list[metric_indices['d2xdt2_min']]
+    ) if enable_d2xdt2_min else int32(0)
+
+    # d2xdt2_extrema
+    enable_d2xdt2_extrema = 'd2xdt2_extrema' in metric_indices
+    d2xdt2_extrema_buf_off = int32(
+        buffer_offsets_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_buf_sz = int32(
+        buffer_sizes_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_out_off = int32(
+        output_offsets_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_out_sz = int32(
+        output_sizes_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+    d2xdt2_extrema_param = int32(
+        params_list[metric_indices['d2xdt2_extrema']]
+    ) if enable_d2xdt2_extrema else int32(0)
+
+    # Capture inline save functions in closure
+    save_mean = INLINE_SAVE_FUNCTIONS['mean']
+    save_max = INLINE_SAVE_FUNCTIONS['max']
+    save_min = INLINE_SAVE_FUNCTIONS['min']
+    save_rms = INLINE_SAVE_FUNCTIONS['rms']
+    save_std = INLINE_SAVE_FUNCTIONS['std']
+    save_mean_std = INLINE_SAVE_FUNCTIONS['mean_std']
+    save_mean_std_rms = INLINE_SAVE_FUNCTIONS['mean_std_rms']
+    save_std_rms = INLINE_SAVE_FUNCTIONS['std_rms']
+    save_extrema = INLINE_SAVE_FUNCTIONS['extrema']
+    save_peaks = INLINE_SAVE_FUNCTIONS['peaks']
+    save_negative_peaks = INLINE_SAVE_FUNCTIONS['negative_peaks']
+    save_max_magnitude = INLINE_SAVE_FUNCTIONS['max_magnitude']
+    save_dxdt_max = INLINE_SAVE_FUNCTIONS['dxdt_max']
+    save_dxdt_min = INLINE_SAVE_FUNCTIONS['dxdt_min']
+    save_dxdt_extrema = INLINE_SAVE_FUNCTIONS['dxdt_extrema']
+    save_d2xdt2_max = INLINE_SAVE_FUNCTIONS['d2xdt2_max']
+    save_d2xdt2_min = INLINE_SAVE_FUNCTIONS['d2xdt2_min']
+    save_d2xdt2_extrema = INLINE_SAVE_FUNCTIONS['d2xdt2_extrema']
+
+    # Define the device function with conditional execution
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def save_summary_metrics_func(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+    ):
+        if summarise_states:
+            for state_index in range(num_summarised_states):
+                buf_start = state_index * total_buffer_size
+                out_start = state_index * total_output_size
+                buf = buffer_state_summaries[
+                    buf_start:buf_start + total_buffer_size
+                ]
+                out = output_state_summaries_window[
+                    out_start:out_start + total_output_size
+                ]
+
+                # Conditional save calls guarded by compile-time booleans
+                if enable_mean:
+                    save_mean(
+                        buf[mean_buf_off:mean_buf_off + mean_buf_sz],
+                        out[mean_out_off:mean_out_off + mean_out_sz],
+                        mean_param,
+                    )
+                if enable_max:
+                    save_max(
+                        buf[max_buf_off:max_buf_off + max_buf_sz],
+                        out[max_out_off:max_out_off + max_out_sz],
+                        max_param,
+                    )
+                if enable_min:
+                    save_min(
+                        buf[min_buf_off:min_buf_off + min_buf_sz],
+                        out[min_out_off:min_out_off + min_out_sz],
+                        min_param,
+                    )
+                if enable_rms:
+                    save_rms(
+                        buf[rms_buf_off:rms_buf_off + rms_buf_sz],
+                        out[rms_out_off:rms_out_off + rms_out_sz],
+                        rms_param,
+                    )
+                if enable_std:
+                    save_std(
+                        buf[std_buf_off:std_buf_off + std_buf_sz],
+                        out[std_out_off:std_out_off + std_out_sz],
+                        std_param,
+                    )
+                if enable_mean_std:
+                    save_mean_std(
+                        buf[mean_std_buf_off:
+                            mean_std_buf_off + mean_std_buf_sz],
+                        out[mean_std_out_off:
+                            mean_std_out_off + mean_std_out_sz],
+                        mean_std_param,
+                    )
+                if enable_mean_std_rms:
+                    save_mean_std_rms(
+                        buf[mean_std_rms_buf_off:
+                            mean_std_rms_buf_off + mean_std_rms_buf_sz],
+                        out[mean_std_rms_out_off:
+                            mean_std_rms_out_off + mean_std_rms_out_sz],
+                        mean_std_rms_param,
+                    )
+                if enable_std_rms:
+                    save_std_rms(
+                        buf[std_rms_buf_off:std_rms_buf_off + std_rms_buf_sz],
+                        out[std_rms_out_off:std_rms_out_off + std_rms_out_sz],
+                        std_rms_param,
+                    )
+                if enable_extrema:
+                    save_extrema(
+                        buf[extrema_buf_off:extrema_buf_off + extrema_buf_sz],
+                        out[extrema_out_off:extrema_out_off + extrema_out_sz],
+                        extrema_param,
+                    )
+                if enable_peaks:
+                    save_peaks(
+                        buf[peaks_buf_off:peaks_buf_off + peaks_buf_sz],
+                        out[peaks_out_off:peaks_out_off + peaks_out_sz],
+                        peaks_param,
+                    )
+                if enable_negative_peaks:
+                    save_negative_peaks(
+                        buf[negative_peaks_buf_off:
+                            negative_peaks_buf_off + negative_peaks_buf_sz],
+                        out[negative_peaks_out_off:
+                            negative_peaks_out_off + negative_peaks_out_sz],
+                        negative_peaks_param,
+                    )
+                if enable_max_magnitude:
+                    save_max_magnitude(
+                        buf[max_magnitude_buf_off:
+                            max_magnitude_buf_off + max_magnitude_buf_sz],
+                        out[max_magnitude_out_off:
+                            max_magnitude_out_off + max_magnitude_out_sz],
+                        max_magnitude_param,
+                    )
+                if enable_dxdt_max:
+                    save_dxdt_max(
+                        buf[dxdt_max_buf_off:
+                            dxdt_max_buf_off + dxdt_max_buf_sz],
+                        out[dxdt_max_out_off:
+                            dxdt_max_out_off + dxdt_max_out_sz],
+                        dxdt_max_param,
+                    )
+                if enable_dxdt_min:
+                    save_dxdt_min(
+                        buf[dxdt_min_buf_off:
+                            dxdt_min_buf_off + dxdt_min_buf_sz],
+                        out[dxdt_min_out_off:
+                            dxdt_min_out_off + dxdt_min_out_sz],
+                        dxdt_min_param,
+                    )
+                if enable_dxdt_extrema:
+                    save_dxdt_extrema(
+                        buf[dxdt_extrema_buf_off:
+                            dxdt_extrema_buf_off + dxdt_extrema_buf_sz],
+                        out[dxdt_extrema_out_off:
+                            dxdt_extrema_out_off + dxdt_extrema_out_sz],
+                        dxdt_extrema_param,
+                    )
+                if enable_d2xdt2_max:
+                    save_d2xdt2_max(
+                        buf[d2xdt2_max_buf_off:
+                            d2xdt2_max_buf_off + d2xdt2_max_buf_sz],
+                        out[d2xdt2_max_out_off:
+                            d2xdt2_max_out_off + d2xdt2_max_out_sz],
+                        d2xdt2_max_param,
+                    )
+                if enable_d2xdt2_min:
+                    save_d2xdt2_min(
+                        buf[d2xdt2_min_buf_off:
+                            d2xdt2_min_buf_off + d2xdt2_min_buf_sz],
+                        out[d2xdt2_min_out_off:
+                            d2xdt2_min_out_off + d2xdt2_min_out_sz],
+                        d2xdt2_min_param,
+                    )
+                if enable_d2xdt2_extrema:
+                    save_d2xdt2_extrema(
+                        buf[d2xdt2_extrema_buf_off:
+                            d2xdt2_extrema_buf_off + d2xdt2_extrema_buf_sz],
+                        out[d2xdt2_extrema_out_off:
+                            d2xdt2_extrema_out_off + d2xdt2_extrema_out_sz],
+                        d2xdt2_extrema_param,
+                    )
+
+        if summarise_observables:
+            for obs_index in range(num_summarised_observables):
+                buf_start = obs_index * total_buffer_size
+                out_start = obs_index * total_output_size
+                buf = buffer_observable_summaries[
+                    buf_start:buf_start + total_buffer_size
+                ]
+                out = output_observable_summaries_window[
+                    out_start:out_start + total_output_size
+                ]
+
+                # Conditional save calls guarded by compile-time booleans
+                if enable_mean:
+                    save_mean(
+                        buf[mean_buf_off:mean_buf_off + mean_buf_sz],
+                        out[mean_out_off:mean_out_off + mean_out_sz],
+                        mean_param,
+                    )
+                if enable_max:
+                    save_max(
+                        buf[max_buf_off:max_buf_off + max_buf_sz],
+                        out[max_out_off:max_out_off + max_out_sz],
+                        max_param,
+                    )
+                if enable_min:
+                    save_min(
+                        buf[min_buf_off:min_buf_off + min_buf_sz],
+                        out[min_out_off:min_out_off + min_out_sz],
+                        min_param,
+                    )
+                if enable_rms:
+                    save_rms(
+                        buf[rms_buf_off:rms_buf_off + rms_buf_sz],
+                        out[rms_out_off:rms_out_off + rms_out_sz],
+                        rms_param,
+                    )
+                if enable_std:
+                    save_std(
+                        buf[std_buf_off:std_buf_off + std_buf_sz],
+                        out[std_out_off:std_out_off + std_out_sz],
+                        std_param,
+                    )
+                if enable_mean_std:
+                    save_mean_std(
+                        buf[mean_std_buf_off:
+                            mean_std_buf_off + mean_std_buf_sz],
+                        out[mean_std_out_off:
+                            mean_std_out_off + mean_std_out_sz],
+                        mean_std_param,
+                    )
+                if enable_mean_std_rms:
+                    save_mean_std_rms(
+                        buf[mean_std_rms_buf_off:
+                            mean_std_rms_buf_off + mean_std_rms_buf_sz],
+                        out[mean_std_rms_out_off:
+                            mean_std_rms_out_off + mean_std_rms_out_sz],
+                        mean_std_rms_param,
+                    )
+                if enable_std_rms:
+                    save_std_rms(
+                        buf[std_rms_buf_off:std_rms_buf_off + std_rms_buf_sz],
+                        out[std_rms_out_off:std_rms_out_off + std_rms_out_sz],
+                        std_rms_param,
+                    )
+                if enable_extrema:
+                    save_extrema(
+                        buf[extrema_buf_off:extrema_buf_off + extrema_buf_sz],
+                        out[extrema_out_off:extrema_out_off + extrema_out_sz],
+                        extrema_param,
+                    )
+                if enable_peaks:
+                    save_peaks(
+                        buf[peaks_buf_off:peaks_buf_off + peaks_buf_sz],
+                        out[peaks_out_off:peaks_out_off + peaks_out_sz],
+                        peaks_param,
+                    )
+                if enable_negative_peaks:
+                    save_negative_peaks(
+                        buf[negative_peaks_buf_off:
+                            negative_peaks_buf_off + negative_peaks_buf_sz],
+                        out[negative_peaks_out_off:
+                            negative_peaks_out_off + negative_peaks_out_sz],
+                        negative_peaks_param,
+                    )
+                if enable_max_magnitude:
+                    save_max_magnitude(
+                        buf[max_magnitude_buf_off:
+                            max_magnitude_buf_off + max_magnitude_buf_sz],
+                        out[max_magnitude_out_off:
+                            max_magnitude_out_off + max_magnitude_out_sz],
+                        max_magnitude_param,
+                    )
+                if enable_dxdt_max:
+                    save_dxdt_max(
+                        buf[dxdt_max_buf_off:
+                            dxdt_max_buf_off + dxdt_max_buf_sz],
+                        out[dxdt_max_out_off:
+                            dxdt_max_out_off + dxdt_max_out_sz],
+                        dxdt_max_param,
+                    )
+                if enable_dxdt_min:
+                    save_dxdt_min(
+                        buf[dxdt_min_buf_off:
+                            dxdt_min_buf_off + dxdt_min_buf_sz],
+                        out[dxdt_min_out_off:
+                            dxdt_min_out_off + dxdt_min_out_sz],
+                        dxdt_min_param,
+                    )
+                if enable_dxdt_extrema:
+                    save_dxdt_extrema(
+                        buf[dxdt_extrema_buf_off:
+                            dxdt_extrema_buf_off + dxdt_extrema_buf_sz],
+                        out[dxdt_extrema_out_off:
+                            dxdt_extrema_out_off + dxdt_extrema_out_sz],
+                        dxdt_extrema_param,
+                    )
+                if enable_d2xdt2_max:
+                    save_d2xdt2_max(
+                        buf[d2xdt2_max_buf_off:
+                            d2xdt2_max_buf_off + d2xdt2_max_buf_sz],
+                        out[d2xdt2_max_out_off:
+                            d2xdt2_max_out_off + d2xdt2_max_out_sz],
+                        d2xdt2_max_param,
+                    )
+                if enable_d2xdt2_min:
+                    save_d2xdt2_min(
+                        buf[d2xdt2_min_buf_off:
+                            d2xdt2_min_buf_off + d2xdt2_min_buf_sz],
+                        out[d2xdt2_min_out_off:
+                            d2xdt2_min_out_off + d2xdt2_min_out_sz],
+                        d2xdt2_min_param,
+                    )
+                if enable_d2xdt2_extrema:
+                    save_d2xdt2_extrema(
+                        buf[d2xdt2_extrema_buf_off:
+                            d2xdt2_extrema_buf_off + d2xdt2_extrema_buf_sz],
+                        out[d2xdt2_extrema_out_off:
+                            d2xdt2_extrema_out_off + d2xdt2_extrema_out_sz],
+                        d2xdt2_extrema_param,
+                    )
+
+    return save_summary_metrics_func
+
+
+# =========================================================================
+# CODEGEN-BASED SUMMARY FACTORIES
+# =========================================================================
+
+UPDATE_SUMMARY_TEMPLATE = '''
+def {func_name}():
+    """Auto-generated summary update factory."""
+    from numba import cuda, int32
+    from cubie.cuda_simsafe import compile_kwargs
+{constant_assignments}
+
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def update_summary_metrics_func(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
+{body}
+
+    return update_summary_metrics_func
+'''
+
+
+def codegen_update_summary_factory(
+    summaries_buffer_height_per_var: int,
+    summarised_state_indices: tuple,
+    summarised_observable_indices: tuple,
+    summaries_list: tuple,
+):
+    """Generate summary update device function via code generation.
+
+    Generates Python source code as a string and uses exec() to
+    compile the generated code into a CUDA device function.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Total buffer size per variable.
+    summarised_state_indices
+        Array of state indices to summarize.
+    summarised_observable_indices
+        Array of observable indices to summarize.
+    summaries_list
+        Tuple of metric names to enable.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for updating summary metrics.
+    """
+    # Preprocess metrics to get canonical list
+    parsed_summaries = tuple(
+        summary_metrics.preprocess_request(list(summaries_list))
+    )
+    num_metrics = len(parsed_summaries)
+
+    num_summarised_states = len(summarised_state_indices)
+    num_summarised_observables = len(summarised_observable_indices)
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+    total_buffer_size = summaries_buffer_height_per_var
+
+    # Handle empty case: return do-nothing function before codegen
+    if num_metrics == 0:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def do_nothing_update_summary(
+            current_state,
+            current_observables,
+            state_summary_buffer,
+            observable_summary_buffer,
+            current_step,
+        ):
+            pass
+        return do_nothing_update_summary
+
+    # Get metadata from registry
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+
+    # Generate constant assignments
+    const_lines = []
+    const_lines.append(
+        f"    num_summarised_states = int32({num_summarised_states})"
+    )
+    const_lines.append(
+        f"    num_summarised_observables = int32({num_summarised_observables})"
+    )
+    const_lines.append(
+        f"    total_buffer_size = int32({total_buffer_size})"
+    )
+    const_lines.append(
+        f"    summarised_state_indices = "
+        f"{tuple(int(x) for x in summarised_state_indices)}"
+    )
+    const_lines.append(
+        "    summarised_observable_indices = "
+        f"{tuple(int(x) for x in summarised_observable_indices)}"
+    )
+
+    # Add per-metric constants
+    for i, metric in enumerate(parsed_summaries):
+        const_lines.append(
+            f"    {metric}_offset = int32({buffer_offsets_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_size = int32({buffer_sizes_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_param = int32({params_list[i]})"
+        )
+
+    constant_assignments = '\n'.join(const_lines)
+
+    # Generate body code
+    body_lines = []
+    indent = '        '
+
+    if summarise_states:
+        body_lines.append(f"{indent}for idx in range(num_summarised_states):")
+        body_lines.append(f"{indent}    base = idx * total_buffer_size")
+        body_lines.append(
+            f"{indent}    value = current_state[summarised_state_indices[idx]]"
+        )
+        for metric in parsed_summaries:
+            body_lines.append(
+                f"{indent}    update_{metric}("
+            )
+            body_lines.append(
+                f"{indent}        value,"
+            )
+            body_lines.append(
+                f"{indent}        state_summary_buffer[base + {metric}_offset:"
+                f"base + {metric}_offset + {metric}_size],"
+            )
+            body_lines.append(
+                f"{indent}        current_step,"
+            )
+            body_lines.append(
+                f"{indent}        {metric}_param,"
+            )
+            body_lines.append(f"{indent}    )")
+
+    if summarise_observables:
+        body_lines.append(
+            f"{indent}for idx in range(num_summarised_observables):"
+        )
+        body_lines.append(f"{indent}    base = idx * total_buffer_size")
+        body_lines.append(
+            f"{indent}    value = current_observables"
+            f"[summarised_observable_indices[idx]]"
+        )
+        for metric in parsed_summaries:
+            body_lines.append(
+                f"{indent}    update_{metric}("
+            )
+            body_lines.append(
+                f"{indent}        value,"
+            )
+            body_lines.append(
+                f"{indent}        observable_summary_buffer[base + "
+                f"{metric}_offset:base + {metric}_offset + {metric}_size],"
+            )
+            body_lines.append(
+                f"{indent}        current_step,"
+            )
+            body_lines.append(
+                f"{indent}        {metric}_param,"
+            )
+            body_lines.append(f"{indent}    )")
+
+    if not body_lines:
+        body_lines.append(f"{indent}pass")
+
+    body = '\n'.join(body_lines)
+
+    # Generate source code from template
+    source_code = UPDATE_SUMMARY_TEMPLATE.format(
+        func_name='_generated_update_factory',
+        constant_assignments=constant_assignments,
+        body=body,
+    )
+
+    # Build namespace with required imports and functions
+    namespace = {
+        'cuda': cuda,
+        'int32': int32,
+        'compile_kwargs': compile_kwargs,
+    }
+    # Add all update functions to namespace
+    for metric in parsed_summaries:
+        namespace[f'update_{metric}'] = INLINE_UPDATE_FUNCTIONS[metric]
+
+    # Execute generated source
+    exec(source_code, namespace)
+
+    # Retrieve and call the factory function
+    factory_func = namespace['_generated_update_factory']
+    return factory_func()
+
+
+SAVE_SUMMARY_TEMPLATE = '''
+def {func_name}():
+    """Auto-generated summary save factory."""
+    from numba import cuda, int32
+    from cubie.cuda_simsafe import compile_kwargs
+{constant_assignments}
+
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def save_summary_metrics_func(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+    ):
+{body}
+
+    return save_summary_metrics_func
+'''
+
+
+def codegen_save_summary_factory(
+    summaries_buffer_height_per_var: int,
+    summarised_state_indices: tuple,
+    summarised_observable_indices: tuple,
+    summaries_list: tuple,
+):
+    """Generate summary save device function via code generation.
+
+    Generates Python source code as a string and uses exec() to
+    compile the generated code into a CUDA device function.
+
+    Parameters
+    ----------
+    summaries_buffer_height_per_var
+        Total buffer size per variable.
+    summarised_state_indices
+        Array of state indices to summarize.
+    summarised_observable_indices
+        Array of observable indices to summarize.
+    summaries_list
+        Tuple of metric names to enable.
+
+    Returns
+    -------
+    Callable
+        CUDA device function for saving summary metrics.
+    """
+    # Preprocess metrics to get canonical list
+    parsed_summaries = tuple(
+        summary_metrics.preprocess_request(list(summaries_list))
+    )
+    num_metrics = len(parsed_summaries)
+
+    num_summarised_states = len(summarised_state_indices)
+    num_summarised_observables = len(summarised_observable_indices)
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (
+        num_metrics > 0
+    )
+    total_buffer_size = summaries_buffer_height_per_var
+    total_output_size = summary_metrics.summaries_output_height(
+        summaries_list
+    )
+
+    # Handle empty case: return do-nothing function before codegen
+    if num_metrics == 0:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def do_nothing_save_summary(
+            buffer_state_summaries,
+            buffer_observable_summaries,
+            output_state_summaries_window,
+            output_observable_summaries_window,
+        ):
+            pass
+        return do_nothing_save_summary
+
+    # Get metadata from registry
+    buffer_offsets_list = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
+    output_offsets_list = summary_metrics.output_offsets(summaries_list)
+    output_sizes_list = summary_metrics.output_sizes(summaries_list)
+    params_list = summary_metrics.params(summaries_list)
+
+    # Generate constant assignments
+    const_lines = []
+    const_lines.append(
+        f"    num_summarised_states = int32({num_summarised_states})"
+    )
+    const_lines.append(
+        f"    num_summarised_observables = int32({num_summarised_observables})"
+    )
+    const_lines.append(
+        f"    total_buffer_size = int32({total_buffer_size})"
+    )
+    const_lines.append(
+        f"    total_output_size = int32({total_output_size})"
+    )
+
+    # Add per-metric constants (buffer and output offsets/sizes)
+    for i, metric in enumerate(parsed_summaries):
+        const_lines.append(
+            f"    {metric}_buf_off = int32({buffer_offsets_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_buf_sz = int32({buffer_sizes_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_out_off = int32({output_offsets_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_out_sz = int32({output_sizes_list[i]})"
+        )
+        const_lines.append(
+            f"    {metric}_param = int32({params_list[i]})"
+        )
+
+    constant_assignments = '\n'.join(const_lines)
+
+    # Generate body code
+    body_lines = []
+    indent = '        '
+
+    if summarise_states:
+        body_lines.append(
+            f"{indent}for state_index in range(num_summarised_states):"
+        )
+        body_lines.append(
+            f"{indent}    buf_start = state_index * total_buffer_size"
+        )
+        body_lines.append(
+            f"{indent}    out_start = state_index * total_output_size"
+        )
+        for metric in parsed_summaries:
+            body_lines.append(
+                f"{indent}    save_{metric}("
+            )
+            body_lines.append(
+                f"{indent}        buffer_state_summaries["
+                f"buf_start + {metric}_buf_off:"
+                f"buf_start + {metric}_buf_off + {metric}_buf_sz],"
+            )
+            body_lines.append(
+                f"{indent}        output_state_summaries_window["
+                f"out_start + {metric}_out_off:"
+                f"out_start + {metric}_out_off + {metric}_out_sz],"
+            )
+            body_lines.append(
+                f"{indent}        {metric}_param,"
+            )
+            body_lines.append(f"{indent}    )")
+
+    if summarise_observables:
+        body_lines.append(
+            f"{indent}for obs_index in range(num_summarised_observables):"
+        )
+        body_lines.append(
+            f"{indent}    buf_start = obs_index * total_buffer_size"
+        )
+        body_lines.append(
+            f"{indent}    out_start = obs_index * total_output_size"
+        )
+        for metric in parsed_summaries:
+            body_lines.append(
+                f"{indent}    save_{metric}("
+            )
+            body_lines.append(
+                f"{indent}        buffer_observable_summaries["
+                f"buf_start + {metric}_buf_off:"
+                f"buf_start + {metric}_buf_off + {metric}_buf_sz],"
+            )
+            body_lines.append(
+                f"{indent}        output_observable_summaries_window["
+                f"out_start + {metric}_out_off:"
+                f"out_start + {metric}_out_off + {metric}_out_sz],"
+            )
+            body_lines.append(
+                f"{indent}        {metric}_param,"
+            )
+            body_lines.append(f"{indent}    )")
+
+    if not body_lines:
+        body_lines.append(f"{indent}pass")
+
+    body = '\n'.join(body_lines)
+
+    # Generate source code from template
+    source_code = SAVE_SUMMARY_TEMPLATE.format(
+        func_name='_generated_save_factory',
+        constant_assignments=constant_assignments,
+        body=body,
+    )
+
+    # Build namespace with required imports and functions
+    namespace = {
+        'cuda': cuda,
+        'int32': int32,
+        'compile_kwargs': compile_kwargs,
+    }
+    # Add all save functions to namespace
+    for metric in parsed_summaries:
+        namespace[f'save_{metric}'] = INLINE_SAVE_FUNCTIONS[metric]
+
+    # Execute generated source
+    exec(source_code, namespace)
+
+    # Retrieve and call the factory function
+    factory_func = namespace['_generated_save_factory']
+    return factory_func()
+
+
 # -------------------------------------------------------------------------
 # Output Configuration
 # -------------------------------------------------------------------------
@@ -4490,38 +6283,63 @@ else:
     update_summaries_chain = do_nothing_update
     save_summaries_chain = do_nothing_save
 
-
-@cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-def update_summaries_inline(
-    current_state,
-    current_observables,
-    state_summary_buffer,
-    obs_summary_buffer,
-    current_step,
-):
-    update_summaries_chain(
+if summary_factory_type == 'chain':
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def update_summaries_inline(
         current_state,
         current_observables,
         state_summary_buffer,
         obs_summary_buffer,
         current_step,
-    )
+    ):
+        update_summaries_chain(
+            current_state,
+            current_observables,
+            state_summary_buffer,
+            obs_summary_buffer,
+            current_step,
+        )
 
-
-@cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
-def save_summaries_inline(
-    buffer_state,
-    buffer_obs,
-    output_state,
-    output_obs,
-):
-    save_summaries_chain(
+    @cuda.jit(device=True, inline=True, forceinline=True, **compile_kwargs)
+    def save_summaries_inline(
         buffer_state,
         buffer_obs,
         output_state,
         output_obs,
-    )
+    ):
+        save_summaries_chain(
+            buffer_state,
+            buffer_obs,
+            output_state,
+            output_obs,
+        )
 
+elif summary_factory_type == 'unroll':
+    update_summaries_inline = unrolled_update_summary_factory(
+            summaries_buffer_height_per_var,
+            summarised_state_indices,
+            summarised_observable_indices,
+            summary_types,
+    )
+    save_summaries_inline = unrolled_save_summary_factory(
+            summaries_buffer_height_per_var,
+            summarised_state_indices,
+            summarised_observable_indices,
+            summary_types,
+    )
+elif summary_factory_type == 'codegen':
+    update_summaries_inline = codegen_update_summary_factory(
+            summaries_buffer_height_per_var,
+            summarised_state_indices,
+            summarised_observable_indices,
+            summary_types,
+    )
+    save_summaries_inline = codegen_save_summary_factory(
+            summaries_buffer_height_per_var,
+            summarised_state_indices,
+            summarised_observable_indices,
+            summary_types,
+    )
 
 # =========================================================================
 # STEP CONTROLLER (Fixed and adaptive options)
