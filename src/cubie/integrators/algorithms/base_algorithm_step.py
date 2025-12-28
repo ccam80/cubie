@@ -16,6 +16,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
@@ -28,6 +29,25 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
     'n_drivers',
+    # DIRK buffer location parameters
+    'stage_increment_location', 'stage_base_location', 'accumulator_location',
+    # ERK buffer location parameters
+    'stage_rhs_location', 'stage_accumulator_location',
+    # FIRK buffer location parameters
+    'stage_driver_stack_location', 'stage_state_location',
+    # Rosenbrock buffer location parameters
+    'stage_store_location', 'cached_auxiliaries_location',
+    # BackwardsEuler buffer location parameters
+    'increment_cache_location',
+    # CrankNicolson buffer location parameters
+    'dxdt_location',
+    # Solver buffer location parameters
+    'preconditioned_vec_location', 'temp_location', 'delta_location',
+    'residual_location', 'residual_temp_location', 'stage_base_bt_location',
+    # Newton-Krylov buffer location parameters
+    'krylov_iters_local_location',
+    # Rosenbrock int32 buffer location parameters
+    'base_state_placeholder_location', 'krylov_iters_out_location',
 }
 
 
@@ -72,8 +92,13 @@ class ButcherTableau:
         """Validate tableau coefficients after initialisation."""
 
         stage_count = self.stage_count
-        if self.b_hat is not None and len(self.b_hat) != stage_count:
-            raise ValueError("b_hat must match the number of stages in b")
+        if self.b_hat is not None:
+            if len(self.b_hat) != stage_count:
+                raise ValueError("b_hat must match the number of stages in b")
+            if (1.0 - np.sum(self.b_hat)) > 1e-8:
+                raise ValueError("b_hat must sum to one")
+        if (1.0 - np.sum(self.b)) > 1e-8:
+            raise ValueError("b must sum to one")
 
     @property
     def d(self) -> Optional[Tuple[float, ...]]:
@@ -141,6 +166,28 @@ class ButcherTableau:
             flat_list.extend(row)
         return tuple(precision(value) for value in flat_list)
 
+    def explicit_terms(self, precision):
+        """
+        Return the a matrix in typed column tuples with diagonal and higher
+        elements set to zero.
+
+        Parameters
+        ----------
+        precision
+
+        Returns
+        -------
+        tuple of tuples of float
+        """
+        typed_rows = self.typed_rows(self.a, precision)
+        stage_count = self.stage_count
+        return tuple(
+            tuple(
+                (row[col_idx] if row_idx > col_idx else precision(0.0))
+                for row_idx, row in enumerate(typed_rows)
+            )
+            for col_idx in range(stage_count)
+        )
     def typed_vector(
         self,
         vector: Sequence[float],
@@ -314,7 +361,6 @@ class BaseStepConfig(ABC):
     """
 
     precision: PrecisionDType = attrs.field(
-        default=np.float32,
         converter=precision_converter,
         validator=precision_validator,
     )
@@ -324,18 +370,22 @@ class BaseStepConfig(ABC):
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     observables_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     driver_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
+        eq=False
     )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(validators.is_callable()),
+        eq=False
     )
 
     @property
@@ -444,6 +494,10 @@ class BaseAlgorithmStep(CUDAFactory):
         self.setup_compile_settings(config)
         self.is_controller_fixed = False  # Set by check_compatibility
 
+    def register_buffers(self) -> None:
+        """Register buffers required by the algorithm step."""
+        pass
+
     def update(
         self,
         updates_dict: Optional[Dict[str, object]] = None,
@@ -480,6 +534,10 @@ class BaseAlgorithmStep(CUDAFactory):
             return set()
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
+
+        recognised |= buffer_registry.update(self, updates_dict, silent=True)
+        self.register_buffers()
+
         unrecognised = set(updates_dict.keys()) - recognised
 
         # Check if unrecognized parameters are valid algorithm step parameters
@@ -581,51 +639,22 @@ class BaseAlgorithmStep(CUDAFactory):
         """
 
         return self.compile_settings.can_reuse_accepted_start
+
     @property
-    def shared_memory_required(self) -> int:
+    def shared_memory_elements(self) -> int:
         """Return the precision-entry count of shared memory required."""
-
-        return self.solver_shared_elements + self.algorithm_shared_elements
+        return buffer_registry.shared_buffer_size(self)
 
     @property
-    @abstractmethod
-    def local_scratch_required(self) -> int:
+    def local_scratch_elements(self) -> int:
         """Return the precision-entry count of local scratch required."""
-        raise NotImplementedError
+        return buffer_registry.local_buffer_size(self)
 
     @property
-    def persistent_local_required(self) -> int:
+    def persistent_local_elements(self) -> int:
         """Return the persistent local precision-entry requirement."""
 
-        return self.solver_local_elements + self.algorithm_local_elements
-
-    @property
-    def solver_shared_elements(self) -> int:
-        """Return shared-memory elements consumed by solver infrastructure."""
-
-        return 0
-
-    @property
-    def solver_local_elements(self) -> int:
-        """Return persistent local elements consumed by solver infrastructure.
-
-        Defaults to zero for algorithms whose solvers do not retain
-        thread-local buffers between calls.
-        """
-
-        return 0
-
-    @property
-    @abstractmethod
-    def algorithm_shared_elements(self) -> int:
-        """Return shared-memory elements required by the algorithm itself."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def algorithm_local_elements(self) -> int:
-        """Return persistent local elements required by the algorithm."""
-        raise NotImplementedError
+        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     @abstractmethod
@@ -643,10 +672,6 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the cached device function that advances the solution."""
         return self.get_cached_output("step")
 
-    @property
-    def nonlinear_solver_function(self) -> Callable:
-        """Return the cached nonlinear solver helper."""
-        return self.get_cached_output("nonlinear_solver")
 
     @property
     def settings_dict(self) -> Dict[str, object]:

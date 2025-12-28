@@ -11,8 +11,8 @@ time. Because the derivatives can change between the start and end of any size
 step that we take, our calculated change can end up being slightly different
 than the actual change.
 
-Put simply, most real systems change in curvy lines, and we can only calculate
-change in straight-line sections.
+Put simply, most real systems evolve in curvy lines, and we can only calculate
+change in straight-line steps.
 
 Euler's method
 --------------
@@ -34,7 +34,7 @@ Runge-Kutta methods are a whole family of algorithms based on the same
 underlying idea: instead of just calculating the gradient at the start of the
 step, we calculate it at many sub-steps along the way, then average the results
 to get a more accurate estimate of the change over the whole step. The most
-common Runge-Kutta method is the fourth-order Runge-Kutta method, which
+commonly used Runge-Kutta method is probably the fourth-order Runge-Kutta method (RK4), which
 calculates the gradient at four points along the step. One handy feature of
 these algorithms is that we can calculate two at once - a fourth order and a
 fifth order - without doing much more computation work. We find the difference
@@ -60,3 +60,8 @@ they need to solve the system of equations for all steps simultaneously, which
 is computationally intense. Cubie uses a matrix-free solver for this process,
 which means that it doesn't need to store big matrices in memory, allowing it to
 solve much larger problems than would otherwise be possible.
+
+To form the equations for this solver, Cubie needs the system's Jacobian matrix, which is the matrix of all partial derivatives
+of the function (i.e. each element contains an expression for how f(x_i) will change if x_j changes. Cubie uses symbolic differentiation
+to generate this when it's compiling the solver, and applies some algorithmic chain-rule steps to make the process a bit more
+efficient.

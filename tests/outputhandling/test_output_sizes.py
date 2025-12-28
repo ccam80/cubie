@@ -13,7 +13,6 @@ from cubie.outputhandling.output_sizes import (
     BatchInputSizes,
 )
 
-
 class TestNonzeroProperty:
     """Test the nonzero property functionality"""
 
@@ -77,13 +76,13 @@ class IntegratorRunSettings:
 
 
 # Fixtures for run settings
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def run_settings_override(request):
     """Override for run settings, if provided."""
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def run_settings(run_settings_override):
     """Create a dictionary of run settings for testing"""
     default_settings = IntegratorRunSettings()
@@ -148,11 +147,6 @@ class TestOutputArrayHeights:
         assert nonzero_heights.observable_summaries == 1
         assert nonzero_heights.per_variable == 1
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
     def test_from_output_fns_default(self, output_functions):
         """Test creating OutputArrayHeights from output_functions"""
         heights = OutputArrayHeights.from_output_fns(output_functions)
@@ -171,11 +165,7 @@ class TestOutputArrayHeights:
             == output_functions.observable_summaries_output_height
         )
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
+
     def test_explicit_vs_from_output_fns(self, output_functions):
         """Test that explicit initialization matches from_output_fns result"""
         from_fns = OutputArrayHeights.from_output_fns(output_functions)
@@ -247,11 +237,7 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
+
     def test_from_output_fns_and_run_settings_default(
         self, output_functions, run_settings, solverkernel
     ):
@@ -283,7 +269,6 @@ class TestSingleRunOutputSizes:
         "solver_settings_override",
         [
             {
-                "output_types": ["time", "state", "observables", "mean"],
                 "duration": 0.0,
             }
         ],
@@ -300,11 +285,7 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["time", "state", "observables", "mean"]}],
-        indirect=True,
-    )
+
     def test_explicit_vs_from_solver(
         self, output_functions, run_settings, solverkernel
     ):
@@ -442,19 +423,6 @@ class TestBatchOutputSizes:
 class TestIntegrationScenarios:
     """Test realistic integration scenarios"""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [
-            {
-                "dt_save": 0.01,
-                "dt_summarise": 0.1,
-                "saved_state_indices": [0, 1, 2],
-                "saved_observable_indices": [0, 1],
-                "output_types": ["time", "state", "observables", "mean"],
-            }
-        ],
-        indirect=True,
-    )
     def test_realistic_scenario_no_zeros(
         self, output_functions, run_settings, solverkernel
     ):

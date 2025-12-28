@@ -2,22 +2,24 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int16, int32
+from numba import cuda, int32
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from tests.integrators.algorithms.instrumented.backwards_euler import (
+    InstrumentedBackwardsEulerStep
+)
 
-from .backwards_euler import BackwardsEulerStep
 
-
-class BackwardsEulerPCStep(BackwardsEulerStep):
+class InstrumentedBackwardsEulerPCStep(InstrumentedBackwardsEulerStep):
     """Backward Euler with a predictor-corrector refinement."""
 
     def build_step(
         self,
-        solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
         driver_function: Optional[Callable],
+        solver_function: Callable,
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -26,8 +28,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         Parameters
         ----------
-        solver_fn
-            Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
         observables_function
@@ -46,49 +46,55 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         StepCache
             Container holding the compiled predictor-corrector step.
         """
-
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         n = int32(n)
 
-        solver_shared_elements = self.solver_shared_elements
+        # Get child allocators for Newton solver
+        alloc_solver_shared, alloc_solver_persistent = (
+            buffer_registry.get_child_allocators(self, self.solver,
+                                                 name='solver')
+        )
+        alloc_increment_cache = buffer_registry.get_allocator('increment_cache', self)
+        
+        n = int32(n)
 
         @cuda.jit(
-            (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, :, ::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision[:, ::1],
-                numba_precision[:, :, ::1],
-                numba_precision,
-                numba_precision,
-                int16,
-                int16,
-                numba_precision[::1],
-                numba_precision[::1],
-                int32[::1],
-            ),
+            # (
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision[:, ::1],
+            #     numba_precision[:, :, ::1],
+            #     numba_precision,
+            #     numba_precision,
+            #     int32,
+            #     int32,
+            #     numba_precision[::1],
+            #     numba_precision[::1],
+            #     int32[::1],
+            # ),
             device=True,
             inline=True,
         )
@@ -167,9 +173,13 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             """
             typed_zero = numba_precision(0.0)
             stage_rhs = cuda.local.array(n, numba_precision)
-            observable_count = proposed_observables.shape[0]
 
-            predictor = shared[:n]
+            solver_scratch = alloc_solver_shared(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(shared,
+                                                        persistent_local)
+            observable_count = proposed_observables.shape[0]
+            predictor = alloc_increment_cache(shared, persistent_local)
+
             dxdt_fn(
                 state,
                 parameters,
@@ -205,9 +215,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
-            solver_scratch = shared[: solver_shared_elements]
 
-            status = solver_fn(
+            status = solver_function(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -216,6 +225,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                solver_persistent,
                 counters,
                 int32(0),
                 newton_initial_guesses,
@@ -232,9 +242,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             # LOGGING: Record increment and residual values
             for i in range(n):
-                solver_scratch[i] = proposed_state[i]
+                predictor[i] = proposed_state[i]
                 stage_increments[0, i] = proposed_state[i]
-                residuals[0, i] = solver_scratch[i + n]
 
             for i in range(n):
                 proposed_state[i] += state[i]
@@ -268,10 +277,10 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             return status
 
-        return StepCache(step=step, nonlinear_solver=solver_fn)
+        return StepCache(step=step, nonlinear_solver=solver_function)
 
     @property
-    def local_scratch_required(self) -> int:
+    def local_scratch_elements(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
         return 0

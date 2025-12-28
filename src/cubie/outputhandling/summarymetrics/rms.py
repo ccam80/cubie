@@ -27,10 +27,11 @@ class RMS(SummaryMetric):
     evaluates ``sqrt(sum_of_squares / summarise_every)`` when saving results.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the RMS summary metric with fixed buffer sizes."""
         super().__init__(
             name="rms",
+            precision=precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
@@ -54,10 +55,10 @@ class RMS(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -93,10 +94,10 @@ class RMS(SummaryMetric):
             buffer[0] = sum_of_squares
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
             **compile_kwargs,

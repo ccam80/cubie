@@ -8,8 +8,8 @@ exclude  = ["./tests/*"]
 
 [project]
 name = "cubie"
-version = "0.0.5"
-description = "CUDA Batch Integration Engine - for doing a lot at once."
+version = "0.0.6"
+description = "CUDA Batch Integration Engine."
 authors = [
     { name="Chris Cameron" }
 ]
@@ -18,11 +18,12 @@ requires-python = ">=3.9"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
-    "numpy==1.26.4",
+    "numpy==1.26.4", # Pinned < 2.0 by cellmlmanip dependency
     "numba",
     "numba-cuda[cu12]",
     "attrs",
     "sympy>=1.13.0",
+    "cellmlmanip",
 ]
 
 [project.urls]
@@ -41,7 +42,6 @@ dev = [
     "pandas",
     "matplotlib",
     "scipy",
-    "cellmlmanip",
 ]
 cupy = [
     "cupy-cuda12x",
@@ -68,11 +68,12 @@ addopts = [
     "--import-mode=importlib",
     "-ra",
     "-s",
+    "--pytest-durations=0",
     "--cov=cubie",
     "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",
-    "--json-report",
-    "--json-report-file=tests/pytest_report.json",
+#    "--json-report",
+#    "--json-report-file=tests/pytest_report.json",
 ]
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",

@@ -26,10 +26,11 @@ class Extrema(SummaryMetric):
     Outputs two values in the same order.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Extrema summary metric."""
         super().__init__(
             name="extrema",
+            precision=precision,
             buffer_size=2,
             output_size=2,
             unit_modification="[unit]",
@@ -53,10 +54,10 @@ class Extrema(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )
@@ -90,10 +91,10 @@ class Extrema(SummaryMetric):
                 buffer[1] = value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )

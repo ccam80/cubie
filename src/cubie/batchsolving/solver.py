@@ -9,8 +9,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
+from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
-from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
@@ -21,12 +22,8 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
-from cubie.integrators.algorithms import (
-    ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS,
-)
 from cubie.integrators.loops.ode_loop import (
     ALL_LOOP_SETTINGS,
-    ALL_BUFFER_LOCATION_PARAMETERS,
 )
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
@@ -242,23 +239,13 @@ class Solver:
         algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
             kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
             user_settings=algorithm_settings)
-        # Filter algorithm buffer location parameters into algorithm_settings
-        algo_buffer_settings, algo_buffer_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_ALGORITHM_BUFFER_LOCATION_PARAMETERS,
-            user_settings=algorithm_settings)
-        algorithm_settings = algo_buffer_settings
         algorithm_settings["algorithm"] = algorithm
         loop_settings, loop_recognized = merge_kwargs_into_settings(
             kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
             user_settings=loop_settings)
-        buffer_location_settings, buffer_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_BUFFER_LOCATION_PARAMETERS,
-            user_settings=loop_settings)
-        loop_settings = buffer_location_settings
         recognized_kwargs = (step_recognized | algorithm_recognized
                              | output_recognized | memory_recognized
-                             | loop_recognized | buffer_recognized
-                             | algo_buffer_recognized)
+                             | loop_recognized)
 
         self.kernel = BatchSolverKernel(
             system,
@@ -981,6 +968,16 @@ class Solver:
         return self.kernel.precision
 
     @property
+    def compile_flags(self) -> OutputCompileFlags:
+        """Expose output compile flags from the kernel."""
+        return self.kernel.compile_flags
+
+    @property
+    def active_outputs(self) -> ActiveOutputs:
+        """Expose active outputs from the kernel."""
+        return self.kernel.active_outputs
+
+    @property
     def system_sizes(self):
         """Expose cached system size metadata."""
         return self.kernel.system_sizes
@@ -1067,9 +1064,9 @@ class Solver:
         )
 
     @property
-    def active_output_arrays(self) -> ActiveOutputs:
+    def active_outputs(self) -> ActiveOutputs:
         """Expose active output array containers."""
-        return self.kernel.active_output_arrays
+        return self.kernel.active_outputs
 
     @property
     def state(self):

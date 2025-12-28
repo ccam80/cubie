@@ -16,8 +16,8 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators, Attribute
-from cubie.cuda_simsafe import compile_kwargs, is_devfunc, selp
+from attrs import fields, has, validators, Attribute, Factory, NOTHING
+from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -34,6 +34,14 @@ ALLOWED_PRECISIONS = {
     np.dtype(np.float16),
     np.dtype(np.float32),
     np.dtype(np.float64),
+}
+
+ALLOWED_BUFFER_DTYPES = {
+    np.dtype(np.float16),
+    np.dtype(np.float32),
+    np.dtype(np.float64),
+    np.dtype(np.int32),
+    np.dtype(np.int64),
 }
 
 
@@ -58,6 +66,19 @@ def precision_validator(
     if np.dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
+        )
+
+
+def buffer_dtype_validator(
+    _: object,
+    __: Attribute,
+    value: type,
+) -> None:
+    """Validate that value is a supported buffer dtype (float or int)."""
+    if np.dtype(value) not in ALLOWED_BUFFER_DTYPES:
+        raise ValueError(
+            "Buffer dtype must be one of float16, float32, float64, "
+            "int32, or int64",
         )
 
 
@@ -188,7 +209,7 @@ def split_applicable_settings(
     filtered = {
         key: value
         for key, value in settings.items()
-        if key in accepted
+        if key in accepted and value is not None
     }
     missing = required - filtered.keys()
     unused = set(settings.keys()) - accepted
@@ -291,15 +312,13 @@ def clamp_factory(precision):
     precision = from_dtype(precision)
 
     @cuda.jit(
-        precision(precision, precision, precision),
+        # precision(precision, precision, precision),
         device=True,
         inline=True,
         **compile_kwargs,
     )
     def clamp(value, minimum, maximum):
-        clamped_high = selp(value > maximum, maximum, value)
-        clamped = selp(clamped_high < minimum, minimum, clamped_high)
-        return clamped
+        return max(minimum, min(value, maximum))
 
     return clamp
 
@@ -630,3 +649,83 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
                 )
             result[key] = value
     return result, unpacked_keys
+
+
+def build_config(
+    config_class: type,
+    required: dict,
+    **optional
+) -> Any:
+    """Build attrs config instance from required and optional parameters.
+
+    Merges required parameters with optional overrides and passes them to the
+    attrs config class constructor. The config class itself defines defaults
+    for optional fields - this function simply filters and routes kwargs.
+
+    Parameters
+    ----------
+    config_class : type
+        Attrs class to instantiate (e.g., DIRKStepConfig).
+    required : dict
+        Required parameters that must be provided. These are typically
+        function parameters like precision, n, dxdt_function.
+    **optional
+        Optional parameter overrides passed to the config constructor.
+        Extra keys not in the config class signature are ignored.
+
+    Returns
+    -------
+    config_class instance
+        Configured attrs object.
+
+    Raises
+    ------
+    TypeError
+        If config_class is not an attrs class.
+
+    Examples
+    --------
+    >>> config = build_config(
+    ...     DIRKStepConfig,
+    ...     required={'precision': np.float32, 'n': 3},
+    ...     krylov_tolerance=1e-8
+    ... )
+
+    Notes
+    -----
+    The helper:
+    - Merges required and optional kwargs
+    - Converts field names to aliases for underscore-prefixed attrs fields
+    - Filters to only valid fields (ignores extra keys)
+    - Lets attrs handle defaults for unspecified optional parameters
+    """
+    if not has(config_class):
+        raise TypeError(
+            f"{config_class.__name__} is not an attrs class"
+        )
+
+    # Build mapping of valid field names/aliases and field->alias conversion
+    valid_fields = set()
+    field_to_alias = {}
+
+    for field in fields(config_class):
+        valid_fields.add(field.name)
+        # Handle attrs auto-aliasing: _foo -> foo alias
+        if field.alias is not None:
+            valid_fields.add(field.alias)
+            field_to_alias[field.name] = field.alias
+
+    # Merge required and optional kwargs
+    merged = {**required, **optional}
+
+    # Filter to only valid fields and convert field names to aliases
+    final = {}
+    for k, v in merged.items():
+        if k in valid_fields:
+            # If key is a field name with an alias, use the alias instead
+            if k in field_to_alias:
+                final[field_to_alias[k]] = v
+            else:
+                final[k] = v
+
+    return config_class(**final)

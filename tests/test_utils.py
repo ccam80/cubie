@@ -5,9 +5,10 @@ import numpy as np
 import pytest
 from numba import cuda
 from numba.cuda.random import create_xoroshiro128p_states
-from numpy import float32, float64
+from numpy import float32
 
 from cubie._utils import (
+    build_config,
     clamp_factory,
     get_noise_32,
     get_noise_64,
@@ -37,8 +38,9 @@ def clamp_tester(fn, value, low_clip, high_clip, precision):
     return n_out
 
 
-@pytest.mark.parametrize("precision", [float64])
-def test_clamp_kernel_float64(precision):
+def test_clamp_kernel_float64():
+    precision = np.float64
+
     clamp_64 = clamp_factory(precision)
     out = clamp_tester(
         clamp_64,
@@ -74,8 +76,8 @@ def test_clamp_kernel_float64(precision):
     assert out[0] == -0.5
 
 
-@pytest.mark.parametrize("precision", [float32])
-def test_clamp_kernel_float32(precision):
+def test_clamp_kernel_float32():
+    precision = np.float32
     clamp_32 = clamp_factory(precision)
     out = clamp_tester(
         clamp_32,
@@ -111,7 +113,8 @@ def test_clamp_kernel_float32(precision):
     assert out[0] == -0.5
 
 
-def noise_tester_64(sigmas, precision):
+def noise_tester_64(sigmas):
+    precision = np.float64
     """Test helper for get_noise_64 function."""
     n_elements = len(sigmas)
     noise_array = cuda.device_array(n_elements, dtype=precision)
@@ -133,8 +136,9 @@ def noise_tester_64(sigmas, precision):
     return noise_array.copy_to_host()
 
 
-def noise_tester_32(sigmas, precision):
+def noise_tester_32(sigmas):
     """Test helper for get_noise_32 function."""
+    precision=float32
     n_elements = len(sigmas)
     noise_array = cuda.device_array(n_elements, dtype=precision)
     noise_array[:] = 0.0
@@ -155,37 +159,35 @@ def noise_tester_32(sigmas, precision):
     return noise_array.copy_to_host()
 
 
-@pytest.mark.parametrize("precision", [float64])
-def test_get_noise_64(precision):
+def test_get_noise_64():
     """Test get_noise_64 CUDA device function."""
     # Test with non-zero sigmas
     sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_64(sigmas, precision)
+    result = noise_tester_64(sigmas)
     assert len(result) == 3
     # Results should be different (random) but finite
     assert all(np.isfinite(result))
 
     # Test with zero sigma
     sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_64(sigmas_zero, precision)
+    result_zero = noise_tester_64(sigmas_zero)
     assert result_zero[0] == 0.0  # Should be exactly zero
     assert result_zero[2] == 0.0  # Should be exactly zero
     assert result_zero[1] != 0.0  # Should be non-zero
 
 
-@pytest.mark.parametrize("precision", [float32])
-def test_get_noise_32(precision):
+def test_get_noise_32():
     """Test get_noise_32 CUDA device function."""
     # Test with non-zero sigmas
     sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_32(sigmas, precision)
+    result = noise_tester_32(sigmas)
     assert len(result) == 3
     # Results should be different (random) but finite
     assert all(np.isfinite(result))
 
     # Test with zero sigma
     sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_32(sigmas_zero, precision)
+    result_zero = noise_tester_32(sigmas_zero)
     assert result_zero[0] == 0.0  # Should be exactly zero
     assert result_zero[2] == 0.0  # Should be exactly zero
     assert result_zero[1] != 0.0  # Should be non-zero
@@ -286,6 +288,26 @@ def test_split_applicable_settings_with_function():
     assert filtered == {"other": 4}
     assert missing == {"required"}
     assert unused == {"extra"}
+
+
+def test_split_applicable_settings_filters_none_values():
+    """Verify split_applicable_settings filters out None values."""
+    class Example:
+        def __init__(self, required, optional=0, another=1):
+            self.required = required
+            self.optional = optional
+            self.another = another
+
+    filtered, missing, unused = split_applicable_settings(
+        Example,
+        {"required": 1, "optional": None, "another": 5},
+        warn_on_unused=False,
+    )
+    # None value for 'optional' should be filtered out
+    assert filtered == {"required": 1, "another": 5}
+    assert "optional" not in filtered
+    assert missing == set()
+
 
 def dummy_function():
     """Dummy function for timing tests."""
@@ -516,3 +538,183 @@ def test_unpack_dict_values_preserves_types():
     assert result['none_val'] is None
     assert result['list_val'] == [1, 2, 3]
     assert unpacked == {'settings'}
+
+
+# =============================================================================
+# Tests for build_config helper function
+# =============================================================================
+
+
+@attrs.define
+class SimpleTestConfig:
+    """Simple attrs config for testing build_config."""
+    precision: type = attrs.field()
+    n: int = attrs.field()
+    optional_float: float = attrs.field(default=1.0)
+    optional_str: str = attrs.field(default='default')
+
+
+@attrs.define
+class ConfigWithFactory:
+    """Config with attrs.Factory default for testing build_config."""
+    precision: type = attrs.field()
+    data: dict = attrs.field(factory=dict)
+    items: list = attrs.field(factory=list)
+
+
+@attrs.define
+class ConfigWithAlias:
+    """Config with underscore-prefixed field (auto-aliased) for testing."""
+    precision: type = attrs.field()
+    _private_value: float = attrs.field(default=0.5, alias='private_value')
+
+
+class TestBuildConfig:
+    """Tests for build_config helper function."""
+
+    def test_build_config_basic(self):
+        """Verify basic config construction with required params only."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 3},
+        )
+        assert config.precision == np.float32
+        assert config.n == 3
+        assert config.optional_float == 1.0
+        assert config.optional_str == 'default'
+
+    def test_build_config_optional_override(self):
+        """Verify optional parameters override defaults."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float64, 'n': 5},
+            optional_float=2.5,
+            optional_str='custom',
+        )
+        assert config.precision == np.float64
+        assert config.n == 5
+        assert config.optional_float == 2.5
+        assert config.optional_str == 'custom'
+
+    def test_build_config_passes_values_directly(self):
+        """Verify build_config passes all values directly to attrs.
+        
+        Note: None filtering happens upstream in split_applicable_settings.
+        If None values reach build_config, they are passed through to attrs.
+        """
+        # This test verifies the pass-through behavior
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 2},
+            optional_float=3.14,
+        )
+        assert config.optional_float == 3.14
+        assert config.optional_str == 'default'
+
+    def test_build_config_attrs_handles_missing_required(self):
+        """Verify attrs raises error on missing required fields."""
+        with pytest.raises(TypeError):
+            build_config(
+                SimpleTestConfig,
+                required={'precision': np.float32},
+            )
+
+    def test_build_config_extra_kwargs_ignored(self):
+        """Verify extra kwargs are silently ignored."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32, 'n': 4},
+            extra_param='ignored',
+            another_extra=123,
+        )
+        assert config.precision == np.float32
+        assert config.n == 4
+        assert not hasattr(config, 'extra_param')
+        assert not hasattr(config, 'another_extra')
+
+    def test_build_config_non_attrs_raises(self):
+        """Verify TypeError for non-attrs class."""
+        class RegularClass:
+            def __init__(self, x):
+                self.x = x
+
+        with pytest.raises(TypeError, match="is not an attrs class"):
+            build_config(
+                RegularClass,
+                required={'x': 1},
+            )
+
+    def test_build_config_factory_defaults(self):
+        """Verify attrs.Factory defaults are handled correctly."""
+        config = build_config(
+            ConfigWithFactory,
+            required={'precision': np.float32},
+        )
+        assert config.precision == np.float32
+        assert config.data == {}
+        assert config.items == []
+        assert config.data is not ConfigWithFactory.__attrs_attrs__[1].default
+
+    def test_build_config_factory_override(self):
+        """Verify attrs.Factory defaults can be overridden."""
+        config = build_config(
+            ConfigWithFactory,
+            required={'precision': np.float32},
+            data={'key': 'value'},
+            items=[1, 2, 3],
+        )
+        assert config.data == {'key': 'value'}
+        assert config.items == [1, 2, 3]
+
+    def test_build_config_alias_handling(self):
+        """Verify underscore-prefixed fields with aliases work correctly."""
+        config = build_config(
+            ConfigWithAlias,
+            required={'precision': np.float32},
+            private_value=0.75,
+        )
+        assert config.precision == np.float32
+        assert config._private_value == 0.75
+
+    def test_build_config_alias_default(self):
+        """Verify alias fields use defaults when not overridden."""
+        config = build_config(
+            ConfigWithAlias,
+            required={'precision': np.float64},
+        )
+        assert config._private_value == 0.5
+
+    def test_build_config_with_real_config_class(self):
+        """Test build_config with actual cubie config class."""
+        from cubie.integrators.step_control.fixed_step_controller import (
+            FixedStepControlConfig
+        )
+        config = build_config(
+            FixedStepControlConfig,
+            required={'precision': np.float32, 'n': 3, 'dt': 0.01},
+        )
+        assert config.precision == np.float32
+        assert config.n == 3
+
+    def test_build_config_required_in_optional_overrides(self):
+        """Verify required fields can also be in optional kwargs."""
+        config = build_config(
+            SimpleTestConfig,
+            required={'precision': np.float32},
+            n=7,
+        )
+        assert config.n == 7
+
+    def test_build_config_empty_required(self):
+        """Verify empty required dict works when all fields have defaults."""
+        @attrs.define
+        class AllOptionalConfig:
+            value: int = attrs.field(default=42)
+            name: str = attrs.field(default='test')
+
+        config = build_config(
+            AllOptionalConfig,
+            required={},
+        )
+        assert config.value == 42
+        assert config.name == 'test'

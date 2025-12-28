@@ -71,9 +71,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared-memory elements required by the loop."""
-        loop_shared = self._loop.shared_memory_elements
-        algorithm_shared = self._algo_step.shared_memory_required
-        return loop_shared + algorithm_shared
+        return self._loop.shared_memory_elements
 
     @property
     def shared_memory_bytes(self) -> int:
@@ -86,11 +84,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def local_memory_elements(self) -> int:
         """Return total persistent local-memory requirement."""
+        return self._loop.local_memory_elements
 
-        loop = self._loop.local_memory_elements
-        algorithm = self._algo_step.persistent_local_required
-        controller = self._step_controller.local_memory_elements
-        return loop + algorithm + controller
+    @property
+    def persistent_local_elements(self) -> int:
+        """Return total persistent local-memory elements required by the loop."""
+        return self._loop.persistent_local_elements
 
     @property
     def compiled_loop_function(self) -> Callable:
@@ -167,24 +166,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return the loop summary interval."""
 
         return self._loop.dt_summarise
-
-    @property
-    def shared_buffer_indices(self) -> Any:
-        """Return the shared buffer index layout."""
-
-        return self._loop.shared_buffer_indices
-
-    @property
-    def buffer_indices(self) -> Any:
-        """Return shared buffer indices."""
-
-        return self._loop.buffer_indices
-
-    @property
-    def local_indices(self) -> Any:
-        """Return loop local-memory indices."""
-
-        return self._loop.local_indices
 
     @property
     def shared_memory_elements_loop(self) -> int:
@@ -358,22 +339,22 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._algo_step.is_adaptive
 
     @property
-    def shared_memory_required_step(self) -> int:
+    def shared_memory_elements_step(self) -> int:
         """Return algorithm shared-memory requirements."""
 
-        return self._algo_step.shared_memory_required
+        return self._algo_step.shared_memory_elements
 
     @property
-    def local_scratch_required_step(self) -> int:
+    def local_scratch_elements_step(self) -> int:
         """Return scratch local-memory requirements for the algorithm."""
 
-        return self._algo_step.local_scratch_required
+        return self._algo_step.local_scratch_elements
 
     @property
     def local_memory_required_step(self) -> int:
         """Return persistent local-memory requirements for the algorithm."""
 
-        return self._algo_step.persistent_local_required
+        return self._algo_step.persistent_local_elements
 
     @property
     def implicit_step(self) -> bool:
@@ -393,11 +374,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         return self._algo_step.step_function
 
-    @property
-    def nonlinear_solver_function(self) -> Callable:
-        """Return the compiled nonlinear solver function."""
-
-        return self._algo_step.nonlinear_solver_function
 
     @property
     def state_count(self) -> int:

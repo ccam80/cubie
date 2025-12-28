@@ -17,7 +17,7 @@ def test_time_derivative_factory_structure(simple_equations, indexed_bases):
     assert "return time_derivative_rhs" in code
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def time_derivative_system(precision):
     """Return a symbolic system with explicit time and driver dependence."""
 

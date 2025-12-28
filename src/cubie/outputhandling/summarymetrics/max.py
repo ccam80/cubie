@@ -25,10 +25,11 @@ class Max(SummaryMetric):
     ``-1.0e30`` after each save so any new value can replace it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, precision) -> None:
         """Initialise the Max summary metric with fixed buffer sizes."""
         super().__init__(
             name="max",
+            precision=precision,
             buffer_size=1,
             output_size=1,
             unit_modification="[unit]",
@@ -52,10 +53,10 @@ class Max(SummaryMetric):
 
         # no cover: start
         @cuda.jit(
-            [
-                "float32, float32[::1], int32, int32",
-                "float64, float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32, float32[::1], int32, int32",
+            #     "float64, float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )
@@ -86,10 +87,10 @@ class Max(SummaryMetric):
                 buffer[0] = value
 
         @cuda.jit(
-            [
-                "float32[::1], float32[::1], int32, int32",
-                "float64[::1], float64[::1], int32, int32",
-            ],
+            # [
+            #     "float32[::1], float32[::1], int32, int32",
+            #     "float64[::1], float64[::1], int32, int32",
+            # ],
             device=True,
             inline=True,
         )
