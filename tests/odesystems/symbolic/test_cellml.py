@@ -505,3 +505,29 @@ def test_user_equation_literals_wrapped():
     # The fact that both ran successfully proves precision wrapping works
 
 
+def test_time_variable_not_in_parameters(cellml_fixtures_dir):
+    """Verify that time variable is not assigned to parameters.
+    
+    Regression test for bug where environment_time was incorrectly
+    assigned to parameters when loading Fabbri_Linder model without
+    explicit parameters/states/constants arguments.
+    """
+    # Load Fabbri_Linder model without any parameters argument
+    fabbri_path = cellml_fixtures_dir / "Fabbri_Linder.cellml"
+    ode_system = load_cellml_model(str(fabbri_path))
+    
+    # Check that environment_time is NOT in parameters
+    params_map = ode_system.indices.parameters.index_map
+    param_names = [str(k) for k in params_map.keys()]
+    
+    # Neither sanitized nor unsanitized version should be in parameters
+    assert 'environment_time' not in param_names, \
+        "environment_time should not be in parameters"
+    assert 'environment$time' not in param_names, \
+        "environment$time should not be in parameters"
+    
+    # When no parameters argument provided, should have 0 parameters
+    assert len(param_names) == 0, \
+        f"Expected 0 parameters, got {len(param_names)}: {param_names}"
+
+

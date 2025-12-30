@@ -238,6 +238,18 @@ def load_cellml_model(
     # Collect units for all other symbols
     all_symbol_units = {}
     
+    # Identify the time variable (independent variable in derivatives)
+    # and map it to the standard 't' symbol used in CuBIE
+    time_variable = None
+    if raw_derivatives:
+        # Extract independent variable from first derivative
+        # Derivatives have form: Derivative(state, (time_var, 1))
+        first_deriv = raw_derivatives[0]
+        if hasattr(first_deriv, 'args') and len(first_deriv.args) > 1:
+            time_variable = first_deriv.args[1][0]
+            # Map time variable to standard 't' symbol
+            dummy_to_symbol[time_variable] = sp.Symbol("t", real=True)
+    
     # Also convert any other Dummy symbols in the model equations
     # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
