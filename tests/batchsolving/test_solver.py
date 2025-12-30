@@ -1031,10 +1031,12 @@ def test_solve_ivp_with_save_variables(system):
     assert result.time_domain_array.shape[1] == len(state_names)
 
 
-def test_solver_solve_with_save_variables(solver, system):
+def test_solver_solve_with_save_variables(system):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
     
+    # Create fresh solver to avoid driver conflicts
+    solver = Solver(system)
     result = solver.solve(
         initial_values={state_names[0]: [1.0, 2.0]},
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
