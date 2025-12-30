@@ -4,7 +4,7 @@ import time
 import pytest
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 
 
 @pytest.mark.nocudasim
@@ -38,8 +38,8 @@ def test_compilation_caching():
     
     # First run: with verbose logging
     print("\n=== First run (verbose logging) ===")
-    _default_timelogger.set_verbosity('verbose')
-    _default_timelogger.events = []  # Clear previous events
+    default_timelogger.set_verbosity('verbose')
+    default_timelogger.events = []  # Clear previous events
     
     system1 = create_ODE_system(
         dxdt=equations,
@@ -63,15 +63,15 @@ def test_compilation_caching():
     print(f"First run total time: {time1:.4f}s")
     
     # Get compilation events from first run
-    compile_events = [e for e in _default_timelogger.events 
+    compile_events = [e for e in default_timelogger.events 
                      if 'compile' in e.name.lower()]
     print(f"Number of compile events in first run: {len(compile_events)}")
     
     # Second run: same equations but swapped order (avoid codegen cache)
     # with no logging
     print("\n=== Second run (no logging, swapped equation order) ===")
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []  # Clear events
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []  # Clear events
     
     # Swap equation order to force new codegen
     equations_swapped = [
@@ -120,8 +120,8 @@ def test_compilation_caching():
         print("✗ Second run was not faster - compilations may not be cached")
     
     # Reset logger
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []
     
     # Assert results are valid
     assert result1 is not None
@@ -152,8 +152,8 @@ def test_timelogger_default_mode_printing():
     
     parameters = {'k': [0.5]}
     
-    _default_timelogger.set_verbosity('default')
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity('default')
+    default_timelogger.events = []
     
     system = create_ODE_system(
         dxdt=equations,
@@ -172,23 +172,23 @@ def test_timelogger_default_mode_printing():
     )
     
     # Print summary at the end
-    _default_timelogger.print_summary()
+    default_timelogger.print_summary()
     
     # Get events by category
-    codegen_events = [e for e in _default_timelogger.events 
-                     if _default_timelogger._event_registry.get(e.name, {}).get('category') == 'codegen']
-    compile_events = [e for e in _default_timelogger.events 
-                     if _default_timelogger._event_registry.get(e.name, {}).get('category') == 'compile']
-    runtime_events = [e for e in _default_timelogger.events 
-                     if _default_timelogger._event_registry.get(e.name, {}).get('category') == 'runtime']
+    codegen_events = [e for e in default_timelogger.events 
+                     if default_timelogger._event_registry.get(e.name, {}).get('category') == 'codegen']
+    compile_events = [e for e in default_timelogger.events 
+                     if default_timelogger._event_registry.get(e.name, {}).get('category') == 'compile']
+    runtime_events = [e for e in default_timelogger.events 
+                     if default_timelogger._event_registry.get(e.name, {}).get('category') == 'runtime']
     
     print(f"\nCodegen events: {len(codegen_events)}")
     print(f"Compile events: {len(compile_events)}")
     print(f"Runtime events: {len(runtime_events)}")
     
     # Reset logger
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []
     
     assert result is not None
 

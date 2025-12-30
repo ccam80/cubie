@@ -11,7 +11,7 @@ from numba import cuda
 import numba
 
 from cubie._utils import in_attr, is_devfunc
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
@@ -44,7 +44,7 @@ class CUDAFunctionCache:
             
             event_name = f"compile_{field.name}"
             description = f"Compilation time for {field.name}"
-            _default_timelogger.register_event(event_name, "compile",
+            default_timelogger.register_event(event_name, "compile",
                                              description)
 
 def _create_placeholder_args(
@@ -504,9 +504,9 @@ class CUDAFactory(ABC):
         self._cache = None
         
         # Use global default logger callbacks
-        self._timing_start = _default_timelogger.start_event
-        self._timing_stop = _default_timelogger.stop_event
-        self._timing_progress = _default_timelogger.progress
+        self._timing_start = default_timelogger.start_event
+        self._timing_stop = default_timelogger.stop_event
+        self._timing_progress = default_timelogger.progress
 
     @abstractmethod
     def build(self):
@@ -752,7 +752,7 @@ class CUDAFactory(ABC):
         self._cache_valid = True
         
         # Trigger compilation by running a placeholder kernel
-        if _default_timelogger.verbosity is not None:
+        if default_timelogger.verbosity is not None:
             for field in attrs.fields(type(self._cache)):
                 device_func = getattr(self._cache, field.name)
                 if device_func is None or device_func == -1:

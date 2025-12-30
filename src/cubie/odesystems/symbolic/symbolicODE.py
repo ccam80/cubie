@@ -43,7 +43,7 @@ from cubie.odesystems.symbolic.codegen.time_derivative import (
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
@@ -281,11 +281,11 @@ class SymbolicODE(BaseODE):
             ArrayInterpolator(precision=precision, drivers_dict=drivers)
 
         # Register timing event for parsing (one-time registration)
-        _default_timelogger.register_event("symbolic_ode_parsing", "codegen",
+        default_timelogger.register_event("symbolic_ode_parsing", "codegen",
                                            "Codegen time for symbolic ODE parsing")
 
         # Start timing for parsing operation
-        _default_timelogger.start_event("symbolic_ode_parsing")
+        default_timelogger.start_event("symbolic_ode_parsing")
         sys_components = parse_input(
             states=states,
             observables=observables,
@@ -309,7 +309,7 @@ class SymbolicODE(BaseODE):
                            fn_hash=int(fn_hash),
                            user_functions = functions,
                            precision=precision)
-        _default_timelogger.stop_event("symbolic_ode_parsing")
+        default_timelogger.stop_event("symbolic_ode_parsing")
         return symbolic_ode
 
 
@@ -490,7 +490,7 @@ class SymbolicODE(BaseODE):
         event_name = f"solver_helper_{func_type}"
 
         if event_name not in self.registered_helper_events:
-            _default_timelogger.register_event(event_name, "codegen",
+            default_timelogger.register_event(event_name, "codegen",
                                                f"Codegen time for solver helper {func_type}")
             self.registered_helper_events.add(event_name)
 
@@ -501,7 +501,7 @@ class SymbolicODE(BaseODE):
             pass
 
         # Start timing for helper generation
-        _default_timelogger.start_event(event_name)
+        default_timelogger.start_event(event_name)
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
@@ -547,7 +547,7 @@ class SymbolicODE(BaseODE):
         elif func_type == "cached_aux_count":
             if self._jacobian_aux_count is None:
                 self.get_solver_helper("prepare_jac")
-            _default_timelogger.stop_event(event_name)
+            default_timelogger.stop_event(event_name)
             return self._jacobian_aux_count
         elif func_type == "calculate_cached_jvp":
             code = generate_cached_jvp_code(
@@ -657,6 +657,6 @@ class SymbolicODE(BaseODE):
         factory = self.gen_file.import_function(factory_name, code)
         func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
-        _default_timelogger.stop_event(event_name)
+        default_timelogger.stop_event(event_name)
 
         return func

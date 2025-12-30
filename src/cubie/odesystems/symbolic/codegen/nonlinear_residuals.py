@@ -18,17 +18,17 @@ from cubie.odesystems.symbolic.sym_utils import (
     topological_sort,
     prune_unused_assignments,
 )
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 
 from ._stage_utils import build_stage_metadata, prepare_stage_data
 
 # Register timing events for codegen functions
 # Module-level registration required since codegen functions return code
 # strings rather than cacheable objects that could auto-register
-_default_timelogger.register_event("codegen_generate_stage_residual_code",
+default_timelogger.register_event("codegen_generate_stage_residual_code",
                                    "codegen",
                                    "Codegen time for generate_stage_residual_code")
-_default_timelogger.register_event("codegen_generate_n_stage_residual_code",
+default_timelogger.register_event("codegen_generate_n_stage_residual_code",
                                    "codegen",
                                    "Codegen time for generate_n_stage_residual_code")
 
@@ -338,7 +338,7 @@ def generate_stage_residual_code(
     cse: bool = True,
 ) -> str:
     """Generate the stage residual factory."""
-    _default_timelogger.start_event("codegen_generate_stage_residual_code")
+    default_timelogger.start_event("codegen_generate_stage_residual_code")
 
     result = generate_residual_code(
         equations=equations,
@@ -347,7 +347,7 @@ def generate_stage_residual_code(
         func_name=func_name,
         cse=cse,
     )
-    _default_timelogger.stop_event("codegen_generate_stage_residual_code")
+    default_timelogger.stop_event("codegen_generate_stage_residual_code")
     return result
 
 
@@ -361,7 +361,7 @@ def generate_n_stage_residual_code(
     cse: bool = True,
 ) -> str:
     """Generate a flattened n-stage FIRK residual factory."""
-    _default_timelogger.start_event("codegen_generate_n_stage_residual_code")
+    default_timelogger.start_event("codegen_generate_n_stage_residual_code")
 
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
@@ -387,7 +387,7 @@ def generate_n_stage_residual_code(
         body=body,
         stage_count=stage_count,
     )
-    _default_timelogger.stop_event("codegen_generate_n_stage_residual_code")
+    default_timelogger.stop_event("codegen_generate_n_stage_residual_code")
     return result
 
 

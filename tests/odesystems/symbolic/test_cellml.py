@@ -189,9 +189,9 @@ def test_cellml_uses_sympy_pathway(basic_model):
 
 def test_cellml_timing_events_updated():
     """Verify timing events use new SymPy preparation name."""
-    from cubie.time_logger import _default_timelogger
+    from cubie.time_logger import default_timelogger
     
-    registered_events = _default_timelogger._event_registry
+    registered_events = default_timelogger._event_registry
     assert "codegen_cellml_sympy_preparation" in registered_events
     
     assert "codegen_cellml_string_formatting" not in registered_events
@@ -293,7 +293,7 @@ def test_non_numeric_algebraic_equations_remain(beeler_reuter_model):
 
 def test_cellml_time_logging_events_registered():
     """Verify time logging events are registered for cellml import."""
-    from cubie.time_logger import _default_timelogger
+    from cubie.time_logger import default_timelogger
     
     # Check that all cellml events are registered
     expected_events = [
@@ -304,8 +304,8 @@ def test_cellml_time_logging_events_registered():
     ]
     
     for event_name in expected_events:
-        assert event_name in _default_timelogger._event_registry
-        assert _default_timelogger._event_registry[event_name]["category"] == "codegen"
+        assert event_name in default_timelogger._event_registry
+        assert default_timelogger._event_registry[event_name]["category"] == "codegen"
 
 
 def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
@@ -335,8 +335,8 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
     
     # Temporarily replace the global logger
     from cubie.odesystems.symbolic.parsing import cellml
-    original_logger = cellml._default_timelogger
-    cellml._default_timelogger = test_logger
+    original_logger = cellml.default_timelogger
+    cellml.default_timelogger = test_logger
     
     try:
         # Load a model
@@ -383,7 +383,7 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
         
     finally:
         # Restore the original logger
-        cellml._default_timelogger = original_logger
+        cellml.default_timelogger = original_logger
 
 
 def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
@@ -413,8 +413,8 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
     
     # Temporarily replace the global logger
     from cubie.odesystems.symbolic.parsing import cellml
-    original_logger = cellml._default_timelogger
-    cellml._default_timelogger = test_logger
+    original_logger = cellml.default_timelogger
+    cellml.default_timelogger = test_logger
     
     try:
         # Load a model
@@ -441,7 +441,7 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
 
     finally:
         # Restore the original logger
-        cellml._default_timelogger = original_logger
+        cellml.default_timelogger = original_logger
 
 
 def test_cellml_numeric_literals_wrapped(basic_model):

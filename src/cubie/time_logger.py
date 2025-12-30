@@ -41,7 +41,7 @@ class CUDAEvent:
     name : str, default="unnamed_cuda_event"
         Event identifier (e.g., "kernel_chunk_0")
     timelogger : TimeLogger, optional
-        TimeLogger instance for registration. If None, uses _default_timelogger.
+        TimeLogger instance for registration. If None, uses default_timelogger.
     
     Attributes
     ----------
@@ -64,7 +64,7 @@ class CUDAEvent:
         
         # Get TimeLogger instance for registration and verbosity check
         if timelogger is None:
-            timelogger = _default_timelogger
+            timelogger = default_timelogger
         self._verbosity = timelogger.verbosity
         
         if not is_cudasim_enabled():
@@ -182,7 +182,7 @@ class TimeLogger:
     
     Notes
     -----
-    A default instance is available as cubie.time_logger._default_timelogger.
+    A default instance is available as cubie.time_logger.default_timelogger.
     Use set_verbosity() to configure the global logger level.
     """
     
@@ -700,4 +700,4 @@ class TimeLogger:
 
 # Default global logger instance
 # Use set_verbosity() to configure, or access via cubie.time_logger
-_default_timelogger = TimeLogger(verbosity=None)
+default_timelogger = TimeLogger(verbosity=None)
