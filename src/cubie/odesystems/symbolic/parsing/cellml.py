@@ -242,11 +242,21 @@ def load_cellml_model(
     # and map it to the standard 't' symbol used in CuBIE
     time_variable = None
     if raw_derivatives:
-        # Extract independent variable from first derivative
-        # Derivatives have form: Derivative(state, (time_var, 1))
-        first_deriv = raw_derivatives[0]
-        if hasattr(first_deriv, 'args') and len(first_deriv.args) > 1:
-            time_variable = first_deriv.args[1][0]
+        # Collect independent variables from all derivatives to ensure they
+        # share a single time variable
+        independent_variables = set()
+        for derivative in raw_derivatives:
+            if hasattr(derivative, "args") and len(derivative.args) > 1:
+                # Derivatives have form: Derivative(state, (time_var, 1))
+                independent_variables.add(derivative.args[1][0])
+        if len(independent_variables) > 1:
+            raise ValueError(
+                "CellML model uses multiple independent variables in "
+                "derivatives; CuBIE requires a single shared time "
+                "variable."
+            )
+        if independent_variables:
+            time_variable = next(iter(independent_variables))
             # Map time variable to standard 't' symbol
             dummy_to_symbol[time_variable] = sp.Symbol("t", real=True)
     
