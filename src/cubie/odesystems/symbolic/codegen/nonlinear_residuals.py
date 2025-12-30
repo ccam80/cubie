@@ -93,7 +93,7 @@ def _build_residual_lines(
     equations: ParsedEquations,
     index_map: IndexedBases,
     M: sp.Matrix,
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Construct CUDA code lines for the stage-increment residual."""
 
@@ -183,7 +183,7 @@ def _build_n_stage_residual_lines(
     M: sp.Matrix,
     stage_coefficients: sp.Matrix,
     stage_nodes: Tuple[sp.Expr, ...],
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Construct CUDA statements for the FIRK n-stage residual."""
 
@@ -305,7 +305,7 @@ def generate_residual_code(
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "residual_factory",
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Emit the stage-increment residual factory for Newton--Krylov integration."""
 
@@ -335,7 +335,7 @@ def generate_stage_residual_code(
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "stage_residual",
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Generate the stage residual factory."""
     _default_timelogger.start_event("codegen_generate_stage_residual_code")
@@ -358,7 +358,7 @@ def generate_n_stage_residual_code(
     stage_nodes: Sequence[Union[float, sp.Expr]],
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "n_stage_residual",
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Generate a flattened n-stage FIRK residual factory."""
     _default_timelogger.start_event("codegen_generate_n_stage_residual_code")

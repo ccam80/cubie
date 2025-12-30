@@ -323,7 +323,7 @@ def generate_operator_apply_code_from_jvp(
     index_map: IndexedBases,
     M: sp.Matrix,
     func_name: str = "operator_apply_factory",
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Emit the operator apply factory from precomputed JVP expressions."""
 
@@ -412,7 +412,7 @@ def generate_operator_apply_code(
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "operator_apply_factory",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the linear operator factory from system equations."""
@@ -447,7 +447,7 @@ def generate_cached_operator_apply_code(
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "linear_operator_cached",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached linear operator factory."""
@@ -480,7 +480,7 @@ def generate_prepare_jac_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "prepare_jac",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> Tuple[str, int]:
     """Generate the cached auxiliary preparation factory."""
@@ -507,7 +507,7 @@ def generate_cached_jvp_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "calculate_cached_jvp",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate the cached Jacobian-vector product factory."""
@@ -537,7 +537,7 @@ def _build_n_stage_operator_lines(
     stage_coefficients: sp.Matrix,
     stage_nodes: Tuple[sp.Expr, ...],
     jvp_equations: JVPEquations,
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Construct CUDA statements for the FIRK n-stage linear operator."""
 
@@ -711,7 +711,7 @@ def generate_n_stage_linear_operator_code(
     stage_nodes: Sequence[Union[float, sp.Expr]],
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "n_stage_linear_operator",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK linear operator factory."""

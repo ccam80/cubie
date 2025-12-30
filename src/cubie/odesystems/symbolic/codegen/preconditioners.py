@@ -264,7 +264,7 @@ def _build_n_stage_neumann_lines(
     stage_coefficients: sp.Matrix,
     stage_nodes: Tuple[sp.Expr, ...],
     jvp_equations: JVPEquations,
-    cse: bool = True,
+    cse: bool = False,
 ) -> str:
     """Construct CUDA statements computing J·v for flattened FIRK stages."""
 
@@ -426,7 +426,7 @@ def generate_n_stage_neumann_preconditioner_code(
     stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
     stage_nodes: Sequence[Union[float, sp.Expr]],
     func_name: str = "n_stage_neumann_preconditioner",
-    cse: bool = True,
+    cse: bool = False,
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK Neumann preconditioner factory."""
