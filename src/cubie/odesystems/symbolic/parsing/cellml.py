@@ -238,7 +238,8 @@ def load_cellml_model(
     # Collect units for all other symbols
     all_symbol_units = {}
     
-    # Identify the time variable (independent variable in derivatives)
+    # Identify the time variable (independent variable in derivatives) if it
+    # is used as the independent variable in any of the derivatives,
     # and map it to the standard 't' symbol used in CuBIE
     time_variable = None
     if raw_derivatives:
