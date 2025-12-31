@@ -108,15 +108,31 @@ def cse_and_stack(
         symbol = "_cse"
     expr_labels = [lhs for lhs, _ in equations]
     all_rhs = (rhs for _, rhs in equations)
-    while any(str(label).startswith(symbol) for label in expr_labels):
-        warnings.warn(
-            f"CSE symbol {symbol} is already in use; it has been "
-            f"prepended with an underscore to _{symbol}"
-        )
-        symbol = f"_{symbol}"
+
+    # Find the highest existing numbered symbol with the same prefix and
+    # continue numbering from there. If the prefix exists but no numeric
+    # suffixes are found, start numbering at 1.
+    start_index = 0
+    max_index = -1
+    prefix_found = False
+    for label in expr_labels:
+        label_str = str(label)
+        if label_str.startswith(symbol):
+            prefix_found = True
+            suffix = label_str[len(symbol) :]
+            if suffix.isdigit():
+                idx = int(suffix)
+                if idx > max_index:
+                    max_index = idx
+
+    if prefix_found:
+        start_index = max_index + 1
 
     cse_exprs, reduced_exprs = sp.cse(
-        all_rhs, symbols=sp.numbered_symbols(symbol), order="none"
+            all_rhs, symbols=sp.numbered_symbols(
+                    symbol,
+                    start=start_index),
+                    order="none"
     )
     expressions = list(zip(expr_labels, reduced_exprs)) + list(cse_exprs)
     sorted_expressions = topological_sort(expressions)
