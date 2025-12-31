@@ -476,7 +476,8 @@ class TimeLogger:
                 durations = self.get_aggregate_durations(category=cat)
                 
                 # Add CUDA event durations from metadata
-                compile_time = durations.get('kernel_compile', 0.0)
+                # Kernel compile event is named "compile_solver_kernel" by CUDAFactory
+                compile_time = durations.get('compile_solver_kernel', 0.0)
                 
                 for event in self.events:
                     if event.event_type == 'stop' and 'duration_ms' in event.metadata:
@@ -535,7 +536,8 @@ class TimeLogger:
                 
                 # Get standard durations from start/stop pairs
                 durations = self.get_aggregate_durations(category=cat)
-                compile_time = durations.get('kernel_compile', 0.0)
+                # Kernel compile event is named "compile_solver_kernel" by CUDAFactory
+                compile_time = durations.get('compile_solver_kernel', 0.0)
                 
                 for name, duration in durations.items():
                     events_to_print.append((name, duration, False, cat))
