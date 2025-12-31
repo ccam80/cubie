@@ -286,7 +286,7 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner", # neumann preconditioner cached?
+            "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
             mass=mass,
