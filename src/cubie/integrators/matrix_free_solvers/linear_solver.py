@@ -6,7 +6,7 @@ The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
 """
 
-from typing import Callable, Optional, Set, Dict, Any
+from typing import Callable, Optional, Set, Dict, Any, Tuple
 
 import attrs
 from attrs import validators
@@ -521,6 +521,51 @@ class LinearSolver(CUDAFactory):
 
             # no cover: end
             return LinearSolverCache(linear_solver=linear_solver)
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'linear_solver' to argument tuple matching the
+            function signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        use_cached = config.use_cached_auxiliaries
+        shared_elems = max(1, self.shared_buffer_size)
+        persistent_elems = max(1, self.persistent_local_buffer_size)
+
+        state = np.ones((n,), dtype=precision)
+        parameters = np.ones((1,), dtype=precision)
+        drivers = np.ones((1,), dtype=precision)
+        base_state = np.ones((n,), dtype=precision)
+        t_val = precision(0.0)
+        h_val = precision(1.0)
+        a_ij_val = precision(1.0)
+        rhs = np.ones((n,), dtype=precision)
+        x = np.ones((n,), dtype=precision)
+        shared = np.ones((shared_elems,), dtype=precision)
+        persistent_local = np.ones((persistent_elems,), dtype=precision)
+        krylov_iters_out = np.zeros((1,), dtype=np.int32)
+
+        if use_cached:
+            cached_aux = np.ones((n,), dtype=precision)
+            args = (
+                state, parameters, drivers, base_state, cached_aux,
+                t_val, h_val, a_ij_val, rhs, x,
+                shared, persistent_local, krylov_iters_out
+            )
+        else:
+            args = (
+                state, parameters, drivers, base_state,
+                t_val, h_val, a_ij_val, rhs, x,
+                shared, persistent_local, krylov_iters_out
+            )
+
+        return {'linear_solver': args}
 
     def update(
         self,

@@ -10,7 +10,7 @@ from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 def simple_symbolic_ode(precision):
     """Create a simple SymbolicODE for testing."""
     return SymbolicODE.create(
-        dxdt=["dx = -k * x", "dy = k * x - m * y"],
+        dxdt=["dx = -k * x", "dy = k * x - m * y", "z = x + y"],
         states={"x": 1.0, "y": 0.0},
         parameters={"k": 0.1, "m": 0.05},
         observables=["z"],

@@ -448,6 +448,30 @@ class ArrayInterpolator(CUDAFactory):
         )
         return cache
 
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of cached output names to their dummy argument tuples.
+        """
+        precision = self.precision
+        num_inputs = self.num_inputs
+        num_segments = self.num_segments
+        order = self.order
+
+        time_val = precision(0.0)
+        coefficients = np.ones(
+            (num_segments, num_inputs, order + 1), dtype=precision
+        )
+        out = np.ones((num_inputs,), dtype=precision)
+
+        args = (time_val, coefficients, out)
+        return {
+            'evaluation_function': args,
+            'driver_del_t': args,
+        }
 
     def update(
         self,

@@ -500,6 +500,39 @@ class NewtonKrylov(CUDAFactory):
         # no cover: end
         return NewtonKrylovCache(newton_krylov_solver=newton_krylov_solver)
 
+    def _generate_dummy_args(self) -> Dict[str, tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, tuple]
+            Mapping of 'newton_krylov_solver' to argument tuple matching
+            the function signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        shared_elems = max(1, self.shared_buffer_size)
+        persistent_elems = max(1, self.persistent_local_buffer_size)
+
+        stage_increment = np.ones((n,), dtype=precision)
+        parameters = np.ones((1,), dtype=precision)
+        drivers = np.ones((1,), dtype=precision)
+        t_val = precision(0.0)
+        h_val = precision(1.0)
+        a_ij_val = precision(1.0)
+        base_state = np.ones((n,), dtype=precision)
+        shared_scratch = np.ones((shared_elems,), dtype=precision)
+        persistent_scratch = np.ones((persistent_elems,), dtype=precision)
+        counters = np.zeros((2,), dtype=np.int32)
+
+        args = (
+            stage_increment, parameters, drivers, t_val, h_val, a_ij_val,
+            base_state, shared_scratch, persistent_scratch, counters
+        )
+
+        return {'newton_krylov_solver': args}
+
     def update(
         self,
         updates_dict: Optional[Dict[str, Any]] = None,
