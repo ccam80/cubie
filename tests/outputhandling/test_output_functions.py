@@ -755,3 +755,68 @@ def test_output_array_heights_property(output_functions):
     assert array_heights.state_summaries == expected_state_summaries
     assert array_heights.observable_summaries == expected_observable_summaries
     assert array_heights.per_variable == expected_per_variable
+
+
+def test_generate_dummy_args_returns_correct_keys(output_functions):
+    """Verify _generate_dummy_args returns dict with expected function names."""
+    dummy_args = output_functions._generate_dummy_args()
+
+    expected_keys = {
+        'save_state_function',
+        'update_summaries_function',
+        'save_summaries_function',
+    }
+    assert set(dummy_args.keys()) == expected_keys
+
+
+@pytest.mark.parametrize(
+    "output_test_settings_overrides",
+    [
+        {
+            "output_types": ["state", "observables"],
+            "saved_state_indices": [0, 1, 2],
+            "saved_observable_indices": [0, 1],
+        },
+        {
+            "output_types": ["state", "observables", "mean", "max"],
+            "saved_state_indices": [0],
+            "saved_observable_indices": [0],
+        },
+    ],
+    ids=["multiple_indices", "with_summaries"],
+    indirect=True,
+)
+def test_generate_dummy_args_shapes_match_config(output_functions):
+    """Verify array shapes in dummy args match compile_settings dimensions."""
+    dummy_args = output_functions._generate_dummy_args()
+    config = output_functions.compile_settings
+
+    n_saved_states = len(config.saved_state_indices)
+    n_saved_obs = len(config.saved_observable_indices)
+    n_counters = 4
+    buf_height = config.summaries_buffer_height_per_var
+    n_summ_states = len(config.summarised_state_indices)
+    n_summ_obs = len(config.summarised_observable_indices)
+
+    # Check save_state_function args
+    save_args = dummy_args['save_state_function']
+    assert save_args[0].shape == (n_saved_states,)  # state
+    assert save_args[1].shape == (n_saved_obs,)     # observables
+    assert save_args[2].shape == (n_counters,)      # counters
+    assert save_args[4].shape == (n_saved_states,)  # state_out
+    assert save_args[5].shape == (n_saved_obs,)     # obs_out
+    assert save_args[6].shape == (n_counters,)      # counters_out
+
+    # Check update_summaries_function args
+    update_args = dummy_args['update_summaries_function']
+    assert update_args[0].shape == (n_summ_states,)
+    assert update_args[1].shape == (n_summ_obs,)
+    assert update_args[2].shape == (buf_height * n_summ_states,)
+    assert update_args[3].shape == (buf_height * n_summ_obs,)
+
+    # Check save_summaries_function args
+    save_summ_args = dummy_args['save_summaries_function']
+    assert save_summ_args[0].shape == (buf_height * n_summ_states,)
+    assert save_summ_args[1].shape == (buf_height * n_summ_obs,)
+    assert save_summ_args[2].shape == (n_summ_states,)
+    assert save_summ_args[3].shape == (n_summ_obs,)

@@ -1,6 +1,6 @@
 """Crank–Nicolson step with embedded backward Euler error estimation."""
 
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 import attrs
 from numba import cuda, int32
@@ -343,3 +343,40 @@ class CrankNicolsonStep(ODEImplicitStep):
         """Return the classical order of the Crank–Nicolson method."""
 
         return 2
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'step' to argument tuple matching the step function
+            signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+        n_drivers = config.n_drivers
+        shared_elems = max(1, self.shared_memory_elements)
+        persistent_elems = max(1, self.persistent_local_elements)
+
+        return {
+            'step': (
+                np.ones((n,), dtype=precision),
+                np.ones((n,), dtype=precision),
+                np.ones((n,), dtype=precision),
+                np.ones((100, n_drivers, 6), dtype=precision),
+                np.ones((n_drivers,), dtype=precision),
+                np.ones((n_drivers,), dtype=precision),
+                np.ones((n,), dtype=precision),
+                np.ones((n,), dtype=precision),
+                np.ones((n,), dtype=precision),
+                precision(0.001),
+                precision(0.0),
+                np.int32(1),
+                np.int32(1),
+                np.ones((shared_elems,), dtype=precision),
+                np.ones((persistent_elems,), dtype=precision),
+                np.ones((2,), dtype=np.int32),
+            ),
+        }

@@ -9,7 +9,7 @@ implement specific control strategies.
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 import warnings
 
 import attrs
@@ -200,6 +200,17 @@ class BaseStepController(CUDAFactory):
     def settings_dict(self) -> dict[str, object]:
         """Return the compile-time settings as a dictionary."""
         return self.compile_settings.settings_dict
+
+    @abstractmethod
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'device_function' to argument tuple matching
+            the controller signature.
+        """
 
     def update(
         self,

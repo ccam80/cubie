@@ -1,6 +1,8 @@
 """Fixed step-size controller implementations."""
 
+from typing import Dict, Tuple
 
+import numpy as np
 from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
@@ -153,6 +155,35 @@ class FixedStepController(BaseStepController):
     def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 0
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'device_function' to argument tuple matching
+            the fixed step controller signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+
+        # Controller signature: (dt, proposed_state, current_state,
+        #                        error, niters, accept_step,
+        #                        shared_scratch, persistent_local)
+        return {
+            'device_function': (
+                np.ones((1,), dtype=precision),      # dt buffer
+                np.ones((n,), dtype=precision),      # proposed_state
+                np.ones((n,), dtype=precision),      # current_state
+                np.ones((n,), dtype=precision),      # error
+                np.int32(1),                         # niters
+                np.ones((1,), dtype=np.int32),       # accept_step
+                np.ones((8,), dtype=precision),      # shared_scratch
+                np.ones((8,), dtype=precision),      # persistent_local
+            ),
+        }
 
     @property
     def dt(self) -> float:

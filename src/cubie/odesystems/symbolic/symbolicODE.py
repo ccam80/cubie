@@ -3,10 +3,12 @@
 from typing import (
     Any,
     Callable,
+    Dict,
     Iterable,
     Optional,
     Sequence,
     Set,
+    Tuple,
     Union,
 )
 
@@ -660,3 +662,42 @@ class SymbolicODE(BaseODE):
         default_timelogger.stop_event(event_name)
 
         return func
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of cached output names (``'dxdt'``, ``'observables'``)
+            to their argument tuples.
+        """
+        precision = self.precision
+        sizes = self.sizes
+        n_states = int(sizes.states)
+        n_params = int(sizes.parameters)
+        n_drivers = int(sizes.drivers)
+        n_obs = int(sizes.observables)
+
+        # dxdt signature: (state, dxdt_out, parameters, drivers, t)
+        dxdt_args = (
+            np.ones((n_states,), dtype=precision),
+            np.ones((n_states,), dtype=precision),
+            np.ones((n_params,), dtype=precision),
+            np.ones((n_drivers,), dtype=precision),
+            precision(0.0),
+        )
+
+        # observables signature: (state, params, drivers, obs_out, t)
+        obs_args = (
+            np.ones((n_states,), dtype=precision),
+            np.ones((n_params,), dtype=precision),
+            np.ones((n_drivers,), dtype=precision),
+            np.ones((n_obs,), dtype=precision),
+            precision(0.0),
+        )
+
+        return {
+            'dxdt': dxdt_args,
+            'observables': obs_args,
+        }

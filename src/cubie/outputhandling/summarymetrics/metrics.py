@@ -6,7 +6,7 @@ per-metric metadata such as buffer sizes, parameterisation, and device
 function dispatch tables.
 """
 
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 from abc import abstractmethod
 import attrs
@@ -230,6 +230,39 @@ class SummaryMetric(CUDAFactory):
         Triggers recompilation on next device_function access.
         """
         self.update_compile_settings(kwargs, silent=True)
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of ``'update'`` and ``'save'`` to argument tuples.
+        """
+        config = self.compile_settings
+        precision = config.precision
+
+        # update signature: (value, buffer, idx, custom_var)
+        update_args = (
+            precision(1.0),
+            np.ones((10,), dtype=precision),
+            np.int32(0),
+            precision(1.0),
+        )
+
+        # save signature: (buffer, output, summarise_every, custom_var)
+        save_args = (
+            np.ones((10,), dtype=precision),
+            np.ones((1,), dtype=precision),
+            np.int32(10),
+            precision(1.0),
+        )
+
+        return {
+            'update': update_args,
+            'save': save_args,
+        }
+
 
 @attrs.define
 class SummaryMetrics:

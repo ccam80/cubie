@@ -921,3 +921,39 @@ def test_pairwise_combinations_buffer_efficiency(real_metrics):
     mean_rms = ["mean", "rms"]
     mean_rms_buffer = real_metrics.summaries_buffer_height(mean_rms)
     assert mean_rms_buffer == 2, "mean+rms should use 2 buffer slots (not combined)"
+
+
+def test_summary_metric_generate_dummy_args(mock_metric, precision):
+    """Verify SummaryMetric returns properly shaped args."""
+    import numpy as np
+
+    dummy_args = mock_metric._generate_dummy_args()
+
+    # Should have update and save keys
+    assert 'update' in dummy_args
+    assert 'save' in dummy_args
+
+    # Check update args structure
+    update_args = dummy_args['update']
+    assert len(update_args) == 4
+
+    # update signature: (value, buffer, idx, custom_var)
+    value, buffer, idx, custom_var = update_args
+    assert isinstance(value, (np.floating, float))
+    assert isinstance(buffer, np.ndarray)
+    assert buffer.dtype == precision
+    assert isinstance(idx, (np.int32, int))
+    assert isinstance(custom_var, (np.floating, float))
+
+    # Check save args structure
+    save_args = dummy_args['save']
+    assert len(save_args) == 4
+
+    # save signature: (buffer, output, summarise_every, custom_var)
+    buffer, output, summarise_every, custom_var = save_args
+    assert isinstance(buffer, np.ndarray)
+    assert buffer.dtype == precision
+    assert isinstance(output, np.ndarray)
+    assert output.dtype == precision
+    assert isinstance(summarise_every, (np.int32, int))
+    assert isinstance(custom_var, (np.floating, float))

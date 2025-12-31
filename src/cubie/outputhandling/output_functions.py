@@ -7,7 +7,7 @@ helper factories consume an :class:`~cubie.outputhandling.output_config.OutputCo
 instance so the compiled functions always reflect the active configuration.
 """
 
-from typing import Callable, Sequence, Union, Optional
+from typing import Callable, Dict, Sequence, Tuple, Union, Optional
 
 import attrs
 import numpy as np
@@ -230,6 +230,64 @@ class OutputFunctions(CUDAFactory):
             update_summaries_function=update_summary_metrics_func,
             save_summaries_function=save_summary_metrics_func,
         )
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of function names to argument tuples for:
+            - save_state_function
+            - update_summaries_function
+            - save_summaries_function
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n_saved_states = len(config.saved_state_indices)
+        n_saved_obs = len(config.saved_observable_indices)
+        n_counters = 4  # Fixed counter count
+        buf_height = config.summaries_buffer_height_per_var
+        n_summ_states = len(config.summarised_state_indices)
+        n_summ_obs = len(config.summarised_observable_indices)
+
+        # save_state_function(state, observables, counters, t,
+        #                     state_out, obs_out, counters_out)
+        save_state_args = (
+            np.ones((n_saved_states,), dtype=precision),  # state
+            np.ones((n_saved_obs,), dtype=precision),     # observables
+            np.ones((n_counters,), dtype=np.int32),       # counters
+            precision(0.0),                                # t
+            np.ones((n_saved_states,), dtype=precision),  # state_out
+            np.ones((n_saved_obs,), dtype=precision),     # obs_out
+            np.ones((n_counters,), dtype=np.int32),       # counters_out
+        )
+
+        # update_summaries_function(state, observables,
+        #                           state_buffer, obs_buffer, idx)
+        update_args = (
+            np.ones((n_summ_states,), dtype=precision),
+            np.ones((n_summ_obs,), dtype=precision),
+            np.ones((buf_height * n_summ_states,), dtype=precision),
+            np.ones((buf_height * n_summ_obs,), dtype=precision),
+            np.int32(1),
+        )
+
+        # save_summaries_function(state_buffer, obs_buffer,
+        #                         state_out, obs_out, summarise_every)
+        save_summ_args = (
+            np.ones((buf_height * n_summ_states,), dtype=precision),
+            np.ones((buf_height * n_summ_obs,), dtype=precision),
+            np.ones((n_summ_states,), dtype=precision),
+            np.ones((n_summ_obs,), dtype=precision),
+            np.int32(10),
+        )
+
+        return {
+            'save_state_function': save_state_args,
+            'update_summaries_function': update_args,
+            'save_summaries_function': save_summ_args,
+        }
 
     @property
     def save_state_func(self) -> Callable:

@@ -1,7 +1,7 @@
 """Shared infrastructure for adaptive step-size controllers."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 from warnings import warn
 
 import numpy as np
@@ -343,4 +343,33 @@ class BaseAdaptiveStepController(BaseStepController):
     def local_memory_elements(self) -> int:
         """Return number of floats required for controller local memory."""
         raise NotImplementedError
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'device_function' to argument tuple matching
+            the adaptive controller signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n = config.n
+
+        # Controller signature: (dt, proposed_state, current_state,
+        #                        error, niters, accept_step,
+        #                        shared_scratch, persistent_local)
+        return {
+            'device_function': (
+                np.ones((1,), dtype=precision),      # dt buffer
+                np.ones((n,), dtype=precision),      # proposed_state
+                np.ones((n,), dtype=precision),      # current_state
+                np.ones((n,), dtype=precision),      # error
+                np.int32(1),                         # niters
+                np.ones((1,), dtype=np.int32),       # accept_step
+                np.ones((8,), dtype=precision),      # shared_scratch
+                np.ones((8,), dtype=precision),      # persistent_local
+            ),
+        }
 

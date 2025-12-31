@@ -1,7 +1,7 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
 from abc import ABC, abstractmethod
-from typing import Set, Any, Tuple
+from typing import Set, Any, Tuple, Dict
 import inspect
 
 import attrs
@@ -519,6 +519,24 @@ class CUDAFactory(ABC):
         """
         return None
 
+    @abstractmethod
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of cached output names to their dummy argument tuples.
+            Each tuple contains NumPy arrays and scalars matching the
+            device function's signature with appropriate shapes.
+
+        Notes
+        -----
+        Called by _build() to trigger CUDA compilation with correctly-shaped
+        arguments. Subclasses implement this to return arguments that avoid
+        illegal memory access or infinite loops during dummy execution.
+        """
+
     def setup_compile_settings(self, compile_settings):
         """Attach a container of compile-critical settings to the object.
 
@@ -751,13 +769,17 @@ class CUDAFactory(ABC):
         
         # Trigger compilation by running a placeholder kernel
         if default_timelogger.verbosity is not None:
+            dummy_args = self._generate_dummy_args()
             for field in attrs.fields(type(self._cache)):
                 device_func = getattr(self._cache, field.name)
                 if device_func is None or device_func == -1:
                     continue
                 if hasattr(device_func, 'py_func'):
                     event_name = f"compile_{field.name}"
-                    self.specialize_and_compile(device_func, event_name)
+                    func_args = dummy_args.get(field.name, ())
+                    self.specialize_and_compile(
+                        device_func, event_name, func_args
+                    )
 
     def get_cached_output(self, output_name):
         """Return a named cached output.
@@ -796,7 +818,8 @@ class CUDAFactory(ABC):
         return cache_contents
 
     def specialize_and_compile(
-        self, device_function: Any, event_name: str
+        self, device_function: Any, event_name: str,
+        dummy_args: Tuple = ()
     ) -> None:
         """Trigger compilation of device function and record timing.
 
@@ -806,6 +829,9 @@ class CUDAFactory(ABC):
             Numba CUDA device function to compile
         event_name
             Name of timing event to record (must be pre-registered)
+        dummy_args
+            Tuple of arguments matching the device function signature.
+            NumPy arrays are transferred to device before kernel launch.
 
         Notes
         -----
@@ -821,13 +847,19 @@ class CUDAFactory(ABC):
         """
         if CUDA_SIMULATION:
             return
-        precision = self._compile_settings.precision
         
         # Start timing
         self._timing_start(event_name)
 
-        # Create placeholder arguments
-        placeholder_args = _create_placeholder_args(device_function, precision)
+        # Transfer arrays to device and prepare arguments
+        device_args = []
+        for arg in dummy_args:
+            if isinstance(arg, np.ndarray):
+                device_args.append(cuda.to_device(arg))
+            else:
+                device_args.append(arg)
+        placeholder_args = (tuple(device_args),)
+
         if is_devfunc(device_function):
             # Create and launch placeholder kernel
             _run_placeholder_kernel(device_function, placeholder_args)
@@ -835,7 +867,7 @@ class CUDAFactory(ABC):
             # If function is a kernel, just run it directly
             for signature in placeholder_args:
                 # Give it a bunch of shared memory (actual number arbitrary)
-                device_function[1,1,0,32768](*signature)
+                device_function[1, 1, 0, 32768](*signature)
 
         cuda.synchronize()
 
