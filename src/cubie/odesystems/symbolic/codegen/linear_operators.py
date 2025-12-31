@@ -18,6 +18,7 @@ from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     topological_sort,
     prune_unused_assignments,
+    cse_and_stack,
 )
 from cubie.time_logger import _default_timelogger
 
@@ -167,18 +168,42 @@ def _partition_cached_assignments(
     List[Tuple[sp.Symbol, sp.Expr]],
     List[Tuple[sp.Symbol, sp.Expr]],
 ]:
-    """Partition assignments into cached, runtime, and preparation subsets."""
+    """Partition assignments into cached, runtime, and preparation subsets.
+
+    Notes
+    -----
+    This helper is intended for cached (Rosenbrock-style) code generation.
+    It consults the cache planner via :meth:`JVPEquations.cached_partition`.
+    Non-cached (DIRK/Newton-Krylov) code paths must not call this function.
+    """
 
     return equations.cached_partition()
 
 
+def _inline_aux_assignments(
+    equations: JVPEquations,
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    """Return auxiliary expressions in order for inline (non-cached) code
+    generation.
+
+    Returns
+    -------
+    list
+        All auxiliary assignments, in order.
+    """
+
+    return [
+        (lhs, equations.non_jvp_exprs[lhs]) for lhs in equations.non_jvp_order
+    ]
+
+
 def _build_operator_body(
-    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
     runtime_assigns: List[Tuple[sp.Symbol, sp.Expr]],
     jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
     M: sp.Matrix,
     use_cached_aux: bool = False,
+    cached_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
     prepare_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``."""
@@ -235,7 +260,9 @@ def _build_operator_body(
             (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
         ] + runtime_assigns
     else:
-        combined = list(prepare_assigns or []) + cached_assigns + runtime_assigns
+        combined = (list(prepare_assigns or []) +
+                    list(cached_assigns or []) +
+                    runtime_assigns)
         seen = set()
         aux_assignments = []
         for lhs, rhs in combined:
@@ -327,17 +354,13 @@ def generate_operator_apply_code_from_jvp(
 ) -> str:
     """Emit the operator apply factory from precomputed JVP expressions."""
 
-    cached_aux, runtime_aux, prepare_assigns = _partition_cached_assignments(
-        equations
-    )
+    runtime_aux = _inline_aux_assignments(equations)
     body = _build_operator_body(
-        cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
         jvp_terms=equations.jvp_terms,
         index_map=index_map,
         M=M,
         use_cached_aux=False,
-        prepare_assigns=prepare_assigns,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     return OPERATOR_APPLY_TEMPLATE.format(
@@ -677,10 +700,10 @@ def _build_n_stage_operator_lines(
             update_expr = beta_sym * mv - gamma_sym * h_sym * jvp_value
             eval_exprs.append((out[stage_offset + comp_idx], update_expr))
 
-    # if cse:
-    #     eval_exprs = cse_and_stack(eval_exprs)
-    # else:
-    eval_exprs = topological_sort(eval_exprs)
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
 
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(
