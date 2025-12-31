@@ -1082,7 +1082,7 @@ def test_backward_compatibility_existing_params(system):
     )
     
     assert result is not None
-    assert result.y is not None
+    assert result.time_domain_array is not None
 
 
 def test_mixing_old_and_new_params(system):
@@ -1104,4 +1104,4 @@ def test_mixing_old_and_new_params(system):
     
     # Should have both states saved (union)
     assert result is not None
-    assert result.y.shape[0] == 2
+    assert result.time_domain_array.shape[1] == 2

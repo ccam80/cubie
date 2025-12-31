@@ -437,6 +437,7 @@ class Solver:
                 state_list.extend(idx.tolist())
                 continue
             except (KeyError, IndexError):
+                # Variable not found in states; try observables next
                 pass
             
             # Only try as observable if not found as state
@@ -447,6 +448,7 @@ class Solver:
                 observable_list.extend(idx.tolist())
                 continue
             except (KeyError, IndexError):
+                # Variable not found in observables either; mark unrecognized
                 pass
             
             # Only reaches here if neither classification succeeded
