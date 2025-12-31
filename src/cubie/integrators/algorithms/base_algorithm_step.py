@@ -548,7 +548,7 @@ class BaseAlgorithmStep(CUDAFactory):
         # Mark valid algorithm parameters as recognized to prevent error propagation
         recognised |= valid_but_inapplicable
 
-        if valid_but_inapplicable:
+        if valid_but_inapplicable and not silent:
             algorithm_type = self.__class__.__name__
             params_str = ", ".join(sorted(valid_but_inapplicable))
             warnings.warn(
