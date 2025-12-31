@@ -631,3 +631,36 @@ def test_warning_message_contains_algorithm_and_controller(system):
         assert "pid" in warn_msg
         assert "error estimate" in warn_msg.lower()
         assert "fixed" in warn_msg.lower()
+
+
+def test_single_integrator_generate_dummy_args(system, precision):
+    """Verify SingleIntegratorRunCore._generate_dummy_args returns proper args.
+
+    The method should delegate to the underlying IVPLoop and return arguments
+    keyed under 'single_integrator_function' instead of 'loop_function'.
+    """
+    core = SingleIntegratorRunCore(
+        system=system,
+        algorithm_settings={"algorithm": "euler"},
+        step_control_settings={"step_controller": "fixed", "dt": 1e-3},
+    )
+
+    result = core._generate_dummy_args()
+
+    assert 'single_integrator_function' in result, \
+        "Must contain 'single_integrator_function' key"
+    assert 'loop_function' not in result, \
+        "Should not contain 'loop_function' key"
+
+    args = result['single_integrator_function']
+    assert len(args) == 13, "single_integrator_function takes 13 arguments"
+
+    # Verify args match what IVPLoop returns for 'loop_function'
+    loop_args = core._loop._generate_dummy_args()['loop_function']
+    assert len(args) == len(loop_args), "Args should match loop args length"
+
+    # Verify first array (initial_states) has correct shape
+    initial_states = args[0]
+    loop_config = core._loop.compile_settings
+    assert initial_states.shape == (loop_config.n_states,)
+    assert initial_states.dtype == precision

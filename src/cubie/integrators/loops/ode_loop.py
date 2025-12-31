@@ -5,7 +5,7 @@ functions, output collectors, and adaptive controllers. The loop uses the
 central buffer registry for memory allocation and provides slices into each
 device call so that compiled kernels only focus on algorithmic updates.
 """
-from typing import Callable, Optional, Set
+from typing import Callable, Dict, Optional, Set, Tuple
 
 import attrs
 import numpy as np
@@ -729,42 +729,48 @@ class IVPLoop(CUDAFactory):
                             for i in range(n_counters):
                                 counters_since_save[i] = int32(0)
 
-        # Attach critical shapes for dummy execution
-        # Parameters in order: initial_states, parameters, driver_coefficients,
-        # shared_scratch, persistent_local, state_output, observables_output,
-        # state_summaries_output, observable_summaries_output,
-        # iteration_counters_output, duration, settling_time, t0
-        loop_fn.critical_shapes = (
-            (n_states,),  # initial_states
-            (n_parameters,),  # parameters
-            (100,n_states,6),  # driver_coefficients
-            (32768//8), # local persistent - arbitrary 32kb provided / float64
-            (32768//8),  # persistent_local - arbitrary 32kb provided / float64
-            (100, n_states), # state_output
-            (100, n_observables), # observables_output
-            (100, n_states),  # state_summaries_output
-            (100, n_observables), # obs summ output
-            (1, n_counters),  # iteration_counters_output
-            None,  # duration - scalar
-            None,  # settling_time - scalar
-            None,  # t0 - scalar (optional)
-        )
-        loop_fn.critical_values = (
-            None,  # initial_states
-            None,  # parameters
-            None,  # driver_coefficients
-            None,  # local persistent - not really used
-            None,  # persistent_local - arbitrary 32kb provided / float64
-            None,  # state_output
-            None,  # observables_output
-            None,  # state_summaries_output
-            None,  # obs summ output
-            None,  # iteration_counters_output
-            self.dt_save + 0.01,  # duration - scalar
-            0.0,  # settling_time - scalar
-            0.0,  # t0 - scalar (optional)
-        )
         return IVPLoopCache(loop_function=loop_fn)
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'loop_function' to argument tuple matching
+            the loop device function signature.
+        """
+        config = self.compile_settings
+        precision = config.precision
+        n_states = config.n_states
+        n_parameters = config.n_parameters
+        n_observables = config.n_observables
+        n_counters = config.n_counters
+        dt_save = config.dt_save
+
+        # loop_fn signature: (initial_states, parameters, driver_coeffs,
+        #                     shared_scratch, persistent_local,
+        #                     state_output, observables_output,
+        #                     state_summaries_output, observable_summaries_output,
+        #                     iteration_counters_output, duration,
+        #                     settling_time, t0)
+        return {
+            'loop_function': (
+                np.ones((n_states,), dtype=precision),
+                np.ones((n_parameters,), dtype=precision),
+                np.ones((100, n_states, 6), dtype=precision),
+                np.ones((4096,), dtype=np.float32),
+                np.ones((4096,), dtype=precision),
+                np.ones((100, n_states), dtype=precision),
+                np.ones((100, n_observables), dtype=precision),
+                np.ones((100, n_states), dtype=precision),
+                np.ones((100, n_observables), dtype=precision),
+                np.ones((1, n_counters), dtype=np.int32),
+                np.float64(dt_save + 0.01),
+                np.float64(0.0),
+                np.float64(0.0),
+            ),
+        }
 
     @property
     def dt_save(self) -> float:

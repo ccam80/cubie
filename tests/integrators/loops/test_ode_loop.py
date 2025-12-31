@@ -267,3 +267,79 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1] == precision(1.2)
     assert device_loop_outputs.state[-2,-1] == precision(1.1)
+
+
+def test_ivploop_generate_dummy_args(loop_mutable, precision):
+    """Verify IVPLoop._generate_dummy_args returns properly shaped args."""
+    loop = loop_mutable
+    config = loop.compile_settings
+
+    result = loop._generate_dummy_args()
+
+    assert 'loop_function' in result, "Must contain 'loop_function' key"
+
+    args = result['loop_function']
+    assert len(args) == 13, "loop_function takes 13 arguments"
+
+    # Verify array shapes match compile_settings
+    initial_states = args[0]
+    assert initial_states.shape == (config.n_states,)
+    assert initial_states.dtype == precision
+
+    parameters = args[1]
+    assert parameters.shape == (config.n_parameters,)
+    assert parameters.dtype == precision
+
+    driver_coeffs = args[2]
+    assert driver_coeffs.shape == (100, config.n_states, 6)
+    assert driver_coeffs.dtype == precision
+
+    shared_scratch = args[3]
+    assert shared_scratch.shape == (4096,)
+    assert shared_scratch.dtype == np.float32
+
+    persistent_local = args[4]
+    assert persistent_local.shape == (4096,)
+    assert persistent_local.dtype == precision
+
+    state_output = args[5]
+    assert state_output.shape == (100, config.n_states)
+    assert state_output.dtype == precision
+
+    observables_output = args[6]
+    assert observables_output.shape == (100, config.n_observables)
+    assert observables_output.dtype == precision
+
+    state_summaries_output = args[7]
+    assert state_summaries_output.shape == (100, config.n_states)
+    assert state_summaries_output.dtype == precision
+
+    observable_summaries_output = args[8]
+    assert observable_summaries_output.shape == (100, config.n_observables)
+    assert observable_summaries_output.dtype == precision
+
+    iteration_counters_output = args[9]
+    assert iteration_counters_output.shape == (1, config.n_counters)
+    assert iteration_counters_output.dtype == np.int32
+
+    # Verify scalar arguments
+    duration = args[10]
+    assert duration == np.float64(config.dt_save + 0.01)
+
+    settling_time = args[11]
+    assert settling_time == np.float64(0.0)
+
+    t0 = args[12]
+    assert t0 == np.float64(0.0)
+
+
+def test_ivploop_no_critical_shapes_attribute(loop_mutable):
+    """Verify loop_fn no longer has critical_shapes attribute."""
+    loop = loop_mutable
+    # Access the device function to trigger build
+    device_fn = loop.device_function
+
+    assert not hasattr(device_fn, 'critical_shapes'), \
+        "loop_fn should not have critical_shapes attribute"
+    assert not hasattr(device_fn, 'critical_values'), \
+        "loop_fn should not have critical_values attribute"

@@ -611,7 +611,7 @@
 ---
 
 ## Task Group 5: IVPLoop Implementation and Critical Shape Removal
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -701,12 +701,28 @@
 - tests/integrators/loops/test_ode_loop.py::test_ivploop_no_critical_shapes_attribute
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/loops/ode_loop.py (74 lines changed - added method, removed critical_shapes/values)
+  * tests/integrators/loops/test_ode_loop.py (74 lines added)
+- Functions/Methods Added/Modified:
+  * Added `_generate_dummy_args()` to IVPLoop class
+  * Removed `critical_shapes` attribute assignment from `build()` method
+  * Removed `critical_values` attribute assignment from `build()` method
+- Implementation Summary:
+  Implemented `_generate_dummy_args()` method in IVPLoop that returns a 
+  dictionary mapping 'loop_function' to a 13-element tuple of dummy arguments
+  matching the loop device function signature. Arrays are created with shapes
+  derived from compile_settings (n_states, n_parameters, n_observables,
+  n_counters). Removed the critical_shapes and critical_values attribute
+  assignments from the build() method as they are no longer needed with the
+  new _generate_dummy_args approach. Created comprehensive tests to verify
+  correct keys, shapes, dtypes, and absence of deprecated attributes.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: SingleIntegratorRunCore Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 5
 
 **Required Context**:
@@ -750,15 +766,28 @@
 - Description: Verify SingleIntegratorRunCore returns properly shaped args
 
 **Tests to Run**:
-- tests/integrators/test_single_integrator_run.py::test_single_integrator_generate_dummy_args
+- tests/integrators/test_SingleIntegratorRun.py::test_single_integrator_generate_dummy_args
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/SingleIntegratorRunCore.py (14 lines changed)
+  * tests/integrators/test_SingleIntegratorRun.py (31 lines added)
+- Functions/Methods Added/Modified:
+  * Added `_generate_dummy_args()` to SingleIntegratorRunCore class
+  * Updated imports to include Tuple
+- Implementation Summary:
+  Implemented `_generate_dummy_args()` method in SingleIntegratorRunCore that
+  delegates to the underlying IVPLoop's `_generate_dummy_args()` method and
+  remaps the 'loop_function' key to 'single_integrator_function' to match the
+  SingleIntegratorRunCache field name. The method returns a dictionary with
+  the same 13-element tuple that IVPLoop generates. Created comprehensive test
+  to verify correct key mapping, argument count, and shape matching.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 7: BatchSolverKernel Implementation and Critical Shape Removal
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 6
 
 **Required Context**:
@@ -839,11 +868,28 @@
 - Description: Verify kernel no longer has critical_shapes attribute
 
 **Tests to Run**:
-- tests/batchsolving/test_batch_solver_kernel.py::test_batch_solver_generate_dummy_args
-- tests/batchsolving/test_batch_solver_kernel.py::test_batch_solver_no_critical_shapes_attribute
+- tests/batchsolving/test_batch_solver_kernel.py::TestBatchSolverGenerateDummyArgs::test_batch_solver_generate_dummy_args
+- tests/batchsolving/test_batch_solver_kernel.py::TestBatchSolverGenerateDummyArgs::test_batch_solver_no_critical_shapes_attribute
+- tests/batchsolving/test_batch_solver_kernel.py::TestBatchSolverGenerateDummyArgs::test_batch_solver_no_critical_values_attribute
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (76 lines changed - added method, removed critical_shapes/values)
+  * tests/batchsolving/test_batch_solver_kernel.py (89 lines added - new test file)
+- Functions/Methods Added/Modified:
+  * Added `_generate_dummy_args()` method to BatchSolverKernel class
+  * Removed `critical_shapes` attribute assignment from `build_kernel()` method
+  * Removed `critical_values` attribute assignment from `build_kernel()` method
+- Implementation Summary:
+  Implemented `_generate_dummy_args()` method in BatchSolverKernel that returns a
+  dictionary mapping 'solver_kernel' to a 13-element tuple of dummy arguments
+  matching the integration_kernel signature. Arrays are created with shapes derived
+  from system_sizes (n_states, n_params, n_observables, n_drivers). Removed the
+  critical_shapes and critical_values attribute assignments from build_kernel() as
+  they are no longer needed with the new _generate_dummy_args approach. Created
+  comprehensive tests to verify correct keys, shapes, dtypes, and absence of
+  deprecated attributes.
+- Issues Flagged: None
 
 ---
 
@@ -1002,7 +1048,7 @@
 ---
 
 ## Task Group 9: Additional Algorithm Implementations
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 4
 
 **Required Context**:
@@ -1043,16 +1089,33 @@
 - Description: Verify GenericRosenbrockWStep returns properly shaped args
 
 **Tests to Run**:
-- tests/integrators/algorithms/test_algorithm_steps.py::test_firk_generate_dummy_args
-- tests/integrators/algorithms/test_algorithm_steps.py::test_rosenbrock_generate_dummy_args
+- tests/integrators/algorithms/test_generate_dummy_args.py::TestFIRKStepGenerateDummyArgs
+- tests/integrators/algorithms/test_generate_dummy_args.py::TestRosenbrockWStepGenerateDummyArgs
+- tests/integrators/algorithms/test_generate_dummy_args.py::TestBackwardsEulerPCStepGenerateDummyArgs
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_firk.py (37 lines added)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (37 lines added)
+  * tests/integrators/algorithms/test_generate_dummy_args.py (118 lines added)
+- Functions/Methods Added/Modified:
+  * Added `_generate_dummy_args()` to FIRKStep class
+  * Added `_generate_dummy_args()` to GenericRosenbrockWStep class
+  * Updated imports to include Dict and Tuple in both files
+- Implementation Summary:
+  Implemented `_generate_dummy_args()` method in FIRKStep and GenericRosenbrockWStep
+  classes following the same pattern as existing algorithm step implementations. Each
+  method returns a dictionary mapping 'step' to a 16-element tuple of dummy arguments
+  matching the step function signature. BackwardsEulerPCStep inherits its
+  `_generate_dummy_args()` from BackwardsEulerStep since both have the same step
+  signature. Created comprehensive tests for all three classes covering dict keys,
+  tuple length, and array shapes matching compile_settings dimensions.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 10: Test Updates and Cleanup
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-9
 
 **Required Context**:
@@ -1137,7 +1200,19 @@
 - tests/test_CUDAFactory.py (entire file)
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/test_CUDAFactory.py (10 lines changed)
+- Functions/Methods Added/Modified:
+  * Added `_generate_dummy_args()` method to ConcreteFactory test fixture
+  * Added `test_generate_dummy_args_called_on_build_with_verbosity()` test
+- Implementation Summary:
+  Updated the ConcreteFactory class in the factory fixture to implement the
+  abstract `_generate_dummy_args()` method, returning a minimal dictionary
+  with empty tuple for 'device_function'. Added a new test marked with
+  @pytest.mark.nocudasim that verifies `_generate_dummy_args` is called
+  when TimeLogger verbosity is enabled. Existing tests for
+  `_create_placeholder_args` remain unchanged and functional.
+- Issues Flagged: None
 
 ---
 

@@ -11,7 +11,7 @@ handlers occurs during initialisation so that the compiled CUDA loop can
 be rebuilt when any component is reconfigured.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 import warnings
 
 import attrs
@@ -553,3 +553,17 @@ class SingleIntegratorRunCore(CUDAFactory):
         loop_fn = self._loop.device_function
 
         return SingleIntegratorRunCache(single_integrator_function=loop_fn)
+
+    def _generate_dummy_args(self) -> Dict[str, Tuple]:
+        """Generate dummy arguments for compile-time measurement.
+
+        Returns
+        -------
+        Dict[str, Tuple]
+            Mapping of 'single_integrator_function' to argument tuple.
+            Delegates to the underlying IVPLoop for actual generation.
+        """
+        loop_args = self._loop._generate_dummy_args()
+        return {
+            'single_integrator_function': loop_args.get('loop_function', ()),
+        }

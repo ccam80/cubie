@@ -40,6 +40,10 @@ def factory():
         def build(self):
             return testCache(device_function=lambda: 20.0)
 
+        def _generate_dummy_args(self):
+            """Return empty dummy args for test factory."""
+            return {'device_function': ()}
+
     factory = ConcreteFactory()
     return factory
 
@@ -420,3 +424,29 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
+
+
+@pytest.mark.nocudasim
+def test_generate_dummy_args_called_on_build_with_verbosity(
+    factory_with_settings
+):
+    """Test that _generate_dummy_args is called when verbosity enabled."""
+    call_count = [0]
+    original_method = factory_with_settings._generate_dummy_args
+
+    def tracking_method():
+        call_count[0] += 1
+        return original_method()
+
+    factory_with_settings._generate_dummy_args = tracking_method
+
+    # Enable verbosity - creates a TimeLogger that sets global verbosity
+    TimeLogger(verbosity='verbose')
+
+    # Trigger build by accessing cached output
+    _ = factory_with_settings.device_function
+
+    # Verify method was called
+    assert call_count[0] >= 1, (
+        "_generate_dummy_args was not called during build with verbosity"
+    )
