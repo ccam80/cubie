@@ -180,6 +180,10 @@ class ODELoopConfig:
         default=1.0,
         validator=gttype_validator(float, 0)
     )
+    _dt_update_summaries: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
     save_state_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -231,11 +235,30 @@ class ODELoopConfig:
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
 
+    def __attrs_post_init__(self):
+        """Validate dt_update_summaries and set default if needed."""
+        if self._dt_update_summaries is None:
+            object.__setattr__(self, '_dt_update_summaries', self._dt_save)
+        
+        # Check if dt_update_summaries divides dt_summarise evenly
+        # Use division and check if result is close to an integer
+        ratio = self._dt_summarise / self._dt_update_summaries
+        if abs(ratio - round(ratio)) > 1e-9:
+            raise ValueError(
+                f"dt_update_summaries ({self._dt_update_summaries}) must be "
+                f"an integer divisor of dt_summarise ({self._dt_summarise}). "
+                f"Ratio: {ratio}"
+            )
 
     @property
     def saves_per_summary(self) -> int:
         """Return the number of saves between summary outputs."""
-        return int(self.dt_summarise // self.dt_save)
+        return round(self.dt_summarise / self.dt_save)
+
+    @property
+    def updates_per_summary(self) -> int:
+        """Return the number of updates between summary outputs."""
+        return round(self.dt_summarise / self.dt_update_summaries)
 
     @property
     def numba_precision(self) -> type:
@@ -256,6 +279,16 @@ class ODELoopConfig:
     def dt_summarise(self) -> float:
         """Return the summary interval."""
         return self.precision(self._dt_summarise)
+
+    @property
+    def dt_update_summaries(self) -> float:
+        """Return the summary update interval."""
+        update_val = (
+            self._dt_update_summaries 
+            if self._dt_update_summaries is not None 
+            else self._dt_save
+        )
+        return self.precision(update_val)
 
     @property
     def dt0(self) -> float:

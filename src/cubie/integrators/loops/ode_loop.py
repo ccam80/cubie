@@ -36,6 +36,7 @@ class IVPLoopCache(CUDAFunctionCache):
 ALL_LOOP_SETTINGS = {
     "dt_save",
     "dt_summarise",
+    "dt_update_summaries",
     "dt0",
     "dt_min",
     "dt_max",
@@ -87,6 +88,9 @@ class IVPLoop(CUDAFactory):
         Interval between accepted saves. Defaults to ``0.1``.
     dt_summarise
         Interval between summary accumulations. Defaults to ``1.0``.
+    dt_update_summaries
+        Interval between summary metric updates. Must be an integer divisor
+        of ``dt_summarise``. Defaults to ``dt_save`` when not provided.
     save_state_func
         Device function that writes state and observable snapshots.
     update_summaries_func
@@ -126,6 +130,7 @@ class IVPLoop(CUDAFactory):
         observable_summaries_buffer_height: int = 0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
+        dt_update_summaries: Optional[float] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -163,6 +168,9 @@ class IVPLoop(CUDAFactory):
             Interval between accepted saves.
         dt_summarise
             Interval between summary accumulations.
+        dt_update_summaries
+            Interval between summary metric updates. Must be an integer divisor
+            of ``dt_summarise``. Defaults to ``dt_save`` when not provided.
         save_state_func
             Device function that writes state and observable snapshots.
         update_summaries_func
@@ -201,6 +209,7 @@ class IVPLoop(CUDAFactory):
                 'compile_flags': compile_flags,
                 'dt_save': dt_save,
                 'dt_summarise': dt_summarise,
+                'dt_update_summaries': dt_update_summaries,
                 'save_state_fn': save_state_func,
                 'update_summaries_fn': update_summaries_func,
                 'save_summaries_fn': save_summaries_func,
@@ -351,8 +360,9 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
-        saves_per_summary = config.saves_per_summary
+        updates_per_summary = config.updates_per_summary
         dt_save = precision(config.dt_save)
+        dt_update_summaries = precision(config.dt_update_summaries)
         dt0 = precision(config.dt0)
         # save_last is not yet piped up from this level, but is intended and
         # included in loop logic
@@ -520,13 +530,16 @@ class IVPLoop(CUDAFactory):
 
             save_idx = int32(0)
             summary_idx = int32(0)
+            update_idx = int32(0)
 
             # Set next save for settling time, or save first value if
             # starting at t0
             next_save = precision(settling_time + t0)
+            next_update_summary = precision(settling_time + t0)
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 next_save += dt_save
+                next_update_summary += dt_update_summaries
 
                 save_state(
                     state_buffer,
@@ -538,14 +551,21 @@ class IVPLoop(CUDAFactory):
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
                 if summarise:
-                    #reset temp buffers to starting state
+                    update_summaries(
+                        state_buffer,
+                        observables_buffer,
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        update_idx
+                    )
+                    update_idx += int32(1)
                     statesumm_idx = summary_idx * summarise_state_bool
                     obsumm_idx = summary_idx * summarise_obs_bool
                     save_summaries(state_summary_buffer,
                                    observable_summary_buffer,
                                    state_summaries_output[statesumm_idx, :],
                                    observable_summaries_output[obsumm_idx, :],
-                                   saves_per_summary)
+                                   updates_per_summary)
                 save_idx += int32(1)
 
             status = int32(0)
@@ -584,6 +604,7 @@ class IVPLoop(CUDAFactory):
 
                 if not finished:
                     do_save = bool_((t_prec + dt_raw) >= next_save)
+                    do_update_summary = bool_((t_prec + dt_raw) >= next_update_summary)
                     dt_eff = selp(do_save, next_save - t_prec, dt_raw)
 
                     # Fixed mode auto-accepts all steps; adaptive uses controller
@@ -690,6 +711,8 @@ class IVPLoop(CUDAFactory):
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = bool_(accept and do_save)
+                    do_update_summary = bool_(accept and do_update_summary)
+                    
                     if do_save:
                         next_save = selp(do_save, next_save + dt_save, next_save)
                         save_state(
@@ -703,6 +726,19 @@ class IVPLoop(CUDAFactory):
                                 save_idx * save_counters_bool, :
                             ],
                         )
+                        save_idx += int32(1)
+                        
+                        # Reset iteration counters after save
+                        if save_counters_bool:
+                            for i in range(n_counters):
+                                counters_since_save[i] = int32(0)
+                    
+                    if do_update_summary:
+                        next_update_summary = selp(
+                            do_update_summary,
+                            next_update_summary + dt_update_summaries,
+                            next_update_summary
+                        )
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool
                             obssumm_idx = summary_idx * summarise_obs_bool
@@ -711,23 +747,19 @@ class IVPLoop(CUDAFactory):
                                 observables_buffer,
                                 state_summary_buffer,
                                 observable_summary_buffer,
-                                save_idx)
+                                update_idx
+                            )
+                            update_idx += int32(1)
 
-                            if (save_idx % saves_per_summary == int32(0)):
+                            if (update_idx % updates_per_summary == int32(0)):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
                                     state_summaries_output[statesumm_idx,:],
                                     observable_summaries_output[obssumm_idx,:],
-                                    saves_per_summary,
+                                    updates_per_summary,
                                 )
                                 summary_idx += int32(1)
-                        save_idx += int32(1)
-
-                        # Reset iteration counters after save
-                        if save_counters_bool:
-                            for i in range(n_counters):
-                                counters_since_save[i] = int32(0)
 
         # Attach critical shapes for dummy execution
         # Parameters in order: initial_states, parameters, driver_coefficients,
