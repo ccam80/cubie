@@ -325,12 +325,14 @@ def combine_grids(
         return g1_repeat, g2_tile
     # For 'verbatim' pair columns directly and error if run counts differ
     elif kind == "verbatim":
-        # Handle single-run broadcast for grid1
-        if grid1.shape[1] == 1:
-            grid1 = np.repeat(grid1, grid2.shape[1], axis=1)
-        # Handle single-run broadcast for grid2
-        if grid2.shape[1] == 1:
-            grid2 = np.repeat(grid2, grid1.shape[1], axis=1)
+        # Capture original sizes before any broadcast
+        g1_runs = grid1.shape[1]
+        g2_runs = grid2.shape[1]
+        # Broadcast single-run grids to match the other grid's size
+        if g1_runs == 1 and g2_runs > 1:
+            grid1 = np.repeat(grid1, g2_runs, axis=1)
+        elif g2_runs == 1 and g1_runs > 1:
+            grid2 = np.repeat(grid2, g1_runs, axis=1)
         # After broadcasting, check dimensions match
         if grid1.shape[1] != grid2.shape[1]:
             raise ValueError(

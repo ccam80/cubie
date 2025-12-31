@@ -415,13 +415,15 @@ def state_seq(system, batch_settings):
 
 @pytest.fixture(scope="session")
 def state_array(system, batch_settings):
-    """Return state array in (variable, run) format.
+    """Return a partial state array to test default-filling behavior.
 
-    Creates an array with n_states-1 variables filled with linspace values
-    so that extend/trim logic fills the last variable with defaults.
+    Creates an array with fewer variables than n_states so that the
+    _trim_or_extend logic fills missing variables with system defaults.
+    The test_call_input_types test verifies the last variable equals
+    the default value.
     """
     n_runs = batch_settings["num_state_vals"]
-    n_vars = system.sizes.states - 1  # Leave last variable for defaults
+    n_vars = system.sizes.states - 1  # Partial: last variable uses defaults
     # Build (variable, run) format: rows are variables, columns are runs
     rows = [np.linspace(0.1 * (i + 1), 0.5 * (i + 1), n_runs) for i in range(n_vars)]
     return np.vstack(rows)
@@ -429,13 +431,15 @@ def state_array(system, batch_settings):
 
 @pytest.fixture(scope="session")
 def param_array(system, batch_settings):
-    """Return param array in (variable, run) format.
+    """Return a partial param array to test default-filling behavior.
 
-    Creates an array with n_params-1 variables filled with linspace values
-    so that extend/trim logic fills the last variable with defaults.
+    Creates an array with fewer variables than n_params so that the
+    _trim_or_extend logic fills missing variables with system defaults.
+    The test_call_input_types test verifies the last variable equals
+    the default value.
     """
     n_runs = batch_settings["num_param_vals"]
-    n_vars = system.sizes.parameters - 1  # Leave last variable for defaults
+    n_vars = system.sizes.parameters - 1  # Partial: last variable uses defaults
     # Build (variable, run) format: rows are variables, columns are runs
     rows = [np.linspace(10.0 * (i + 1), 50.0 * (i + 1), n_runs) for i in range(n_vars)]
     return np.vstack(rows)
