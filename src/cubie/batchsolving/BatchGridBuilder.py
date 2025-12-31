@@ -6,11 +6,8 @@ entry point and is usually accessed through :class:`cubie.batchsolving.solver.So
 
 Notes
 -----
-``BatchGridBuilder.__call__`` accepts up to four arguments:
+``BatchGridBuilder.__call__`` accepts three arguments:
 
-``request``
-    Mapping of parameter and state names to value sequences. Provides a
-    single dictionary describing all sweep variables.
 ``params``
     Mapping or array containing parameter values only. One-dimensional
     inputs override defaults for every run, while two-dimensional inputs
@@ -80,22 +77,10 @@ Example 2: verbatim arrays
 [[ 0.1  0.2  0.1  0.2]
  [10.  20.  10.  20. ]]
 
-Same as individual dictionaries
+Example 3: single parameter sweep (unspecified filled with defaults)
 
->>> request = {
-...     "p0": [0.1, 0.2],
-...     "p1": [10, 20],
-...     "x0": [1.0, 2.0],
-...     "x1": [0.5, 1.5],
-... }
->>> inits, params = grid_builder(request=request, kind="combinatorial")
->>> print(inits.shape)
-(2, 16)
->>> print(params.shape)
-(2, 16)
-
->>> request = {"p0": [0.1, 0.2]}
->>> inits, params = grid_builder(request=request, kind="combinatorial")
+>>> params = {"p0": [0.1, 0.2]}
+>>> inits, params = grid_builder(params=params, kind="combinatorial")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)  # unspecified variables are filled with defaults from system
@@ -340,11 +325,17 @@ def combine_grids(
         return g1_repeat, g2_tile
     # For 'verbatim' pair columns directly and error if run counts differ
     elif kind == "verbatim":
+        # Handle single-run broadcast for grid1
         if grid1.shape[1] == 1:
             grid1 = np.repeat(grid1, grid2.shape[1], axis=1)
+        # Handle single-run broadcast for grid2
+        if grid2.shape[1] == 1:
+            grid2 = np.repeat(grid2, grid1.shape[1], axis=1)
+        # After broadcasting, check dimensions match
         if grid1.shape[1] != grid2.shape[1]:
             raise ValueError(
-                "For 'verbatim', both grids must have the same number of runs."
+                "For 'verbatim', both grids must have the same number "
+                "of runs (or exactly one grid can have 1 run to broadcast)."
             )
         return grid1, grid2
     # Any other kind is invalid
@@ -382,6 +373,11 @@ def extend_grid_to_array(
     ValueError
         Raised when ``grid`` row count does not match ``indices`` length.
     """
+    # Handle empty indices: no variables swept, return defaults for all runs
+    if indices.size == 0:
+        n_runs = grid.shape[1] if grid.ndim > 1 else 1
+        return np.tile(default_values[:, np.newaxis], (1, n_runs))
+
     # If grid is 1D it represents a single column of default values
     if grid.ndim == 1:
         array = default_values[:, np.newaxis]
@@ -520,9 +516,6 @@ class BatchGridBuilder:
 
     def __call__(
         self,
-        request: Optional[
-            Dict[str, Union[float, ArrayLike, np.ndarray]]
-        ] = None,
         params: Optional[Union[Dict, ArrayLike]] = None,
         states: Optional[Union[Dict, ArrayLike]] = None,
         kind: str = "combinatorial",
@@ -531,9 +524,6 @@ class BatchGridBuilder:
 
         Parameters
         ----------
-        request
-            Optional dictionary keyed by variable name containing a combined
-            request for parameters and initial values.
         params
             Optional dictionary or array describing parameter sweeps. A
             one-dimensional array overrides defaults for every run.
@@ -553,15 +543,14 @@ class BatchGridBuilder:
         -----
         Passing ``params`` and ``states`` as arrays treats each as a complete
         grid. ``kind="combinatorial"`` computes the Cartesian product of both
-        grids, matching the behaviour of a combined request dictionary. When
-        arrays already describe paired runs, set ``kind`` to ``"verbatim"`` to
-        keep them aligned.
+        grids. When arrays already describe paired runs, set ``kind`` to
+        ``"verbatim"`` to keep them aligned.
         """
-        #Fetch updated state from system
+        # Fetch updated state from system
         self.precision = self.states.precision
 
         # fast path when arrays are provided directly in (variable, run) format
-        if kind=='verbatim':
+        if kind == 'verbatim':
             if isinstance(states, np.ndarray) and isinstance(params, np.ndarray):
                 # Arrays expected in (variable, run) format
                 state_vars = states.shape[0]
@@ -582,101 +571,78 @@ class BatchGridBuilder:
                     return self._cast_to_precision(states, params)
         parray = None
         sarray = None
-        if request is not None:
-            # User provided a combined request object in `request`
-            if states is not None or params is not None:
-                # User provided a combined request AND also passed params or
-                # states separately which is invalid
-                raise TypeError(
-                    "If a mixed request dictionary is provided, "
-                    "states and params requests must be None."
-                    "Check that you've input your arguments "
-                    "correctly, using keywords for params and "
-                    "inits, if you were not trying to provide a "
-                    "mixed request dictionary."
-                )
-            # User provided a request but not a dict
-            if not isinstance(request, dict):
-                raise TypeError(
-                    "If provided, a combined request must be provided "
-                    f"as a dictionary, got {type(request)}."
-                )
-            # User provided a valid combined request dict
-            return self.grid_arrays(request, kind=kind)
-        else:
-            # No combined request; build one from params/states arguments
-            request = {}
-            # User provided params as a dictionary of sweep values
-            if isinstance(params, dict):
-                request.update(params)
-            # User provided params as a 1D or 2D array-like
-            elif isinstance(params, (list, tuple, np.ndarray)):
-                parray = self._sanitise_arraylike(params, self.parameters)
-            # User provided params in an unsupported type
-            elif params is not None:
-                raise TypeError(
-                    "Parameters must be provided as a dictionary, "
-                    "or a 1D or 2D array-like object."
-                )
-            # User provided states as a dictionary of sweep values
-            if isinstance(states, dict):
-                request.update(states)
-            # User provided states as a 1D or 2D array-like
-            elif isinstance(states, (list, tuple, np.ndarray)):
-                sarray = self._sanitise_arraylike(states, self.states)
-            # User provided states in an unsupported type
-            elif states is not None:
-                raise TypeError(
-                    "Initial states must be provided as a dictionary, "
-                    "or a 1D or 2D array-like object."
-                )
+        request = {}
+        # User provided params as a dictionary of sweep values
+        if isinstance(params, dict):
+            request.update(params)
+        # User provided params as a 1D or 2D array-like
+        elif isinstance(params, (list, tuple, np.ndarray)):
+            parray = self._sanitise_arraylike(params, self.parameters)
+        # User provided params in an unsupported type
+        elif params is not None:
+            raise TypeError(
+                "Parameters must be provided as a dictionary, "
+                "or a 1D or 2D array-like object."
+            )
+        # User provided states as a dictionary of sweep values
+        if isinstance(states, dict):
+            request.update(states)
+        # User provided states as a 1D or 2D array-like
+        elif isinstance(states, (list, tuple, np.ndarray)):
+            sarray = self._sanitise_arraylike(states, self.states)
+        # User provided states in an unsupported type
+        elif states is not None:
+            raise TypeError(
+                "Initial states must be provided as a dictionary, "
+                "or a 1D or 2D array-like object."
+            )
 
-            # Both params and states were provided as array-likes
-            if parray is not None and sarray is not None:
-                # User supplied both arrays; combine according to kind
+        # Both params and states were provided as array-likes
+        if parray is not None and sarray is not None:
+            # User supplied both arrays; combine according to kind
+            sarray, parray = combine_grids(sarray, parray, kind=kind)
+            return self._cast_to_precision(sarray, parray)
+        # Some dictionary entries (request) exist
+        elif request:
+            # Params provided as array, and additional request dict exists
+            # -> generate missing states from request then combine
+            if parray is not None:
+                sarray = generate_array(request, self.states, kind=kind)
                 sarray, parray = combine_grids(sarray, parray, kind=kind)
                 return self._cast_to_precision(sarray, parray)
-            # Some dictionary entries (request) exist
-            elif request:
-                # Params provided as array, and additional request dict exists
-                # -> generate missing states from request then combine
-                if parray is not None:
-                    sarray = generate_array(request, self.states, kind=kind)
-                    sarray, parray = combine_grids(sarray, parray, kind=kind)
-                    return self._cast_to_precision(sarray, parray)
-                # States provided as array, and additional request dict exists
-                # -> generate missing params from request then combine
-                elif sarray is not None:
-                    parray = generate_array(
-                        request, self.parameters, kind=kind
-                    )
-                    sarray, parray = combine_grids(sarray, parray, kind=kind)
-                    return self._cast_to_precision(sarray, parray)
-                # Only a request dict was provided (no array-like params)
-                else:
-                    return self.grid_arrays(request, kind=kind)
-            # Only params provided as an array-like (no states or request)
-            elif parray is not None:
-                # Create default state array in (variable, run) format
-                n_runs = parray.shape[1]
-                sarray = np.tile(
-                    self.states.values_array[:, np.newaxis], (1, n_runs)
-                )
-                return self._cast_to_precision(sarray, parray)
-            # Only states provided as an array-like (no params or request)
+            # States provided as array, and additional request dict exists
+            # -> generate missing params from request then combine
             elif sarray is not None:
-                # Create default param array in (variable, run) format
-                n_runs = sarray.shape[1]
-                parray = np.tile(
-                    self.parameters.values_array[:, np.newaxis], (1, n_runs)
+                parray = generate_array(
+                    request, self.parameters, kind=kind
                 )
+                sarray, parray = combine_grids(sarray, parray, kind=kind)
                 return self._cast_to_precision(sarray, parray)
-            # No inputs provided; return single-column defaults
+            # Only dict inputs were provided (no array-like params/states)
             else:
-                return self._cast_to_precision(
-                    self.states.values_array[:, np.newaxis],
-                    self.parameters.values_array[:, np.newaxis],
-                )
+                return self.grid_arrays(request, kind=kind)
+        # Only params provided as an array-like (no states or dict)
+        elif parray is not None:
+            # Create default state array in (variable, run) format
+            n_runs = parray.shape[1]
+            sarray = np.tile(
+                self.states.values_array[:, np.newaxis], (1, n_runs)
+            )
+            return self._cast_to_precision(sarray, parray)
+        # Only states provided as an array-like (no params or dict)
+        elif sarray is not None:
+            # Create default param array in (variable, run) format
+            n_runs = sarray.shape[1]
+            parray = np.tile(
+                self.parameters.values_array[:, np.newaxis], (1, n_runs)
+            )
+            return self._cast_to_precision(sarray, parray)
+        # No inputs provided; return single-column defaults
+        else:
+            return self._cast_to_precision(
+                self.states.values_array[:, np.newaxis],
+                self.parameters.values_array[:, np.newaxis],
+            )
 
     def _trim_or_extend(
         self, arr: np.ndarray, values_object: SystemValues

@@ -5,7 +5,7 @@
 ---
 
 ## Task Group 1: Remove Duplicate build_grid Method in solver.py
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -33,12 +33,19 @@
 **Tests to Run**:
 - tests/batchsolving/test_batch_grid_builder.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/batchsolving/solver.py (40 lines removed)
+- Functions/Methods Added/Modified:
+  * Removed duplicate build_grid() method definition in Solver class
+- Implementation Summary:
+  Removed the second duplicate definition of build_grid method (formerly lines 570-609). The first definition (lines 529-568) remains as the single implementation. The method was an exact duplicate with identical signature, docstring, and implementation.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 2: Create New Test Cases for Edge Cases
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -348,12 +355,26 @@
 - tests/batchsolving/test_batch_grid_builder.py::test_empty_inputs_returns_defaults
 - tests/batchsolving/test_batch_grid_builder.py::test_verbatim_single_run_broadcast
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * tests/batchsolving/test_batch_grid_builder.py (227 lines added)
+- Functions/Methods Added/Modified:
+  * test_single_param_dict_sweep() - Tests single parameter sweep with dict produces 100 runs
+  * test_single_state_dict_single_run() - Tests single state scalar override produces 1 run
+  * test_states_dict_params_sweep() - Tests state override with parameter sweep (300 runs)
+  * test_combinatorial_states_params() - Tests combinatorial expansion (2 * 100 = 200 runs)
+  * test_1d_param_array_single_run() - Tests 1D parameter array treated as single run
+  * test_1d_state_array_partial_warning() - Tests partial 1D state array triggers warning
+  * test_empty_inputs_returns_defaults() - Tests empty inputs return single run with defaults
+  * test_verbatim_single_run_broadcast() - Tests verbatim mode broadcasts single-run grids
+- Implementation Summary:
+  Added 8 new test functions to test_batch_grid_builder.py at the end of the file. All tests use the existing grid_builder and system fixtures, follow the repository's test patterns, and use numpy.testing.assert_allclose for comparisons. Tests are designed to verify edge cases in BatchGridBuilder including single parameter sweeps, scalar overrides, combinatorial expansion, 1D array handling, partial arrays with warnings, empty inputs, and verbatim broadcast behavior.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 3: Fix Single Dict with Single Parameter Bug
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [2]
 
 **Required Context**:
@@ -448,12 +469,19 @@
 - tests/batchsolving/test_batch_grid_builder.py::test_single_state_dict_single_run
 - tests/batchsolving/test_batch_grid_builder.py::test_states_dict_params_sweep
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/batchsolving/BatchGridBuilder.py (4 lines added)
+- Functions/Methods Added/Modified:
+  * extend_grid_to_array() - Added explicit empty indices handling at function start
+- Implementation Summary:
+  Added explicit handling for empty indices case in extend_grid_to_array function. When indices.size == 0 (no variables swept), the function now returns default values tiled to match the grid run count. This provides clearer handling of edge cases where only params or only states are in the request dictionary. The grid_arrays method was verified to already correctly handle single-category sweeps through its existing logic of separating requests into param_request and state_request, generating arrays for each, and using combine_grids for broadcasting.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Fix combine_grids Verbatim Broadcast Bug
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [2]
 
 **Required Context**:
@@ -516,12 +544,19 @@
 - tests/batchsolving/test_batch_grid_builder.py::test_verbatim_single_run_broadcast
 - tests/batchsolving/test_batch_grid_builder.py::test_combine_grids
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/batchsolving/BatchGridBuilder.py (6 lines changed)
+- Functions/Methods Added/Modified:
+  * combine_grids() - Added single-run broadcast for grid2 in verbatim mode
+- Implementation Summary:
+  Added explicit handling for grid2 single-run broadcast in the combine_grids function. When grid2.shape[1] == 1, it is now broadcast to match grid1's run count using np.repeat. This handles the edge cases where: (1) grid1 has 1 run and grid2 has N runs, (2) grid1 has N runs and grid2 has 1 run, (3) both have 1 run. Also updated the error message to be more descriptive about the broadcast behavior.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 5: Remove request Parameter from __call__
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [2, 3, 4]
 
 **Required Context**:
@@ -635,12 +670,26 @@
 **Tests to Run**:
 - tests/batchsolving/test_batch_grid_builder.py (entire file)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/batchsolving/BatchGridBuilder.py (45 lines changed)
+  * tests/batchsolving/test_batch_grid_builder.py (85 lines changed)
+- Functions/Methods Added/Modified:
+  * __call__() in BatchGridBuilder - Removed request parameter from signature and implementation
+  * Module docstring - Updated to remove request references and examples
+  * test_call_with_request() - Modified to use params/states instead of request
+  * test_call_input_types() - Simplified to remove request from parameterization
+  * test_call_outputs() - Removed request usage, now uses separate params/states dicts
+  * test_docstring_examples() - Removed request examples (Examples 4-5)
+  * test_grid_builder_precision_enforcement() - Updated to use params/states dicts
+- Implementation Summary:
+  Removed the `request` parameter from the `__call__` method signature and implementation. The method now only accepts `params`, `states`, and `kind` arguments. When dict inputs are provided, they are merged internally into a combined request dict for processing by grid_arrays(). The module docstring was updated to reflect the simplified API with 3 arguments instead of 4. All tests were updated to use the new API pattern with separate params and states dicts instead of the combined request dict.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Final Verification and Documentation Cleanup
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5]
 
 **Required Context**:
@@ -702,7 +751,44 @@
 - tests/batchsolving/test_batch_grid_builder.py (entire file)
 - Run pytest on batchsolving tests to verify no regressions
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * None (verification task only)
+- Functions/Methods Added/Modified:
+  * None
+- Implementation Summary:
+  All acceptance criteria verified against implementation:
+  
+  **US-1 (Single Parameter Sweep)**: Verified. `__call__` handles dict params 
+  by updating request dict (line 577). `generate_array` uses `extend_grid_to_array`
+  which fills unswept variables with defaults. Empty indices handling (lines 376-379)
+  returns defaults tiled to match run count. Test: `test_single_param_dict_sweep`.
+  
+  **US-2 (Mixed States and Parameter Sweep)**: Verified. Both dicts merge into 
+  `request`, `grid_arrays` generates separate arrays, and `combine_grids` handles
+  Cartesian product correctly. Test: `test_states_dict_params_sweep`.
+  
+  **US-3 (Combinatorial Grid Generation)**: Verified. `combine_grids` (lines 
+  318-325) computes Cartesian product with `np.repeat` and `np.tile`. 
+  `unique_cartesian_product` handles within-category expansion. 
+  Test: `test_combinatorial_states_params`.
+  
+  **US-4 (Simplified API)**: Verified. `__call__` signature (lines 517-522) has
+  only `params`, `states`, and `kind`. Module docstring (lines 1-94) and method
+  docstring (lines 523-548) document only three parameters. Error messages for
+  invalid types provided (lines 582-585, 594-597). Tests: `test_call_with_request`,
+  `test_call_input_types`.
+  
+  **US-5 (1D Input Handling)**: Verified. `_sanitise_arraylike` (lines 722-724)
+  converts 1D to column vector. Warning for mismatched sizes (lines 727-733).
+  `_trim_or_extend` handles extending with defaults. Tests: 
+  `test_1d_param_array_single_run`, `test_1d_state_array_partial_warning`.
+  
+  **Legacy grid_arrays**: Verified. Method exists (lines 473-515) with 5 existing
+  tests covering various scenarios. `Solver.build_grid` (lines 529-568 in solver.py)
+  correctly uses new API pattern with `states=` and `params=` arguments.
+  
+- Issues Flagged: None 
 
 ---
 

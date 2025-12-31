@@ -97,8 +97,9 @@ def test_grid_arrays(grid_builder, system):
 def test_call_with_request(grid_builder, system):
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
-    request = {state_names[0]: [0, 1], param_names[0]: [10, 20]}
-    inits, params = grid_builder(request=request, kind="combinatorial")
+    params = {param_names[0]: [10, 20]}
+    states = {state_names[0]: [0, 1]}
+    inits, params = grid_builder(params=params, states=states, kind="combinatorial")
     # Arrays are in (variable, run) format - runs in shape[1]
     assert inits.shape[1] == params.shape[1] == 4
 
@@ -414,34 +415,39 @@ def state_seq(system, batch_settings):
 
 @pytest.fixture(scope="session")
 def state_array(system, batch_settings):
-    numvals = batch_settings["num_state_vals"]
-    return np.hstack(
-        [
-            np.linspace(0.1, 0.5, numvals).reshape(-1, 1),
-            np.linspace(1, 5, numvals).reshape(-1, 1),
-        ]
-    )
+    """Return state array in (variable, run) format.
+
+    Creates an array with n_states-1 variables filled with linspace values
+    so that extend/trim logic fills the last variable with defaults.
+    """
+    n_runs = batch_settings["num_state_vals"]
+    n_vars = system.sizes.states - 1  # Leave last variable for defaults
+    # Build (variable, run) format: rows are variables, columns are runs
+    rows = [np.linspace(0.1 * (i + 1), 0.5 * (i + 1), n_runs) for i in range(n_vars)]
+    return np.vstack(rows)
 
 
 @pytest.fixture(scope="session")
 def param_array(system, batch_settings):
-    numvals = batch_settings["num_param_vals"]
-    return np.hstack(
-        (
-            np.linspace(10, 50, numvals).reshape(-1, 1),
-            np.linspace(100, 500, numvals).reshape(-1, 1),
-        )
-    )
+    """Return param array in (variable, run) format.
+
+    Creates an array with n_params-1 variables filled with linspace values
+    so that extend/trim logic fills the last variable with defaults.
+    """
+    n_runs = batch_settings["num_param_vals"]
+    n_vars = system.sizes.parameters - 1  # Leave last variable for defaults
+    # Build (variable, run) format: rows are variables, columns are runs
+    rows = [np.linspace(10.0 * (i + 1), 50.0 * (i + 1), n_runs) for i in range(n_vars)]
+    return np.vstack(rows)
 
 
 @pytest.mark.parametrize(
-    "mixed_type, params_type,states_type",
-    list(itertools.product(["dict", "seq", "array"], repeat=3)),
+    "params_type,states_type",
+    list(itertools.product(["dict", "seq", "array", None], repeat=2)),
 )
 def test_call_input_types(
     grid_builder,
     system,
-    mixed_type,
     params_type,
     states_type,
     param_dict,
@@ -450,12 +456,10 @@ def test_call_input_types(
     state_dict,
     state_seq,
     state_array,
-    batch_request,
 ):
     # Prepare input for each type
     params = None
     states = None
-    request = None
     if params_type == "dict":
         params = param_dict
     elif params_type == "seq":
@@ -470,43 +474,8 @@ def test_call_input_types(
     elif states_type == "array":
         states = state_array
 
-    if mixed_type == "dict":
-        request = batch_request
-    elif mixed_type == "seq":
-        request = np.hstack((param_seq, state_seq))
-    elif mixed_type == "array":
-        request = np.hstack((param_array, state_array))
-
-    valid_combos = [
-        ("dict", None, None),  # Only option with request
-        (None, "dict", "dict"),
-        (None, "dict", "seq"),
-        (None, "dict", "array"),
-        (None, "dict", None),
-        (None, "seq", "dict"),
-        (None, "seq", "seq"),
-        (None, "seq", "array"),
-        (None, "seq", None),
-        (None, "array", "dict"),
-        (None, "array", "seq"),
-        (None, "array", "array"),
-        (None, "array", None),
-        (None, None, "dict"),
-        (None, None, "seq"),
-        (None, None, "array"),
-        (None, None, None),
-    ]
-
-    if (mixed_type, states_type, params_type) not in valid_combos:
-        with pytest.raises(TypeError):
-            initial, param = grid_builder(
-                params=params, states=states, request=request
-            )
-        return
-    else:
-        initial, param = grid_builder(
-            request=request, params=params, states=states
-        )
+    # All combinations of params and states are valid
+    initial, param = grid_builder(params=params, states=states)
 
     sizes = system.sizes
 
@@ -528,25 +497,12 @@ def test_call_outputs(system, grid_builder):
     testarray1 = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
     state_testarray1 = extend_test_array(testarray1, system.initial_values)
     param_testarray1 = extend_test_array(testarray1, system.parameters)
-    testlistarray = [[1, 2], [3, 4]]
-    testseq = [1, 2]
-    testdict = {
-        "x0": [1, 3],
-        "x1": [2, 4],
-        "p0": [1, 3],
-        "p1": np.asarray([2, 4]),
-    }
     teststatedict = {"x0": [1, 3], "x1": [2, 4]}
     testparamdict = {"p0": [1, 3], "p1": [2, 4]}
 
-    # For combinatorial dict with 2 values each: 2*2 = 4 combinations for states/params
-    # Then state combos * param combos = 4 * 4 = 16 total runs
-    # But for test_call_outputs, we're combining arrays directly
-    # testarray1 has 2 runs, so combinatorial gives 2*2=4 runs
-    
     # For combinatorial: each column of grid1 paired with each column of grid2
     # grid1 (states): [[1,2],[3,4]] -> 2 runs
-    # grid2 (params): [[1,2],[3,4]] -> 2 runs  
+    # grid2 (params): [[1,2],[3,4]] -> 2 runs
     # Result: 4 runs total
     # States: repeat each column for each param column: [[1,1,2,2],[3,3,4,4]]
     # Params: tile columns: [[1,2,1,2],[3,4,3,4]]
@@ -570,40 +526,36 @@ def test_call_outputs(system, grid_builder):
     assert_array_equal(inits, state_testarray1)
     assert_array_equal(params, param_testarray1)
 
-    # full combo from dict - produces 16 runs (2*2 state combos * 2*2 param combos)
+    # full combo from dicts - produces 16 runs (2*2 state combos * 2*2 param combos)
     # unique_cartesian_product([1,3], [2,4]) gives [[1,1,3,3],[2,4,2,4]]
-    fullcombosingle_state = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])  # x0, x1 combinatorial
-    fullcombosingle_param = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])  # p0, p1 combinatorial
+    fullcombosingle_state = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])
+    fullcombosingle_param = np.asarray([[1, 1, 3, 3], [2, 4, 2, 4]])
     # combine_grids repeats states for each param, tiles params
-    # States: [[1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3],[2,2,2,2,4,4,4,4,2,2,2,2,4,4,4,4]]
-    # Params: [[1,1,3,3,1,1,3,3,1,1,3,3,1,1,3,3],[2,4,2,4,2,4,2,4,2,4,2,4,2,4,2,4]]
     statefullcombdouble = extend_test_array(
         np.repeat(fullcombosingle_state, 4, axis=1), system.initial_values
     )
     paramfullcombdouble = extend_test_array(
         np.tile(fullcombosingle_param, (1, 4)), system.parameters
     )
-    
-    inits, params = grid_builder(testdict, kind="combinatorial")
-    assert_array_equal(params, paramfullcombdouble)
-    assert_array_equal(inits, statefullcombdouble)
-
-    # Verbatim from dict - pairs row-wise: 2 runs
-    verbatim_state = extend_test_array(
-        np.asarray([[1, 3], [2, 4]]), system.initial_values
-    )
-    verbatim_param = extend_test_array(
-        np.asarray([[1, 3], [2, 4]]), system.parameters
-    )
-    inits, params = grid_builder(testdict, kind="verbatim")
-    assert_array_equal(inits, verbatim_state)
-    assert_array_equal(params, verbatim_param)
 
     inits, params = grid_builder(
         params=testparamdict, states=teststatedict, kind="combinatorial"
     )
     assert_array_equal(inits, statefullcombdouble)
     assert_array_equal(params, paramfullcombdouble)
+
+    # Verbatim from dicts - pairs row-wise: 2 runs
+    verbatim_state = extend_test_array(
+        np.asarray([[1, 3], [2, 4]]), system.initial_values
+    )
+    verbatim_param = extend_test_array(
+        np.asarray([[1, 3], [2, 4]]), system.parameters
+    )
+    inits, params = grid_builder(
+        params=testparamdict, states=teststatedict, kind="verbatim"
+    )
+    assert_array_equal(inits, verbatim_state)
+    assert_array_equal(params, verbatim_param)
 
 
 def extend_test_array(array, values_object):
@@ -734,46 +686,10 @@ def test_docstring_examples(grid_builder, system, tolerance):
         atol=tolerance.abs_tight,
     )
 
-    # Example 4: request dict
-    request = {
-        "p0": [0.1, 0.2],
-        "p1": [10, 20],
-        "x0": [1.0, 2.0],
-        "x1": [0.5, 1.5],
-    }
+    # Example 4: single param sweep (params dict only)
+    params_dict = {"p0": [0.1, 0.2]}
     initial_states, parameters = grid_builder(
-        request=request, kind="combinatorial"
-    )
-    assert_allclose(
-        initial_states,
-        expected_initial_large,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
-    )
-    assert_allclose(
-        parameters,
-        expected_params_large,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
-    )
-    initial_states, parameters = grid_builder(request=request, kind="verbatim")
-    assert_allclose(
-        initial_states,
-        initial_states,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
-    )
-    assert_allclose(
-        parameters,
-        parameters,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
-    )
-
-    # Example 5: request dict with only params
-    request = {"p0": [0.1, 0.2]}
-    initial_states, parameters = grid_builder(
-        request=request, kind="combinatorial"
+        params=params_dict, kind="combinatorial"
     )
     # Expected arrays in (variable, run) format
     expected_params = np.array([[0.1, 0.90, 1.1], [0.2, 0.9, 1.1]]).T
@@ -814,8 +730,11 @@ def test_grid_builder_precision_enforcement(system, precision):
     # Test with dict inputs
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
-    request = {state_names[0]: [1.0, 2.0], param_names[0]: [3.0, 4.0]}
-    inits, params = grid_builder(request=request, kind="combinatorial")
+    inits, params = grid_builder(
+        states={state_names[0]: [1.0, 2.0]},
+        params={param_names[0]: [3.0, 4.0]},
+        kind="combinatorial"
+    )
     assert inits.dtype == precision
     assert params.dtype == precision
     
@@ -849,3 +768,231 @@ def test_grid_builder_precision_enforcement(system, precision):
     )
     assert inits.dtype == np.float32
     assert params.dtype == np.float32
+
+
+def test_single_param_dict_sweep(grid_builder, system):
+    """Test single parameter sweep with dict produces correct runs.
+
+    User story US-1: params={'p1': np.linspace(0,1,100)} should
+    produce 100 runs with p1 varied and all else at defaults.
+    """
+    param_names = list(system.parameters.names)
+    sweep_values = np.linspace(0, 1, 100)
+
+    inits, params = grid_builder(
+        params={param_names[0]: sweep_values},
+        kind="combinatorial"
+    )
+
+    # Should produce 100 runs
+    assert inits.shape[1] == 100
+    assert params.shape[1] == 100
+
+    # Swept parameter should match input values
+    assert_allclose(params[0, :], sweep_values, rtol=1e-7)
+
+    # Other parameters should be at defaults
+    for i in range(1, system.sizes.parameters):
+        assert_allclose(
+            params[i, :],
+            np.full(100, system.parameters.values_array[i]),
+            rtol=1e-7
+        )
+
+    # States should all be at defaults
+    for i in range(system.sizes.states):
+        assert_allclose(
+            inits[i, :],
+            np.full(100, system.initial_values.values_array[i]),
+            rtol=1e-7
+        )
+
+
+def test_single_state_dict_single_run(grid_builder, system):
+    """Test single state scalar override produces one run.
+
+    User story: states={'x': 0.5} should produce 1 run with x=0.5.
+    """
+    state_names = list(system.initial_values.names)
+
+    inits, params = grid_builder(
+        states={state_names[0]: 0.5},
+        kind="combinatorial"
+    )
+
+    # Should produce 1 run
+    assert inits.shape[1] == 1
+    assert params.shape[1] == 1
+
+    # Overridden state should have new value
+    assert_allclose(inits[0, 0], 0.5, rtol=1e-7)
+
+    # Other states should be at defaults
+    for i in range(1, system.sizes.states):
+        assert_allclose(
+            inits[i, 0],
+            system.initial_values.values_array[i],
+            rtol=1e-7
+        )
+
+    # All parameters at defaults
+    for i in range(system.sizes.parameters):
+        assert_allclose(
+            params[i, 0],
+            system.parameters.values_array[i],
+            rtol=1e-7
+        )
+
+
+def test_states_dict_params_sweep(grid_builder, system):
+    """Test state override with parameter sweep.
+
+    User story US-2: states={'x': 0.2}, params={'p1': linspace(0,3,300)}
+    should produce 300 runs with x=0.2 for all, p1 varied.
+    """
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    sweep_values = np.linspace(0, 3, 300)
+
+    inits, params = grid_builder(
+        states={state_names[0]: 0.2},
+        params={param_names[0]: sweep_values},
+        kind="combinatorial"
+    )
+
+    # Should produce 300 runs
+    assert inits.shape[1] == 300
+    assert params.shape[1] == 300
+
+    # Overridden state should be 0.2 for all runs
+    assert_allclose(inits[0, :], np.full(300, 0.2), rtol=1e-7)
+
+    # Swept parameter should match input values
+    assert_allclose(params[0, :], sweep_values, rtol=1e-7)
+
+
+def test_combinatorial_states_params(grid_builder, system):
+    """Test combinatorial expansion of states and params.
+
+    User story US-3: states={'y': [0.1, 0.2]}, params={'p1': linspace(0,1,100)}
+    with kind='combinatorial' should produce 200 runs.
+    """
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    state_values = [0.1, 0.2]
+    param_values = np.linspace(0, 1, 100)
+
+    inits, params = grid_builder(
+        states={state_names[0]: state_values},
+        params={param_names[0]: param_values},
+        kind="combinatorial"
+    )
+
+    # Should produce 2 * 100 = 200 runs
+    assert inits.shape[1] == 200
+    assert params.shape[1] == 200
+
+
+def test_1d_param_array_single_run(grid_builder, system):
+    """Test 1D parameter array is treated as single run.
+
+    User story US-5: 1D array of length n_params treated as single run.
+    """
+    n_params = system.sizes.parameters
+    param_values = np.arange(n_params, dtype=float)
+
+    inits, params = grid_builder(
+        params=param_values,
+        kind="combinatorial"
+    )
+
+    # Should produce 1 run
+    assert inits.shape[1] == 1
+    assert params.shape[1] == 1
+
+    # Parameter values should match input
+    assert_allclose(params[:, 0], param_values, rtol=1e-7)
+
+
+def test_1d_state_array_partial_warning(grid_builder, system):
+    """Test 1D partial state array triggers warning and fills defaults.
+
+    User story US-5: Partial arrays should warn and fill missing values.
+    """
+    # Create array shorter than n_states
+    partial_values = np.array([1.0, 2.0])
+
+    with pytest.warns(UserWarning, match="Missing values"):
+        inits, params = grid_builder(
+            states=partial_values,
+            kind="combinatorial"
+        )
+
+    # Should produce 1 run
+    assert inits.shape[1] == 1
+
+    # First two states should match input
+    assert_allclose(inits[0, 0], 1.0, rtol=1e-7)
+    assert_allclose(inits[1, 0], 2.0, rtol=1e-7)
+
+    # Remaining states should be defaults
+    for i in range(2, system.sizes.states):
+        assert_allclose(
+            inits[i, 0],
+            system.initial_values.values_array[i],
+            rtol=1e-7
+        )
+
+
+def test_empty_inputs_returns_defaults(grid_builder, system):
+    """Test empty inputs return single run with all defaults.
+
+    User story: Empty/None inputs should return defaults.
+    """
+    inits, params = grid_builder(
+        params=None,
+        states=None,
+        kind="combinatorial"
+    )
+
+    # Should produce 1 run
+    assert inits.shape[1] == 1
+    assert params.shape[1] == 1
+
+    # All values should be defaults
+    assert_allclose(
+        inits[:, 0],
+        system.initial_values.values_array,
+        rtol=1e-7
+    )
+    assert_allclose(
+        params[:, 0],
+        system.parameters.values_array,
+        rtol=1e-7
+    )
+
+
+def test_verbatim_single_run_broadcast(grid_builder, system):
+    """Test verbatim mode broadcasts single-run grids.
+
+    User story: states={'x': 0.5}, params={'p1': [1,2,3]}, kind='verbatim'
+    should produce 3 runs with x=0.5 broadcast to all.
+    """
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+
+    inits, params = grid_builder(
+        states={state_names[0]: 0.5},
+        params={param_names[0]: [1.0, 2.0, 3.0]},
+        kind="verbatim"
+    )
+
+    # Should produce 3 runs
+    assert inits.shape[1] == 3
+    assert params.shape[1] == 3
+
+    # State should be broadcast to all runs
+    assert_allclose(inits[0, :], np.full(3, 0.5), rtol=1e-7)
+
+    # Parameter should vary
+    assert_allclose(params[0, :], [1.0, 2.0, 3.0], rtol=1e-7)
