@@ -74,11 +74,20 @@ def batch_input_arrays(
     batch_request,
     batch_settings,
     batchconfig_instance,
+    system,
 ) -> tuple[Array, Array]:
     """Return the initial state and parameter arrays for the batch run."""
+    # Separate batch_request into states and params based on system names
+    state_names = set(system.initial_values.names)
+    param_names = set(system.parameters.names)
 
-    return batchconfig_instance.grid_arrays(
-        batch_request, kind=batch_settings["kind"]
+    states_dict = {k: v for k, v in batch_request.items() if k in state_names}
+    params_dict = {k: v for k, v in batch_request.items() if k in param_names}
+
+    return batchconfig_instance(
+        states=states_dict,
+        params=params_dict,
+        kind=batch_settings["kind"]
     )
 
 

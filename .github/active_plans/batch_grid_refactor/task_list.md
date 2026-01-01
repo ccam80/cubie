@@ -16,7 +16,7 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 ---
 
 ## Task Group 1: Add New Private Helper Methods
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -150,12 +150,24 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 - tests/batchsolving/test_batch_grid_builder.py::test_align_run_counts_combinatorial
 - tests/batchsolving/test_batch_grid_builder.py::test_align_run_counts_verbatim
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchGridBuilder.py (79 lines added)
+  * tests/batchsolving/test_batch_grid_builder.py (99 lines added)
+- Functions/Methods Added/Modified:
+  * _process_input() in BatchGridBuilder.py - new method for unified input processing
+  * _align_run_counts() in BatchGridBuilder.py - new method for run count alignment
+- Implementation Summary:
+  Added two new private helper methods to BatchGridBuilder class that will enable
+  the refactoring in subsequent task groups. _process_input handles None, dict,
+  or array-like inputs and returns a 2D array. _align_run_counts delegates to
+  combine_grids for final alignment.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Refactor `__call__()` Method
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -243,12 +255,23 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 - tests/batchsolving/test_batch_grid_builder.py::test_1d_state_array_partial_warning
 - tests/batchsolving/test_batch_grid_builder.py::test_verbatim_single_run_broadcast
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchGridBuilder.py (~90 lines removed, ~44 lines added)
+- Functions/Methods Added/Modified:
+  * __call__() in BatchGridBuilder.py - completely refactored to use new helper methods
+- Implementation Summary:
+  Replaced the entire 130-line `__call__()` implementation with a clean 44-line 
+  version (including docstring) that processes params and states through independent
+  paths using `_process_input()`, then aligns them via `_align_run_counts()`. The new
+  implementation is simpler, more maintainable, and never combines params and states
+  into a single dictionary.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 3: Remove Deprecated Code
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -287,12 +310,31 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 **Tests to Run**:
 - tests/batchsolving/test_batch_grid_builder.py (full file to verify nothing breaks)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchGridBuilder.py (107 lines removed)
+- Functions/Methods Added/Modified:
+  * grid_arrays() in BatchGridBuilder class - REMOVED (43 lines)
+  * unique_cartesian_product static wrapper - REMOVED
+  * combinatorial_grid static wrapper - REMOVED
+  * verbatim_grid static wrapper - REMOVED
+  * generate_grid static wrapper - REMOVED
+  * combine_grids static wrapper - REMOVED
+  * extend_grid_to_array static wrapper - REMOVED
+  * generate_array static wrapper - REMOVED
+  * Static wrappers comment block - REMOVED (12 lines)
+- Implementation Summary:
+  Removed the deprecated grid_arrays() method which processed combined dictionaries
+  (no longer needed with the refactored __call__() using separate processing paths).
+  Also removed all static method wrappers and their explanatory comment block, as
+  tests import the module directly and use module-level functions.
+- Issues Flagged: Tests that call grid_arrays() directly will fail until Task Group 4
+  removes them. 
 
 ---
 
 ## Task Group 4: Update Tests for Removed Methods
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 3
 
 **Required Context**:
@@ -393,12 +435,30 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 **Tests to Run**:
 - tests/batchsolving/test_batch_grid_builder.py (full file)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/test_batch_grid_builder.py (~155 lines removed, ~35 lines added)
+- Functions/Methods Added/Modified:
+  * test_grid_arrays - REMOVED
+  * test_grid_arrays_1each - REMOVED
+  * test_grid_arrays_2and2 - REMOVED
+  * test_grid_arrays_verbatim_mismatch - REMOVED
+  * test_grid_arrays_empty_inputs - REMOVED
+  * test_call_combinatorial_1each - ADDED
+  * test_call_verbatim_mismatch_raises - ADDED
+  * test_call_empty_dict_values - ADDED
+- Implementation Summary:
+  Removed 5 tests that called the now-removed grid_arrays() method directly.
+  Added 3 replacement tests that verify the same behaviors through the public
+  __call__() API. The replacement tests cover: combinatorial expansion with
+  separate state/param sweeps, verbatim mismatch error handling, and empty
+  dict value filtering.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Update Module Docstring
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 4
 
 **Required Context**:
@@ -441,12 +501,22 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 **Tests to Run**:
 - tests/batchsolving/test_batch_grid_builder.py::test_docstring_examples
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchGridBuilder.py (12 lines added to module docstring)
+- Functions/Methods Added/Modified:
+  * None (documentation only)
+- Implementation Summary:
+  Updated the module docstring to describe the new architecture where params and
+  states are processed through independent paths via _process_input(), then aligned
+  at the final step via _align_run_counts(). The existing argument descriptions
+  and all examples were preserved unchanged as they document the public API.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 6: Final Validation and Solver Integration
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 5
 
 **Required Context**:
@@ -481,7 +551,21 @@ This refactoring eliminates the combined dictionary pattern in BatchGridBuilder,
 - tests/batchsolving/test_batch_grid_builder.py (full file)
 - tests/batchsolving/test_solver.py (if exists, for integration)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * .github/active_plans/batch_grid_refactor/task_list.md (task completion update)
+- Functions/Methods Added/Modified:
+  * None (validation only, no code changes)
+- Implementation Summary:
+  Verified all validation criteria for the BatchGridBuilder refactoring:
+  1. solver.py call sites (lines 489-491, 566-568) use `states=...` and `params=...` kwargs matching the unchanged public API
+  2. `__call__()` processes params and states through independent paths via `_process_input()`, never combining them into a single dictionary
+  3. Data flow is traceable: states flow through `_process_input(states, self.states, kind)` and params flow through `_process_input(params, self.parameters, kind)`, aligned only at the final `_align_run_counts()` step
+  4. No new public API added - only private helper methods (`_process_input`, `_align_run_counts`) were added
+  5. Code line count reduced from original implementation (file now 726 lines)
+  6. `grid_arrays()` method is completely removed
+  7. All static method wrappers are completely removed
+- Issues Flagged: None 
 
 ---
 

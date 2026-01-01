@@ -2,8 +2,16 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal, assert_allclose
 
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
-import cubie.batchsolving.BatchGridBuilder as batchgridmodule
+from cubie.batchsolving.BatchGridBuilder import (
+    BatchGridBuilder,
+    combinatorial_grid,
+    combine_grids,
+    extend_grid_to_array,
+    generate_array,
+    generate_grid,
+    unique_cartesian_product,
+    verbatim_grid,
+)
 import itertools
 # from cubie.odesystems.systems.decays import Decays
 
@@ -73,25 +81,15 @@ def test_combinatorial_and_verbatim_grid(system):
         param.names[0]: np.array([0, 1]),
         param.names[1]: np.array([10, 20]),
     }
-    idx, grid = batchgridmodule.combinatorial_grid(request, param)
+    idx, grid = combinatorial_grid(request, param)
     assert_array_equal(idx, np.array([0, 1]))
     # Grid is (variable, run) format: 2 swept vars, 4 runs
     assert grid.shape == (2, 4)
 
-    idx_v, grid_v = batchgridmodule.verbatim_grid(request, param)
+    idx_v, grid_v = verbatim_grid(request, param)
     assert_array_equal(idx_v, np.array([0, 1]))
     # Verbatim grid: 2 swept vars, 2 runs (paired row-wise)
     assert_array_equal(grid_v, np.array([[0, 1], [10, 20]]))
-
-
-def test_grid_arrays(grid_builder, system):
-    state_names = list(system.initial_values.names)
-    param_names = list(system.parameters.names)
-    request = {state_names[0]: [0, 1], param_names[0]: [10, 20]}
-    inits, params = grid_builder.grid_arrays(request, kind="combinatorial")
-    # Arrays are in (variable, run) format for CUDA memory coalescing
-    assert inits.shape == (system.sizes.states, 4)
-    assert params.shape == (system.sizes.parameters, 4)
 
 
 def test_call_with_request(grid_builder, system):
@@ -106,7 +104,7 @@ def test_call_with_request(grid_builder, system):
 
 def test_unique_cartesian_product(example_arrays, example_grids):
     a, b = example_arrays
-    cartesian_product = batchgridmodule.unique_cartesian_product([a, b])
+    cartesian_product = unique_cartesian_product([a, b])
     combinatorial_grid, _ = example_grids
     assert_array_equal(cartesian_product, combinatorial_grid)
 
@@ -117,7 +115,7 @@ def test_combinatorial_grid(system, batch_settings):
     a = np.arange(numvals)
     b = np.arange(numvals - 1) + numvals - 1
     request = {param.names[0]: a, param.names[1]: b}
-    indices, grid = batchgridmodule.combinatorial_grid(request, param)
+    indices, grid = combinatorial_grid(request, param)
     # Build expected grid in (variable, run) format
     n_runs = numvals * (numvals - 1)
     test_result = np.zeros(shape=(2, n_runs))
@@ -146,7 +144,7 @@ def test_verbatim_grid(system, batch_settings):
     test_result[0, :] = a
     test_result[1, :] = b
 
-    indices, grid = batchgridmodule.verbatim_grid(request, param)
+    indices, grid = verbatim_grid(request, param)
     # Grid is (variable, run) format
     assert grid.shape[0] == 2  # 2 variables swept
     assert grid.shape[1] == numvals  # numvals runs
@@ -161,21 +159,21 @@ def test_generate_grid(system, batch_settings):
     b = np.arange(numvals) + numvals
     request = {state.names[0]: a, state.names[1]: b}
     # Grid is (variable, run) format
-    indices, grid = batchgridmodule.generate_grid(request, state, kind="combinatorial")
+    indices, grid = generate_grid(request, state, kind="combinatorial")
     assert grid.shape[0] == 2  # 2 variables swept
     assert grid.shape[1] == numvals * numvals  # n*n runs for combinatorial
-    indices, grid = batchgridmodule.generate_grid(request, state, kind="verbatim")
+    indices, grid = generate_grid(request, state, kind="verbatim")
     assert grid.shape[0] == 2  # 2 variables swept
     assert grid.shape[1] == numvals  # numvals runs for verbatim
     with pytest.raises(ValueError):
-        batchgridmodule.generate_grid(request, state, kind="badkind")
+        generate_grid(request, state, kind="badkind")
 
 
 def test_grid_size_errors(system):
     """Test that ValueError is raised for invalid grid sizes."""
     param = system.parameters
     with pytest.raises(ValueError):
-        batchgridmodule.verbatim_grid(
+        verbatim_grid(
             {param.names[0]: [1, 2, 3], param.names[1]: [1, 2]}, param
         )
 
@@ -192,7 +190,7 @@ def test_combine_grids(example_arrays):
     expected_grid2 = np.array(
         [[10, 20, 30, 10, 20, 30], [40, 50, 60, 40, 50, 60]]
     )
-    result_grid1, result_grid2 = batchgridmodule.combine_grids(
+    result_grid1, result_grid2 = combine_grids(
         grid1, grid2, kind="combinatorial"
     )
     assert np.array_equal(result_grid1, expected_grid1)
@@ -201,7 +199,7 @@ def test_combine_grids(example_arrays):
     # Verbatim test: grids with matching number of runs should be returned as is
     grid1_v = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
     grid2_v = np.array([[10, 20], [30, 40]])  # 2 vars, 2 runs
-    result_grid1_v, result_grid2_v = batchgridmodule.combine_grids(
+    result_grid1_v, result_grid2_v = combine_grids(
         grid1_v, grid2_v, kind="verbatim"
     )
     assert np.array_equal(result_grid1_v, grid1_v)
@@ -213,7 +211,7 @@ def test_extend_grid_to_array(system):
     indices = np.array([0, 1])
     # Grid in (variable, run) format: 2 swept variables, 3 runs
     grid = np.array([[1, 2, 3], [4, 5, 6]])
-    arr = batchgridmodule.extend_grid_to_array(grid, indices, param.values_array)
+    arr = extend_grid_to_array(grid, indices, param.values_array)
     # Result is (variable, run) format
     assert arr.shape[0] == param.values_array.shape[0]  # all variables
     assert arr.shape[1] == 3  # 3 runs
@@ -229,7 +227,7 @@ def test_generate_array(system, batch_settings, batch_request):
     request = {
         param.names[0]: a,
     }
-    arr = batchgridmodule.generate_array(request, param)
+    arr = generate_array(request, param)
     # Result is (variable, run) format
     assert arr.ndim == 2
     assert arr.shape[0] == param.values_array.shape[0]  # all variables
@@ -238,153 +236,6 @@ def test_generate_array(system, batch_settings, batch_request):
     assert np.all(
         arr[1:, :] == param.values_array[1:, np.newaxis]
     )  # Check other parameters are unchanged
-
-
-@pytest.mark.parametrize(
-    "batch_settings",
-    [
-        {"num_state_vals": 2, "num_param_vals": 3, "kind": "combinatorial"},
-        {"num_state_vals": 3, "num_param_vals": 3, "kind": "verbatim"},
-    ],
-    indirect=True,
-)
-def test_grid_arrays_1each(grid_builder, batch_request, batch_settings):
-    # Test grid_arrays with different grid types and batch sizes
-    kind = batch_settings["kind"]
-    initial_values_array, params_array = grid_builder.grid_arrays(
-        batch_request, kind=kind
-    )
-    # Arrays are in (variable, run) format
-    assert (
-        initial_values_array.shape[0]
-        == grid_builder.states.values_array.shape[0]
-    )
-    assert (
-        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
-    )
-    if kind == "combinatorial":
-        # Run count is in shape[1]
-        assert (
-            initial_values_array.shape[1]
-            == batch_settings["num_state_vals"]
-            * batch_settings["num_param_vals"]
-        )
-    elif kind == "verbatim":
-        assert (
-            initial_values_array.shape[1] == batch_settings["num_state_vals"]
-        )
-
-
-@pytest.mark.parametrize(
-    "batch_settings",
-    [
-        {"num_state_vals": 2, "num_param_vals": 3, "kind": "combinatorial"},
-        {"num_state_vals": 3, "num_param_vals": 3, "kind": "verbatim"},
-    ],
-    indirect=True,
-)
-def test_grid_arrays_2and2(system, grid_builder, batch_settings):
-    state = system.initial_values
-    param = system.parameters
-    numinits = batch_settings["num_state_vals"]
-    numparams = batch_settings["num_param_vals"]
-    a = np.arange(numinits)
-    b = np.arange(numparams)
-    request = {
-        state.names[0]: a,
-        state.names[1]: a,
-        param.names[0]: b,
-        param.names[1]: b,
-    }
-    kind = batch_settings["kind"]
-    initial_values_array, params_array = grid_builder.grid_arrays(
-        request, kind=kind
-    )
-
-    # Arrays are in (variable, run) format
-    assert (
-        initial_values_array.shape[0]
-        == grid_builder.states.values_array.shape[0]
-    )
-    assert (
-        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
-    )
-
-    # Run count is in shape[1]
-    if kind == "combinatorial":
-        assert initial_values_array.shape[1] == numinits**2 * numparams**2
-    elif kind == "verbatim":
-        assert initial_values_array.shape[1] == numinits
-
-
-@pytest.mark.parametrize(
-    "batch_settings",
-    [
-        {"num_state_vals": 3, "num_param_vals": 2, "kind": "verbatim"},
-    ],
-    indirect=True,
-)
-def test_grid_arrays_verbatim_mismatch(system, grid_builder, batch_settings):
-    state = system.initial_values
-    param = system.parameters
-    numinits = batch_settings["num_state_vals"]
-    numparams = batch_settings["num_param_vals"]
-    a = np.arange(numinits)
-    b = np.arange(numparams)
-    request = {
-        state.names[0]: a,
-        state.names[1]: a,
-        param.names[0]: b,
-        param.names[1]: b,
-    }
-    kind = batch_settings["kind"]
-    with pytest.raises(ValueError):
-        initial_values_array, params_array = grid_builder.grid_arrays(
-            request, kind=kind
-        )
-
-
-@pytest.mark.parametrize(
-    "batch_settings",
-    [
-        {"num_state_vals": 3, "num_param_vals": 2, "kind": "combinatorial"},
-        {"num_state_vals": 3, "num_param_vals": 3, "kind": "verbatim"},
-    ],
-    indirect=True,
-)
-def test_grid_arrays_empty_inputs(system, grid_builder, batch_settings):
-    state = system.initial_values
-    param = system.parameters
-    numinits = batch_settings["num_state_vals"]
-    numparams = batch_settings["num_param_vals"]
-    a = np.arange(numinits)
-    b = np.arange(numparams)
-    request = {
-        state.names[0]: a,
-        state.names[1]: [],
-        param.names[0]: b,
-        param.names[1]: np.asarray([]),
-    }
-    kind = batch_settings["kind"]
-
-    initial_values_array, params_array = grid_builder.grid_arrays(
-        request, kind=kind
-    )
-
-    # Arrays are in (variable, run) format
-    assert (
-        initial_values_array.shape[0]
-        == grid_builder.states.values_array.shape[0]
-    )
-    assert (
-        params_array.shape[0] == grid_builder.parameters.values_array.shape[0]
-    )
-
-    # Run count is in shape[1]
-    if kind == "combinatorial":
-        assert initial_values_array.shape[1] == numinits * numparams
-    elif kind == "verbatim":
-        assert initial_values_array.shape[1] == numinits
 
 
 @pytest.fixture(scope="session")
@@ -999,3 +850,143 @@ def test_verbatim_single_run_broadcast(grid_builder, system):
 
     # Parameter should vary
     assert_allclose(params[0, :], [1.0, 2.0, 3.0], rtol=1e-7)
+
+
+def test_call_combinatorial_1each(grid_builder, system):
+    """Test combinatorial expansion with 1 state and 1 param swept."""
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    states = {state_names[0]: [0, 1]}
+    params = {param_names[1]: np.arange(10)}
+    inits, params_out = grid_builder(
+        params=params, states=states, kind="combinatorial"
+    )
+    assert inits.shape == (system.sizes.states, 20)
+    assert params_out.shape == (system.sizes.parameters, 20)
+
+
+def test_call_verbatim_mismatch_raises(grid_builder, system):
+    """Test verbatim with mismatched lengths raises ValueError."""
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    states = {state_names[0]: [0, 1, 2]}
+    params = {param_names[0]: [0, 1]}
+    with pytest.raises(ValueError):
+        grid_builder(params=params, states=states, kind="verbatim")
+
+
+def test_call_empty_dict_values(grid_builder, system):
+    """Test that empty dict values are filtered correctly."""
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    states = {state_names[0]: [0, 1, 2], state_names[1]: []}
+    params = {param_names[0]: np.arange(3), param_names[1]: np.array([])}
+    inits, params_out = grid_builder(
+        params=params, states=states, kind="verbatim"
+    )
+    assert inits.shape[1] == 3
+    assert params_out.shape[1] == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests for _process_input and _align_run_counts helper methods
+# ---------------------------------------------------------------------------
+
+
+def test_process_input_none(grid_builder, system):
+    """Verify _process_input with None returns single-column defaults."""
+    result = grid_builder._process_input(
+        None, system.initial_values, kind="combinatorial"
+    )
+
+    # Should return single-column array with defaults
+    assert result.shape == (system.sizes.states, 1)
+    assert_allclose(result[:, 0], system.initial_values.values_array, rtol=1e-7)
+
+
+def test_process_input_dict_combinatorial(grid_builder, system):
+    """Verify _process_input with dict expands correctly for combinatorial."""
+    state_names = list(system.initial_values.names)
+    input_dict = {state_names[0]: [1.0, 2.0], state_names[1]: [3.0, 4.0]}
+
+    result = grid_builder._process_input(
+        input_dict, system.initial_values, kind="combinatorial"
+    )
+
+    # Combinatorial: 2 * 2 = 4 runs
+    assert result.shape == (system.sizes.states, 4)
+    # All variables should be present
+    assert result.shape[0] == system.sizes.states
+
+
+def test_process_input_dict_verbatim(grid_builder, system):
+    """Verify _process_input with dict expands correctly for verbatim."""
+    state_names = list(system.initial_values.names)
+    input_dict = {state_names[0]: [1.0, 2.0, 3.0], state_names[1]: [4.0, 5.0, 6.0]}
+
+    result = grid_builder._process_input(
+        input_dict, system.initial_values, kind="verbatim"
+    )
+
+    # Verbatim: 3 runs (row-wise pairing)
+    assert result.shape == (system.sizes.states, 3)
+    # Check swept values are in the array
+    assert_allclose(result[0, :], [1.0, 2.0, 3.0], rtol=1e-7)
+    assert_allclose(result[1, :], [4.0, 5.0, 6.0], rtol=1e-7)
+
+
+def test_process_input_array(grid_builder, system):
+    """Verify _process_input with array sanitizes correctly."""
+    # Create a 2D array in (variable, run) format
+    input_array = np.array([[1.0, 2.0], [3.0, 4.0]])
+
+    with pytest.warns(UserWarning, match="Missing values"):
+        result = grid_builder._process_input(
+            input_array, system.initial_values, kind="combinatorial"
+        )
+
+    # Should be extended to full variable count
+    assert result.shape[0] == system.sizes.states
+    assert result.shape[1] == 2  # 2 runs preserved
+
+
+def test_process_input_invalid_type(grid_builder, system):
+    """Verify _process_input raises TypeError for invalid input."""
+    with pytest.raises(TypeError, match="Input must be None, dict, or array-like"):
+        grid_builder._process_input(
+            "invalid_string", system.initial_values, kind="combinatorial"
+        )
+
+
+def test_align_run_counts_combinatorial(grid_builder, system):
+    """Verify _align_run_counts produces Cartesian product."""
+    # Create two arrays with different run counts
+    states_array = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])  # 3 vars, 2 runs
+    params_array = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0],
+                             [70.0, 80.0, 90.0]])  # 3 vars, 3 runs
+
+    aligned_states, aligned_params = grid_builder._align_run_counts(
+        states_array, params_array, kind="combinatorial"
+    )
+
+    # Combinatorial: 2 * 3 = 6 runs
+    assert aligned_states.shape[1] == 6
+    assert aligned_params.shape[1] == 6
+
+
+def test_align_run_counts_verbatim(grid_builder, system):
+    """Verify _align_run_counts pairs directly with broadcast."""
+    # Single-run states, multi-run params
+    states_array = np.array([[1.0], [2.0], [3.0]])  # 3 vars, 1 run
+    params_array = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0],
+                             [70.0, 80.0, 90.0]])  # 3 vars, 3 runs
+
+    aligned_states, aligned_params = grid_builder._align_run_counts(
+        states_array, params_array, kind="verbatim"
+    )
+
+    # Verbatim with broadcast: single-run broadcasts to 3 runs
+    assert aligned_states.shape[1] == 3
+    assert aligned_params.shape[1] == 3
+    # States should be broadcast
+    assert_allclose(aligned_states[0, :], [1.0, 1.0, 1.0], rtol=1e-7)
