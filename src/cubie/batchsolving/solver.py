@@ -268,14 +268,18 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve output label settings in-place.
+        """Resolve output label settings in-place. Users can provide lists
+        of state and observable variable names, or lists/arrays of indices
+        if they know them and want a "fast path" solve to minimise overhead.
+        The expected usual pathway will be for a user to provide a list of
+        names to save_variables and summarise_variables.
 
         Parameters
         ----------
         output_settings
-            Mapping of output configuration keys recognised by the solver.
-            Entries describing saved or summarised selectors are replaced with
-            integer indices when provided.
+            Output configuration kwargs recognised by the output functions
+            module. Entries describing saved or summarised variables are
+            replaced with integer indices when provided.
 
         Returns
         -------
