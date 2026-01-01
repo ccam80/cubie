@@ -33,7 +33,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
-from cubie.cuda_simsafe import activemask, all_sync, syncwarp
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -274,7 +274,7 @@ class DIRKStep(ODEImplicitStep):
 
     def build_implicit_helpers(
         self,
-    ) -> Callable:
+    ) -> None:
         """Construct the nonlinear solver chain used by implicit methods."""
 
         config = self.compile_settings
@@ -286,7 +286,7 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner", # neumann preconditioner cached?
+            "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -553,13 +553,7 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             mask = activemask()
             for prev_idx in range(stages_except_first):
-                # DIRK is missing the instruction cache. The unrolled loop
-                # is instruction dense, taking up most of the instruction space.
-                # A block-wide sync hangs indefinitely, as some warps will
-                # finish early and never reach it. We sync a warp to minimal
-                # effect (it's a wash in the profiler) in case of divergence in
-                # big systems.
-                syncwarp(mask)
+
                 stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
                 matrix_col = explicit_a_coeffs[prev_idx]

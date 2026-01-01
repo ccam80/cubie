@@ -351,8 +351,7 @@ class NewtonKrylov(CUDAFactory):
             base_state
                 Reference state used when evaluating the residual.
             shared_scratch
-                Shared scratch buffer providing Newton direction, residual,
-                and linear solver storage.
+                Shared scratch buffer for Newton and linear solver.
             persistent_scratch
                 Persistent local scratch buffer for Newton and linear solver.
             counters
@@ -390,25 +389,26 @@ class NewtonKrylov(CUDAFactory):
                 norm2_prev += residual_value * residual_value
 
             converged = norm2_prev <= tol_squared
-            has_error = False
             final_status = int32(0)
 
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
 
+            # Track the latest active iteration's status signals.
+            last_lin_status = int32(0)
+            last_backtrack_failed = False
+
             iters_count = int32(0)
             total_krylov_iters = int32(0)
             mask = activemask()
             for _ in range(max_iters_val):
-                done = converged or has_error
+                done = converged
                 if all_sync(mask, done):
                     break
 
                 active = not done
-                iters_count = selp(
-                    active, int32(iters_count + int32(1)), iters_count
-                )
+                iters_count = selp(active, int32(iters_count + int32(1)), iters_count)
 
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
@@ -426,12 +426,8 @@ class NewtonKrylov(CUDAFactory):
                     krylov_iters_local,
                 )
 
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                final_status = selp(
-                    lin_failed, int32(final_status | lin_status), final_status
-                )
                 total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
+                last_lin_status = selp(active, lin_status, last_lin_status)
 
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
@@ -477,20 +473,26 @@ class NewtonKrylov(CUDAFactory):
                     alpha *= typed_damping
 
                 backtrack_failed = active and (not found_step) and (not converged)
-                has_error = has_error or backtrack_failed
-                final_status = selp(
-                    backtrack_failed, int32(final_status | int32(1)), final_status
-                )
+                last_backtrack_failed = active and backtrack_failed
 
                 if backtrack_failed:
-                    # Revert increment to unscaled value for another go
+                    # Revert increment to unscaled value for another damping attempt.
                     for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i]
 
-            max_iters_exceeded = (not converged) and (not has_error)
-            final_status = selp(
-                max_iters_exceeded, int32(final_status | int32(2)), final_status
-            )
+            # Compose status word on exit.
+            if not converged:
+                final_status = int32(final_status | int32(2))
+                final_status = selp(
+                    last_backtrack_failed,
+                    int32(final_status | int32(1)),
+                    final_status,
+                )
+                final_status = selp(
+                    last_lin_status != int32(0),
+                    int32(final_status | last_lin_status),
+                    final_status,
+                )
 
             counters[0] = iters_count
             counters[1] = total_krylov_iters

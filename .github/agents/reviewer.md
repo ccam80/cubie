@@ -175,34 +175,14 @@ Structure:
 - **Future Maintainability**: [Long-term sustainability]
 
 ## Suggested Edits
-
-### High Priority (Correctness/Critical)
+)
 1. **[Edit Title]**
    - Task Group: [Reference to task group in task_list.md]
    - File: src/cubie/path/file.py
    - Issue: [What's wrong]
    - Fix: [Specific changes needed]
    - Rationale: [Why this matters]
-
-### Medium Priority (Quality/Simplification)
-2. **[Edit Title]**
-   - [Same structure]
-
-### Low Priority (Nice-to-have)
-3. **[Edit Title]**
-   - [Same structure]
-
-## Recommendations
-- **Immediate Actions**: [Must-fix items before merge]
-- **Future Refactoring**: [Improvements for later]
-- **Testing Additions**: [Suggested test coverage improvements]
-- **Documentation Needs**: [Docs that should be updated]
-
-## Overall Rating
-**Implementation Quality**: [Poor/Fair/Good/Excellent]
-**User Story Achievement**: [Percentage or qualitative]
-**Goal Achievement**: [Percentage or qualitative]
-**Recommended Action**: [Approve/Revise/Reject]
+   - Status: [blank for taskmaster to complete when implementing edit]
 ```
 
 ## Review Philosophy
@@ -239,7 +219,6 @@ Structure:
 - Explain impact and rationale clearly
 - Do NOT soften criticism to be "nice"
 - Your harsh review saves future developers from pain
-- When unsure, ASK user for clarification on standards
 - Validate against user stories and architectural goals
 
 ## Tools and When to Use Them
@@ -248,7 +227,4 @@ No external tools required.
 
 After completing review:
 1. Present executive summary
-2. Highlight top 3-5 most critical issues
-3. Highlight user story validation results
-4. Recommend whether edits should be made by taskmaster
-5. If edits needed, prepare suggested edits section for taskmaster consumption
+2. If edits needed, prepare suggested edits section for taskmaster consumption

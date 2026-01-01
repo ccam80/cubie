@@ -17,18 +17,19 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
     """Base helper for implicit integration algorithms."""
 
     def __init__(
-            self,
-            config: ImplicitStepConfig,
-            _controller_defaults: StepControlDefaults,
-            solver_type: str = "newton",
-            krylov_tolerance: Optional[float] = None,
-            max_linear_iters: Optional[int] = None,
-            linear_correction_type: Optional[str] = None,
-            newton_tolerance: Optional[float] = None,
-            max_newton_iters: Optional[int] = None,
-            newton_damping: Optional[float] = None,
-            newton_max_backtracks: Optional[int] = None,
-        ):
+        self,
+        config: ImplicitStepConfig,
+        _controller_defaults: StepControlDefaults,
+        solver_type: str = "newton",
+        krylov_tolerance: Optional[float] = None,
+        max_linear_iters: Optional[int] = None,
+        linear_correction_type: Optional[str] = None,
+        newton_tolerance: Optional[float] = None,
+        max_newton_iters: Optional[int] = None,
+        newton_damping: Optional[float] = None,
+        newton_max_backtracks: Optional[int] = None,
+        **kwargs,
+    ):
             super().__init__(
                 config=config,
                 _controller_defaults=_controller_defaults,
@@ -40,6 +41,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 max_newton_iters=max_newton_iters,
                 newton_damping=newton_damping,
                 newton_max_backtracks=newton_max_backtracks,
+                **kwargs,
             )
 
             # Build instrumented solvers for use in place of production ones

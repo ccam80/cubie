@@ -35,6 +35,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         dxdt_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the Crank–Nicolson step configuration.
 
