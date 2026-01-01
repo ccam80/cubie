@@ -41,6 +41,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         stage_rhs_location: Optional[str] = None,
         stage_store_location: Optional[str] = None,
         cached_auxiliaries_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration.
 

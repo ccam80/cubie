@@ -73,6 +73,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         stage_increment_location: Optional[str] = None,
         stage_driver_stack_location: Optional[str] = None,
         stage_state_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the FIRK step configuration.
 
