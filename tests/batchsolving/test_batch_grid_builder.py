@@ -735,7 +735,6 @@ def test_grid_builder_precision_enforcement(system, precision):
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     inits, params = grid_builder(
-        states={state_names[0]: [1.0, 2.0]},
         params={param_names[0]: [3.0, 4.0]},
         kind="combinatorial"
     )
@@ -744,7 +743,7 @@ def test_grid_builder_precision_enforcement(system, precision):
     
     # Test with separate dict inputs
     inits, params = grid_builder(
-        states={state_names[0]: [1.0]},
+        states={state_names[0]: [1.0, 2.0]},
         params={param_names[0]: [2.0]},
         kind="verbatim"
     )
