@@ -32,6 +32,7 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         increment_cache_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
