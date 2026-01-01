@@ -701,49 +701,7 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
         # no cover: end
-        
-        # Attach critical shapes for dummy execution
-        # Parameters in order: inits, params, d_coefficients, state_output,
-        # observables_output, state_summaries_output, observables_summaries_output,
-        # iteration_counters_output, status_codes_output, duration, warmup, t0, n_runs
-        system_sizes = self.system_sizes
-        n_states = int(system_sizes.states)
-        n_parameters = int(system_sizes.parameters)
-        n_observables = int(system_sizes.observables)
-        integration_kernel.critical_shapes = (
-            (n_states, 1),  # inits - [n_states, n_runs]
-            (n_parameters, 1),  # params - [n_parameters, n_runs]
-            (100, n_states, 6),  # d_coefficients - (time, variable, run)
-            (100, n_states, 1),  # state_output - (time, variable, run)
-            (100, n_observables, 1),  # observables_output
-            (100, n_observables, 1),  # state_summaries_output
-            (100, n_observables, 1),  # observables_summaries_output
-            (100, 4, 1),  # iteration_counters_output - (time, 4, run)
-            (1,),  # status_codes_output
-            None,  # duration - scalar
-            None,  # warmup - scalar
-            None,  # t0 - scalar
-            None,  # n_runs - scalar
-        )
-        
-        # Attach critical values for scalar parameters to avoid infinite loops
-        # in adaptive step controllers during dummy compilation
-        integration_kernel.critical_values = (
-            None,  # inits - array
-            None,  # params - array
-            None,  # d_coefficients - array
-            None,  # state_output - array
-            None,  # observables_output - array
-            None,  # state_summaries_output - array
-            None,  # observables_summaries_output - array
-            None,  # iteration_counters_output - array
-            None,  # status_codes_output - array
-            0.001,  # duration - small value to avoid long loops
-            0.0,  # warmup - zero for dummy runs
-            0.0,  # t0 - zero start time
-            1,  # n_runs - single run
-        )
-        
+
         return integration_kernel
 
     def update(

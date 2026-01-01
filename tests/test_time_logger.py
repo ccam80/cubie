@@ -344,25 +344,26 @@ class TestTimeLogger:
         assert compile_durations["compile1"] >= 0.01
 
     def test_print_summary_by_category(self, capsys):
-        """Test printing summary for specific categories."""
+        """Test printing summary for specific categories.
+        
+        Each print_summary call clears events, so we use separate logger
+        instances for each category test.
+        """
+        # Test codegen category summary
         logger = TimeLogger(verbosity="default")
         logger.register_event("codegen1", "codegen", "Codegen event")
         logger.register_event("compile1", "compile", "Compile event")
         logger.register_event("runtime1", "runtime", "Runtime event")
-        
         logger.start_event("codegen1")
         time.sleep(0.01)
         logger.stop_event("codegen1")
-        
         logger.start_event("compile1")
         time.sleep(0.01)
         logger.stop_event("compile1")
-        
         logger.start_event("runtime1")
         time.sleep(0.01)
         logger.stop_event("runtime1")
         
-        # Test codegen category summary
         logger.print_summary(category="codegen")
         captured = capsys.readouterr()
         assert "Codegen Timing Summary" in captured.out
@@ -370,7 +371,21 @@ class TestTimeLogger:
         assert "compile1" not in captured.out
         assert "runtime1" not in captured.out
         
-        # Test compile category summary
+        # Test compile category summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary(category="compile")
         captured = capsys.readouterr()
         assert "Compile Timing Summary" in captured.out
@@ -378,7 +393,21 @@ class TestTimeLogger:
         assert "codegen1" not in captured.out
         assert "runtime1" not in captured.out
         
-        # Test runtime category summary
+        # Test runtime category summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary(category="runtime")
         captured = capsys.readouterr()
         assert "Runtime Timing Summary" in captured.out
@@ -386,7 +415,21 @@ class TestTimeLogger:
         assert "codegen1" not in captured.out
         assert "compile1" not in captured.out
 
-        # Test all categories summary
+        # Test all categories summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary()
         captured = capsys.readouterr()
         assert "Timing Summary" in captured.out
