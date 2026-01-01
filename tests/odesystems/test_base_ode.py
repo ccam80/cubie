@@ -31,23 +31,26 @@ def test_symbolic_ode_generate_dummy_args(simple_symbolic_ode, precision):
 
     # Check dxdt args structure
     dxdt_args = dummy_args['dxdt']
-    assert len(dxdt_args) == 5
+    assert len(dxdt_args) == 6
 
     n_states = simple_symbolic_ode.num_states
     n_params = simple_symbolic_ode.num_parameters
-    n_drivers = simple_symbolic_ode.num_drivers
+    n_drivers = max(1, simple_symbolic_ode.num_drivers)
+    n_obs = max(1, simple_symbolic_ode.num_observables)
 
-    # dxdt signature: (state, dxdt_out, parameters, drivers, t)
-    state_arr, dxdt_out_arr, params_arr, drivers_arr, t_val = dxdt_args
+    # dxdt signature: (state, parameters, drivers, observables, out, t)
+    state_arr, params_arr, drivers_arr, obs_arr, out_arr, t_val = dxdt_args
 
     assert state_arr.shape == (n_states,)
     assert state_arr.dtype == precision
-    assert dxdt_out_arr.shape == (n_states,)
-    assert dxdt_out_arr.dtype == precision
     assert params_arr.shape == (n_params,)
     assert params_arr.dtype == precision
     assert drivers_arr.shape == (n_drivers,)
     assert drivers_arr.dtype == precision
+    assert obs_arr.shape == (n_obs,)
+    assert obs_arr.dtype == precision
+    assert out_arr.shape == (n_states,)
+    assert out_arr.dtype == precision
     assert isinstance(t_val, (np.floating, float))
 
 
@@ -62,8 +65,8 @@ def test_symbolic_ode_generate_dummy_args_observables(
 
     n_states = simple_symbolic_ode.num_states
     n_params = simple_symbolic_ode.num_parameters
-    n_drivers = simple_symbolic_ode.num_drivers
-    n_obs = simple_symbolic_ode.num_observables
+    n_drivers = max(1, simple_symbolic_ode.num_drivers)
+    n_obs = max(1, simple_symbolic_ode.num_observables)
 
     # observables signature: (state, params, drivers, obs_out, t)
     state_arr, params_arr, drivers_arr, obs_out_arr, t_val = obs_args
@@ -93,8 +96,8 @@ def test_symbolic_ode_generate_dummy_args_no_drivers(precision):
     dummy_args = ode._generate_dummy_args()
 
     dxdt_args = dummy_args['dxdt']
-    drivers_arr = dxdt_args[3]
+    drivers_arr = dxdt_args[2]
 
-    # Zero drivers should result in shape (0,)
-    assert drivers_arr.shape == (0,)
+    # Zero drivers uses min size of 1 to avoid empty arrays
+    assert drivers_arr.shape == (1,)
     assert drivers_arr.dtype == precision

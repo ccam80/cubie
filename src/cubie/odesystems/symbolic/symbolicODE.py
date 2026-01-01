@@ -669,37 +669,219 @@ class SymbolicODE(BaseODE):
         Returns
         -------
         Dict[str, Tuple]
-            Mapping of cached output names (``'dxdt'``, ``'observables'``)
-            to their argument tuples.
+            Mapping of cached output names to their argument tuples.
         """
         precision = self.precision
         sizes = self.sizes
         n_states = int(sizes.states)
         n_params = int(sizes.parameters)
-        n_drivers = int(sizes.drivers)
-        n_obs = int(sizes.observables)
+        n_drivers = max(1, int(sizes.drivers))
+        n_obs = max(1, int(sizes.observables))
 
-        # def dxdt(state, parameters, drivers, observables, out, t):
+        # n-stage helpers use a default of 2 stages
+        n_stages = 2
+        n_flat_states = n_stages * n_states
+        n_flat_drivers = n_stages * n_drivers
+
+        # Cached auxiliary buffer size (reasonable default)
+        n_aux = max(1, n_states * 2)
+
+        # Common arrays
+        state_arr = np.ones((n_states,), dtype=precision)
+        params_arr = np.ones((n_params,), dtype=precision)
+        drivers_arr = np.ones((n_drivers,), dtype=precision)
+        obs_arr = np.ones((n_obs,), dtype=precision)
+        out_arr = np.ones((n_states,), dtype=precision)
+        cached_aux_arr = np.ones((n_aux,), dtype=precision)
+
+        # Scalars
+        t = precision(0.0)
+        h = precision(0.01)
+        a_ij = precision(1.0)
+
+        # n-stage arrays
+        flat_state_arr = np.ones((n_flat_states,), dtype=precision)
+        flat_drivers_arr = np.ones((n_flat_drivers,), dtype=precision)
+        flat_out_arr = np.ones((n_flat_states,), dtype=precision)
+
+        # dxdt(state, parameters, drivers, observables, out, t)
         dxdt_args = (
-            np.ones((n_states,), dtype=precision),
-            np.ones((n_params,), dtype=precision),
-            np.ones((n_drivers,), dtype=precision),
-            np.ones((n_obs,), dtype=precision),
-            np.ones((n_states,), dtype=precision),
-            precision(0.0),
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            obs_arr.copy(),
+            out_arr.copy(),
+            t,
         )
 
-        # def get_observables(state, parameters, drivers, observables, t):
+        # get_observables(state, parameters, drivers, observables, t)
         obs_args = (
-            np.ones((n_states,), dtype=precision),
-            np.ones((n_params,), dtype=precision),
-            np.ones((n_drivers,), dtype=precision),
-            np.ones((n_obs,), dtype=precision),
-            precision(0.0),
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            obs_arr.copy(),
+            t,
         )
 
-        #many more required here for other solver helpers
+        # operator_apply(state, parameters, drivers, base_state,
+        #                t, h, a_ij, v, out)
+        linear_operator_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            state_arr.copy(),  # base_state
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # v
+            out_arr.copy(),
+        )
+
+        # operator_apply(state, parameters, drivers, cached_aux, base_state,
+        #                t, h, a_ij, v, out)
+        linear_operator_cached_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            cached_aux_arr.copy(),
+            state_arr.copy(),  # base_state
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # v
+            out_arr.copy(),
+        )
+
+        # prepare_jac(state, parameters, drivers, t, cached_aux)
+        prepare_jac_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            t,
+            cached_aux_arr.copy(),
+        )
+
+        # calculate_cached_jvp(state, parameters, drivers, cached_aux,
+        #                      t, v, out)
+        calculate_cached_jvp_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            cached_aux_arr.copy(),
+            t,
+            state_arr.copy(),  # v
+            out_arr.copy(),
+        )
+
+        # preconditioner(state, parameters, drivers, base_state,
+        #                t, h, a_ij, v, out, jvp)
+        neumann_preconditioner_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            state_arr.copy(),  # base_state
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # v
+            out_arr.copy(),
+            state_arr.copy(),  # jvp scratch buffer
+        )
+
+        # preconditioner(state, parameters, drivers, cached_aux, base_state,
+        #                t, h, a_ij, v, out, jvp)
+        neumann_preconditioner_cached_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            cached_aux_arr.copy(),
+            state_arr.copy(),  # base_state
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # v
+            out_arr.copy(),
+            state_arr.copy(),  # jvp scratch buffer
+        )
+
+        # residual(u, parameters, drivers, t, h, a_ij, base_state, out)
+        stage_residual_args = (
+            state_arr.copy(),  # u
+            params_arr.copy(),
+            drivers_arr.copy(),
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # base_state
+            out_arr.copy(),
+        )
+
+        # n_stage residual(u, parameters, drivers, t, h, a_ij,
+        #                  base_state, out)
+        n_stage_residual_args = (
+            flat_state_arr.copy(),  # u (n_stages * n_states)
+            params_arr.copy(),
+            flat_drivers_arr.copy(),  # (n_stages * n_drivers)
+            t,
+            h,
+            a_ij,
+            state_arr.copy(),  # base_state (n_states)
+            flat_out_arr.copy(),  # out (n_stages * n_states)
+        )
+
+        # n_stage operator_apply(state, parameters, drivers, base_state,
+        #                        t, h, a_ij, v, out)
+        n_stage_linear_operator_args = (
+            flat_state_arr.copy(),  # state (n_stages * n_states)
+            params_arr.copy(),
+            flat_drivers_arr.copy(),  # (n_stages * n_drivers)
+            state_arr.copy(),  # base_state (n_states)
+            t,
+            h,
+            a_ij,
+            flat_state_arr.copy(),  # v (n_stages * n_states)
+            flat_out_arr.copy(),  # out (n_stages * n_states)
+        )
+
+        # n_stage preconditioner(state, parameters, drivers, base_state,
+        #                        t, h, a_ij, v, out, jvp)
+        n_stage_neumann_preconditioner_args = (
+            flat_state_arr.copy(),  # state (n_stages * n_states)
+            params_arr.copy(),
+            flat_drivers_arr.copy(),  # (n_stages * n_drivers)
+            state_arr.copy(),  # base_state (n_states)
+            t,
+            h,
+            a_ij,
+            flat_state_arr.copy(),  # v (n_stages * n_states)
+            flat_out_arr.copy(),  # out (n_stages * n_states)
+            flat_state_arr.copy(),  # jvp scratch (n_stages * n_states)
+        )
+
+        # time_derivative_rhs(state, parameters, drivers, driver_dt,
+        #                     observables, out, t)
+        time_derivative_rhs_args = (
+            state_arr.copy(),
+            params_arr.copy(),
+            drivers_arr.copy(),
+            drivers_arr.copy(),  # driver_dt
+            obs_arr.copy(),
+            out_arr.copy(),
+            t,
+        )
+
         return {
             'dxdt': dxdt_args,
             'observables': obs_args,
+            'linear_operator': linear_operator_args,
+            'linear_operator_cached': linear_operator_cached_args,
+            'prepare_jac': prepare_jac_args,
+            'calculate_cached_jvp': calculate_cached_jvp_args,
+            'neumann_preconditioner': neumann_preconditioner_args,
+            'neumann_preconditioner_cached': neumann_preconditioner_cached_args,
+            'stage_residual': stage_residual_args,
+            'n_stage_residual': n_stage_residual_args,
+            'n_stage_linear_operator': n_stage_linear_operator_args,
+            'n_stage_neumann_preconditioner': n_stage_neumann_preconditioner_args,
+            'time_derivative_rhs': time_derivative_rhs_args,
         }

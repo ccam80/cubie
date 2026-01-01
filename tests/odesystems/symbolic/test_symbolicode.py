@@ -241,3 +241,100 @@ class TestSympyStringEquivalence:
         
         assert len(ode_sympy.indices.observables.index_map) == 1
         assert len(ode_string.indices.observables.index_map) == 1
+
+
+def test_generate_dummy_args_returns_all_keys(simple_ode_strict):
+    """Verify _generate_dummy_args returns all expected solver helper keys."""
+    dummy_args = simple_ode_strict._generate_dummy_args()
+
+    expected_keys = {
+        'dxdt',
+        'observables',
+        'linear_operator',
+        'linear_operator_cached',
+        'prepare_jac',
+        'calculate_cached_jvp',
+        'neumann_preconditioner',
+        'neumann_preconditioner_cached',
+        'stage_residual',
+        'n_stage_residual',
+        'n_stage_linear_operator',
+        'n_stage_neumann_preconditioner',
+        'time_derivative_rhs',
+    }
+
+    assert set(dummy_args.keys()) == expected_keys
+
+
+def test_generate_dummy_args_correct_arities(simple_ode_strict):
+    """Verify each argument tuple has the correct arity."""
+    dummy_args = simple_ode_strict._generate_dummy_args()
+
+    # Expected arities based on codegen template signatures
+    expected_arities = {
+        'dxdt': 6,  # state, params, drivers, obs, out, t
+        'observables': 5,  # state, params, drivers, obs, t
+        'linear_operator': 9,  # state, params, drivers, base, t, h, a, v, out
+        'linear_operator_cached': 10,  # +cached_aux
+        'prepare_jac': 5,  # state, params, drivers, t, cached_aux
+        'calculate_cached_jvp': 7,  # state, params, drivers, aux, t, v, out
+        'neumann_preconditioner': 10,  # state, params, drivers, base, ...
+        'neumann_preconditioner_cached': 11,  # +cached_aux
+        'stage_residual': 8,  # u, params, drivers, t, h, a, base, out
+        'n_stage_residual': 8,  # u, params, drivers, t, h, a, base, out
+        'n_stage_linear_operator': 9,  # state, params, drivers, base, ...
+        'n_stage_neumann_preconditioner': 10,  # state, params, drivers, ...
+        'time_derivative_rhs': 7,  # state, params, drivers, driver_dt, ...
+    }
+
+    for key, expected_arity in expected_arities.items():
+        assert len(dummy_args[key]) == expected_arity, \
+            f"{key} has arity {len(dummy_args[key])}, expected {expected_arity}"
+
+
+def test_generate_dummy_args_array_shapes(simple_ode_strict):
+    """Verify array arguments have shapes consistent with system sizes."""
+    import numpy as np
+
+    dummy_args = simple_ode_strict._generate_dummy_args()
+    sizes = simple_ode_strict.sizes
+    n_states = int(sizes.states)
+    n_params = int(sizes.parameters)
+    n_drivers = max(1, int(sizes.drivers))
+    n_obs = max(1, int(sizes.observables))
+    n_stages = 2  # Default stage count
+
+    # Check dxdt arrays
+    dxdt = dummy_args['dxdt']
+    assert dxdt[0].shape == (n_states,)  # state
+    assert dxdt[1].shape == (n_params,)  # parameters
+    assert dxdt[2].shape == (n_drivers,)  # drivers
+    assert dxdt[3].shape == (n_obs,)  # observables
+    assert dxdt[4].shape == (n_states,)  # out
+    assert np.isscalar(dxdt[5]) or dxdt[5].shape == ()  # t
+
+    # Check n_stage arrays use flattened sizes
+    n_stage_res = dummy_args['n_stage_residual']
+    assert n_stage_res[0].shape == (n_stages * n_states,)  # u
+    assert n_stage_res[2].shape == (n_stages * n_drivers,)  # drivers
+    assert n_stage_res[6].shape == (n_states,)  # base_state
+    assert n_stage_res[7].shape == (n_stages * n_states,)  # out
+
+
+def test_generate_dummy_args_precision(simple_ode_strict):
+    """Verify all arrays and scalars use the correct precision dtype."""
+    import numpy as np
+
+    dummy_args = simple_ode_strict._generate_dummy_args()
+    precision = simple_ode_strict.precision
+
+    for key, args in dummy_args.items():
+        for i, arg in enumerate(args):
+            if isinstance(arg, np.ndarray):
+                assert arg.dtype == precision, \
+                    f"{key}[{i}] has dtype {arg.dtype}, expected {precision}"
+            elif np.isscalar(arg):
+                # Scalar should be numpy scalar with correct dtype
+                assert type(arg) == precision or \
+                    (hasattr(arg, 'dtype') and arg.dtype == precision), \
+                    f"{key}[{i}] scalar has wrong precision"
