@@ -586,6 +586,7 @@ def test_grid_builder_precision_enforcement(system, precision):
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     inits, params = grid_builder(
+        states=None,
         params={param_names[0]: [3.0, 4.0]},
         kind="combinatorial"
     )
