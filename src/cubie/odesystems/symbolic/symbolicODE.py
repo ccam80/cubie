@@ -679,16 +679,17 @@ class SymbolicODE(BaseODE):
         n_drivers = int(sizes.drivers)
         n_obs = int(sizes.observables)
 
-        # dxdt signature: (state, dxdt_out, parameters, drivers, t)
+        # def dxdt(state, parameters, drivers, observables, out, t):
         dxdt_args = (
-            np.ones((n_states,), dtype=precision),
             np.ones((n_states,), dtype=precision),
             np.ones((n_params,), dtype=precision),
             np.ones((n_drivers,), dtype=precision),
+            np.ones((n_obs,), dtype=precision),
+            np.ones((n_states,), dtype=precision),
             precision(0.0),
         )
 
-        # observables signature: (state, params, drivers, obs_out, t)
+        # def get_observables(state, parameters, drivers, observables, t):
         obs_args = (
             np.ones((n_states,), dtype=precision),
             np.ones((n_params,), dtype=precision),
@@ -697,6 +698,7 @@ class SymbolicODE(BaseODE):
             precision(0.0),
         )
 
+        #many more required here for other solver helpers
         return {
             'dxdt': dxdt_args,
             'observables': obs_args,

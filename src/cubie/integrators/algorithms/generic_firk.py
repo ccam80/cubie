@@ -227,7 +227,7 @@ class FIRKStep(ODEImplicitStep):
 
         super().__init__(config, controller_defaults, **kwargs)
 
-        self.solver.update(n=self.tableau.stage_count * n)
+        # self.solver.update(n=self.tableau.stage_count * n)
         self.register_buffers()
 
     def register_buffers(self) -> None:
