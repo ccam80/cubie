@@ -151,8 +151,8 @@ class Solver:
         Explicit algorithm configuration overriding solver defaults.
     output_settings
         Explicit output configuration overriding solver defaults. Individual
-        selectors such as ``saved_states`` may also be supplied as keyword
-        arguments.
+        selectors such as ``save_variables`` or index-based parameters may also
+        be supplied as keyword arguments.
     memory_settings
         Explicit memory configuration overriding solver defaults. Keys like
         ``memory_manager`` or ``mem_proportion`` may likewise be provided as
@@ -289,8 +289,8 @@ class Solver:
         Raises
         ------
         ValueError
-            If the settings dict contains duplicate entries, for example both
-            ``"saved_states"`` and ``"saved_state_indices"``.
+            If the settings dict would result in duplicate or conflicting
+            indices.
 
         Notes
         -----
@@ -299,54 +299,30 @@ class Solver:
         
         The unified parameters ``save_variables`` and ``summarise_variables``
         are automatically classified into states and observables using
-        SystemInterface. Results are merged with existing indices using set union,
-        allowing both old and new parameter styles to coexist.
+        SystemInterface. Results are merged with index-based parameters
+        (``saved_state_indices``, ``saved_observable_indices``,
+        ``summarised_state_indices``, ``summarised_observable_indices``) using
+        set union.
         """
         resolvers = {
-            "saved_states": self.system_interface.state_indices,
             "saved_state_indices": self.system_interface.state_indices,
-            "summarised_states": self.system_interface.state_indices,
-            "summarised_state_indices": self.system_interface.state_indices,
-            "saved_observables": self.system_interface.observable_indices,
             "saved_observable_indices": (
                 self.system_interface.observable_indices
             ),
-            "summarised_observables": self.system_interface.observable_indices,
+            "summarised_state_indices": self.system_interface.state_indices,
             "summarised_observable_indices": (
                 self.system_interface.observable_indices
             ),
         }
 
-        labels2index_keys = {
-            "saved_states": "saved_state_indices",
-            "saved_observables": "saved_observable_indices",
-            "summarised_states": "summarised_state_indices",
-            "summarised_observable_indices": (
-                "summarised_observable_indices"
-            ),
-        }
         # Replace any labels with integer indices
         for key, resolver in resolvers.items():
             values = output_settings.get(key)
             if values is not None:
                 output_settings[key] = resolver(values)
-
-        # Replace names for a list of labels, e.g. saved_states, with the
-        # indices key that outputfunctions expects
-        for inkey, outkey in labels2index_keys.items():
-            indices = output_settings.pop(inkey, None)
-            if indices is not None:
-                if output_settings.get(outkey, None) is not None:
-                    raise ValueError(
-                        "Duplicate output settings provided: got "
-                        f"{inkey}={output_settings[inkey]} and "
-                        f"{outkey} = {output_settings[outkey]}"
-                    )
-                output_settings[outkey] = indices
         
-        # Process save_variables and summarise_variables after converting
-        # label-based parameters to indices. This allows union with both
-        # label-based and index-based existing parameters.
+        # Process save_variables and summarise_variables, merging with
+        # any index-based parameters provided by the user.
         has_save_vars = ("save_variables" in output_settings
                          and output_settings["save_variables"] is not None)
         has_summarise_vars = ("summarise_variables" in output_settings

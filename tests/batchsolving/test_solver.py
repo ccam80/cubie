@@ -375,16 +375,16 @@ def test_update_saved_variables(solver_mutable, system):
     )
 
     if len(state_names) > 0 and len(observable_names) > 0:
+        all_vars = [state_names[0]]
+        if observable_names:
+            all_vars.append(observable_names[0])
+        
         updates = {
-            "saved_states": [state_names[0]],
-            "saved_observables": [observable_names[0]]
-            if observable_names
-            else [],
+            "save_variables": all_vars,
         }
 
         updated_keys = solver.update(updates)
 
-        # The method should have converted labels to indices
         assert len(updated_keys) > 0
 
 def test_memory_settings_update(solver_mutable):
@@ -934,19 +934,20 @@ def test_save_variables_union_with_indices(solver, system):
     assert 1 in result
 
 
-def test_save_variables_union_with_saved_states(solver, system):
-    """Test save_variables merges with existing saved_states."""
+def test_save_variables_union_with_saved_state_indices(solver, system):
+    """Test save_variables merges with existing saved_state_indices."""
     state_names = list(system.initial_values.names)
     
     output_settings = {
-        "saved_states": [state_names[0]],
+        "saved_state_indices": np.array([0], dtype=np.int16),
         "save_variables": [state_names[1]]
     }
     solver.convert_output_labels(output_settings)
     
-    # Should have both states
     result = output_settings["saved_state_indices"]
     assert len(result) == 2
+    assert 0 in result
+    assert 1 in result
 
 
 def test_save_variables_empty_list(solver):
@@ -1066,16 +1067,15 @@ def test_solve_ivp_with_summarise_variables(system):
     assert result is not None
 
 
-def test_backward_compatibility_existing_params(system):
-    """Test existing saved_states parameter still works."""
+def test_save_variables_with_solve_ivp(system):
+    """Test save_variables parameter works with solve_ivp."""
     state_names = list(system.initial_values.names)[:2]
     
-    # Use old-style parameters only
     result = solve_ivp(
         system,
         y0={state_names[0]: [1.0, 2.0]},
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
-        saved_states=state_names,
+        save_variables=state_names,
         dt_save=0.01,
         duration=0.1,
         method="euler",
@@ -1085,8 +1085,8 @@ def test_backward_compatibility_existing_params(system):
     assert result.time_domain_array is not None
 
 
-def test_mixing_old_and_new_params(system):
-    """Test mixing saved_states with save_variables."""
+def test_save_variables_with_multiple_states(system):
+    """Test save_variables with multiple state variables."""
     state_names = list(system.initial_values.names)
     if len(state_names) < 2:
         pytest.skip("Need at least 2 states")
@@ -1095,13 +1095,68 @@ def test_mixing_old_and_new_params(system):
         system,
         y0={state_names[0]: [1.0], state_names[1]: [2.0]},
         parameters={list(system.parameters.names)[0]: [0.1]},
-        saved_states=[state_names[0]],
-        save_variables=[state_names[1]],
+        save_variables=state_names[:2],
         dt_save=0.01,
         duration=0.1,
         method="euler",
     )
     
-    # Should have both states saved (union)
     assert result is not None
     assert result.time_domain_array.shape[1] == 2
+
+
+def test_deprecated_label_parameters_rejected(system):
+    """Test that deprecated label-based parameters are rejected.
+    
+    The parameters saved_states, saved_observables, summarised_states,
+    and summarised_observables are no longer accepted as input parameters.
+    Users should use save_variables/summarise_variables or index-based
+    parameters instead.
+    """
+    from cubie.outputhandling.output_functions import (
+        ALL_OUTPUT_FUNCTION_PARAMETERS
+    )
+    
+    assert "saved_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "saved_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "summarised_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "summarised_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    
+    solver = Solver(
+        system,
+        algorithm="euler",
+    )
+    assert solver is not None
+
+
+def test_unified_save_variables_parameter(system):
+    """Test that save_variables parameter works as replacement for deprecated params.
+    
+    This demonstrates the recommended migration path from deprecated
+    saved_states/saved_observables to the unified save_variables parameter.
+    """
+    state_names = list(system.initial_values.names)
+    observable_names = (
+        list(system.observables.names)
+        if hasattr(system.observables, "names") and system.observables.names
+        else []
+    )
+    
+    all_vars = state_names[:2]
+    if observable_names:
+        all_vars.extend(observable_names[:1])
+    
+    solver = Solver(
+        system,
+        algorithm="euler",
+        save_variables=all_vars,
+        output_types=["state", "observables"],
+    )
+    
+    assert len(solver.saved_state_indices) >= 2
+    if observable_names:
+        assert len(solver.saved_observable_indices) >= 1
+    
+    saved_states_list = solver.saved_states
+    assert isinstance(saved_states_list, list)
+    assert len(saved_states_list) >= 2
