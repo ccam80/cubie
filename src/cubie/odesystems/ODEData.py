@@ -7,7 +7,7 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numpy import float32
+from numpy import float32 as np_float32
 
 from numba import from_dtype as numba_from_dtype
 
@@ -116,7 +116,7 @@ class ODEData:
         converter=precision_converter,
         validator=precision_validator,
         on_setattr=update_precisions,
-        default=float32
+        default=np_float32
     )
     num_drivers: int = field(
         validator=attrsval_instance_of(int), default=1

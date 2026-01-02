@@ -22,7 +22,7 @@ from numpy import (
     array_equal as np_array_equal,
     ceil as np_ceil,
     dtype as np_dtype,
-    float32,
+    float32 as np_float32,
     issubdtype as np_issubdtype,
     zeros as np_zeros,
 )
@@ -40,7 +40,7 @@ from cubie.outputhandling.output_sizes import ArraySizingClass
 class ManagedArray:
     """Metadata wrapper for a single managed array."""
 
-    dtype: type = field(default=float32, validator=attrsval_instance_of(type))
+    dtype: type = field(default=np_float32, validator=attrsval_instance_of(type))
     stride_order: tuple[str, ...] = field(
         factory=tuple,
         validator=attrsval_deep_iterable(
@@ -202,7 +202,7 @@ class BaseArrayManager(ABC):
     """
 
     _precision: type = field(
-        default=float32, validator=attrsval_instance_of(type)
+        default=np_float32, validator=attrsval_instance_of(type)
     )
     _sizes: Optional[ArraySizingClass] = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(ArraySizingClass))
@@ -905,11 +905,11 @@ class BaseArrayManager(ABC):
             if array is not None:
                 zero = np_dtype(slot.dtype).type(0)
                 if len(array.shape) >= 3:
-                    array[:, :, :] = slot.np_dtype(0.0)
+                    array[:, :, :] = slot.dtype(0.0)
                 elif len(array.shape) >= 2:
-                    array[:, :] = slot.np_dtype(0.0)
+                    array[:, :] = slot.dtype(0.0)
                 elif len(array.shape) >= 1:
-                    array[:] = slot.np_dtype(0.0)
+                    array[:] = slot.dtype(0.0)
 
     def reset(self) -> None:
         """

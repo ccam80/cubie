@@ -7,8 +7,8 @@ from attrs.validators import (
 )
 from numpy import (
     dtype as np_dtype,
-    float32,
-    floating,
+    float32 as np_float32,
+    floating as np_floating,
     issubdtype as np_issubdtype,
 )
 
@@ -33,21 +33,21 @@ class InputArrayContainer(ArrayContainer):
 
     initial_values: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
     parameters: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
     driver_coefficients: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             is_chunked=False,
@@ -291,11 +291,11 @@ class InputArrays(BaseArrayManager):
         self._chunk_axis = solver_instance.chunk_axis
         for name, arr_obj in self.host.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if np_issubdtype(np_dtype(arr_obj.dtype), floating):
+            if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
         for name, arr_obj in self.device.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if np_issubdtype(np_dtype(arr_obj.dtype), floating):
+            if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
 
     def finalise(self, host_indices: Union[slice, NDArray]) -> None:

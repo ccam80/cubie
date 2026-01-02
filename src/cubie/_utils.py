@@ -13,14 +13,14 @@ from numpy import (
     all as np_all,
     dtype as np_dtype,
     empty as np_empty,
-    float16,
-    float32,
-    float64,
-    floating,
+    float16 as np_float16,
+    float32 as np_float32,
+    float64 as np_float64,
+    floating as np_floating,
     floor as np_floor,
-    int32,
-    int64,
-    integer,
+    int32 as np_int32,
+    int64 as np_int64,
+    integer as np_integer,
     isfinite as np_isfinite,
     log10 as np_log10,
     ndarray,
@@ -37,36 +37,36 @@ from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
 PrecisionDType = Union[
-    type[float16],
-    type[float32],
-    type[float64],
-    np_dtype[float16],
-    np_dtype[float32],
-    np_dtype[float64],
+    type[np_float16],
+    type[np_float32],
+    type[np_float64],
+    np_dtype[np_float16],
+    np_dtype[np_float32],
+    np_dtype[np_float64],
 ]
 
 ALLOWED_PRECISIONS = {
-    np_dtype(float16),
-    np_dtype(float32),
-    np_dtype(float64),
+    np_dtype(np_float16),
+    np_dtype(np_float32),
+    np_dtype(np_float64),
 }
 
 ALLOWED_BUFFER_DTYPES = {
-    np_dtype(float16),
-    np_dtype(float32),
-    np_dtype(float64),
-    np_dtype(int32),
-    np_dtype(int64),
+    np_dtype(np_float16),
+    np_dtype(np_float32),
+    np_dtype(np_float64),
+    np_dtype(np_int32),
+    np_dtype(np_int64),
 }
 
 
-def precision_converter(value: PrecisionDType) -> type[floating]:
+def precision_converter(value: PrecisionDType) -> type[np_floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
     dt = np_dtype(value)
     if dt not in ALLOWED_PRECISIONS:
         raise ValueError(
-            "precision must be one of float16, float32, or float64",
+            "precision must be one of np_float16, np_float32, or np_float64",
         )
     return dt.type
 
@@ -80,7 +80,7 @@ def precision_validator(
 
     if np_dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
-            "precision must be one of float16, float32, or float64",
+            "precision must be one of np_float16, np_float32, or np_float64",
         )
 
 
@@ -92,8 +92,8 @@ def buffer_dtype_validator(
     """Validate that value is a supported buffer dtype (float or int)."""
     if np_dtype(value) not in ALLOWED_BUFFER_DTYPES:
         raise ValueError(
-            "Buffer dtype must be one of float16, float32, float64, "
-            "int32, or int64",
+            "Buffer dtype must be one of np_float16, np_float32, np_float64, "
+            "np_int32, or np_int64",
         )
 
 
@@ -339,7 +339,7 @@ def clamp_factory(precision):
 
 
 @cuda.jit(
-    # (float64[:], float64[:], int32, xoro_type[:]),
+    # (np_float64[:], np_float64[:], np_int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -350,15 +350,15 @@ def get_noise_64(
     idx,
     RNG,
 ):
-    """Fill ``noise_array`` with Gaussian noise (float64).
+    """Fill ``noise_array`` with Gaussian noise (np_float64).
 
     Parameters
     ----------
-    noise_array : float64[:]
+    noise_array : np_float64[:]
         Output array to populate.
-    sigmas : float64[:]
+    sigmas : np_float64[:]
         Standard deviations for each element.
-    idx : int32
+    idx : np_int32
         Thread index used for RNG.
     RNG : xoro_type[:]
         RNG state array.
@@ -371,7 +371,7 @@ def get_noise_64(
 
 
 @cuda.jit(
-    # (float32[:], float32[:], int32, xoro_type[:]),
+    # (np_float32[:], np_float32[:], np_int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -382,15 +382,15 @@ def get_noise_32(
     idx,
     RNG,
 ):
-    """Fill ``noise_array`` with Gaussian noise (float32).
+    """Fill ``noise_array`` with Gaussian noise (np_float32).
 
     Parameters
     ----------
-    noise_array : float32[:]
+    noise_array : np_float32[:]
         Output array to populate.
-    sigmas : float32[:]
+    sigmas : np_float32[:]
         Standard deviations for each element.
-    idx : int32
+    idx : np_int32
         Thread index used for RNG.
     RNG : xoro_type[:]
         RNG state array.
@@ -469,7 +469,7 @@ def is_device_validator(instance, attribute, value):
 
 
 def float_array_validator(instance, attribute, value):
-    """Validate that a value is a NumPy floating-point array with finite values.
+    """Validate that a value is a NumPy np_floating-point array with finite values.
 
     Raises a TypeError if the value is not a NumPy ndarray of floats, and a
     ValueError if any elements are NaN or infinite.
@@ -490,14 +490,14 @@ def inrangetype_validator(dtype, min_, max_):
 )
 
 # Helper: expand Python dtype to accept corresponding NumPy scalar hierarchy
-# e.g. float -> (float, floating), int -> (int, integer)
+# e.g. float -> (float, np_floating), int -> (int, np_integer)
 # Unknown types are returned unchanged.
 
 def _expand_dtype(dt):
     if dt is float:
-        return (float, floating)
+        return (float, np_floating)
     if dt is int:
-        return (int, integer)
+        return (int, np_integer)
     return dt
 
 def lttype_validator(dtype, max_):
@@ -616,10 +616,10 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
     --------
     >>> result, unpacked = unpack_dict_values({
     ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
-    ...     'precision': np.float32
+    ...     'precision': np.np_float32
     ... })
     >>> result
-    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
+    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.np_float32'>}
     >>> unpacked
     {'step_settings'}
     
@@ -702,7 +702,7 @@ def build_config(
     --------
     >>> config = build_config(
     ...     DIRKStepConfig,
-    ...     required={'precision': np.float32, 'n': 3},
+    ...     required={'precision': np.np_float32, 'n': 3},
     ...     krylov_tolerance=1e-8
     ... )
 

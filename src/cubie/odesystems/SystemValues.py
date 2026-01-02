@@ -7,9 +7,9 @@ from numpy import (
     arange as np_arange,
     array as np_array,
     asarray as np_asarray,
-    floating,
-    int32,
-    integer,
+    floating as np_floating,
+    int32 as np_int32,
+    integer as np_integer,
     issubdtype as np_issubdtype,
     ndarray,
 )
@@ -80,8 +80,8 @@ class SystemValues:
         ``values_dict`` and ``defaults``.
         """
 
-        if np_issubdtype(precision, integer) or np_issubdtype(
-            precision, floating
+        if np_issubdtype(precision, np_integer) or np_issubdtype(
+            precision, np_floating
         ):
             self.precision = precision
         else:
@@ -231,7 +231,7 @@ class SystemValues:
         Returns
         -------
         numpy.ndarray
-            Array of ``int32`` indices targeting ``values_array``.
+            Array of ``np_int32`` indices targeting ``values_array``.
 
         Raises
         ------
@@ -252,11 +252,11 @@ class SystemValues:
                         self.get_index_of_key(state, silent)
                         for state in keys_or_indices
                     ],
-                    dtype=int32,
+                    dtype=np_int32,
                 )
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
-                indices = np_asarray(keys_or_indices, dtype=int32)
+                indices = np_asarray(keys_or_indices, dtype=np_int32)
             else:
                 # List contains mixed types or unsupported types
                 non_str_int_types = [
@@ -282,20 +282,20 @@ class SystemValues:
         elif isinstance(keys_or_indices, str):
             # A single string
             indices = np_asarray(
-                [self.get_index_of_key(keys_or_indices)], dtype=int32
+                [self.get_index_of_key(keys_or_indices)], dtype=np_int32
             )
         elif isinstance(keys_or_indices, int):
             # A single int
-            indices = np_asarray([keys_or_indices], dtype=int32)
+            indices = np_asarray([keys_or_indices], dtype=np_int32)
 
         elif isinstance(keys_or_indices, slice):
             # A slice object
             indices = np_arange(len(self.values_array))[
                 keys_or_indices
-            ].astype(int32)
+            ].astype(np_int32)
 
         elif isinstance(keys_or_indices, ndarray):
-            indices = keys_or_indices.astype(int32)
+            indices = keys_or_indices.astype(np_int32)
 
         else:
             raise TypeError(
@@ -455,8 +455,8 @@ class SystemValues:
                     f", or parameters, or constants)",
                 )
         if any(
-            not isinstance(value, (int, float, integer,
-                                    floating))
+            not isinstance(value, (int, float, np_integer,
+                                    np_floating))
             for value in recognised.values()
         ):
             raise TypeError(

@@ -7,7 +7,13 @@ if TYPE_CHECKING:
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
-from numpy import float32, floating, int32, integer, issubdtype as np_issubdtype
+from numpy import (
+    float32 as np_float32,
+    floating as np_floating,
+    int32 as np_int32,
+    integer as np_integer,
+    issubdtype as np_issubdtype,
+)
 from numpy.typing import NDArray
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -19,7 +25,7 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
 
-ChunkIndices = Union[slice, NDArray[integer]]
+ChunkIndices = Union[slice, NDArray[np_integer]]
 
 
 @define(slots=False)
@@ -28,35 +34,35 @@ class OutputArrayContainer(ArrayContainer):
 
     state: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observables: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     state_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     observable_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
     status_codes: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=int32,
+            dtype=np_int32,
             stride_order=("run",),
             shape=(1,),
             is_chunked=False,
@@ -64,7 +70,7 @@ class OutputArrayContainer(ArrayContainer):
     )
     iteration_counters: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=int32,
+            dtype=np_int32,
             stride_order=("time", "variable", "run"),
             shape=(1, 4, 1),
         )
@@ -272,7 +278,7 @@ class OutputArrays(BaseArrayManager):
 
     def update_from_solver(
         self, solver_instance: "BatchSolverKernel"
-    ) -> Dict[str, NDArray[floating]]:
+    ) -> Dict[str, NDArray[np_floating]]:
         """
         Update sizes and precision from solver, returning new host arrays.
 
@@ -298,7 +304,7 @@ class OutputArrays(BaseArrayManager):
             newshape = getattr(self._sizes, name)
             slot.shape = newshape
             slot_dtype = slot.dtype
-            if np_issubdtype(slot_dtype, floating):
+            if np_issubdtype(slot_dtype, np_floating):
                 slot.dtype = self._precision
                 slot_dtype = slot.dtype
             # Fast path: skip allocation if existing array matches
@@ -316,7 +322,7 @@ class OutputArrays(BaseArrayManager):
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
             slot_dtype = slot.dtype
-            if np_issubdtype(slot_dtype, floating):
+            if np_issubdtype(slot_dtype, np_floating):
                 slot.dtype = self._precision
         return new_arrays
 

@@ -11,13 +11,17 @@ behaviour of the compiled device functions.
 
 from typing import Sequence, Union
 
-from numpy import asarray as np_asarray, dtype as np_dtype, floating
+from numpy import (
+    asarray as np_asarray,
+    dtype as np_dtype,
+    floating as np_floating,
+)
 from numpy.typing import NDArray
 
 from cubie.odesystems.baseODE import BaseODE
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
-Array = NDArray[floating]
+Array = NDArray[np_floating]
 
 
 def _as_array(vector: Union[Sequence[float], Array], dt: np_dtype) -> Array:

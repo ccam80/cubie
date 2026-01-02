@@ -86,7 +86,8 @@ To avoid name clashes with builtins, math functions, or numba functions:
 
 - **NumPy functions**: Prefix with `np_` (e.g., `from numpy import ceil as np_ceil,
   array as np_array, sum as np_sum`). NumPy scalar types like `float32`, `float64`,
-  `int32` do not need prefixes.
+  `int32` also need prefixes (e.g., `from numpy import float32 as np_float32,
+  int32 as np_int32, floating as np_floating`) since bare names clash with numba types.
 - **Attrs validators**: Prefix with `attrsval_` (e.g., `from attrs.validators import
   instance_of as attrsval_instance_of, optional as attrsval_optional`)
 - **Attrs utilities that may clash**: Prefix with `attrs` (e.g., `from attrs import

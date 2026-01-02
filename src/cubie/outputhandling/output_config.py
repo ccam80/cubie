@@ -17,7 +17,7 @@ from numpy import (
     arange as np_arange,
     array_equal as np_array_equal,
     asarray as np_asarray,
-    floating,
+    floating as np_floating,
     int_ as np_int,
     ndarray,
     unique as np_unique,
@@ -676,7 +676,7 @@ class OutputConfig:
         return self._dt_save
 
     @property
-    def precision(self) -> type[floating]:
+    def precision(self) -> type[np_floating]:
         """Numerical precision for output calculations."""
         return self._precision
 
