@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/optimize_imports/agent_plan.md
 
 ## Task Group 1: Verification Phase
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -63,15 +63,30 @@
 - This is a benchmark script, not a formal test
 
 **Tests to Run**:
-- tests/integrators/algorithms/test_generic_erk.py
+- tests/integrators/algorithms/test_step_algorithms.py (contains ERKStep tests)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/algorithms/generic_erk.py (5 lines changed)
+- Files Created:
+  * tests/benchmark_compile_time.py (97 lines)
+- Functions/Methods Added/Modified:
+  * Updated import statement: `import attrs` -> `from attrs import define, field, validators`
+  * Updated class decorator: `@attrs.define` -> `@define`
+  * Updated field definitions: `attrs.field()` -> `field()`
+  * Updated validators: `attrs.validators` -> `validators`
+- Implementation Summary:
+  Created benchmark script that measures CUDA compilation time for ERKStep.
+  Converted generic_erk.py from whole-module attrs import to explicit imports.
+  The ERKStepConfig class uses define, field, and validators from attrs.
+- Issues Flagged: 
+  The task_list.md references test_generic_erk.py which does not exist.
+  ERKStep tests are in tests/integrators/algorithms/test_step_algorithms.py.
 
 ---
 
 ## Task Group 2: Core Infrastructure Files
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -132,13 +147,39 @@
 - tests/odesystems/test_baseODE.py
 - tests/odesystems/symbolic/test_symbolicODE.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/CUDAFactory.py (25 lines changed)
+  * src/cubie/odesystems/baseODE.py (22 lines changed)
+  * src/cubie/odesystems/symbolic/symbolicODE.py (4 lines changed)
+- Functions/Methods Added/Modified:
+  * Updated import statements in CUDAFactory.py: `import attrs` -> `from attrs import define, fields, has`
+  * Updated import statements in CUDAFactory.py: `import numpy as np` -> explicit numpy imports
+  * Updated import statements in CUDAFactory.py: `import numba` -> `from numba import types as numba_types` and explicit numba dtype imports
+  * Updated all usages of `attrs.define`, `attrs.fields`, `attrs.has` to use explicit imports
+  * Updated all usages of `np.any`, `np.ones`, `np.array`, numpy dtypes to explicit imports
+  * Updated all usages of `numba.types.*`, `numba.float64`, etc. to use `numba_types.*` and explicit imports
+  * Updated import statements in baseODE.py: `import attrs` -> `from attrs import define, field`
+  * Updated import statements in baseODE.py: `import numpy as np` -> `from numpy import asarray, float32, floating`
+  * Updated all usages of `attrs.define`, `attrs.field` to explicit imports
+  * Updated all usages of `np.float32`, `np.floating`, `np.asarray` to explicit imports
+  * Updated import statements in symbolicODE.py: `import numpy as np` -> `from numpy import float32, ndarray`
+  * Updated all usages of `np.float32`, `np.ndarray` to explicit imports
+- Implementation Summary:
+  Converted whole-module imports to explicit imports in the core CUDAFactory infrastructure files.
+  CUDAFactory.py: Changed `import attrs`, `import numpy as np`, and `import numba` to explicit imports.
+  Updated all 15+ usage sites to use the newly imported symbols.
+  baseODE.py: Changed `import attrs` and `import numpy as np` to explicit imports.
+  Updated all usage sites including the ODECache class definition and type hints.
+  symbolicODE.py: Changed `import numpy as np` to explicit imports.
+  Updated 3 usage sites for np.float32 and np.ndarray.
+  Kept sympy as `import sympy as sp` as specified (complex symbolic operations).
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Algorithm Step Files
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -250,13 +291,37 @@
 - tests/integrators/algorithms/test_explicit_euler.py
 - tests/integrators/algorithms/test_backwards_euler.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/algorithms/base_algorithm_step.py (20 lines changed)
+  * src/cubie/integrators/algorithms/generic_dirk.py (8 lines changed)
+  * src/cubie/integrators/algorithms/generic_firk.py (8 lines changed)
+  * src/cubie/integrators/algorithms/generic_rosenbrock_w.py (15 lines changed)
+  * src/cubie/integrators/algorithms/backwards_euler.py (6 lines changed)
+  * src/cubie/integrators/algorithms/crank_nicolson.py (8 lines changed)
+  * src/cubie/integrators/algorithms/ode_implicitstep.py (10 lines changed)
+  * src/cubie/integrators/algorithms/ode_explicitstep.py (2 lines changed)
+- Functions/Methods Added/Modified:
+  * base_algorithm_step.py: Changed `import attrs`, `import numpy as np`, `import numba` to `from attrs import define, field, validators`, `from numba import from_dtype`, `from numpy import dtype as np_dtype, sum as np_sum`
+  * base_algorithm_step.py: Updated all usages of `attrs.define`, `attrs.field`, `np.sum`, `np.dtype`, `numba.from_dtype` to use explicit imports
+  * generic_dirk.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import eye`
+  * generic_firk.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import eye`
+  * generic_rosenbrock_w.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import eye, int32 as np_int32`
+  * backwards_euler.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import eye`
+  * crank_nicolson.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import eye`
+  * ode_implicitstep.py: Changed `import attrs` and `import numpy as np` to `from attrs import define, field, validators` and `from numpy import ndarray`, kept `import sympy as sp`
+  * ode_explicitstep.py: Changed `import attrs` to `from attrs import define`
+- Implementation Summary:
+  Converted whole-module imports to explicit imports in 8 algorithm step files.
+  The files backwards_euler_predict_correct.py and explicit_euler.py already had minimal imports (no attrs or numpy whole-module imports to convert).
+  Updated all usage sites in each file to use the newly imported symbols.
+  Kept sympy as `import sympy as sp` in ode_implicitstep.py as specified (complex symbolic operations).
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Step Controllers
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -330,13 +395,35 @@
 - tests/integrators/step_control/test_adaptive_controllers.py
 - tests/integrators/step_control/test_fixed_controller.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/step_control/base_step_controller.py (6 lines changed)
+  * src/cubie/integrators/step_control/adaptive_step_controller.py (14 lines changed)
+  * src/cubie/integrators/step_control/adaptive_I_controller.py (4 lines changed)
+  * src/cubie/integrators/step_control/adaptive_PI_controller.py (4 lines changed)
+  * src/cubie/integrators/step_control/adaptive_PID_controller.py (4 lines changed)
+  * src/cubie/integrators/step_control/gustafsson_controller.py (4 lines changed)
+- Functions/Methods Added/Modified:
+  * base_step_controller.py: Changed `import attrs`, `import numba` to explicit `from attrs import define, field, validators`, `from numba import from_dtype`
+  * base_step_controller.py: Updated `@attrs.define` to `@define`, `attrs.field()` to `field()`, `numba.from_dtype()` to `from_dtype()`
+  * adaptive_step_controller.py: Changed `import numpy as np` to `from numpy import asarray, full, isscalar, ndarray, sqrt`
+  * adaptive_step_controller.py: Updated all `np.*` usages to use explicit imports
+  * adaptive_I_controller.py: Changed `import numpy as np` to `from numpy import ndarray`, updated type hints
+  * adaptive_PI_controller.py: Changed `import numpy as np` to `from numpy import ndarray`, updated type hints
+  * adaptive_PID_controller.py: Changed `import numpy as np` to `from numpy import ndarray`, updated type hints
+  * gustafsson_controller.py: Changed `import numpy as np` to `from numpy import ndarray`, updated type hints
+- Implementation Summary:
+  Converted whole-module imports to explicit imports in 6 step controller files.
+  base_step_controller.py: Removed `import attrs` and `import numba`, using only explicit imports.
+  adaptive_step_controller.py: Converted numpy to explicit imports (asarray, full, isscalar, ndarray, sqrt).
+  adaptive_I/PI/PID_controller.py and gustafsson_controller.py: Converted `import numpy as np` to `from numpy import ndarray` for type hints.
+  fixed_step_controller.py already used explicit imports - no changes needed.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Summary Metrics
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -437,13 +524,27 @@
 **Tests to Run**:
 - tests/outputhandling/test_summarymetrics.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/outputhandling/summarymetrics/metrics.py (14 lines changed)
+- Functions/Methods Added/Modified:
+  * Updated import statements: `import attrs` -> `from attrs import define, field`
+  * Updated import statements: `import attrs.validators as val` -> `from attrs.validators import instance_of, optional as val_optional`
+  * Updated import statements: `import numpy as np` -> `from numpy import floating`
+  * Updated class decorator: `@attrs.define` -> `@define` (3 occurrences: MetricFuncCache, MetricConfig, SummaryMetrics)
+  * Updated field definitions: `attrs.field()` -> `field()` (11 occurrences)
+  * Updated validators: `attrs.validators.instance_of()` -> `instance_of()` (6 occurrences)
+  * Updated validators: `val.optional()` -> `val_optional()` (1 occurrence)
+  * Updated type hints: `np.floating` -> `floating` (2 occurrences)
+- Implementation Summary:
+  Converted whole-module imports to explicit imports in metrics.py.
+  The 18 individual metric files (mean.py, max.py, min.py, rms.py, std.py, peaks.py, extrema.py, mean_std.py, mean_std_rms.py, std_rms.py, max_magnitude.py, negative_peaks.py, dxdt_max.py, dxdt_min.py, dxdt_extrema.py, d2xdt2_max.py, d2xdt2_min.py, d2xdt2_extrema.py) already use explicit imports (`from numba import cuda`, `from math import sqrt/fabs`, etc.) and do not have any `import attrs` or `import numpy as np` statements to convert.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Remaining CUDAFactory Files
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 2-5
 
 **Required Context**:
@@ -554,12 +655,38 @@
 - tests/outputhandling/test_output_functions.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (36 lines changed)
+  * src/cubie/integrators/SingleIntegratorRunCore.py (4 lines changed)
+  * src/cubie/integrators/SingleIntegratorRun.py (4 lines changed)
+  * src/cubie/integrators/array_interpolator.py (32 lines changed)
+  * src/cubie/integrators/loops/ode_loop.py (6 lines changed)
+  * src/cubie/integrators/loops/ode_loop_config.py (4 lines changed)
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (24 lines changed)
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (28 lines changed)
+  * src/cubie/outputhandling/output_functions.py (12 lines changed)
+- Functions/Methods Added/Modified:
+  * BatchSolverKernel.py: Changed `import numpy as np`, `import attrs` to explicit imports
+  * BatchSolverKernel.py: Updated all `np.float64`, `np.ceil`, `np.floor` usages to explicit imports
+  * BatchSolverKernel.py: Updated `@attrs.define` to `@define`, `attrs.field()` to `field()`
+  * SingleIntegratorRunCore.py: Changed `import attrs` to `from attrs import define, field`
+  * SingleIntegratorRun.py: Changed `import numpy as np` to `from numpy import dtype as np_dtype`
+  * array_interpolator.py: Changed `import numpy as np` to explicit imports for all 16 used symbols
+  * ode_loop.py: Changed `import attrs`, `import numpy as np` to explicit imports
+  * ode_loop_config.py: Changed `import numba` to `from numba import from_dtype as numba_from_dtype`
+  * linear_solver.py: Changed `import attrs`, `import numpy as np` to explicit imports
+  * newton_krylov.py: Changed `import attrs`, `import numpy as np` to explicit imports
+  * output_functions.py: Changed `import attrs`, `import numpy as np` to explicit imports
+- Implementation Summary:
+  Converted whole-module imports to explicit imports in all 9 remaining CUDAFactory files.
+  Each file now imports only the specific symbols it uses from numpy and attrs.
+  This reduces the scope captured by Numba during CUDA JIT compilation.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 7: Documentation and Final Verification
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-6
 
 **Required Context**:
@@ -615,7 +742,24 @@
 - CPU-only: `pytest -m "not nocudasim and not cupy"`
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * .github/copilot-instructions.md (14 lines added)
+- Functions/Methods Added/Modified:
+  * Added new section "Import Guidelines for CUDAFactory Files" under "Code Style & Conventions"
+- Implementation Summary:
+  Added documentation explaining the import optimization pattern for CUDAFactory files.
+  The new section explains:
+  - Use explicit imports (from X import y) instead of whole-module imports (import X as x)
+  - This applies to numpy, attrs, and numba modules
+  - The purpose is to reduce scope captured by Numba during CUDA JIT compilation
+  - Exception for complex modules like sympy that may remain as whole-module imports
+  The benchmark script (tests/benchmark_compile_time.py) is available for measuring
+  compilation time improvements. Note: We are in CUDASIM mode, so actual CUDA
+  compilation time improvements cannot be measured here.
+- Tests to Run:
+  * Full test suite: `pytest` (all tests)
+  * CPU-only: `pytest -m "not nocudasim and not cupy"`
+- Issues Flagged: None
 
 ---
 

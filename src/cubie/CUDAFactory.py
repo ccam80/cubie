@@ -4,18 +4,33 @@ from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple
 import inspect
 
-import attrs
-import numpy as np
-from numpy import array_equal, asarray
+from attrs import define, fields, has
+from numpy import (
+    any as np_any,
+    array,
+    float16,
+    float32,
+    float64,
+    int8,
+    int32,
+    int64,
+    ones,
+    array_equal,
+    asarray,
+)
 from numba import cuda
-import numba
+from numba import types as numba_types
+from numba import float64 as numba_float64
+from numba import float32 as numba_float32
+from numba import int64 as numba_int64
+from numba import int32 as numba_int32
 
 from cubie._utils import in_attr, is_devfunc
 from cubie.time_logger import _default_timelogger
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
 
-@attrs.define
+@define
 class CUDAFunctionCache:
     """Base class for CUDAFactory cache containers.
     
@@ -34,7 +49,7 @@ class CUDAFunctionCache:
         'compile_{field_name}' and are automatically associated with the
         'compile' category.
         """
-        for field in attrs.fields(self.__class__):
+        for field in fields(self.__class__):
             device_func = getattr(self, field.name)
             if device_func is None or device_func == -1:
                 continue
@@ -85,7 +100,7 @@ def _create_placeholder_args(
             for sig_idx, sig in enumerate(sigs):
                 args = tuple()
                 for param_idx, item in enumerate(sig):
-                    if isinstance(item, numba.types.Array):
+                    if isinstance(item, numba_types.Array):
                         # Determine shape - use critical_shapes if available
                         shape_available = (
                             has_critical_shapes and critical_shapes and
@@ -101,37 +116,37 @@ def _create_placeholder_args(
                             shape = (1,) * item.ndim
 
                         # Create array with appropriate dtype and shape
-                        if item.dtype == numba.float64:
+                        if item.dtype == numba_float64:
                             args += (
                                 cuda.to_device(
-                                    np.ones(shape, dtype=np.float64)
+                                    ones(shape, dtype=float64)
                                 ),
                             )
-                        elif item.dtype == numba.float32:
+                        elif item.dtype == numba_float32:
                             args += (
                                 cuda.to_device(
-                                    np.ones(shape, dtype=np.float32)
+                                    ones(shape, dtype=float32)
                                 ),
                             )
-                        elif item.dtype == numba.types.float16:
+                        elif item.dtype == numba_types.float16:
                             args += (
                                 cuda.to_device(
-                                    np.ones(shape, dtype=np.float16)
+                                    ones(shape, dtype=float16)
                                 ),
                             )
-                        elif item.dtype == numba.int64:
+                        elif item.dtype == numba_int64:
                             args += (
-                                cuda.to_device(np.ones(shape, dtype=np.int64)),
+                                cuda.to_device(ones(shape, dtype=int64)),
                             )
-                        elif item.dtype == numba.int32:
+                        elif item.dtype == numba_int32:
                             args += (
-                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                                cuda.to_device(ones(shape, dtype=int32)),
                             )
-                        elif item.dtype == numba.types.int32:
+                        elif item.dtype == numba_types.int32:
                             args += (
-                                cuda.to_device(np.ones(shape, dtype=np.int32)),
+                                cuda.to_device(ones(shape, dtype=int32)),
                             )
-                    elif isinstance(item, numba.types.Integer):
+                    elif isinstance(item, numba_types.Integer):
                         # Use critical_values if available for this parameter
                         use_critical = (
                             has_critical_values and critical_values and
@@ -144,14 +159,14 @@ def _create_placeholder_args(
                             value = 1
 
                         if item.bitwidth <= 8:
-                            args += (np.int8(value),)
+                            args += (int8(value),)
                         elif item.bitwidth <= 16:
-                            args += (np.int32(value),)
+                            args += (int32(value),)
                         elif item.bitwidth <= 32:
-                            args += (np.int32(value),)
+                            args += (int32(value),)
                         elif item.bitwidth <= 64:
-                           args += (np.int64(value),)
-                    elif isinstance(item, numba.types.Float):
+                           args += (int64(value),)
+                    elif isinstance(item, numba_types.Float):
                         # Use critical_values if available for this parameter
                         use_critical = (
                             has_critical_values and critical_values and
@@ -164,11 +179,11 @@ def _create_placeholder_args(
                             value = 1.0
 
                         if item.bitwidth <= 16:
-                            args += (np.float16(value),)
+                            args += (float16(value),)
                         elif item.bitwidth <= 32:
-                            args += (np.float32(value),)
+                            args += (float32(value),)
                         elif item.bitwidth <= 64:
-                            args += (np.float64(value),)
+                            args += (float64(value),)
                     else:
                         raise TypeError(
                             f"Unsupported parameter type {item} in "
@@ -191,7 +206,7 @@ def _create_placeholder_args(
             )
             if shape_available:
                 shape = critical_shapes[param_idx]
-                args += (np.ones(shape, dtype=precision),)
+                args += (ones(shape, dtype=precision),)
             else:
                 # Scalar or unknown - use critical_values if available
                 use_critical = (
@@ -203,11 +218,11 @@ def _create_placeholder_args(
                     value = critical_values[param_idx]
                 else:
                     value = 1.0
-                args += (np.array(value, dtype=precision),)
+                args += (array(value, dtype=precision),)
         return (args,)
     else:
         default_args = tuple(
-            np.array(1.0, dtype=precision) for _ in range(param_count)
+            array(1.0, dtype=precision) for _ in range(param_count)
         )
         return (default_args,)
 
@@ -533,7 +548,7 @@ class CUDAFactory(ABC):
         -----
         Any existing settings are replaced.
         """
-        if not attrs.has(compile_settings):
+        if not has(compile_settings):
             raise TypeError(
                 "Compile settings must be an attrs class instance."
             )
@@ -668,7 +683,7 @@ class CUDAFactory(ABC):
                 value_changed = not array_equal(
                     asarray(old_value), asarray(value)
                 )
-            if np.any(value_changed): # Arrays will return an array of bools
+            if np_any(value_changed): # Arrays will return an array of bools
                 setattr(self._compile_settings, key, value)
                 updated = True
             recognized = True
@@ -702,11 +717,11 @@ class CUDAFactory(ABC):
         existing attribute. This prevents accidental type mismatches when
         a key name collides across different nested structures.
         """
-        for field in attrs.fields(type(self._compile_settings)):
+        for field in fields(type(self._compile_settings)):
             nested_obj = getattr(self._compile_settings, field.name)
 
             # Check if nested object is an attrs class
-            if attrs.has(type(nested_obj)):
+            if has(type(nested_obj)):
                 # Check with underscore prefix first, then without
                 for attr_key in (f"_{key}", key):
                     if in_attr(attr_key, nested_obj):
@@ -714,7 +729,7 @@ class CUDAFactory(ABC):
                         value_changed = old_value != value
 
                         updated = False
-                        if np.any(value_changed):
+                        if np_any(value_changed):
                             setattr(nested_obj, attr_key, value)
                             updated = True
                         return True, updated
@@ -726,7 +741,7 @@ class CUDAFactory(ABC):
                     value_changed = old_value != value
 
                     updated = False
-                    if np.any(value_changed):
+                    if np_any(value_changed):
                         nested_obj[key] = value
                         updated = True
                     return True, updated
@@ -753,7 +768,7 @@ class CUDAFactory(ABC):
         
         # Trigger compilation by running a placeholder kernel
         if _default_timelogger.verbosity is not None:
-            for field in attrs.fields(type(self._cache)):
+            for field in fields(type(self._cache)):
                 device_func = getattr(self._cache, field.name)
                 if device_func is None or device_func == -1:
                     continue

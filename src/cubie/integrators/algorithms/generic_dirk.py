@@ -28,9 +28,9 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import attrs
-import numpy as np
+from attrs import define, field, validators
 from numba import cuda, int32
+from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.cuda_simsafe import activemask, all_sync
@@ -102,28 +102,28 @@ These defaults are applied automatically when creating a :class:`DIRKStep`
 with an errorless tableau. Users can override the step size ``dt`` by
 explicitly specifying it in the step controller settings.
 """
-@attrs.define
+@define
 class DIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the DIRK integrator."""
 
-    tableau: DIRKTableau = attrs.field(
+    tableau: DIRKTableau = field(
         default=DEFAULT_DIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(
+    stage_increment_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_base_location: str = attrs.field(
+    stage_base_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    accumulator_location: str = attrs.field(
+    accumulator_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_rhs_location: str = attrs.field(
+    stage_rhs_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
 class DIRKStep(ODEImplicitStep):
@@ -186,7 +186,7 @@ class DIRKStep(ODEImplicitStep):
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau.
         """
-        mass = np.eye(n, dtype=precision)
+        mass = eye(n, dtype=precision)
 
         config = build_config(
             DIRKStepConfig,

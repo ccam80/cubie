@@ -7,8 +7,8 @@ device call so that compiled kernels only focus on algorithmic updates.
 """
 from typing import Callable, Optional, Set
 
-import attrs
-import numpy as np
+from attrs import define, field
+from numpy import int32 as np_int32
 from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -19,7 +19,7 @@ from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
-@attrs.define
+@define
 class IVPLoopCache(CUDAFunctionCache):
     """Cache for IVP loop device function.
     
@@ -28,7 +28,7 @@ class IVPLoopCache(CUDAFunctionCache):
     loop_function
         Compiled CUDA device function that executes the integration loop.
     """
-    loop_function: Callable = attrs.field()
+    loop_function: Callable = field()
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
 # the solver API so helper utilities can consistently merge keyword arguments
@@ -281,7 +281,7 @@ class IVPLoop(CUDAFactory):
         )
         buffer_registry.register(
             'proposed_counters', self, 2, config.proposed_counters_location,
-            precision=np.int32
+            precision=np_int32
         )
 
     @property
