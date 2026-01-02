@@ -3,7 +3,7 @@
 import time
 import pytest
 
-from cubie.time_logger import TimeLogger, TimingEvent, _default_timelogger
+from cubie.time_logger import TimeLogger, TimingEvent, default_timelogger
 from cubie.odesystems.symbolic import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
 
@@ -344,25 +344,26 @@ class TestTimeLogger:
         assert compile_durations["compile1"] >= 0.01
 
     def test_print_summary_by_category(self, capsys):
-        """Test printing summary for specific categories."""
+        """Test printing summary for specific categories.
+        
+        Each print_summary call clears events, so we use separate logger
+        instances for each category test.
+        """
+        # Test codegen category summary
         logger = TimeLogger(verbosity="default")
         logger.register_event("codegen1", "codegen", "Codegen event")
         logger.register_event("compile1", "compile", "Compile event")
         logger.register_event("runtime1", "runtime", "Runtime event")
-        
         logger.start_event("codegen1")
         time.sleep(0.01)
         logger.stop_event("codegen1")
-        
         logger.start_event("compile1")
         time.sleep(0.01)
         logger.stop_event("compile1")
-        
         logger.start_event("runtime1")
         time.sleep(0.01)
         logger.stop_event("runtime1")
         
-        # Test codegen category summary
         logger.print_summary(category="codegen")
         captured = capsys.readouterr()
         assert "Codegen Timing Summary" in captured.out
@@ -370,7 +371,21 @@ class TestTimeLogger:
         assert "compile1" not in captured.out
         assert "runtime1" not in captured.out
         
-        # Test compile category summary
+        # Test compile category summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary(category="compile")
         captured = capsys.readouterr()
         assert "Compile Timing Summary" in captured.out
@@ -378,7 +393,21 @@ class TestTimeLogger:
         assert "codegen1" not in captured.out
         assert "runtime1" not in captured.out
         
-        # Test runtime category summary
+        # Test runtime category summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary(category="runtime")
         captured = capsys.readouterr()
         assert "Runtime Timing Summary" in captured.out
@@ -386,7 +415,21 @@ class TestTimeLogger:
         assert "codegen1" not in captured.out
         assert "compile1" not in captured.out
 
-        # Test all categories summary
+        # Test all categories summary (fresh logger)
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("codegen1", "codegen", "Codegen event")
+        logger.register_event("compile1", "compile", "Compile event")
+        logger.register_event("runtime1", "runtime", "Runtime event")
+        logger.start_event("codegen1")
+        time.sleep(0.01)
+        logger.stop_event("codegen1")
+        logger.start_event("compile1")
+        time.sleep(0.01)
+        logger.stop_event("compile1")
+        logger.start_event("runtime1")
+        time.sleep(0.01)
+        logger.stop_event("runtime1")
+        
         logger.print_summary()
         captured = capsys.readouterr()
         assert "Timing Summary" in captured.out
@@ -417,8 +460,8 @@ def test_compilation_caching():
 
     # First run: with verbose logging
     print("\n=== First run (verbose logging) ===")
-    _default_timelogger.set_verbosity("verbose")
-    _default_timelogger.events = []  # Clear previous events
+    default_timelogger.set_verbosity("verbose")
+    default_timelogger.events = []  # Clear previous events
 
     system1 = create_ODE_system(
         dxdt=equations, parameters=list(parameters.keys()), name="TestSystem1"
@@ -441,15 +484,15 @@ def test_compilation_caching():
 
     # Get compilation events from first run
     compile_events = [
-        e for e in _default_timelogger.events if "compile" in e.name.lower()
+        e for e in default_timelogger.events if "compile" in e.name.lower()
     ]
     print(f"Number of compile events in first run: {len(compile_events)}")
 
     # Second run: same equations but swapped order (avoid codegen cache)
     # with no logging
     print("\n=== Second run (no logging, swapped equation order) ===")
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []  # Clear events
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []  # Clear events
 
     # Swap equation order to force new codegen
     equations_swapped = [
@@ -498,8 +541,8 @@ def test_compilation_caching():
         print("✗ Second run was not faster - compilations may not be cached")
 
     # Reset logger
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []
 
     # Assert results are valid
     assert result1 is not None
@@ -525,8 +568,8 @@ def test_timelogger_default_mode_printing():
 
     parameters = {"k": [0.5]}
 
-    _default_timelogger.set_verbosity("default")
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity("default")
+    default_timelogger.events = []
 
     system = create_ODE_system(
         dxdt=equations,
@@ -544,25 +587,25 @@ def test_timelogger_default_mode_printing():
     )
 
     # Print summary at the end
-    _default_timelogger.print_summary()
+    default_timelogger.print_summary()
 
     # Get events by category
     codegen_events = [
         e
-        for e in _default_timelogger.events
-        if _default_timelogger._event_registry.get(e.name, {}).get("category")
+        for e in default_timelogger.events
+        if default_timelogger._event_registry.get(e.name, {}).get("category")
         == "codegen"
     ]
     compile_events = [
         e
-        for e in _default_timelogger.events
-        if _default_timelogger._event_registry.get(e.name, {}).get("category")
+        for e in default_timelogger.events
+        if default_timelogger._event_registry.get(e.name, {}).get("category")
         == "compile"
     ]
     runtime_events = [
         e
-        for e in _default_timelogger.events
-        if _default_timelogger._event_registry.get(e.name, {}).get("category")
+        for e in default_timelogger.events
+        if default_timelogger._event_registry.get(e.name, {}).get("category")
         == "runtime"
     ]
 
@@ -571,8 +614,8 @@ def test_timelogger_default_mode_printing():
     print(f"Runtime events: {len(runtime_events)}")
 
     # Reset logger
-    _default_timelogger.set_verbosity(None)
-    _default_timelogger.events = []
+    default_timelogger.set_verbosity(None)
+    default_timelogger.events = []
 
     assert result is not None
 
