@@ -816,8 +816,13 @@ class BatchGridBuilder:
         if isinstance(arr, np.ndarray):
             return arr.ndim == 1
         if isinstance(arr, (list, tuple)):
-            # Check if flat (1D) - no nested lists
-            return not any(isinstance(x, (list, tuple, np.ndarray)) for x in arr)
+            # Check if flat (1D) - no nested lists/tuples
+            # Use hasattr('__len__') to check for iterables, excluding scalars
+            return not any(
+                isinstance(x, (list, tuple)) or
+                (isinstance(x, np.ndarray) and x.ndim > 0)
+                for x in arr
+            )
         return False
 
     def _to_defaults_column(
@@ -876,6 +881,7 @@ class BatchGridBuilder:
             else:
                 # 1D array: convert to column, extend with defaults
                 params_array = self._sanitise_arraylike(params, self.parameters)
+                # _sanitise_arraylike guarantees shape[0] == self.parameters.n
                 if params_array.shape[1] == 1:
                     params_array = np.repeat(params_array, n_runs, axis=1)
             states_array, params_array = self._align_run_counts(
@@ -891,6 +897,7 @@ class BatchGridBuilder:
             else:
                 # 1D array: convert to column, extend with defaults
                 states_array = self._sanitise_arraylike(states, self.states)
+                # _sanitise_arraylike guarantees shape[0] == self.states.n
                 if states_array.shape[1] == 1:
                     states_array = np.repeat(states_array, n_runs, axis=1)
             states_array, params_array = self._align_run_counts(
