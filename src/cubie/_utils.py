@@ -9,7 +9,22 @@ from time import time
 from typing import Any, Mapping, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
-import numpy as np
+from numpy import (
+    all as np_all,
+    dtype,
+    empty,
+    float16,
+    float32,
+    float64,
+    floating,
+    floor,
+    int32,
+    int64,
+    integer,
+    isfinite,
+    log10,
+    ndarray,
+)
 from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
@@ -22,38 +37,38 @@ from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
 PrecisionDType = Union[
-    type[np.float16],
-    type[np.float32],
-    type[np.float64],
-    np.dtype[np.float16],
-    np.dtype[np.float32],
-    np.dtype[np.float64],
+    type[float16],
+    type[float32],
+    type[float64],
+    dtype[float16],
+    dtype[float32],
+    dtype[float64],
 ]
 
 ALLOWED_PRECISIONS = {
-    np.dtype(np.float16),
-    np.dtype(np.float32),
-    np.dtype(np.float64),
+    dtype(float16),
+    dtype(float32),
+    dtype(float64),
 }
 
 ALLOWED_BUFFER_DTYPES = {
-    np.dtype(np.float16),
-    np.dtype(np.float32),
-    np.dtype(np.float64),
-    np.dtype(np.int32),
-    np.dtype(np.int64),
+    dtype(float16),
+    dtype(float32),
+    dtype(float64),
+    dtype(int32),
+    dtype(int64),
 }
 
 
-def precision_converter(value: PrecisionDType) -> type[np.floating]:
+def precision_converter(value: PrecisionDType) -> type[floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
-    dtype = np.dtype(value)
-    if dtype not in ALLOWED_PRECISIONS:
+    dt = dtype(value)
+    if dt not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
         )
-    return dtype.type
+    return dt.type
 
 
 def precision_validator(
@@ -63,7 +78,7 @@ def precision_validator(
 ) -> None:
     """Validate that ``value`` resolves to a supported precision."""
 
-    if np.dtype(value) not in ALLOWED_PRECISIONS:
+    if dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
         )
@@ -75,7 +90,7 @@ def buffer_dtype_validator(
     value: type,
 ) -> None:
     """Validate that value is a supported buffer dtype (float or int)."""
-    if np.dtype(value) not in ALLOWED_BUFFER_DTYPES:
+    if dtype(value) not in ALLOWED_BUFFER_DTYPES:
         raise ValueError(
             "Buffer dtype must be one of float16, float32, float64, "
             "int32, or int64",
@@ -286,7 +301,7 @@ def timing(_func=None, *, nruns=1):
     def decorator(func):
         @wraps(func)
         def wrap(*args, **kw):
-            durations = np.empty(nruns)
+            durations = empty(nruns)
             for i in range(nruns):
                 t0 = time()
                 result = func(*args, **kw)
@@ -405,7 +420,7 @@ def round_sf(num, sf):
     if num == 0.0:
         return 0.0
     else:
-        return round(num, sf - 1 - int(np.floor(np.log10(abs(num)))))
+        return round(num, sf - 1 - int(floor(log10(abs(num)))))
 
 
 def round_list_sf(list, sf):
@@ -459,11 +474,11 @@ def float_array_validator(instance, attribute, value):
     Raises a TypeError if the value is not a NumPy ndarray of floats, and a
     ValueError if any elements are NaN or infinite.
     """
-    if not isinstance(value, np.ndarray):
+    if not isinstance(value, ndarray):
         raise TypeError(f"{attribute} must be a numpy array of floats, got {type(value)}.")
     if value.dtype.kind != 'f':
         raise TypeError(f"{attribute} must be a numpy array of floats, got dtype {value.dtype}.")
-    if not np.all(np.isfinite(value)):
+    if not np_all(isfinite(value)):
         raise ValueError(f"{attribute} must not contain NaNs or infinities.")
 
 
@@ -475,15 +490,15 @@ def inrangetype_validator(dtype, min_, max_):
 )
 
 # Helper: expand Python dtype to accept corresponding NumPy scalar hierarchy
-# e.g. float -> (float, np.floating), int -> (int, np.integer)
+# e.g. float -> (float, floating), int -> (int, integer)
 # Unknown types are returned unchanged.
 
-def _expand_dtype(dtype):
-    if dtype is float:
-        return (float, np.floating)
-    if dtype is int:
-        return (int, np.integer)
-    return dtype
+def _expand_dtype(dt):
+    if dt is float:
+        return (float, floating)
+    if dt is int:
+        return (int, integer)
+    return dt
 
 def lttype_validator(dtype, max_):
     return validators.and_(

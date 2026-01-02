@@ -11,22 +11,22 @@ behaviour of the compiled device functions.
 
 from typing import Sequence, Union
 
-import numpy as np
+from numpy import asarray, dtype, floating
 from numpy.typing import NDArray
 
 from cubie.odesystems.baseODE import BaseODE
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
-Array = NDArray[np.floating]
+Array = NDArray[floating]
 
 
-def _as_array(vector: Union[Sequence[float], Array], dtype: np.dtype) -> Array:
-    """Return ``vector`` as a one-dimensional array of ``dtype``."""
+def _as_array(vector: Union[Sequence[float], Array], dt: dtype) -> Array:
+    """Return ``vector`` as a one-dimensional array of ``dt``."""
 
-    array = np.asarray(vector, dtype=dtype)
-    if array.ndim != 1:
+    arr = asarray(vector, dtype=dt)
+    if arr.ndim != 1:
         raise ValueError("Expected a one-dimensional array of samples.")
-    return array
+    return arr
 
 THREE_STATE_LINEAR_EQUATIONS = [
     "dx0 = -x0",

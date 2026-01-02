@@ -1,8 +1,8 @@
 """Manage host and device input arrays for batch integrations."""
 
-import attrs
-import attrs.validators as val
-import numpy as np
+from attrs import define, field
+from attrs.validators import instance_of, optional
+from numpy import dtype, float32, floating, issubdtype
 
 from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING, Union
@@ -19,27 +19,27 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.batchsolving import ArrayTypes
 
 
-@attrs.define(slots=False)
+@define(slots=False)
 class InputArrayContainer(ArrayContainer):
     """Container for batch input arrays used by solver kernels."""
 
-    initial_values: ManagedArray = attrs.field(
+    initial_values: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=float32,
             stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
-    parameters: ManagedArray = attrs.field(
+    parameters: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=float32,
             stride_order=("variable", "run"),
             shape=(1, 1),
         )
     )
-    driver_coefficients: ManagedArray = attrs.field(
+    driver_coefficients: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
             is_chunked=False,
@@ -116,7 +116,7 @@ class InputArrayContainer(ArrayContainer):
     #     self.set_array("driver_coefficients", value)
 
 
-@attrs.define
+@define
 class InputArrays(BaseArrayManager):
     """Manage allocation and transfer of batch input arrays.
 
@@ -137,18 +137,18 @@ class InputArrays(BaseArrayManager):
     device transfers.
     """
 
-    _sizes: Optional[BatchInputSizes] = attrs.field(
+    _sizes: Optional[BatchInputSizes] = field(
         factory=BatchInputSizes,
-        validator=val.optional(val.instance_of(BatchInputSizes)),
+        validator=optional(instance_of(BatchInputSizes)),
     )
-    host: InputArrayContainer = attrs.field(
+    host: InputArrayContainer = field(
         factory=InputArrayContainer.host_factory,
-        validator=val.instance_of(InputArrayContainer),
+        validator=instance_of(InputArrayContainer),
         init=True,
     )
-    device: InputArrayContainer = attrs.field(
+    device: InputArrayContainer = field(
         factory=InputArrayContainer.device_factory,
-        validator=val.instance_of(InputArrayContainer),
+        validator=instance_of(InputArrayContainer),
         init=False,
     )
 
@@ -283,11 +283,11 @@ class InputArrays(BaseArrayManager):
         self._chunk_axis = solver_instance.chunk_axis
         for name, arr_obj in self.host.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if np.issubdtype(np.dtype(arr_obj.dtype), np.floating):
+            if issubdtype(dtype(arr_obj.dtype), floating):
                 arr_obj.dtype = self._precision
         for name, arr_obj in self.device.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if np.issubdtype(np.dtype(arr_obj.dtype), np.floating):
+            if issubdtype(dtype(arr_obj.dtype), floating):
                 arr_obj.dtype = self._precision
 
     def finalise(self, host_indices: Union[slice, NDArray]) -> None:

@@ -3,7 +3,16 @@
 from collections.abc import Mapping, Sequence, Sized
 from typing import Any, Union
 
-import numpy as np
+from numpy import (
+    arange,
+    array,
+    asarray,
+    floating,
+    int32,
+    integer,
+    issubdtype,
+    ndarray,
+)
 from sympy import Symbol
 
 from cubie._utils import PrecisionDType
@@ -33,7 +42,7 @@ class SystemValues:
     ``values_array`` and backing ``values_dict``.
     """
 
-    values_array: Union[np.ndarray, None]
+    values_array: Union[ndarray, None]
     indices_dict: Union[dict[str, int], None]
     keys_by_index: Union[dict[int, str], None]
     values_dict: dict[str, float]
@@ -71,8 +80,8 @@ class SystemValues:
         ``values_dict`` and ``defaults``.
         """
 
-        if np.issubdtype(precision, np.integer) or np.issubdtype(
-            precision, np.floating
+        if issubdtype(precision, integer) or issubdtype(
+            precision, floating
         ):
             self.precision = precision
         else:
@@ -158,7 +167,7 @@ class SystemValues:
         aligned with ``values_array``.
         """
         keys = list(self.values_dict.keys())
-        self.values_array = np.array(
+        self.values_array = array(
             [self.values_dict[k] for k in keys], dtype=self.precision
         )
         self.indices_dict = {k: i for i, k in enumerate(keys)}
@@ -206,9 +215,9 @@ class SystemValues:
 
     def get_indices(
         self,
-        keys_or_indices: Union[str, int, slice, list[Union[str, int]], np.ndarray],
+        keys_or_indices: Union[str, int, slice, list[Union[str, int]], ndarray],
         silent: bool = False,
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Convert parameter identifiers into packed array indices.
 
         Parameters
@@ -222,7 +231,7 @@ class SystemValues:
         Returns
         -------
         numpy.ndarray
-            Array of ``np.int32`` indices targeting ``values_array``.
+            Array of ``int32`` indices targeting ``values_array``.
 
         Raises
         ------
@@ -238,16 +247,16 @@ class SystemValues:
         if isinstance(keys_or_indices, list):
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
-                indices = np.asarray(
+                indices = asarray(
                     [
                         self.get_index_of_key(state, silent)
                         for state in keys_or_indices
                     ],
-                    dtype=np.int32,
+                    dtype=int32,
                 )
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
-                indices = np.asarray(keys_or_indices, dtype=np.int32)
+                indices = asarray(keys_or_indices, dtype=int32)
             else:
                 # List contains mixed types or unsupported types
                 non_str_int_types = [
@@ -272,21 +281,21 @@ class SystemValues:
 
         elif isinstance(keys_or_indices, str):
             # A single string
-            indices = np.asarray(
-                [self.get_index_of_key(keys_or_indices)], dtype=np.int32
+            indices = asarray(
+                [self.get_index_of_key(keys_or_indices)], dtype=int32
             )
         elif isinstance(keys_or_indices, int):
             # A single int
-            indices = np.asarray([keys_or_indices], dtype=np.int32)
+            indices = asarray([keys_or_indices], dtype=int32)
 
         elif isinstance(keys_or_indices, slice):
             # A slice object
-            indices = np.arange(len(self.values_array))[
+            indices = arange(len(self.values_array))[
                 keys_or_indices
-            ].astype(np.int32)
+            ].astype(int32)
 
-        elif isinstance(keys_or_indices, np.ndarray):
-            indices = keys_or_indices.astype(np.int32)
+        elif isinstance(keys_or_indices, ndarray):
+            indices = keys_or_indices.astype(int32)
 
         else:
             raise TypeError(
@@ -307,8 +316,8 @@ class SystemValues:
         return indices
 
     def get_values(
-        self, keys_or_indices: Union[str, int, list[Union[str, int]], np.ndarray]
-    ) -> np.ndarray:
+        self, keys_or_indices: Union[str, int, list[Union[str, int]], ndarray]
+    ) -> ndarray:
         """Return parameter values selected by name or index.
 
         Parameters
@@ -332,18 +341,18 @@ class SystemValues:
         """
         indices = self.get_indices(keys_or_indices)
         if len(indices) == 1:
-            return np.asarray(
+            return asarray(
                 self.values_array[indices[0]], dtype=self.precision
             )
-        return np.asarray(
+        return asarray(
             [self.values_array[index] for index in indices],
             dtype=self.precision,
         )
 
     def set_values(
         self,
-        keys: Union[str, int, slice, list[Union[str, int]], np.ndarray],
-        values: Union[float, Sequence[float], np.ndarray],
+        keys: Union[str, int, slice, list[Union[str, int]], ndarray],
+        values: Union[float, Sequence[float], ndarray],
     ) -> None:
         """Assign new values to the selected parameters.
 
@@ -446,8 +455,8 @@ class SystemValues:
                     f", or parameters, or constants)",
                 )
         if any(
-            not isinstance(value, (int, float, np.integer,
-                                    np.floating))
+            not isinstance(value, (int, float, integer,
+                                    floating))
             for value in recognised.values()
         ):
             raise TypeError(
@@ -471,7 +480,7 @@ class SystemValues:
         """List of parameter names."""
         return list(self.values_dict.keys())
 
-    def get_labels(self, indices: Union[list[int], np.ndarray]) -> list[str]:
+    def get_labels(self, indices: Union[list[int], ndarray]) -> list[str]:
         """Return parameter labels for supplied indices.
 
         Parameters
@@ -489,7 +498,7 @@ class SystemValues:
         TypeError
             Raised when ``indices`` is not a sequence or array.
         """
-        if isinstance(indices, (list, np.ndarray)):
+        if isinstance(indices, (list, ndarray)):
             return [self.keys_by_index[i] for i in indices]
         else:
             raise TypeError(
@@ -497,7 +506,7 @@ class SystemValues:
                 f"{type(indices)}."
             )
 
-    def __getitem__(self, key: Union[str, int, slice]) -> np.ndarray:
+    def __getitem__(self, key: Union[str, int, slice]) -> ndarray:
         """Return parameter values using dictionary- or array-style access.
 
         Parameters
@@ -524,7 +533,7 @@ class SystemValues:
     def __setitem__(
         self,
         key: Union[str, int, slice],
-        value: Union[float, Sequence[float], np.ndarray],
+        value: Union[float, Sequence[float], ndarray],
     ) -> None:
         """Update parameter values using dictionary- or array-style access.
 

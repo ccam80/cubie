@@ -11,10 +11,14 @@ from abc import ABC, abstractmethod
 from typing import Dict, Iterator, List, Optional, Union
 from warnings import warn
 
-import attrs
-import attrs.validators as val
-import numpy as np
-from numpy import float32
+from attrs import define, field
+from attrs.validators import (
+    deep_iterable,
+    in_,
+    instance_of,
+    optional,
+)
+from numpy import array_equal, ceil, dtype, float32, issubdtype, zeros
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator
@@ -25,31 +29,31 @@ from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
 
-@attrs.define(slots=False)
+@define(slots=False)
 class ManagedArray:
     """Metadata wrapper for a single managed array."""
 
-    dtype: type = attrs.field(default=float32, validator=val.instance_of(type))
-    stride_order: tuple[str, ...] = attrs.field(
+    dtype: type = field(default=float32, validator=instance_of(type))
+    stride_order: tuple[str, ...] = field(
         factory=tuple,
-        validator=val.deep_iterable(
-            member_validator=val.instance_of(str),
-            iterable_validator=val.instance_of(tuple),
+        validator=deep_iterable(
+            member_validator=instance_of(str),
+            iterable_validator=instance_of(tuple),
         ),
     )
-    shape: tuple[Optional[int]] = attrs.field(
+    shape: tuple[Optional[int]] = field(
         factory=tuple,
-        validator=val.deep_iterable(
+        validator=deep_iterable(
             member_validator=opt_gttype_validator(int, 0),
-            iterable_validator=val.instance_of(tuple),
+            iterable_validator=instance_of(tuple),
         ),
     )
-    memory_type: str = attrs.field(
+    memory_type: str = field(
         default="device",
-        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+        validator=in_(["device", "mapped", "pinned", "managed", "host"]),
     )
-    is_chunked: bool = attrs.field(default=True, validator=val.instance_of(bool))
-    _array: Optional[Union[NDArray, DeviceNDArrayBase]] = attrs.field(
+    is_chunked: bool = field(default=True, validator=instance_of(bool))
+    _array: Optional[Union[NDArray, DeviceNDArrayBase]] = field(
         default=None,
         repr=False,
     )
@@ -58,7 +62,7 @@ class ManagedArray:
         shape = self.shape
         stride_order = self.stride_order
         defaultshape = shape if shape else (1,) * len(stride_order)
-        self._array = np.zeros(defaultshape, dtype=self.dtype)
+        self._array = zeros(defaultshape, dtype=self.dtype)
 
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
@@ -77,7 +81,7 @@ class ManagedArray:
             self.shape = tuple(value.shape)
 
 
-@attrs.define(slots=False)
+@define(slots=False)
 class ArrayContainer(ABC):
     """Store per-array metadata and references for CUDA managers."""
 
@@ -153,7 +157,7 @@ class ArrayContainer(ABC):
             )
 
 
-@attrs.define
+@define
 class BaseArrayManager(ABC):
     """Coordinate allocation and transfer for batch host and device arrays.
 
@@ -190,31 +194,31 @@ class BaseArrayManager(ABC):
     execution paths.
     """
 
-    _precision: type = attrs.field(
-        default=float32, validator=val.instance_of(type)
+    _precision: type = field(
+        default=float32, validator=instance_of(type)
     )
-    _sizes: Optional[ArraySizingClass] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(ArraySizingClass))
+    _sizes: Optional[ArraySizingClass] = field(
+        default=None, validator=optional(instance_of(ArraySizingClass))
     )
-    device: ArrayContainer = attrs.field(
-        factory=ArrayContainer, validator=val.instance_of(ArrayContainer)
+    device: ArrayContainer = field(
+        factory=ArrayContainer, validator=instance_of(ArrayContainer)
     )
-    host: ArrayContainer = attrs.field(
-        factory=ArrayContainer, validator=val.instance_of(ArrayContainer)
+    host: ArrayContainer = field(
+        factory=ArrayContainer, validator=instance_of(ArrayContainer)
     )
-    _chunks: int = attrs.field(default=0, validator=val.instance_of(int))
-    _chunk_axis: str = attrs.field(
-        default="run", validator=val.in_(["run", "variable", "time"])
+    _chunks: int = field(default=0, validator=instance_of(int))
+    _chunk_axis: str = field(
+        default="run", validator=in_(["run", "variable", "time"])
     )
-    _stream_group: str = attrs.field(
-        default="default", validator=val.instance_of(str)
+    _stream_group: str = field(
+        default="default", validator=instance_of(str)
     )
-    _memory_proportion: Optional[float] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(float))
+    _memory_proportion: Optional[float] = field(
+        default=None, validator=optional(instance_of(float))
     )
-    _needs_reallocation: list[str] = attrs.field(factory=list, init=False)
-    _needs_overwrite: list[str] = attrs.field(factory=list, init=False)
-    _memory_manager: MemoryManager = attrs.field(default=default_memmgr)
+    _needs_reallocation: list[str] = field(factory=list, init=False)
+    _needs_overwrite: list[str] = field(factory=list, init=False)
+    _memory_manager: MemoryManager = field(default=default_memmgr)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -425,7 +429,7 @@ class BaseArrayManager(ABC):
                 return False
         if shape_only:
             return True
-        return np.array_equal(arr1, arr2)
+        return array_equal(arr1, arr2)
 
     def update_sizes(self, sizes: ArraySizingClass) -> None:
         """
@@ -558,7 +562,7 @@ class BaseArrayManager(ABC):
                         )
                         if expected_shape[chunk_axis_index] is not None:
                             expected_shape[chunk_axis_index] = int(
-                                np.ceil(
+                                ceil(
                                     expected_shape[chunk_axis_index]
                                     / self._chunks
                                 )
@@ -796,7 +800,7 @@ class BaseArrayManager(ABC):
                 self._needs_overwrite.append(label)
             if 0 in new_array.shape:
                 newshape = (1,) * len(current_array.shape)
-                new_array = np.zeros(newshape, dtype=managed.dtype)
+                new_array = zeros(newshape, dtype=managed.dtype)
         else:
             self._needs_overwrite.append(label)
         self.host.attach(label, new_array)
@@ -892,7 +896,7 @@ class BaseArrayManager(ABC):
         for _, slot in self.device.iter_managed_arrays():
             array = slot.array
             if array is not None:
-                zero = np.dtype(slot.dtype).type(0)
+                zero = dtype(slot.dtype).type(0)
                 if len(array.shape) >= 3:
                     array[:, :, :] = slot.dtype(0.0)
                 elif len(array.shape) >= 2:
