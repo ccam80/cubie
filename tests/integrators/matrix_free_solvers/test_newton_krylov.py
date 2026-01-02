@@ -191,7 +191,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
 
 
 def test_newton_krylov_failure(precision):
-    """Solver returns NEWTON_BACKTRACKING_NO_SUITABLE_STEP when residual cannot be reduced."""
+    """Solver reports backtracking failure when it cannot reduce residual."""
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
@@ -250,7 +250,13 @@ def test_newton_krylov_failure(precision):
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    assert (
+        status_code
+        == (
+            SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
+    )
 
 
 def test_newton_krylov_max_newton_iters_exceeded(
@@ -331,7 +337,7 @@ def test_newton_krylov_max_newton_iters_exceeded(
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
-    """Newton-Krylov returns MAX_LINEAR_ITERATIONS_EXCEEDED when inner solver fails."""
+    """Newton-Krylov reports inner linear failure when Newton exits unconverged."""
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
@@ -398,6 +404,10 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert (
-        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED |
-        SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        status_code
+        == (
+            SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+            | SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+        )
     )

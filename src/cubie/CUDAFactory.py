@@ -3,15 +3,32 @@
 from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple
 
-import attrs
-import numpy as np
-from numpy import array_equal, asarray
+from attrs import define, fields, has
+from numpy import (
+    any as np_any,
+    array,
+    float16,
+    float32,
+    float64,
+    int8,
+    int32,
+    int64,
+    ones,
+    array_equal,
+    asarray,
+)
+from numba import cuda
+from numba import types as numba_types
+from numba import float64 as numba_float64
+from numba import float32 as numba_float32
+from numba import int64 as numba_int64
+from numba import int32 as numba_int32
 
 from cubie._utils import in_attr
 from cubie.time_logger import default_timelogger
 
 
-@attrs.define
+@define
 class CUDAFunctionCache:
     """Base class for CUDAFactory cache containers."""
     pass
@@ -112,7 +129,7 @@ class CUDAFactory(ABC):
         -----
         Any existing settings are replaced.
         """
-        if not attrs.has(compile_settings):
+        if not has(compile_settings):
             raise TypeError(
                 "Compile settings must be an attrs class instance."
             )
@@ -247,7 +264,7 @@ class CUDAFactory(ABC):
                 value_changed = not array_equal(
                     asarray(old_value), asarray(value)
                 )
-            if np.any(value_changed): # Arrays will return an array of bools
+            if np_any(value_changed): # Arrays will return an array of bools
                 setattr(self._compile_settings, key, value)
                 updated = True
             recognized = True
@@ -281,11 +298,11 @@ class CUDAFactory(ABC):
         existing attribute. This prevents accidental type mismatches when
         a key name collides across different nested structures.
         """
-        for field in attrs.fields(type(self._compile_settings)):
+        for field in fields(type(self._compile_settings)):
             nested_obj = getattr(self._compile_settings, field.name)
 
             # Check if nested object is an attrs class
-            if attrs.has(type(nested_obj)):
+            if has(type(nested_obj)):
                 # Check with underscore prefix first, then without
                 for attr_key in (f"_{key}", key):
                     if in_attr(attr_key, nested_obj):
@@ -293,7 +310,7 @@ class CUDAFactory(ABC):
                         value_changed = old_value != value
 
                         updated = False
-                        if np.any(value_changed):
+                        if np_any(value_changed):
                             setattr(nested_obj, attr_key, value)
                             updated = True
                         return True, updated
@@ -305,7 +322,7 @@ class CUDAFactory(ABC):
                     value_changed = old_value != value
 
                     updated = False
-                    if np.any(value_changed):
+                    if np_any(value_changed):
                         nested_obj[key] = value
                         updated = True
                     return True, updated
@@ -325,7 +342,7 @@ class CUDAFactory(ABC):
                 "build() must return an attrs class (CUDAFunctionCache "
                 "subclass)"
             )
-        
+
         self._cache = build_result
         self._cache_valid = True
 

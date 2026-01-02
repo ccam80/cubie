@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-import numpy as np
+from numpy import dtype as np_dtype
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
@@ -78,7 +78,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return total shared-memory usage in bytes."""
 
         element_count = self.shared_memory_elements
-        itemsize = np.dtype(self.precision).itemsize
+        itemsize = np_dtype(self.precision).itemsize
         return element_count * itemsize
 
     @property

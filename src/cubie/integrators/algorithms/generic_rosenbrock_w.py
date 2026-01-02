@@ -33,9 +33,9 @@ https://doi.org/10.1023/A:1021900219772
 
 from typing import Callable, Optional
 
-import attrs
-import numpy as np
+from attrs import define, field, validators
 from numba import cuda, int32
+from numpy import eye, int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -109,42 +109,42 @@ controller settings.
 """
 
 
-@attrs.define
+@define
 class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
-    tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
-    time_derivative_function: Optional[Callable] = attrs.field(
+    tableau: RosenbrockTableau = field(default=DEFAULT_ROSENBROCK_TABLEAU)
+    time_derivative_function: Optional[Callable] = field(
             default=None,
-            validator=attrs.validators.optional(is_device_validator)
+            validator=validators.optional(is_device_validator)
     )
-    prepare_jacobian_function: Optional[Callable] = attrs.field(
+    prepare_jacobian_function: Optional[Callable] = field(
             default=None,
-            validator=attrs.validators.optional(is_device_validator)
+            validator=validators.optional(is_device_validator)
     )
-    driver_del_t: Optional[Callable] = attrs.field(
+    driver_del_t: Optional[Callable] = field(
             default=None,
-            validator=attrs.validators.optional(is_device_validator)
+            validator=validators.optional(is_device_validator)
     )
-    stage_rhs_location: str = attrs.field(
+    stage_rhs_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_store_location: str = attrs.field(
+    stage_store_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    cached_auxiliaries_location: str = attrs.field(
+    cached_auxiliaries_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    base_state_placeholder_location: str = attrs.field(
+    base_state_placeholder_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    krylov_iters_out_location: str = attrs.field(
+    krylov_iters_out_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
 
@@ -214,7 +214,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         efficient for moderately stiff problems. The gamma parameter from the
         tableau controls the implicit treatment of the linearized system.
         """
-        mass = np.eye(n, dtype=precision)
+        mass = eye(n, dtype=precision)
         tableau_value = tableau
 
         config = build_config(
@@ -285,12 +285,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         buffer_registry.register(
             'base_state_placeholder', self, 1,
             config.base_state_placeholder_location,
-            precision=np.int32
+            precision=np_int32
         )
         buffer_registry.register(
             'krylov_iters_out', self, 1,
             config.krylov_iters_out_location,
-            precision=np.int32
+            precision=np_int32
         )
 
     def build_implicit_helpers(

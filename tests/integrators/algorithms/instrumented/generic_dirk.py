@@ -6,7 +6,7 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
-from cubie.cuda_simsafe import activemask, all_sync, syncwarp
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
 )
@@ -22,9 +22,6 @@ from cubie.integrators.algorithms.generic_dirk import (
 from cubie.buffer_registry import buffer_registry
 from tests.integrators.algorithms.instrumented.ode_implicitstep import \
     InstrumentedODEImplicitStep
-from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
-    InstrumentedLinearSolver,
-)
 
 
 class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
@@ -52,6 +49,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         stage_base_location: Optional[str] = None,
         accumulator_location: Optional[str] = None,
         stage_rhs_location: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """Initialise the DIRK step configuration.
 
@@ -285,19 +283,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             gamma=gamma,
             mass=mass,
             preconditioner_order=preconditioner_order,
-        )
-
-        # Create instrumented linear solver
-        linear_solver = InstrumentedLinearSolver(
-            precision=precision,
-            n=n,
-            linear_correction_type=self.linear_correction_type,
-            krylov_tolerance=self.krylov_tolerance,
-            max_linear_iters=self.max_linear_iters,
-        )
-        linear_solver.update(
-            operator_apply=linear_operator,
-            preconditioner=preconditioner,
         )
 
         # Update solvers with device functions
@@ -605,13 +590,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             # --------------------------------------------------------------- #
             mask = activemask()
             for prev_idx in range(stages_except_first):
-                # DIRK is missing the instruction cache. The unrolled loop
-                # is instruction dense, taking up most of the instruction space.
-                # A block-wide sync hangs indefinitely, as some warps will
-                # finish early and never reach it. We sync a warp to minimal
-                # effect (it's a wash in the profiler) in case of divergence in
-                # big systems.
-                syncwarp(mask)
+
                 stage_offset = prev_idx * n
                 stage_idx = prev_idx + int32(1)
                 matrix_col = explicit_a_coeffs[prev_idx]

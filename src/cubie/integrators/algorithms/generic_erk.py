@@ -29,7 +29,7 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import attrs
+from attrs import define, field, validators
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
@@ -103,18 +103,18 @@ explicitly specifying it in the step controller settings.
 """
 
 
-@attrs.define
+@define
 class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator."""
 
-    tableau: ERKTableau = attrs.field(default=DEFAULT_ERK_TABLEAU)
-    stage_rhs_location: str = attrs.field(
+    tableau: ERKTableau = field(default=DEFAULT_ERK_TABLEAU)
+    stage_rhs_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_accumulator_location: str = attrs.field(
+    stage_accumulator_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
     @property
