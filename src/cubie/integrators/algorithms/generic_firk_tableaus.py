@@ -3,7 +3,7 @@
 from typing import Dict
 
 from attrs import define, frozen
-from numpy import array, asarray, linalg, sqrt
+from numpy import array, asarray, linalg, sqrt, vander
 
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
@@ -53,7 +53,6 @@ def compute_embedded_weights_radauIIA(c, order=None):
         raise ValueError(f"Cannot achieve order {order} with {s} stages")
 
     # Build Vandermonde-like system: M[k-1,i] = c[i]^(k-1)
-    from numpy import vander
     M = vander(c, N=order, increasing=True).T
 
     # RHS: 1/k for k=1..order

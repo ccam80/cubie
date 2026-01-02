@@ -52,8 +52,8 @@ Examples
 
 Example 2: verbatim arrays
 
->>> params = array([[0.1, 0.2], [10, 20]])
->>> states = array([[1.0, 2.0], [0.5, 1.5]])
+>>> params = np.array([[0.1, 0.2], [10, 20]])
+>>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
 >>> inits, params = grid_builder(params=params, states=states, kind="verbatim")
 >>> print(inits.shape)
 (2, 2)
@@ -156,7 +156,8 @@ def unique_cartesian_product(arrays: List[ndarray]) -> ndarray:
 
     Examples
     --------
-    >>> unique_cartesian_product([array([1, 2, 2]), array([3, 4])])
+    >>> import numpy as np
+    >>> unique_cartesian_product([np.array([1, 2, 2]), np.array([3, 4])])
     array([[1, 1, 2, 2],
            [3, 4, 3, 4]])
     """

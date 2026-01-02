@@ -47,11 +47,11 @@ class SystemSizes:
     and shared-memory structures correctly.
     """
 
-    states: int = instance_of(int)
-    observables: int = instance_of(int)
-    parameters: int = instance_of(int)
-    constants: int = instance_of(int)
-    drivers: int = instance_of(int)
+    states: int = field(validator=instance_of(int))
+    observables: int = field(validator=instance_of(int))
+    parameters: int = field(validator=instance_of(int))
+    constants: int = field(validator=instance_of(int))
+    drivers: int = field(validator=instance_of(int))
 
 
 @define
