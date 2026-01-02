@@ -932,7 +932,7 @@ class BufferRegistry:
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_shared():
             return cuda.shared.array(0,
-                                     dtype=float32)
+                                     dtype=numba_float32)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_persistent():
