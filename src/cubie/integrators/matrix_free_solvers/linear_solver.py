@@ -8,10 +8,9 @@ and expect caller-supplied operator and preconditioner callbacks.
 
 from typing import Callable, Optional, Set, Dict, Any
 
-import attrs
-from attrs import validators
+from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
-import numpy as np
+from numpy import dtype as np_dtype
 
 from cubie._utils import (
     PrecisionDType,
@@ -29,7 +28,7 @@ from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
-@attrs.define
+@define
 class LinearSolverConfig:
     """Configuration for LinearSolver compilation.
 
@@ -57,42 +56,42 @@ class LinearSolverConfig:
         Whether to use cached auxiliary arrays (determines signature).
     """
 
-    precision: PrecisionDType = attrs.field(
+    precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator
     )
-    n: int = attrs.field(validator=getype_validator(int, 1))
-    operator_apply: Optional[Callable] = attrs.field(
+    n: int = field(validator=getype_validator(int, 1))
+    operator_apply: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    preconditioner: Optional[Callable] = attrs.field(
+    preconditioner: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    linear_correction_type: str = attrs.field(
+    linear_correction_type: str = field(
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"])
     )
-    _krylov_tolerance: float = attrs.field(
+    _krylov_tolerance: float = field(
         default=1e-6,
         validator=gttype_validator(float, 0)
     )
-    max_linear_iters: int = attrs.field(
+    max_linear_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767)
     )
-    preconditioned_vec_location: str = attrs.field(
+    preconditioned_vec_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    temp_location: str = attrs.field(
+    temp_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    use_cached_auxiliaries: bool = attrs.field(default=False)
+    use_cached_auxiliaries: bool = field(default=False)
 
     @property
     def krylov_tolerance(self) -> float:
@@ -102,12 +101,12 @@ class LinearSolverConfig:
     @property
     def numba_precision(self) -> type:
         """Return Numba type for precision."""
-        return from_dtype(np.dtype(self.precision))
+        return from_dtype(np_dtype(self.precision))
 
     @property
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np.dtype(self.precision))
+        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -132,7 +131,7 @@ class LinearSolverConfig:
         }
 
 
-@attrs.define
+@define
 class LinearSolverCache(CUDAFunctionCache):
     """Cache container for LinearSolver outputs.
 
@@ -142,7 +141,7 @@ class LinearSolverCache(CUDAFunctionCache):
         Compiled CUDA device function for linear solving.
     """
 
-    linear_solver: Callable = attrs.field(
+    linear_solver: Callable = field(
         validator=is_device_validator
     )
 
@@ -238,7 +237,7 @@ class LinearSolver(CUDAFactory):
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_linear_iters)
-        precision_numba = from_dtype(np.dtype(precision))
+        precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
 

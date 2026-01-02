@@ -10,7 +10,7 @@ from typing import (
     Union,
 )
 
-import numpy as np
+from numpy import float32, ndarray
 import sympy as sp
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
@@ -47,7 +47,7 @@ from cubie.time_logger import _default_timelogger
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
-    precision: PrecisionDType = np.float32,
+    precision: PrecisionDType = float32,
     states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
@@ -433,7 +433,7 @@ class SymbolicODE(BaseODE):
         beta: float = 1.0,
         gamma: float = 1.0,
         preconditioner_order: int = 2,
-        mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
+        mass: Optional[Union[ndarray, sp.Matrix]] = None,
         stage_coefficients: Optional[
             Sequence[Sequence[Union[float, sp.Expr]]]
         ] = None,

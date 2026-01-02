@@ -2,9 +2,9 @@
 
 from typing import Callable, Optional
 
-import attrs
+from attrs import define, field, validators
 from numba import cuda, int32
-import numpy as np
+from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
@@ -15,19 +15,19 @@ from cubie.integrators.algorithms.ode_implicitstep import (
 )
 
 
-@attrs.define
+@define
 class BackwardsEulerStepConfig(ImplicitStepConfig):
     """Configuration for Backwards Euler step with buffer location."""
 
-    increment_cache_location: str = attrs.field(
+    increment_cache_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
-                  'M': np.eye}
+                  'M': eye}
 
 BE_DEFAULTS = StepControlDefaults(
     step_controller={

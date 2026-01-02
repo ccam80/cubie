@@ -2,6 +2,7 @@
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
+from numpy import ndarray
 from numpy._typing import ArrayLike
 
 from cubie._utils import PrecisionDType, build_config
@@ -10,8 +11,6 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
-
-import numpy as np
 
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
@@ -62,8 +61,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
         dt_min: float,
         dt_max: float,
         n: int,
-        atol: np.ndarray,
-        rtol: np.ndarray,
+        atol: ndarray,
+        rtol: ndarray,
         algorithm_order: int,
         safety: float,
     ) -> ControllerCache:
