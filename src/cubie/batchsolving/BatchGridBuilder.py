@@ -52,8 +52,8 @@ Examples
 
 Example 2: verbatim arrays
 
->>> params = np.array([[0.1, 0.2], [10, 20]])
->>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
+>>> params = np.np_array([[0.1, 0.2], [10, 20]])
+>>> states = np.np_array([[1.0, 2.0], [0.5, 1.5]])
 >>> inits, params = grid_builder(params=params, states=states, kind="verbatim")
 >>> print(inits.shape)
 (2, 2)
@@ -113,16 +113,16 @@ from typing import Dict, List, Optional, Union
 from warnings import warn
 
 from numpy import (
-    array,
-    asarray,
-    ascontiguousarray,
-    atleast_1d,
-    column_stack,
+    array as np_array,
+    asarray as np_asarray,
+    ascontiguousarray as np_ascontiguousarray,
+    atleast_1d as np_atleast_1d,
+    column_stack as np_column_stack,
     ndarray,
-    newaxis,
-    repeat,
-    tile,
-    vstack,
+    newaxis as np_newaxis,
+    repeat as np_repeat,
+    tile as np_tile,
+    vstack as np_vstack,
 )
 from numpy.typing import ArrayLike
 
@@ -157,15 +157,15 @@ def unique_cartesian_product(arrays: List[ndarray]) -> ndarray:
     Examples
     --------
     >>> import numpy as np
-    >>> unique_cartesian_product([np.array([1, 2, 2]), np.array([3, 4])])
-    array([[1, 1, 2, 2],
+    >>> unique_cartesian_product([np.np_array([1, 2, 2]), np.np_array([3, 4])])
+    np_array([[1, 1, 2, 2],
            [3, 4, 3, 4]])
     """
     deduplicated_inputs = [
         list(dict.fromkeys(a)) for a in arrays
     ]  # preserve order, remove dups
     # Build array in (variable, run) format: rows are variables, columns runs
-    return array([list(t) for t in product(*deduplicated_inputs)]).T
+    return np_array([list(t) for t in product(*deduplicated_inputs)]).T
 
 
 def combinatorial_grid(
@@ -204,18 +204,18 @@ def combinatorial_grid(
     >>> combinatorial_grid(
     ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20]}, system.parameters
     ... )
-    (array([0, 1]),
-     array([[ 0.1,  0.1,  0.2,  0.2,  0.3,  0.3],
+    (np_array([0, 1]),
+     np_array([[ 0.1,  0.1,  0.2,  0.2,  0.3,  0.3],
             [10. , 20. , 10. , 20. , 10. , 20. ]]))
     """
     cleaned_request = {
-        k: v for k, v in request.items() if asarray(v).size > 0
+        k: v for k, v in request.items() if np_asarray(v).size > 0
     }
     indices = values_instance.get_indices(
         list(cleaned_request.keys()), silent=silent
     )
     combos = unique_cartesian_product(
-        [asarray(v) for v in cleaned_request.values()],
+        [np_asarray(v) for v in cleaned_request.values()],
     )
     return indices, combos
 
@@ -254,18 +254,18 @@ def verbatim_grid(
     ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20, 30]},
     ...     system.parameters,
     ... )
-    (array([0, 1]),
-     array([[ 0.1,  0.2,  0.3],
+    (np_array([0, 1]),
+     np_array([[ 0.1,  0.2,  0.3],
             [10. , 20. , 30. ]]))
     """
     cleaned_request = {
-        k: v for k, v in request.items() if asarray(v).size > 0
+        k: v for k, v in request.items() if np_asarray(v).size > 0
     }
     indices = values_instance.get_indices(
         list(cleaned_request.keys()), silent=silent
     )
     # Build in (variable, run) format: rows are swept variables, columns runs
-    combos = asarray([item for item in cleaned_request.values()])
+    combos = np_asarray([item for item in cleaned_request.values()])
     return indices, combos
 
 
@@ -346,14 +346,14 @@ def combine_grids(
     if kind == "combinatorial":
         # Cartesian product: all combinations of runs from each grid
         # Repeat each column of grid1 for each column in grid2
-        g1_repeat = repeat(grid1, grid2.shape[1], axis=1)
+        g1_repeat = np_repeat(grid1, grid2.shape[1], axis=1)
         # Tile grid2 columns for each column in grid1
-        g2_tile = tile(grid2, (1, grid1.shape[1]))
+        g2_tile = np_tile(grid2, (1, grid1.shape[1]))
         return g1_repeat, g2_tile
     # For 'verbatim' pair columns directly and error if run counts differ
     elif kind == "verbatim":
         if grid1.shape[1] == 1:
-            grid1 = repeat(grid1, grid2.shape[1], axis=1)
+            grid1 = np_repeat(grid1, grid2.shape[1], axis=1)
         if grid1.shape[1] != grid2.shape[1]:
             raise ValueError(
                 "For 'verbatim', both grids must have the same number of runs."
@@ -396,7 +396,7 @@ def extend_grid_to_array(
     """
     # If grid is 1D it represents a single column of default values
     if grid.ndim == 1:
-        array = default_values[:, newaxis]
+        array = default_values[:, np_newaxis]
     else:
         # When multidimensional ensure the grid row count matches indices
         if grid.shape[0] != indices.shape[0]:
@@ -407,7 +407,7 @@ def extend_grid_to_array(
         else:
             # Create array with default values for all runs
             n_runs = grid.shape[1]
-            array = column_stack([default_values] * n_runs)
+            array = np_column_stack([default_values] * n_runs)
             array[indices, :] = grid
 
     return array
@@ -508,12 +508,12 @@ class BatchGridBuilder:
             Initial state and parameter arrays aligned for batch execution.
         """
         param_request = {
-            k: atleast_1d(v)
+            k: np_atleast_1d(v)
             for k, v in request.items()
             if k in self.parameters.names
         }
         state_request = {
-            k: atleast_1d(v)
+            k: np_atleast_1d(v)
             for k, v in request.items()
             if k in self.states.names
         }
@@ -587,10 +587,10 @@ class BatchGridBuilder:
                 if state_runs == param_runs:
                     return self._cast_to_precision(states, params)
                 elif state_runs == 1:
-                    states = repeat(states, param_runs, axis=1)
+                    states = np_repeat(states, param_runs, axis=1)
                     return self._cast_to_precision(states, params)
                 elif param_runs == 1:
-                    params = repeat(params, state_runs, axis=1)
+                    params = np_repeat(params, state_runs, axis=1)
                     return self._cast_to_precision(states, params)
         parray = None
         sarray = None
@@ -671,23 +671,23 @@ class BatchGridBuilder:
             elif parray is not None:
                 # Create default state array in (variable, run) format
                 n_runs = parray.shape[1]
-                sarray = tile(
-                    self.states.values_array[:, newaxis], (1, n_runs)
+                sarray = np_tile(
+                    self.states.values_array[:, np_newaxis], (1, n_runs)
                 )
                 return self._cast_to_precision(sarray, parray)
             # Only states provided as an array-like (no params or request)
             elif sarray is not None:
                 # Create default param array in (variable, run) format
                 n_runs = sarray.shape[1]
-                parray = tile(
-                    self.parameters.values_array[:, newaxis], (1, n_runs)
+                parray = np_tile(
+                    self.parameters.values_array[:, np_newaxis], (1, n_runs)
                 )
                 return self._cast_to_precision(sarray, parray)
             # No inputs provided; return single-column defaults
             else:
                 return self._cast_to_precision(
-                    self.states.values_array[:, newaxis],
-                    self.parameters.values_array[:, newaxis],
+                    self.states.values_array[:, np_newaxis],
+                    self.parameters.values_array[:, np_newaxis],
                 )
 
     def _trim_or_extend(
@@ -713,11 +713,11 @@ class BatchGridBuilder:
         if arr.shape[0] < values_object.n:
             n_runs = arr.shape[1]
             # Create padding with default values for missing variables
-            padding = tile(
-                values_object.values_array[arr.shape[0]:, newaxis],
+            padding = np_tile(
+                values_object.values_array[arr.shape[0]:, np_newaxis],
                 (1, n_runs)
             )
-            arr = vstack([arr, padding])
+            arr = np_vstack([arr, padding])
         # If the array has more rows than expected, trim the extras
         elif arr.shape[0] > values_object.n:
             arr = arr[:values_object.n, :]
@@ -759,7 +759,7 @@ class BatchGridBuilder:
             return arr
         # If the input is not already an ndarray, coerce it to one
         elif not isinstance(arr, ndarray):
-            arr = asarray(arr)
+            arr = np_asarray(arr)
         # Reject inputs with more than two dimensions explicitly
         if arr.ndim > 2:
             raise ValueError(
@@ -767,7 +767,7 @@ class BatchGridBuilder:
             )
         # Convert 1D vectors to single-column 2D arrays (one run)
         elif arr.ndim == 1:
-            arr = arr[:, newaxis]
+            arr = arr[:, np_newaxis]
 
         # Warn and adjust arrays whose row count differs from expected
         if arr.shape[0] != values_object.n:
@@ -802,8 +802,8 @@ class BatchGridBuilder:
             ``self.precision``.
         """
         return (
-            ascontiguousarray(states.astype(self.precision, copy=False)),
-            ascontiguousarray(params.astype(self.precision, copy=False)),
+            np_ascontiguousarray(states.astype(self.precision, copy=False)),
+            np_ascontiguousarray(params.astype(self.precision, copy=False)),
         )
 
     # ------------------------------------------------------------------

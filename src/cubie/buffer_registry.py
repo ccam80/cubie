@@ -11,8 +11,12 @@ computed on demand and invalidated when any buffer is modified.
 
 from typing import Callable, Dict, Optional, Tuple, Any, Set
 
-from attrs import asdict, define, field
-from attrs.validators import in_, instance_of, optional as val_optional
+from attrs import asdict as attrs_asdict, define, field
+from attrs.validators import (
+    in_ as attrsval_in,
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
 from numpy import float32 as np_float32
 
 from numba import cuda
@@ -43,17 +47,17 @@ class CUDABuffer:
         NumPy precision type for the buffer.
     """
 
-    name: str = field(validator=instance_of(str))
+    name: str = field(validator=attrsval_instance_of(str))
     size: int = field(validator=getype_validator(int, 0))
     location: str = field(
-        validator=in_(["shared", "local"])
+        validator=attrsval_in(["shared", "local"])
     )
     persistent: bool = field(
-        default=False, validator=instance_of(bool)
+        default=False, validator=attrsval_instance_of(bool)
     )
     aliases: Optional[str] = field(
         default=None,
-        validator=val_optional(instance_of(str))
+        validator=attrsval_optional(attrsval_instance_of(str))
     )
     precision: type = field(
         default=np_float32,
@@ -399,10 +403,10 @@ class BufferGroup:
         else:
             recognized = True
             old_entry = self.entries[name]
-            new_values = asdict(old_entry)
+            new_values = attrs_asdict(old_entry)
             new_values.update(kwargs)
 
-            if new_values != asdict(old_entry):
+            if new_values != attrs_asdict(old_entry):
                 changed = True
                 self.entries[name] = CUDABuffer(**new_values)
                 self.invalidate_layouts()

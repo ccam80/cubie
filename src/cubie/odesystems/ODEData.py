@@ -3,7 +3,10 @@
 from typing import Optional, Dict, Any
 
 from attrs import define, field
-from attrs.validators import instance_of, optional as val_optional
+from attrs.validators import (
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
 from numpy import float32
 
 from numba import from_dtype as numba_from_dtype
@@ -47,11 +50,11 @@ class SystemSizes:
     and shared-memory structures correctly.
     """
 
-    states: int = field(validator=instance_of(int))
-    observables: int = field(validator=instance_of(int))
-    parameters: int = field(validator=instance_of(int))
-    constants: int = field(validator=instance_of(int))
-    drivers: int = field(validator=instance_of(int))
+    states: int = field(validator=attrsval_instance_of(int))
+    observables: int = field(validator=attrsval_instance_of(int))
+    parameters: int = field(validator=attrsval_instance_of(int))
+    constants: int = field(validator=attrsval_instance_of(int))
+    drivers: int = field(validator=attrsval_instance_of(int))
 
 
 @define
@@ -82,29 +85,29 @@ class ODEData:
     """
 
     constants: Optional[SystemValues] = field(
-        validator=val_optional(
-            instance_of(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
     parameters: Optional[SystemValues] = field(
-        validator=val_optional(
-            instance_of(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
     initial_states: SystemValues = field(
-        validator=val_optional(
-            instance_of(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
     observables: SystemValues = field(
-        validator=val_optional(
-            instance_of(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
@@ -116,7 +119,7 @@ class ODEData:
         default=float32
     )
     num_drivers: int = field(
-        validator=instance_of(int), default=1
+        validator=attrsval_instance_of(int), default=1
     )
     _mass: Any = field(default=None, eq=False)
 

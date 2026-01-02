@@ -11,18 +11,18 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
-    dtype,
-    empty,
+    dtype as np_dtype,
+    empty as np_empty,
     float16,
     float32,
     float64,
     floating,
-    floor,
+    floor as np_floor,
     int32,
     int64,
     integer,
-    isfinite,
-    log10,
+    isfinite as np_isfinite,
+    log10 as np_log10,
     ndarray,
 )
 from numba import cuda, from_dtype
@@ -31,7 +31,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators, Attribute, Factory, NOTHING
+from attrs import fields, has, validators, Attribute, Factory as attrsFactory, NOTHING
 from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
@@ -40,30 +40,30 @@ PrecisionDType = Union[
     type[float16],
     type[float32],
     type[float64],
-    dtype[float16],
-    dtype[float32],
-    dtype[float64],
+    np_dtype[float16],
+    np_dtype[float32],
+    np_dtype[float64],
 ]
 
 ALLOWED_PRECISIONS = {
-    dtype(float16),
-    dtype(float32),
-    dtype(float64),
+    np_dtype(float16),
+    np_dtype(float32),
+    np_dtype(float64),
 }
 
 ALLOWED_BUFFER_DTYPES = {
-    dtype(float16),
-    dtype(float32),
-    dtype(float64),
-    dtype(int32),
-    dtype(int64),
+    np_dtype(float16),
+    np_dtype(float32),
+    np_dtype(float64),
+    np_dtype(int32),
+    np_dtype(int64),
 }
 
 
 def precision_converter(value: PrecisionDType) -> type[floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
-    dt = dtype(value)
+    dt = np_dtype(value)
     if dt not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
@@ -78,7 +78,7 @@ def precision_validator(
 ) -> None:
     """Validate that ``value`` resolves to a supported precision."""
 
-    if dtype(value) not in ALLOWED_PRECISIONS:
+    if np_dtype(value) not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
         )
@@ -90,7 +90,7 @@ def buffer_dtype_validator(
     value: type,
 ) -> None:
     """Validate that value is a supported buffer dtype (float or int)."""
-    if dtype(value) not in ALLOWED_BUFFER_DTYPES:
+    if np_dtype(value) not in ALLOWED_BUFFER_DTYPES:
         raise ValueError(
             "Buffer dtype must be one of float16, float32, float64, "
             "int32, or int64",
@@ -301,7 +301,7 @@ def timing(_func=None, *, nruns=1):
     def decorator(func):
         @wraps(func)
         def wrap(*args, **kw):
-            durations = empty(nruns)
+            durations = np_empty(nruns)
             for i in range(nruns):
                 t0 = time()
                 result = func(*args, **kw)
@@ -420,7 +420,7 @@ def round_sf(num, sf):
     if num == 0.0:
         return 0.0
     else:
-        return round(num, sf - 1 - int(floor(log10(abs(num)))))
+        return round(num, sf - 1 - int(np_floor(np_log10(abs(num)))))
 
 
 def round_list_sf(list, sf):
@@ -478,7 +478,7 @@ def float_array_validator(instance, attribute, value):
         raise TypeError(f"{attribute} must be a numpy array of floats, got {type(value)}.")
     if value.dtype.kind != 'f':
         raise TypeError(f"{attribute} must be a numpy array of floats, got dtype {value.dtype}.")
-    if not np_all(isfinite(value)):
+    if not np_all(np_isfinite(value)):
         raise ValueError(f"{attribute} must not contain NaNs or infinities.")
 
 

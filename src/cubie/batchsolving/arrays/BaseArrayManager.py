@@ -13,12 +13,19 @@ from warnings import warn
 
 from attrs import define, field
 from attrs.validators import (
-    deep_iterable,
-    in_,
-    instance_of,
-    optional,
+    deep_iterable as attrsval_deep_iterable,
+    in_ as attrsval_in,
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
 )
-from numpy import array_equal, ceil, dtype, float32, issubdtype, zeros
+from numpy import (
+    array_equal as np_array_equal,
+    ceil as np_ceil,
+    dtype as np_dtype,
+    float32,
+    issubdtype as np_issubdtype,
+    zeros as np_zeros,
+)
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator
@@ -33,26 +40,26 @@ from cubie.outputhandling.output_sizes import ArraySizingClass
 class ManagedArray:
     """Metadata wrapper for a single managed array."""
 
-    dtype: type = field(default=float32, validator=instance_of(type))
+    dtype: type = field(default=float32, validator=attrsval_instance_of(type))
     stride_order: tuple[str, ...] = field(
         factory=tuple,
-        validator=deep_iterable(
-            member_validator=instance_of(str),
-            iterable_validator=instance_of(tuple),
+        validator=attrsval_deep_iterable(
+            member_validator=attrsval_instance_of(str),
+            iterable_validator=attrsval_instance_of(tuple),
         ),
     )
     shape: tuple[Optional[int]] = field(
         factory=tuple,
-        validator=deep_iterable(
+        validator=attrsval_deep_iterable(
             member_validator=opt_gttype_validator(int, 0),
-            iterable_validator=instance_of(tuple),
+            iterable_validator=attrsval_instance_of(tuple),
         ),
     )
     memory_type: str = field(
         default="device",
-        validator=in_(["device", "mapped", "pinned", "managed", "host"]),
+        validator=attrsval_in(["device", "mapped", "pinned", "managed", "host"]),
     )
-    is_chunked: bool = field(default=True, validator=instance_of(bool))
+    is_chunked: bool = field(default=True, validator=attrsval_instance_of(bool))
     _array: Optional[Union[NDArray, DeviceNDArrayBase]] = field(
         default=None,
         repr=False,
@@ -62,7 +69,7 @@ class ManagedArray:
         shape = self.shape
         stride_order = self.stride_order
         defaultshape = shape if shape else (1,) * len(stride_order)
-        self._array = zeros(defaultshape, dtype=self.dtype)
+        self._array = np_zeros(defaultshape, dtype=self.dtype)
 
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
@@ -195,26 +202,26 @@ class BaseArrayManager(ABC):
     """
 
     _precision: type = field(
-        default=float32, validator=instance_of(type)
+        default=float32, validator=attrsval_instance_of(type)
     )
     _sizes: Optional[ArraySizingClass] = field(
-        default=None, validator=optional(instance_of(ArraySizingClass))
+        default=None, validator=attrsval_optional(attrsval_instance_of(ArraySizingClass))
     )
     device: ArrayContainer = field(
-        factory=ArrayContainer, validator=instance_of(ArrayContainer)
+        factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
     host: ArrayContainer = field(
-        factory=ArrayContainer, validator=instance_of(ArrayContainer)
+        factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
-    _chunks: int = field(default=0, validator=instance_of(int))
+    _chunks: int = field(default=0, validator=attrsval_instance_of(int))
     _chunk_axis: str = field(
-        default="run", validator=in_(["run", "variable", "time"])
+        default="run", validator=attrsval_in(["run", "variable", "time"])
     )
     _stream_group: str = field(
-        default="default", validator=instance_of(str)
+        default="default", validator=attrsval_instance_of(str)
     )
     _memory_proportion: Optional[float] = field(
-        default=None, validator=optional(instance_of(float))
+        default=None, validator=attrsval_optional(attrsval_instance_of(float))
     )
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
@@ -429,7 +436,7 @@ class BaseArrayManager(ABC):
                 return False
         if shape_only:
             return True
-        return array_equal(arr1, arr2)
+        return np_array_equal(arr1, arr2)
 
     def update_sizes(self, sizes: ArraySizingClass) -> None:
         """
@@ -562,7 +569,7 @@ class BaseArrayManager(ABC):
                         )
                         if expected_shape[chunk_axis_index] is not None:
                             expected_shape[chunk_axis_index] = int(
-                                ceil(
+                                np_ceil(
                                     expected_shape[chunk_axis_index]
                                     / self._chunks
                                 )
@@ -800,7 +807,7 @@ class BaseArrayManager(ABC):
                 self._needs_overwrite.append(label)
             if 0 in new_array.shape:
                 newshape = (1,) * len(current_array.shape)
-                new_array = zeros(newshape, dtype=managed.dtype)
+                new_array = np_zeros(newshape, dtype=managed.dtype)
         else:
             self._needs_overwrite.append(label)
         self.host.attach(label, new_array)
@@ -896,13 +903,13 @@ class BaseArrayManager(ABC):
         for _, slot in self.device.iter_managed_arrays():
             array = slot.array
             if array is not None:
-                zero = dtype(slot.dtype).type(0)
+                zero = np_dtype(slot.dtype).type(0)
                 if len(array.shape) >= 3:
-                    array[:, :, :] = slot.dtype(0.0)
+                    array[:, :, :] = slot.np_dtype(0.0)
                 elif len(array.shape) >= 2:
-                    array[:, :] = slot.dtype(0.0)
+                    array[:, :] = slot.np_dtype(0.0)
                 elif len(array.shape) >= 1:
-                    array[:] = slot.dtype(0.0)
+                    array[:] = slot.np_dtype(0.0)
 
     def reset(self) -> None:
         """

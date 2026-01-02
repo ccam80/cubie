@@ -11,7 +11,7 @@ behaviour of the compiled device functions.
 
 from typing import Sequence, Union
 
-from numpy import asarray, dtype, floating
+from numpy import asarray as np_asarray, dtype as np_dtype, floating
 from numpy.typing import NDArray
 
 from cubie.odesystems.baseODE import BaseODE
@@ -20,10 +20,10 @@ from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 Array = NDArray[floating]
 
 
-def _as_array(vector: Union[Sequence[float], Array], dt: dtype) -> Array:
+def _as_array(vector: Union[Sequence[float], Array], dt: np_dtype) -> Array:
     """Return ``vector`` as a one-dimensional array of ``dt``."""
 
-    arr = asarray(vector, dtype=dt)
+    arr = np_asarray(vector, dtype=dt)
     if arr.ndim != 1:
         raise ValueError("Expected a one-dimensional array of samples.")
     return arr
@@ -44,7 +44,7 @@ THREE_STATE_LINEAR_DRIVERS = ["d0"]
 THREE_STATE_LINEAR_OBSERVABLES = ["o0", "o1", "o2"]
 
 
-def build_three_state_linear_system(precision: dtype) -> BaseODE:
+def build_three_state_linear_system(precision: np_dtype) -> BaseODE:
     """Return the symbolic three-state linear system."""
 
     system = create_ODE_system(
@@ -81,7 +81,7 @@ THREE_STATE_NONLINEAR_CONSTANTS = {"c0": 0.5, "c1": -0.3, "c2": 0.25}
 THREE_STATE_NONLINEAR_DRIVERS = ["d0"]
 THREE_STATE_NONLINEAR_OBSERVABLES = ["o0", "o1", "o2"]
 
-def build_three_state_nonlinear_system(precision: dtype) -> BaseODE:
+def build_three_state_nonlinear_system(precision: np_dtype) -> BaseODE:
     """Return the symbolic three-state nonlinear system."""
 
     system = create_ODE_system(
@@ -130,7 +130,7 @@ THREE_CHAMBER_DRIVERS = ["d1"]
 THREE_CHAMBER_OBSERVABLES = ["P_a", "P_v", "P_h", "Q_i", "Q_o", "Q_c"]
 
 
-def build_three_chamber_system(precision: dtype) -> BaseODE:
+def build_three_chamber_system(precision: np_dtype) -> BaseODE:
     """Return the symbolic three chamber cardiovascular system."""
 
     system = create_ODE_system(
@@ -176,7 +176,7 @@ THREE_STATE_VERY_STIFF_OBSERVABLES = ["r0", "r1", "r2"]
 
 
 
-def build_three_state_very_stiff_system(precision: dtype) -> BaseODE:
+def build_three_state_very_stiff_system(precision: np_dtype) -> BaseODE:
     """Return the symbolic very stiff nonlinear system."""
 
     system = create_ODE_system(
@@ -234,7 +234,7 @@ LARGE_SYSTEM_DRIVERS = ["d0"]
 
 
 
-def build_large_nonlinear_system(precision: dtype) -> BaseODE:
+def build_large_nonlinear_system(precision: np_dtype) -> BaseODE:
     """Return the symbolic 100-state nonlinear system."""
 
     system = create_ODE_system(
@@ -271,7 +271,7 @@ THREE_STATE_CONSTANT_DERIV_DRIVERS = []
 THREE_STATE_CONSTANT_DERIV_OBSERVABLES = ["o0", "o1", "o2"]
 
 
-def build_three_state_constant_deriv_system(precision: dtype) -> BaseODE:
+def build_three_state_constant_deriv_system(precision: np_dtype) -> BaseODE:
     """Return a system with constant derivatives.
 
     For this system, dx/dt = constant (independent of state), which means

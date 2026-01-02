@@ -1,8 +1,16 @@
 """Manage host and device input arrays for batch integrations."""
 
 from attrs import define, field
-from attrs.validators import instance_of, optional
-from numpy import dtype, float32, floating, issubdtype
+from attrs.validators import (
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
+from numpy import (
+    dtype as np_dtype,
+    float32,
+    floating,
+    issubdtype as np_issubdtype,
+)
 
 from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING, Union
@@ -139,16 +147,16 @@ class InputArrays(BaseArrayManager):
 
     _sizes: Optional[BatchInputSizes] = field(
         factory=BatchInputSizes,
-        validator=optional(instance_of(BatchInputSizes)),
+        validator=attrsval_optional(attrsval_instance_of(BatchInputSizes)),
     )
     host: InputArrayContainer = field(
         factory=InputArrayContainer.host_factory,
-        validator=instance_of(InputArrayContainer),
+        validator=attrsval_instance_of(InputArrayContainer),
         init=True,
     )
     device: InputArrayContainer = field(
         factory=InputArrayContainer.device_factory,
-        validator=instance_of(InputArrayContainer),
+        validator=attrsval_instance_of(InputArrayContainer),
         init=False,
     )
 
@@ -283,11 +291,11 @@ class InputArrays(BaseArrayManager):
         self._chunk_axis = solver_instance.chunk_axis
         for name, arr_obj in self.host.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if issubdtype(dtype(arr_obj.dtype), floating):
+            if np_issubdtype(np_dtype(arr_obj.dtype), floating):
                 arr_obj.dtype = self._precision
         for name, arr_obj in self.device.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
-            if issubdtype(dtype(arr_obj.dtype), floating):
+            if np_issubdtype(np_dtype(arr_obj.dtype), floating):
                 arr_obj.dtype = self._precision
 
     def finalise(self, host_indices: Union[slice, NDArray]) -> None:

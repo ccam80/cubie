@@ -6,8 +6,8 @@ if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
 from attrs import define, field
-from attrs.validators import instance_of
-from numpy import float32, floating, int32, integer, issubdtype
+from attrs.validators import instance_of as attrsval_instance_of
+from numpy import float32, floating, int32, integer, issubdtype as np_issubdtype
 from numpy.typing import NDArray
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -134,16 +134,16 @@ class OutputArrays(BaseArrayManager):
     """
 
     _sizes: BatchOutputSizes = field(
-        factory=BatchOutputSizes, validator=instance_of(BatchOutputSizes)
+        factory=BatchOutputSizes, validator=attrsval_instance_of(BatchOutputSizes)
     )
     host: OutputArrayContainer = field(
         factory=OutputArrayContainer.host_factory,
-        validator=instance_of(OutputArrayContainer),
+        validator=attrsval_instance_of(OutputArrayContainer),
         init=True,
     )
     device: OutputArrayContainer = field(
         factory=OutputArrayContainer.device_factory,
-        validator=instance_of(OutputArrayContainer),
+        validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
     )
 
@@ -298,7 +298,7 @@ class OutputArrays(BaseArrayManager):
             newshape = getattr(self._sizes, name)
             slot.shape = newshape
             slot_dtype = slot.dtype
-            if issubdtype(slot_dtype, floating):
+            if np_issubdtype(slot_dtype, floating):
                 slot.dtype = self._precision
                 slot_dtype = slot.dtype
             # Fast path: skip allocation if existing array matches
@@ -316,7 +316,7 @@ class OutputArrays(BaseArrayManager):
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
             slot_dtype = slot.dtype
-            if issubdtype(slot_dtype, floating):
+            if np_issubdtype(slot_dtype, floating):
                 slot.dtype = self._precision
         return new_arrays
 

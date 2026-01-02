@@ -4,13 +4,13 @@ from collections.abc import Mapping, Sequence, Sized
 from typing import Any, Union
 
 from numpy import (
-    arange,
-    array,
-    asarray,
+    arange as np_arange,
+    array as np_array,
+    asarray as np_asarray,
     floating,
     int32,
     integer,
-    issubdtype,
+    issubdtype as np_issubdtype,
     ndarray,
 )
 from sympy import Symbol
@@ -80,7 +80,7 @@ class SystemValues:
         ``values_dict`` and ``defaults``.
         """
 
-        if issubdtype(precision, integer) or issubdtype(
+        if np_issubdtype(precision, integer) or np_issubdtype(
             precision, floating
         ):
             self.precision = precision
@@ -167,7 +167,7 @@ class SystemValues:
         aligned with ``values_array``.
         """
         keys = list(self.values_dict.keys())
-        self.values_array = array(
+        self.values_array = np_array(
             [self.values_dict[k] for k in keys], dtype=self.precision
         )
         self.indices_dict = {k: i for i, k in enumerate(keys)}
@@ -247,7 +247,7 @@ class SystemValues:
         if isinstance(keys_or_indices, list):
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
-                indices = asarray(
+                indices = np_asarray(
                     [
                         self.get_index_of_key(state, silent)
                         for state in keys_or_indices
@@ -256,7 +256,7 @@ class SystemValues:
                 )
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
-                indices = asarray(keys_or_indices, dtype=int32)
+                indices = np_asarray(keys_or_indices, dtype=int32)
             else:
                 # List contains mixed types or unsupported types
                 non_str_int_types = [
@@ -281,16 +281,16 @@ class SystemValues:
 
         elif isinstance(keys_or_indices, str):
             # A single string
-            indices = asarray(
+            indices = np_asarray(
                 [self.get_index_of_key(keys_or_indices)], dtype=int32
             )
         elif isinstance(keys_or_indices, int):
             # A single int
-            indices = asarray([keys_or_indices], dtype=int32)
+            indices = np_asarray([keys_or_indices], dtype=int32)
 
         elif isinstance(keys_or_indices, slice):
             # A slice object
-            indices = arange(len(self.values_array))[
+            indices = np_arange(len(self.values_array))[
                 keys_or_indices
             ].astype(int32)
 
@@ -341,10 +341,10 @@ class SystemValues:
         """
         indices = self.get_indices(keys_or_indices)
         if len(indices) == 1:
-            return asarray(
+            return np_asarray(
                 self.values_array[indices[0]], dtype=self.precision
             )
-        return asarray(
+        return np_asarray(
             [self.values_array[index] for index in indices],
             dtype=self.precision,
         )

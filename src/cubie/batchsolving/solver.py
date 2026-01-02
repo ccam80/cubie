@@ -7,7 +7,7 @@ GPU.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from numpy import ndarray, zeros
+from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
@@ -215,7 +215,7 @@ class Solver:
         self.driver_interpolator = ArrayInterpolator(
             precision=precision,
             input_dict={
-                "placeholder": zeros(6, dtype=precision),
+                "placeholder": np_zeros(6, dtype=precision),
                 "dt": 0.1,
             },
         )
