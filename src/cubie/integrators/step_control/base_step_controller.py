@@ -12,9 +12,8 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-import attrs
-import numba
 from numpy import float32
+from numba import from_dtype
 from attrs import define, field, validators
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -33,9 +32,9 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     'timestep_memory_location'
 }
 
-@attrs.define
+@define
 class ControllerCache(CUDAFunctionCache):
-    device_function: Union[Callable, int] = attrs.field(default=-1)
+    device_function: Union[Callable, int] = field(default=-1)
 
 @define
 class BaseStepControllerConfig(ABC):
@@ -64,7 +63,7 @@ class BaseStepControllerConfig(ABC):
     def numba_precision(self) -> type:
         """Return the Numba compatible precision object."""
 
-        return numba.from_dtype(self.precision)
+        return from_dtype(self.precision)
 
     @property
     def simsafe_precision(self) -> type:

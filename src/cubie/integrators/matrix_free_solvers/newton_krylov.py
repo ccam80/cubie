@@ -7,10 +7,9 @@ Newton iterations suitable for CUDA device execution.
 
 from typing import Callable, Optional, Set, Dict, Any
 
-import attrs
-from attrs import validators
+from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
-import numpy as np
+from numpy import dtype as np_dtype, int32 as np_int32
 
 from cubie._utils import (
     PrecisionDType,
@@ -30,7 +29,7 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
 
-@attrs.define
+@define
 class NewtonKrylovConfig:
     """Configuration for NewtonKrylov solver compilation.
 
@@ -62,54 +61,54 @@ class NewtonKrylovConfig:
         Memory location for stage_base_bt buffer.
     """
 
-    precision: PrecisionDType = attrs.field(
+    precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator
     )
-    n: int = attrs.field(validator=getype_validator(int, 1))
-    residual_function: Optional[Callable] = attrs.field(
+    n: int = field(validator=getype_validator(int, 1))
+    residual_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    linear_solver_function: Optional[Callable] = attrs.field(
+    linear_solver_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    _newton_tolerance: float = attrs.field(
+    _newton_tolerance: float = field(
         default=1e-3,
         validator=gttype_validator(float, 0)
     )
-    max_newton_iters: int = attrs.field(
+    max_newton_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767)
     )
-    _newton_damping: float = attrs.field(
+    _newton_damping: float = field(
         default=0.5,
         validator=inrangetype_validator(float, 0, 1)
     )
-    newton_max_backtracks: int = attrs.field(
+    newton_max_backtracks: int = field(
         default=8,
         validator=inrangetype_validator(int, 1, 32767)
     )
-    delta_location: str = attrs.field(
+    delta_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    residual_location: str = attrs.field(
+    residual_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    residual_temp_location: str = attrs.field(
+    residual_temp_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    stage_base_bt_location: str = attrs.field(
+    stage_base_bt_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
-    krylov_iters_local_location: str = attrs.field(
+    krylov_iters_local_location: str = field(
         default='local',
         validator=validators.in_(["local", "shared"])
     )
@@ -127,12 +126,12 @@ class NewtonKrylovConfig:
     @property
     def numba_precision(self) -> type:
         """Return Numba type for precision."""
-        return from_dtype(np.dtype(self.precision))
+        return from_dtype(np_dtype(self.precision))
 
     @property
     def simsafe_precision(self) -> type:
         """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np.dtype(self.precision))
+        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -164,7 +163,7 @@ class NewtonKrylovConfig:
         }
 
 
-@attrs.define
+@define
 class NewtonKrylovCache(CUDAFunctionCache):
     """Cache container for NewtonKrylov outputs.
 
@@ -174,7 +173,7 @@ class NewtonKrylovCache(CUDAFunctionCache):
         Compiled CUDA device function for Newton-Krylov solving.
     """
 
-    newton_krylov_solver: Callable = attrs.field(
+    newton_krylov_solver: Callable = field(
         validator=is_device_validator
     )
 
@@ -264,7 +263,7 @@ class NewtonKrylov(CUDAFactory):
             self,
             1,
             config.krylov_iters_local_location,
-            precision=np.int32
+            precision=np_int32
         )
 
     def build(self) -> NewtonKrylovCache:

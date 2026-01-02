@@ -65,6 +65,21 @@ CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance b
 - This pattern improves warp efficiency by avoiding divergence
 - Apply to all summary metrics and other CUDA device code
 
+### Import Guidelines for CUDAFactory Files
+
+Files that define CUDAFactory subclasses or contain CUDA device functions
+should use explicit imports instead of whole-module imports:
+
+- Use `from numpy import float32, float64, zeros` instead of `import numpy as np`
+- Use `from attrs import define, field` instead of `import attrs`
+- Use `from numba import cuda, int32, from_dtype` instead of `import numba`
+
+This reduces the scope captured by Numba during CUDA JIT compilation,
+potentially improving compilation time.
+
+**Exception**: Complex modules like `sympy` may remain as whole-module
+imports when many diverse symbols are used.
+
 ### Attrs Classes
 - For floating-point attributes: save with leading underscore, add property returning `self.precision(self._attribute)`
 - Never add aliases to underscored variables
