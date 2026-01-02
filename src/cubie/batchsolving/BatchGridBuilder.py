@@ -104,7 +104,7 @@ Example 3: single parameter sweep (unspecified filled with defaults)
 [[0.1 0.2]
  [2.  2. ]]
 """
-
+from array import ArrayType
 from itertools import product
 from typing import Dict, List, Optional, Union
 from warnings import warn
@@ -517,6 +517,13 @@ class BatchGridBuilder:
         # Update precision from current system state
         self.precision = self.states.precision
 
+        # Fast path - if right-sized arrays, return straight away.
+        if self.check_compatible(states, params):
+            return self._cast_to_precision(states, params)
+
+        # Fast path arrays - if a single right-sized array and a None,
+        # or 1d array-like, extend the small one and return quickly.
+
         # Process each category independently
         states_array = self._process_input(states, self.states, kind)
         params_array = self._process_input(params, self.parameters, kind)
@@ -725,3 +732,35 @@ class BatchGridBuilder:
             np.ascontiguousarray(states.astype(self.precision, copy=False)),
             np.ascontiguousarray(params.astype(self.precision, copy=False)),
         )
+
+    def check_compatible(
+            self,
+            inits: Optional[Union[ArrayType, Dict]],
+            params: Optional[Union[ArrayType, Dict]]
+         ) -> bool:
+        """Returns True if supplied arguments are compatible .
+
+        Parameters
+        ----------
+        inits
+            Initial states as array or dict.
+        params
+            Parameters as array, dict, or None
+
+        Returns
+        -------
+        bool
+            True if arrays are able to be passed to solver
+        """
+        if isinstance(inits, np.ndarray) and isinstance(params, np.ndarray):
+            # Both arrays: check run counts match and arrays are system-sized
+
+            inits_runs = inits.shape[1]
+            inits_variables = inits.shape[0]
+            params_runs = params.shape[1]
+            params_variables = params.shape[0]
+            if inits_runs == params_runs:
+                if (inits_variables == self.states.n
+                    and params_variables == self.parameters.n):
+                    return True
+            return False
