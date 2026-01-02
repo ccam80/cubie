@@ -523,6 +523,9 @@ class BatchGridBuilder:
 
         # Fast path arrays - if a single right-sized array and a None,
         # or 1d array-like, extend the small one and return quickly.
+        fast_result = self._try_fast_path_arrays(states, params, kind)
+        if fast_result is not None:
+            return fast_result
 
         # Process each category independently
         states_array = self._process_input(states, self.states, kind)
@@ -764,3 +767,136 @@ class BatchGridBuilder:
                     and params_variables == self.parameters.n):
                     return True
             return False
+
+    def _is_right_sized_array(
+        self,
+        arr: Optional[Union[ArrayLike, Dict]],
+        values_object: SystemValues,
+    ) -> bool:
+        """Check if input is a right-sized 2D array.
+
+        Parameters
+        ----------
+        arr
+            Input to check.
+        values_object
+            SystemValues instance for dimension comparison.
+
+        Returns
+        -------
+        bool
+            True if arr is a 2D ndarray with correct variable count.
+        """
+        if not isinstance(arr, np.ndarray):
+            return False
+        if arr.ndim != 2:
+            return False
+        return arr.shape[0] == values_object.n
+
+    def _is_1d_or_none(
+        self,
+        arr: Optional[Union[ArrayLike, Dict]],
+    ) -> bool:
+        """Check if input is None or a 1D array-like.
+
+        Parameters
+        ----------
+        arr
+            Input to check.
+
+        Returns
+        -------
+        bool
+            True if arr is None or a 1D array-like (list, tuple, 1D ndarray).
+        """
+        if arr is None:
+            return True
+        if isinstance(arr, dict):
+            return False
+        if isinstance(arr, np.ndarray):
+            return arr.ndim == 1
+        if isinstance(arr, (list, tuple)):
+            # Check if flat (1D) - no nested lists
+            return not any(isinstance(x, (list, tuple, np.ndarray)) for x in arr)
+        return False
+
+    def _to_defaults_column(
+        self,
+        values_object: SystemValues,
+        n_runs: int,
+    ) -> np.ndarray:
+        """Create a 2D defaults array with n_runs columns.
+
+        Parameters
+        ----------
+        values_object
+            SystemValues instance containing default values.
+        n_runs
+            Number of run columns to create.
+
+        Returns
+        -------
+        np.ndarray
+            2D array in (variable, run) format with defaults.
+        """
+        return np.tile(values_object.values_array[:, np.newaxis], (1, n_runs))
+
+    def _try_fast_path_arrays(
+        self,
+        states: Optional[Union[ArrayLike, Dict]],
+        params: Optional[Union[ArrayLike, Dict]],
+        kind: str,
+    ) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        """Try fast path for single right-sized array with None or 1D input.
+
+        Parameters
+        ----------
+        states
+            States input (array, dict, or None).
+        params
+            Params input (array, dict, or None).
+        kind
+            Grid type: "combinatorial" or "verbatim".
+
+        Returns
+        -------
+        Optional[tuple[np.ndarray, np.ndarray]]
+            Aligned (states, params) arrays if fast path applies, else None.
+        """
+        states_ok = self._is_right_sized_array(states, self.states)
+        params_ok = self._is_right_sized_array(params, self.parameters)
+        states_small = self._is_1d_or_none(states)
+        params_small = self._is_1d_or_none(params)
+
+        # Case 1: states is right-sized array, params is None or 1D
+        if states_ok and params_small:
+            n_runs = states.shape[1]
+            if params is None:
+                params_array = self._to_defaults_column(self.parameters, n_runs)
+            else:
+                # 1D array: convert to column, extend with defaults
+                params_array = self._sanitise_arraylike(params, self.parameters)
+                if params_array.shape[1] == 1:
+                    params_array = np.repeat(params_array, n_runs, axis=1)
+            states_array, params_array = self._align_run_counts(
+                states, params_array, kind
+            )
+            return self._cast_to_precision(states_array, params_array)
+
+        # Case 2: params is right-sized array, states is None or 1D
+        if params_ok and states_small:
+            n_runs = params.shape[1]
+            if states is None:
+                states_array = self._to_defaults_column(self.states, n_runs)
+            else:
+                # 1D array: convert to column, extend with defaults
+                states_array = self._sanitise_arraylike(states, self.states)
+                if states_array.shape[1] == 1:
+                    states_array = np.repeat(states_array, n_runs, axis=1)
+            states_array, params_array = self._align_run_counts(
+                states_array, params, kind
+            )
+            return self._cast_to_precision(states_array, params_array)
+
+        # Fast path doesn't apply
+        return None
