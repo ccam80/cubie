@@ -78,14 +78,18 @@ def solve_ivp(
         Initial integration time supplied to the solver. Default is ``0.0``.
     save_variables : list of str, optional
         Variable names (states or observables) to save in time-domain output.
-        Alternative to specifying saved_states and saved_observables separately.
-        Can be combined with existing parameters using union semantics.
-        Default is ``None``.
+        Default is ``None``, which saves all states and observables. For
+        less overhead, you can provide saved_state_indices and
+        saved_observable_indices list[int] instead, which don't require the
+        solver to look up variable names. This is a micro-optimisation,
+        not required unless you need the last few ms.
     summarise_variables : list of str, optional
         Variable names (states or observables) to include in summary calculations.
-        Alternative to specifying summarised_states and summarised_observables.
-        Can be combined with existing parameters using union semantics.
-        Default is ``None``.
+        Default is ``None``, which summarises all states and observables. For
+        less overhead, you can provide summarised_state_indices and
+        summarised_observable_indices list[int] instead, which don't require
+        the solver to look up variable names. This is a micro-optimisation,
+        not required unless you need the last few ms.
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
@@ -105,7 +109,10 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    #Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
+
+    # Place non-explicit params into kwargs
     if dt_save is not None:
         kwargs.setdefault("dt_save", dt_save)
     if save_variables is not None:
@@ -167,11 +174,8 @@ class Solver:
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
     **kwargs
-        Additional keyword arguments forwarded to internal components. This
-        includes output selection parameters such as ``save_variables`` and
-        ``summarise_variables`` which provide a unified interface for
-        specifying variables to save or summarize without distinguishing
-        between states and observables.
+        Additional keyword arguments forwarded to internal components. See
+        "Optional Arguments" in the docs for the possibilities.
 
     Notes
     -----
@@ -268,7 +272,7 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve output label settings in-place. Users can provide lists
+        """Resolve output labels in-place. Users can provide lists
         of state and observable variable names, or lists/arrays of indices
         if they know them and want a "fast path" solve to minimise overhead.
         The expected usual pathway will be for a user to provide a list of
@@ -304,6 +308,7 @@ class Solver:
         ``summarised_state_indices``, ``summarised_observable_indices``) using
         set union.
         """
+
         resolvers = {
             "saved_state_indices": self.system_interface.state_indices,
             "saved_observable_indices": (
@@ -595,10 +600,8 @@ class Solver:
             and exclude from analysis. When ``False``, all trajectories are
             returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
-            Additional options forwarded to :meth:`update`. Accepts output
-            configuration including ``save_variables`` and
-            ``summarise_variables`` (lists of variable names that will be
-            automatically classified as states or observables).
+            Additional options forwarded to :meth:`update`. See "Optional
+            Arguments" in the docs for possibilities.
 
         Returns
         -------

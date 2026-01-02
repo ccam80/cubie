@@ -2,7 +2,6 @@ from typing import Iterable
 
 import pytest
 import numpy as np
-from numba import cuda # noqa - kick cuda import to avoid local module error
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
