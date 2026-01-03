@@ -3,9 +3,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from numba import cuda # noqa - attempt to kick cuda import to prevent
-# missing 'local' bug
 
-from cubie import Solver
+from tests._utils import rebuild_solver
+
+from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
 
@@ -35,7 +36,11 @@ def solver_with_arrays(
     except AttributeError:
         # The solver has failed to find cuda.local in one batch thread. Try
         # again.
-        solver.update(solver_settings)
+        rebuild_solver(
+            system=system,
+            solver_settings=solver_settings,
+            driver_array=driver_array
+        )
         solver.kernel.run(
             duration=solver_settings["duration"],
             params=params,
