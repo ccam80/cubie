@@ -614,13 +614,10 @@ def deterministic_array(
     """
     # Handle empty arrays
     if isinstance(size, int):
-        total_elements = size
         shape = (size,)
     else:
         shape = tuple(size)
-        total_elements = 1
-        for dim in shape:
-            total_elements *= dim
+    total_elements = int(np.prod(shape))
 
     if total_elements == 0:
         return np.empty(shape, dtype=precision)
