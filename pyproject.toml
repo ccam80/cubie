@@ -35,7 +35,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-durations",
-    "pytest-json-report",
+    "pytest-xdist[psutil]",
     "flake8",
     "ruff",
     "cupy-cuda12x",
@@ -66,14 +66,12 @@ markers = [
 ]
 addopts = [
     "--import-mode=importlib",
+    "-nlogical",
     "-ra",
-    "-s",
     "--pytest-durations=0",
     "--cov=cubie",
     "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",
-#    "--json-report",
-#    "--json-report-file=tests/pytest_report.json",
 ]
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",
