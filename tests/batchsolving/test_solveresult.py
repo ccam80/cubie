@@ -2,7 +2,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-from numba import cuda # noqa - attempt to kick cuda import to prevent
 
 from tests._utils import rebuild_solver
 

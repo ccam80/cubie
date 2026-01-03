@@ -479,16 +479,16 @@ def test_update_saved_variables(solver_mutable, system):
     )
 
     if len(state_names) > 0 and len(observable_names) > 0:
+        all_vars = [state_names[0]]
+        if observable_names:
+            all_vars.append(observable_names[0])
+        
         updates = {
-            "saved_states": [state_names[0]],
-            "saved_observables": [observable_names[0]]
-            if observable_names
-            else [],
+            "save_variables": all_vars,
         }
 
         updated_keys = solver.update(updates)
 
-        # The method should have converted labels to indices
         assert len(updated_keys) > 0
 
 def test_memory_settings_update(solver_mutable):
@@ -961,3 +961,368 @@ def test_solve_dict_path_backward_compatible(
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
+
+
+# ============================================================================
+# save_variables and summarise_variables Tests
+# ============================================================================
+
+
+def test_save_variables_pure_states(solver, system):
+    """Test save_variables with only state names."""
+    state_names = list(system.initial_values.names)[:2]
+    
+    output_settings = {"save_variables": state_names}
+    solver.convert_output_labels(output_settings)
+    
+    # Verify save_variables was removed
+    assert "save_variables" not in output_settings
+    # Verify state indices were set
+    assert "saved_state_indices" in output_settings
+    assert len(output_settings["saved_state_indices"]) == 2
+    # Verify no observable indices created
+    assert ("saved_observable_indices" not in output_settings
+            or output_settings.get("saved_observable_indices") is None
+            or len(output_settings["saved_observable_indices"]) == 0)
+
+
+def test_save_variables_pure_observables(solver, system):
+    """Test save_variables with only observable names."""
+    if (not hasattr(system.observables, "names")
+            or len(system.observables.names) == 0):
+        pytest.skip("System has no observables")
+    
+    obs_names = list(system.observables.names)[:2]
+    
+    output_settings = {"save_variables": obs_names}
+    solver.convert_output_labels(output_settings)
+    
+    # Verify save_variables was removed
+    assert "save_variables" not in output_settings
+    # Verify observable indices were set
+    assert "saved_observable_indices" in output_settings
+    assert len(output_settings["saved_observable_indices"]) >= 1
+    # Verify no state indices created
+    assert ("saved_state_indices" not in output_settings
+            or output_settings.get("saved_state_indices") is None
+            or len(output_settings["saved_state_indices"]) == 0)
+
+
+def test_save_variables_mixed(solver, system):
+    """Test save_variables with both states and observables."""
+    state_names = list(system.initial_values.names)[:1]
+    obs_names = []
+    if (hasattr(system.observables, "names")
+            and len(system.observables.names) > 0):
+        obs_names = list(system.observables.names)[:1]
+    
+    if not obs_names:
+        pytest.skip("System has no observables for mixed test")
+    
+    mixed_names = state_names + obs_names
+    
+    output_settings = {"save_variables": mixed_names}
+    solver.convert_output_labels(output_settings)
+    
+    # Verify both types classified
+    assert "saved_state_indices" in output_settings
+    assert "saved_observable_indices" in output_settings
+    assert len(output_settings["saved_state_indices"]) >= 1
+    assert len(output_settings["saved_observable_indices"]) >= 1
+
+
+def test_summarise_variables_pure_states(solver, system):
+    """Test summarise_variables with only state names."""
+    state_names = list(system.initial_values.names)[:2]
+    
+    output_settings = {"summarise_variables": state_names}
+    solver.convert_output_labels(output_settings)
+    
+    assert "summarise_variables" not in output_settings
+    assert "summarised_state_indices" in output_settings
+    assert len(output_settings["summarised_state_indices"]) == 2
+
+
+def test_summarise_variables_pure_observables(solver, system):
+    """Test summarise_variables with only observable names."""
+    if (not hasattr(system.observables, "names")
+            or len(system.observables.names) == 0):
+        pytest.skip("System has no observables")
+    
+    obs_names = list(system.observables.names)[:2]
+    
+    output_settings = {"summarise_variables": obs_names}
+    solver.convert_output_labels(output_settings)
+    
+    assert "summarise_variables" not in output_settings
+    assert "summarised_observable_indices" in output_settings
+    assert len(output_settings["summarised_observable_indices"]) >= 1
+
+
+def test_summarise_variables_mixed(solver, system):
+    """Test summarise_variables with both states and observables."""
+    state_names = list(system.initial_values.names)[:1]
+    obs_names = []
+    if (hasattr(system.observables, "names")
+            and len(system.observables.names) > 0):
+        obs_names = list(system.observables.names)[:1]
+    
+    if not obs_names:
+        pytest.skip("System has no observables for mixed test")
+    
+    mixed_names = state_names + obs_names
+    
+    output_settings = {"summarise_variables": mixed_names}
+    solver.convert_output_labels(output_settings)
+    
+    # Verify both types classified
+    assert "summarised_state_indices" in output_settings
+    assert "summarised_observable_indices" in output_settings
+    assert len(output_settings["summarised_state_indices"]) >= 1
+    assert len(output_settings["summarised_observable_indices"]) >= 1
+
+
+def test_save_variables_union_with_indices(solver, system):
+    """Test save_variables merges with existing saved_state_indices."""
+    state_names = list(system.initial_values.names)
+    
+    # Pre-populate with first state index
+    output_settings = {
+        "saved_state_indices": np.array([0], dtype=np.int16),
+        "save_variables": [state_names[1]]
+    }
+    solver.convert_output_labels(output_settings)
+    
+    # Should have union of indices 0 and 1
+    result = output_settings["saved_state_indices"]
+    assert len(result) == 2
+    assert 0 in result
+    assert 1 in result
+
+
+def test_save_variables_union_with_saved_state_indices(solver, system):
+    """Test save_variables merges with existing saved_state_indices."""
+    state_names = list(system.initial_values.names)
+    
+    output_settings = {
+        "saved_state_indices": np.array([0], dtype=np.int16),
+        "save_variables": [state_names[1]]
+    }
+    solver.convert_output_labels(output_settings)
+    
+    result = output_settings["saved_state_indices"]
+    assert len(result) == 2
+    assert 0 in result
+    assert 1 in result
+
+
+def test_save_variables_empty_list(solver):
+    """Test save_variables with empty list is no-op."""
+    output_settings = {"save_variables": []}
+    solver.convert_output_labels(output_settings)
+    
+    # Empty list should be removed but not create indices
+    assert "save_variables" not in output_settings
+    assert ("saved_state_indices" not in output_settings
+            or output_settings.get("saved_state_indices") is None)
+
+
+def test_save_variables_none(solver):
+    """Test save_variables=None is ignored."""
+    output_settings = {"save_variables": None}
+    solver.convert_output_labels(output_settings)
+    
+    # None should trigger fast-path and not be processed
+    # (parameter is not popped from dict)
+
+
+def test_save_variables_invalid_name_raises(solver):
+    """Test save_variables with invalid name raises clear error."""
+    output_settings = {"save_variables": ["nonexistent_variable"]}
+    
+    with pytest.raises(ValueError, match="Variables not found"):
+        solver.convert_output_labels(output_settings)
+
+
+def test_save_variables_error_includes_available_names(solver):
+    """Test error message includes available variable names."""
+    output_settings = {"save_variables": ["nonexistent_variable"]}
+    
+    try:
+        solver.convert_output_labels(output_settings)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "Available states:" in str(e)
+        assert "Available observables:" in str(e)
+
+
+def test_array_only_fast_path(solver):
+    """Test array-only parameters don't trigger name resolution."""
+    import time
+    
+    output_settings = {
+        "saved_state_indices": np.array([0, 1], dtype=np.int16)
+    }
+    
+    # Time the fast path (should be very quick)
+    start = time.perf_counter()
+    for _ in range(1000):
+        settings_copy = output_settings.copy()
+        solver.convert_output_labels(settings_copy)
+    fast_time = time.perf_counter() - start
+    
+    # Should be well under 1 second for 1000 iterations
+    assert fast_time < 1.0
+
+
+def test_solve_ivp_with_save_variables(system):
+    """Test solve_ivp accepts save_variables and produces correct output."""
+    state_names = list(system.initial_values.names)[:2]
+    
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        save_variables=state_names,
+        dt_save=0.01,
+        duration=0.1,
+        method="euler",
+    )
+    
+    # Verify result contains saved states
+    assert result is not None
+    assert hasattr(result, 'time_domain_array')
+    assert result.time_domain_array is not None
+    # Verify shape matches number of save_variables
+    # time_domain_array shape is (time, variable, run) by default
+    assert result.time_domain_array.shape[1] == len(state_names)
+
+
+def test_solver_solve_with_save_variables(system):
+    """Test Solver.solve accepts save_variables parameter."""
+    state_names = list(system.initial_values.names)[:1]
+    
+    # Create fresh solver to avoid driver conflicts
+    solver = Solver(system)
+    result = solver.solve(
+        initial_values={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        save_variables=state_names,
+        duration=0.1,
+    )
+    
+    assert result is not None
+    # Verify saved output contains requested states
+    assert result.time_domain_array.shape[1] >= 1
+
+
+def test_solve_ivp_with_summarise_variables(system):
+    """Test solve_ivp accepts summarise_variables and produces summaries."""
+    state_names = list(system.initial_values.names)[:2]
+    
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        summarise_variables=state_names,
+        duration=0.1,
+        method="euler",
+    )
+    
+    # Verify result contains summaries
+    assert result is not None
+
+
+def test_save_variables_with_solve_ivp(system):
+    """Test save_variables parameter works with solve_ivp."""
+    state_names = list(system.initial_values.names)[:2]
+    
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        save_variables=state_names,
+        dt_save=0.01,
+        duration=0.1,
+        method="euler",
+    )
+    
+    assert result is not None
+    assert result.time_domain_array is not None
+
+
+def test_save_variables_with_multiple_states(system):
+    """Test save_variables with multiple state variables."""
+    state_names = list(system.initial_values.names)
+    if len(state_names) < 2:
+        pytest.skip("Need at least 2 states")
+    
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0], state_names[1]: [2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1]},
+        save_variables=state_names[:2],
+        dt_save=0.01,
+        duration=0.1,
+        method="euler",
+    )
+    
+    assert result is not None
+    assert result.time_domain_array.shape[1] == 2
+
+
+def test_deprecated_label_parameters_rejected(system):
+    """Test that deprecated label-based parameters are rejected.
+    
+    The parameters saved_states, saved_observables, summarised_states,
+    and summarised_observables are no longer accepted as input parameters.
+    Users should use save_variables/summarise_variables or index-based
+    parameters instead.
+    """
+    from cubie.outputhandling.output_functions import (
+        ALL_OUTPUT_FUNCTION_PARAMETERS
+    )
+    
+    assert "saved_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "saved_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "summarised_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    assert "summarised_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
+    
+    solver = Solver(
+        system,
+        algorithm="euler",
+    )
+    assert solver is not None
+
+
+def test_unified_save_variables_parameter(system):
+    """Test that save_variables parameter works as replacement for deprecated params.
+    
+    This demonstrates the recommended migration path from deprecated
+    saved_states/saved_observables to the unified save_variables parameter.
+    """
+    state_names = list(system.initial_values.names)
+    observable_names = (
+        list(system.observables.names)
+        if hasattr(system.observables, "names") and system.observables.names
+        else []
+    )
+    
+    all_vars = state_names[:2]
+    if observable_names:
+        all_vars.extend(observable_names[:1])
+    
+    solver = Solver(
+        system,
+        algorithm="euler",
+        save_variables=all_vars,
+        output_types=["state", "observables"],
+    )
+    
+    assert len(solver.saved_state_indices) >= 2
+    if observable_names:
+        assert len(solver.saved_observable_indices) >= 1
+    
+    saved_states_list = solver.saved_states
+    assert isinstance(saved_states_list, list)
+    assert len(saved_states_list) >= 2
