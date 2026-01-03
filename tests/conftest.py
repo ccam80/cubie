@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
 import os
 
-from numba import cuda
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
@@ -53,10 +52,6 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
-
-@cuda.jit()
-def kick():
-    array = cuda.local.array(1, dtype=np.float32)
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -181,26 +176,7 @@ def pytest_collection_modifyitems(config, items):
             items.append(item)
     pass
 
-#
-# --------------------------------------------------------------------------- #
-#                            numba.cuda import kick                           #
-# --------------------------------------------------------------------------- #
-# This is an attempt to stop "numba.cuda has no attribute 'local' errors
-# When "from numba import cuda" is included in this function (rather than at
-# the top of the conftest module, it fails when run, but works in the debugger
-def pytest_sessionstart(session):
-    """
-    Called after the Session object has been created and before test collection
-    and execution begins.
-    """
-    print("\n--- Performing session setup (pytest_sessionstart) ---")
-    try:
-        kick[1,1]()
-    except:
-        kick[1,1]()
 
-    print("--- Session setup complete ---")
-# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #
@@ -237,10 +213,14 @@ def codegen_dir():
     try:
         yield gen_dir
     finally:
-        # restore original attribute and remove temporary dir
-        mp.undo()
-        shutil.rmtree(gen_dir, ignore_errors=True)
-
+        # restore original attribute and remove temporary dir. Wrap in
+        # try/except in case multiple workers attempt to delete the same
+        # directory when running tests in parallel.
+        try:
+            mp.undo()
+            shutil.rmtree(gen_dir, ignore_errors=True)
+        except PermissionError:
+            pass
 # ========================================
 # HELPER BUILDERS
 # ========================================
@@ -250,7 +230,6 @@ def _get_driver_function(
     driver_array: Optional[ArrayInterpolator],
 ) -> Optional[Callable[..., Any]]:
     """Return the evaluation callable for ``driver_array`` if it exists."""
-
     if driver_array is None:
         return None
     return driver_array.evaluation_function
