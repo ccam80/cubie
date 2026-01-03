@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
 import os
 
-from numba import cuda
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
@@ -53,10 +52,6 @@ from tests.system_fixtures import (
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
-
-@cuda.jit()
-def kick():
-    array = cuda.local.array(1, dtype=np.float32)
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -235,7 +230,6 @@ def _get_driver_function(
     driver_array: Optional[ArrayInterpolator],
 ) -> Optional[Callable[..., Any]]:
     """Return the evaluation callable for ``driver_array`` if it exists."""
-
     if driver_array is None:
         return None
     return driver_array.evaluation_function
