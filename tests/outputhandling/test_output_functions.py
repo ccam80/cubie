@@ -273,6 +273,12 @@ def output_functions_test_kernel(
         shared_memory_requirements * n_summarised_observables
     )
 
+    # Output heights for dummy initialization arrays
+    state_summary_output_height = output_functions.state_summaries_output_height
+    obs_summary_output_height = (
+        output_functions.observable_summaries_output_height
+    )
+
     if test_shared_mem is False:
         num_states = 1 if num_states == 0 else num_states
         num_observables = 1 if num_observables == 0 else num_observables
@@ -283,6 +289,14 @@ def output_functions_test_kernel(
         )
         obs_summary_buffer_length = (
             1 if obs_summary_buffer_length == 0 else obs_summary_buffer_length
+        )
+        state_summary_output_height = (
+            1
+            if state_summary_output_height == 0
+            else state_summary_output_height
+        )
+        obs_summary_output_height = (
+            1 if obs_summary_output_height == 0 else obs_summary_output_height
         )
 
     numba_precision = from_dtype(precision)
@@ -350,6 +364,23 @@ def output_functions_test_kernel(
         # Counters buffer - always use local memory for simplicity
         counters = cuda.local.array(4, dtype=np.int32)
         counters[:] = 0
+
+        # Initialize summary buffers with proper sentinel values by calling
+        # save_summary_metrics_func once with dummy output arrays.
+        # This resets max buffers to -1e30, min buffers to 1e30, etc.
+        dummy_state_summary_out = cuda.local.array(
+            state_summary_output_height, dtype=numba_precision
+        )
+        dummy_obs_summary_out = cuda.local.array(
+            obs_summary_output_height, dtype=numba_precision
+        )
+        save_summary_metrics_func(
+            state_summaries,
+            observable_summaries,
+            dummy_state_summary_out,
+            dummy_obs_summary_out,
+            summarise_every,
+        )
 
         for i in range(_state_input.shape[0]):
             for j in range(num_states):
