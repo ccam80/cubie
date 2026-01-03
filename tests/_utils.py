@@ -1071,7 +1071,9 @@ def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array)
 
 def rebuild_solver(system, driver_array, solver_settings):
     # Try reloading 'cuda' to get a fresh cuda context.
-
+    # get a bit of debug information while we know we've hit the flaky bug.
+    from numba.cuda.simulator.kernel import _get_kernel_context
+    print(_get_kernel_context())
     solver = cubie.batchsolving.solver.Solver(system, **solver_settings)
     if driver_array is not None:
         solver.update({"driver_function": driver_array.evaluation_function})
