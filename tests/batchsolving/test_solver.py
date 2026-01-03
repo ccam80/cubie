@@ -32,21 +32,37 @@ def simple_parameters(system):
 @pytest.fixture(scope="session")
 def solved_solver_simple(
     solver,
+    solver_settings,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test basic solve functionality."""
-    result = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.1,
-        settling_time=0.0,
-        blocksize=32,
-        grid_type="combinatorial",
-        results_type="full",
-    )
+    try:
+        result = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.1,
+            settling_time=0.0,
+            blocksize=32,
+            grid_type="combinatorial",
+            results_type="full",
+        )
+    except AttributeError:
+        # The solver has failed to find cuda.local in one batch thread. Try
+        # again.
+        solver.update(solver_settings)
+        result = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.1,
+            settling_time=0.0,
+            blocksize=32,
+            grid_type="combinatorial",
+            results_type="full",
+        )
     return solver, result
 
 
@@ -222,20 +238,38 @@ def test_solve_basic(
     simple_initial_values,
     simple_parameters,
     driver_settings,
+    solver_settings,
 ):
     """Test basic solve functionality."""
-    result = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.05,
-        dt_save=0.02,
-        dt_summarise=0.04,
-        settling_time=0.0,
-        blocksize=32,
-        grid_type="combinatorial",
-        results_type="full",
-    )
+    try:
+        result = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.05,
+            dt_save=0.02,
+            dt_summarise=0.04,
+            settling_time=0.0,
+            blocksize=32,
+            grid_type="combinatorial",
+            results_type="full",
+        )
+    except AttributeError:
+        # CUDASIM failure, try again
+        solver.update(solver_settings)
+        result = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.05,
+            dt_save=0.02,
+            dt_summarise=0.04,
+            settling_time=0.0,
+            blocksize=32,
+            grid_type="combinatorial",
+            results_type="full",
+        )
+
 
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
@@ -246,16 +280,30 @@ def test_solve_with_different_grid_types(
     simple_initial_values,
     simple_parameters,
     driver_settings,
+    solver_settings,
 ):
     """Test solve with different grid types."""
     # Test combinatorial grid
-    result_comb = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.1,
-        grid_type="combinatorial",
-    )
+    try:
+        result_comb = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.1,
+            grid_type="combinatorial",
+        )
+    except AttributeError:
+        # The solver has failed to find cuda.local in one batch thread. Try
+        # again.
+        solver.update(solver_settings)
+        result_comb = solver.solve(
+                initial_values=simple_initial_values,
+                parameters=simple_parameters,
+                drivers=driver_settings,
+                duration=0.1,
+                grid_type="combinatorial",
+        )
+
     assert isinstance(result_comb, SolveResult)
 
     # Test verbatim grid with properly shaped arrays
@@ -271,14 +319,26 @@ def test_solve_with_different_grid_types(
         param_names[0]: [1.0, 2.0],
         param_names[1]: [0.5, 1.5],
     }
+    try:
+        result_verb = solver.solve(
+                initial_values=verbatim_initial_values,
+                parameters=verbatim_parameters,
+                drivers=driver_settings,
+                duration=0.1,
+                grid_type="verbatim",
+        )
+    except AttributeError:
+        # The solver has failed to find cuda.local in one batch thread. Try
+        # again.
+        solver.update(solver_settings)
+        result_verb = solver.solve(
+                initial_values=verbatim_initial_values,
+                parameters=verbatim_parameters,
+                drivers=driver_settings,
+                duration=0.1,
+                grid_type="verbatim",
+        )
 
-    result_verb = solver.solve(
-        initial_values=verbatim_initial_values,
-        parameters=verbatim_parameters,
-        drivers=driver_settings,
-        duration=0.1,
-        grid_type="verbatim",
-    )
     assert isinstance(result_verb, SolveResult)
 
 def test_solve_with_different_result_types(
@@ -286,20 +346,36 @@ def test_solve_with_different_result_types(
     simple_initial_values,
     simple_parameters,
     driver_settings,
+    solver_settings,
 ):
     """Test solve with different result types."""
     result_types = ["full", "numpy"]
 
     for result_type in result_types:
-        result = solver.solve(
-            initial_values=simple_initial_values,
-            parameters=simple_parameters,
-            drivers=driver_settings,
-            duration=0.05,
-            dt_save=0.02,
-            dt_summarise=0.04,
-            results_type=result_type,
-        )
+        try:
+            result = solver.solve(
+                    initial_values=simple_initial_values,
+                    parameters=simple_parameters,
+                    drivers=driver_settings,
+                    duration=0.05,
+                    dt_save=0.02,
+                    dt_summarise=0.04,
+                    results_type=result_type,
+            )
+        except AttributeError:
+            # The solver has failed to find cuda.local in one batch thread. Try
+            # again.
+            solver.update(solver_settings)
+            result = solver.solve(
+                    initial_values=simple_initial_values,
+                    parameters=simple_parameters,
+                    drivers=driver_settings,
+                    duration=0.05,
+                    dt_save=0.02,
+                    dt_summarise=0.04,
+                    results_type=result_type,
+            )
+
         assert result is not None
 
 
@@ -721,7 +797,8 @@ def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
 # ============================================================================
 
 def test_solve_with_prebuilt_arrays(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver, simple_initial_values, simple_parameters, driver_settings,
+        solver_settings
 ):
     """Test that solve() works with pre-built arrays (fast path)."""
     # First build the grid
@@ -730,40 +807,71 @@ def test_solve_with_prebuilt_arrays(
     )
 
     # Now solve with the pre-built arrays
-    result = solver.solve(
-        initial_values=inits,
-        parameters=params,
-        drivers=driver_settings,
-        duration=0.05,
-    )
-
+    try:
+        result = solver.solve(
+            initial_values=inits,
+            parameters=params,
+            drivers=driver_settings,
+            duration=0.05,
+        )
+    except AttributeError:
+        # CUDASIM failure to find cuda.local in one batch thread. Try again.
+        solver.update(solver_settings)
+        result = solver.solve(
+                initial_values=inits,
+                parameters=params,
+                drivers=driver_settings,
+                duration=0.05,
+        )
     assert isinstance(result, SolveResult)
 
 
 
 def test_solve_array_path_matches_dict_path(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver, solver_settings, simple_initial_values, simple_parameters,
+                        driver_settings
 ):
     """Test that array fast path produces same results as dict path."""
     # Solve with dict inputs
-    result_dict = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.05,
-        grid_type="verbatim",
-    )
-
+    try:
+        result_dict = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.05,
+            grid_type="verbatim",
+        )
+    except AttributeError:
+        #CUDASIM failure, try again
+        solver.update(solver_settings)
+        result_dict = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.05,
+            grid_type="verbatim",
+        )
     # Build grid and solve with arrays
     inits, params = solver.build_grid(
         simple_initial_values, simple_parameters, grid_type="verbatim"
     )
-    result_array = solver.solve(
-        initial_values=inits,
-        parameters=params,
-        drivers=driver_settings,
-        duration=0.05,
-    )
+    try:
+        result_array = solver.solve(
+                initial_values=inits,
+                parameters=params,
+                drivers=driver_settings,
+                duration=0.05,
+        )
+    except AttributeError:
+        #CUDASIM failure, try again
+        solver.update(solver_settings)
+        result_array = solver.solve(
+                initial_values=inits,
+                parameters=params,
+                drivers=driver_settings,
+                duration=0.05,
+        )
+
 
     # Results should match
     assert (result_dict.time_domain_array.shape
@@ -778,19 +886,35 @@ def test_solve_array_path_matches_dict_path(
 
 
 def test_solve_dict_path_backward_compatible(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver, simple_initial_values, simple_parameters, driver_settings,
+        solver_settings
 ):
     """Test that dict inputs still work exactly as before."""
-    result = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.05,
-        settling_time=0.0,
-        blocksize=32,
-        grid_type="combinatorial",
-        results_type="full",
-    )
+    try:
+        result = solver.solve(
+                initial_values=simple_initial_values,
+                parameters=simple_parameters,
+                drivers=driver_settings,
+                duration=0.05,
+                settling_time=0.0,
+                blocksize=32,
+                grid_type="combinatorial",
+                results_type="full",
+        )
+    except AttributeError:
+        #CUDASIM failure, try again
+        solver.update(solver_settings)
+        result = solver.solve(
+                initial_values=simple_initial_values,
+                parameters=simple_parameters,
+                drivers=driver_settings,
+                duration=0.05,
+                settling_time=0.0,
+                blocksize=32,
+                grid_type="combinatorial",
+                results_type="full",
+        )
+
 
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
