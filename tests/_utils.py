@@ -571,94 +571,114 @@ def local_minima(signal: np.ndarray) -> np.ndarray:
     )
 
 
-### ********************************************************************************************************* ###
-#                                        RANDOM GENERATION
-### ********************************************************************************************************* ###
-def single_scale_float_array(
-    shape: Union[int, tuple[int]], precision=np.float64, scale=1e6
+def deterministic_array(
+    precision,
+    size: Union[int, tuple[int]],
+    scale=1.0
 ):
-    """Generate a random float array of given shape and dtype, drawn from a normal distribution with a std dev of the
-    argument "scale". Normal was chosen here to slightly increase the magnitude-spead of values.
+    """Generate a deterministic array of numerically challenging values.
 
-    Args:
-        shape (tuple[int] | int): The shape of the array to generate.
-        precision (np.dtype): The desired data type of the array.
-        scale (float): The standard deviation of the normal distribution from which to draw values.
-    Returns:
-        random_array (np.ndarray): A numpy array of the specified shape and dtype, filled with random values.
+    Creates reproducible test arrays with values spanning multiple orders
+    of magnitude, including edge cases like near-zero values, large values,
+    and mathematically interesting constants (π, e).
 
+    Parameters
+    ----------
+    precision : numpy.dtype
+        The desired data type of the array (np.float32 or np.float64).
+    size : int or tuple of int
+        The shape of the array to generate.
+    scale : float, int, list, or tuple, optional
+        Guidance for value magnitudes. Default is 1.0.
+        - Single number: Values centered around that magnitude
+        - Tuple/list of two numbers: Interpreted as (min_exp, max_exp)
+          for values spanning 10^min_exp to 10^max_exp
+
+    Returns
+    -------
+    numpy.ndarray
+        A deterministic array of the specified shape and dtype filled
+        with numerically challenging values.
+
+    Notes
+    -----
+    The generated values include:
+    - Very small positive values (1e-12, 1e-9, 1e-6, 1e-3)
+    - Values near unity (0.1, 0.5, 1.0, 2.0)
+    - Mathematical constants (π, e)
+    - Large values (1e3, 1e6, 1e9, 1e12)
+    - Alternating signs for additional coverage
+
+    Values are tiled/broadcast to fill the requested shape and filtered
+    based on the scale parameter to stay within appropriate ranges.
     """
-    rng = np.random.default_rng()
-    return rng.normal(scale=scale, size=shape).astype(precision)
-
-
-def mixed_scale_float_array(
-    shape: Union[int, tuple[int]],
-    precision=np.float64,
-    log10_scale=(-6, 6),
-    axis=0,
-):
-    """Generates a float array where each element is drawn from a normal distribution. The std dev of the distribution
-    is 1*10^k, with drawn from a uniform distribution between log10_scale[0] and log10_scale[1]. The resulting array
-    can be used to test the system with a wide dynamic range of values, straining the numerical stability of the system.
-
-    Args:
-        shape (tuple[int] | int): The shape of the array to generate.
-        precision (np.dtype): The desired data type of the array. default: np.float64.
-        log10_scale (tuple[float]): A tuple of (min_exponent, max_exponent) two floats, the lower and upper bounds of
-            the log10 scale for the standard deviation. default: (-6, 6).
-        axis (int): all values along this axis will be drawn from a distribution of the same scale - in the context of
-            an ODE system, this means that each state will contain values at the same scale, so set it to the index
-            that corresponds to the state/parameter/value. default: 0
-
-    Returns:
-        random_array (np.ndarray): A numpy array of the specified shape and dtype, filled with random values drawn from
-            normal distributions with varying scales.
-
-    """
-    rng = np.random.default_rng()
-    if isinstance(shape, int):
-        shape = (shape,)
-    if axis > len(shape):
-        raise ValueError(f"Axis {axis} is out of bounds for shape {shape}.")
-    scale_exponents = rng.uniform(
-        log10_scale[0], log10_scale[1], size=shape[axis]
-    )
-    scale_values = 10.0**scale_exponents
-    _random_array = np.empty(shape, dtype=precision)
-    for i in range(shape[axis]):
-        _random_array[i] = rng.normal(
-            scale=scale_values[i], size=shape[:axis] + shape[axis + 1 :]
-        ).astype(precision)
-    return _random_array
-
-
-def random_array(precision, size: Union[int, tuple[int]], scale=1e6):
-    """Generate a random float array of given size and dtype, drawn from a normal distribution with a std dev of the
-    argument "scale". Normal was chosen here to slightly increase the magnitude-spead of values.
-
-    Args:
-        precision (np.dtype): The desired data type of the array.
-        size (int): The size of the array to generate.
-        scale (float): The standard deviation of the normal distribution from which to draw values.
-    Returns:
-        random_array (np.ndarray): A numpy array of the specified size and dtype, filled with random values.
-
-    """
-    if isinstance(scale, float):
-        scale = (scale,)
-    if len(scale) == 1:
-        randvals = single_scale_float_array(size, precision, scale[0])
-    elif len(scale) == 2:
-        randvals = mixed_scale_float_array(
-            size, precision, log10_scale=scale, axis=0
-        )
+    # Handle empty arrays
+    if isinstance(size, int):
+        total_elements = size
+        shape = (size,)
     else:
-        raise ValueError(
-            f"scale must be a single float or a tuple of two floats, got {scale}."
-        )
+        shape = tuple(size)
+        total_elements = 1
+        for dim in shape:
+            total_elements *= dim
 
-    return randvals
+    if total_elements == 0:
+        return np.empty(shape, dtype=precision)
+
+    # Interpret scale parameter
+    if isinstance(scale, (list, tuple)) and len(scale) == 2:
+        min_exp, max_exp = scale
+    else:
+        # Single scale value: create range centered around it
+        if isinstance(scale, (list, tuple)):
+            scale = scale[0]
+        scale_exp = math.log10(abs(scale)) if scale != 0 else 0
+        min_exp = scale_exp - 6
+        max_exp = scale_exp + 6
+
+    # Base set of challenging values (positive)
+    base_values = [
+        1e-12, 1e-9, 1e-6, 1e-3,
+        0.1, 0.5, 1.0, 2.0,
+        math.pi, math.e,
+        1e3, 1e6, 1e9, 1e12,
+    ]
+
+    # Filter values to be within the scale range
+    filtered_values = []
+    for v in base_values:
+        if v == 0:
+            filtered_values.append(v)
+        else:
+            v_exp = math.log10(abs(v))
+            if min_exp <= v_exp <= max_exp:
+                filtered_values.append(v)
+
+    # Ensure we have at least some values
+    if not filtered_values:
+        # Use scale-appropriate values if filter removed everything
+        mid_exp = (min_exp + max_exp) / 2
+        filtered_values = [
+            10 ** min_exp,
+            10 ** ((min_exp + mid_exp) / 2),
+            10 ** mid_exp,
+            10 ** ((mid_exp + max_exp) / 2),
+            10 ** max_exp,
+        ]
+
+    # Create array with alternating signs
+    values_with_signs = []
+    for i, v in enumerate(filtered_values):
+        sign = 1 if i % 2 == 0 else -1
+        values_with_signs.append(sign * v)
+
+    # Tile values to fill the requested size
+    num_base = len(values_with_signs)
+    result = np.empty(total_elements, dtype=precision)
+    for i in range(total_elements):
+        result[i] = values_with_signs[i % num_base]
+
+    return result.reshape(shape)
 
 
 def nan_array(precision, size):
@@ -711,7 +731,7 @@ def generate_test_array(precision, size, style, scale=None):
     if style == "random":
         if scale is None:
             raise ValueError("scale must be specified if type is 'random'.")
-        return random_array(precision, size, scale)
+        return deterministic_array(precision, size, scale)
     elif style == "nan":
         return nan_array(precision, size)
     elif style == "zero":
