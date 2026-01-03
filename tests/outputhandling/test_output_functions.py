@@ -4,7 +4,7 @@ from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
 
 from cubie.outputhandling import OutputFunctions
-from tests._utils import generate_test_array, calculate_expected_summaries
+from tests._utils import deterministic_array, calculate_expected_summaries
 
 
 @pytest.fixture(scope="session")
@@ -137,11 +137,11 @@ def input_arrays(output_test_settings):
     precision = output_test_settings["precision"]
     scale = output_test_settings["random_scale"]
 
-    states = generate_test_array(
-        precision, (num_samples, num_states), "random", scale
+    states = deterministic_array(
+        precision, (num_samples, num_states), scale
     )
-    observables = generate_test_array(
-        precision, (num_samples, num_observables), "random", scale
+    observables = deterministic_array(
+        precision, (num_samples, num_observables), scale
     )
 
     return states, observables

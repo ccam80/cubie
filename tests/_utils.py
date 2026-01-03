@@ -675,68 +675,6 @@ def deterministic_array(
     return result.reshape(shape)
 
 
-def nan_array(precision, size):
-    """Generate an array of NaNs of given size and dtype.
-
-    Args:
-        precision (np.dtype): The desired data type of the array.
-        size (int): The size of the array to generate.
-    Returns:
-        nan_array (np.ndarray): A numpy array of the specified size and dtype, filled with NaN values.
-    """
-    return np.full(size, np.nan, dtype=precision)
-
-
-def zero_array(precision, size):
-    """Generate an array of zeros of given size and dtype.
-
-    Args:
-        precision (np.dtype): The desired data type of the array.
-        size (int): The size of the array to generate.
-    Returns:
-        zero_array (np.ndarray): A numpy array of the specified size and dtype, filled with zeros.
-    """
-    return np.zeros(size, dtype=precision)
-
-
-def ones_array(precision, size):
-    """Generate an array of ones of given size and dtype.
-
-    Args:
-        precision (np.dtype): The desired data type of the array.
-        size (int): The size of the array to generate.
-    Returns:
-        one_array (np.ndarray): A numpy array of the specified size and dtype, filled with ones.
-    """
-    return np.ones(size, dtype=precision)
-
-
-def generate_test_array(precision, size, style, scale=None):
-    """Generate a test array of given size and dtype, with the specified type.
-
-    Args:
-        precision (np.dtype): The desired data type of the array.
-        size (int | tuple[int]): The size of the array to generate.
-        style (str): The type of array to generate. Options: 'random', 'nan', 'zero', 'ones'.
-        scale (float | tuple[float]): The scale for the random array, if type is 'random'. Default: None.
-    Returns:
-        test_array (np.ndarray): A numpy array of the specified size and dtype, filled with values according to the type.
-    """
-    if style == "random":
-        if scale is None:
-            raise ValueError("scale must be specified if type is 'random'.")
-        return deterministic_array(precision, size, scale)
-    elif style == "nan":
-        return nan_array(precision, size)
-    elif style == "zero":
-        return zero_array(precision, size)
-    elif style == "ones":
-        return ones_array(precision, size)
-    else:
-        raise ValueError(
-            f"Unknown array type: {style}. Use 'random', 'nan', 'zero', or 'ones'."
-        )
-
 # ******************** Device Test Kernels *********************************  #
 @attrs.define
 class LoopRunResult:
@@ -1019,46 +957,6 @@ def _driver_sequence(
             drivers[:, idx] = precision(
                 1.0 + np.sin(2 * np.pi * (idx + 1) * times / total_time))
     return drivers
-
-
-def evaluate_driver_series(
-    driver: ArrayInterpolator,
-    time: float,
-    precision,
-) -> Array:
-    """Evaluate driver splines on the host at ``time``."""
-
-    coeffs = np.asarray(driver.coefficients)
-    if coeffs.size == 0:
-        width = max(driver.num_drivers, 1)
-        return np.zeros(width, dtype=precision)
-
-    resolution = precision(driver.dt)
-    start_time = precision(driver.t0)
-    wrap = bool(driver.wrap)
-    num_segments = coeffs.shape[0]
-    inv_res = 1.0 / resolution if resolution != 0.0 else 0.0
-
-    scaled = (time - start_time) * inv_res if resolution != 0.0 else 0.0
-    segment = math.floor(scaled)
-    if wrap and num_segments > 0:
-        segment %= num_segments
-        if segment < 0:
-            segment += num_segments
-    else:
-        segment = max(0, min(num_segments - 1, segment))
-
-    base_time = start_time + resolution * precision(segment)
-    tau = (time - base_time) * inv_res if resolution != 0.0 else 0.0
-
-    values = np.zeros(coeffs.shape[1], dtype=precision)
-    for driver_idx in range(coeffs.shape[1]):
-        segment_coeffs = coeffs[segment, driver_idx]
-        acc = 0.0
-        for power in range(segment_coeffs.size - 1, -1, -1):
-            acc = acc * tau + precision(segment_coeffs[power])
-        values[driver_idx] = precision(acc)
-    return values
 
 
 def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array):
