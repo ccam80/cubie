@@ -68,7 +68,6 @@ addopts = [
     "--import-mode=importlib",
     "-nlogical",
     "-ra",
-    "-s",
     "--pytest-durations=0",
     "--cov=cubie",
     "--cov-report=xml:coverage.xml",
