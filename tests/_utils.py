@@ -1069,6 +1069,11 @@ def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array)
     return enhanced
 
 def rebuild_solver(system, driver_array, solver_settings):
+    # Try reloading 'cuda' to get a fresh cuda context.
+    from importlib import reload
+    import sys
+    reload(sys.modules['cuda'])
+    reload(sys.modules['cubie'])
     solver = Solver(system, **solver_settings)
     if driver_array is not None:
         solver.update({"driver_function": driver_array.evaluation_function})
