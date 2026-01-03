@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.6...v0.1.0) (2026-01-03)
+
+
+### Features
+
+* add runtime logging infrastructure for GPU kernels and memory transfers ([#289](https://github.com/ccam80/cubie/issues/289)) ([431425d](https://github.com/ccam80/cubie/commit/431425d5026e90beaf7367bce1863c7f61c2b34b))
+* enable driver interpolator profiling in all_in_one.py ([#419](https://github.com/ccam80/cubie/issues/419)) ([1574ec9](https://github.com/ccam80/cubie/commit/1574ec9b548c8f4690f9ac92e927d69bee2ae571))
+
+
+### Bug Fixes
+
+* correct false circular dependency error in topological_sort ([#422](https://github.com/ccam80/cubie/issues/422)) ([97c13be](https://github.com/ccam80/cubie/commit/97c13bec7dd31c9cfedba6503783c19ee9a9c59a))
+* default neumann preconditioner order set to 2 ([2434358](https://github.com/ccam80/cubie/commit/24343589fa30f28da630517bee26b691bbf48c2a))
+* DIRK codegen pipeline now decoupled from rosenbrock cache planning. ([80171b5](https://github.com/ccam80/cubie/commit/80171b52a33290c2f0f1ae10be8eed5e95f8308b))
+* dummy-kernel based compile time logging removed (it doubled compile time) ([431425d](https://github.com/ccam80/cubie/commit/431425d5026e90beaf7367bce1863c7f61c2b34b))
+* load_cellml_model surfaced to toplevel import ([54b05e0](https://github.com/ccam80/cubie/commit/54b05e09b7e0bd961cf76e931c98470b3f3aa33f))
+* loop now exits on irrecoverable-error status codes ([ba800a0](https://github.com/ccam80/cubie/commit/ba800a0df6142ae082f39d01fb57864fc0c5990b))
+* map CellML time variable to standard 't' symbol ([#425](https://github.com/ccam80/cubie/issues/425)) ([261c109](https://github.com/ccam80/cubie/commit/261c1092ba9a50b703a1bc949957217462bafd6f))
+* Newton-krylov solver no longer propagates krylov non-convergence or max_backtrack errors if it recovers ([1411135](https://github.com/ccam80/cubie/commit/1411135b70268377f23df251e7b13de518803499))
+* repeated CSE calls no longer raise warning about an already-used CSE symbol. ([16785f3](https://github.com/ccam80/cubie/commit/16785f3a4641b719c2a70b11becda5533f6e4e2e))
+
+
+### Performance Improvements
+
+* Convert whole-module imports to explicit imports in CUDAFactory files ([#443](https://github.com/ccam80/cubie/issues/443)) ([9cebe45](https://github.com/ccam80/cubie/commit/9cebe45b93a9b5d5f189dee971edf36ecbb9431c))
+
 ## [0.0.6](https://github.com/ccam80/cubie/compare/v0.0.5...v0.0.6) (2025-12-27)
 
 
