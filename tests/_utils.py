@@ -1074,6 +1074,7 @@ def rebuild_solver(system, driver_array, solver_settings):
     import sys
     reload(sys.modules['cuda'])
     reload(sys.modules['cubie'])
+    reload(sys.modules['cubie.buffer_registry'])
     solver = Solver(system, **solver_settings)
     if driver_array is not None:
         solver.update({"driver_function": driver_array.evaluation_function})
