@@ -181,26 +181,7 @@ def pytest_collection_modifyitems(config, items):
             items.append(item)
     pass
 
-#
-# --------------------------------------------------------------------------- #
-#                            numba.cuda import kick                           #
-# --------------------------------------------------------------------------- #
-# This is an attempt to stop "numba.cuda has no attribute 'local' errors
-# When "from numba import cuda" is included in this function (rather than at
-# the top of the conftest module, it fails when run, but works in the debugger
-def pytest_sessionstart(session):
-    """
-    Called after the Session object has been created and before test collection
-    and execution begins.
-    """
-    print("\n--- Performing session setup (pytest_sessionstart) ---")
-    try:
-        kick[1,1]()
-    except:
-        kick[1,1]()
 
-    print("--- Session setup complete ---")
-# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #
@@ -237,10 +218,14 @@ def codegen_dir():
     try:
         yield gen_dir
     finally:
-        # restore original attribute and remove temporary dir
-        mp.undo()
-        shutil.rmtree(gen_dir, ignore_errors=True)
-
+        # restore original attribute and remove temporary dir. Wrap in
+        # try/except in case multiple workers attempt to delete the same
+        # directory when running tests in parallel.
+        try:
+            mp.undo()
+            shutil.rmtree(gen_dir, ignore_errors=True)
+        except PermissionError:
+            pass
 # ========================================
 # HELPER BUILDERS
 # ========================================
