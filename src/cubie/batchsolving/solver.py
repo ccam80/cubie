@@ -32,7 +32,20 @@ from cubie._utils import merge_kwargs_into_settings
 from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
+
+# Register module-level events
+default_timelogger.register_event(
+    "solve_ivp",
+    "runtime",
+    "Wall-clock time for solve_ivp()"
+)
+default_timelogger.register_event(
+    "solver_solve",
+    "runtime",
+    "Wall-clock time for Solver.solve()"
+)
+
 
 
 def solve_ivp(
@@ -104,6 +117,10 @@ def solve_ivp(
         time_logging_level=time_logging_level,
         **kwargs,
     )
+
+    # Start wall-clock timing
+    default_timelogger.start_event("solve_ivp")
+
     results = solver.solve(
         y0,
         parameters,
@@ -115,6 +132,10 @@ def solve_ivp(
         nan_error_trajectories=nan_error_trajectories,
         **kwargs,
     )
+
+    # Stop wall-clock timing (summary printed by Solver.solve)
+    default_timelogger.stop_event("solve_ivp")
+
     return results
 
 
@@ -186,7 +207,7 @@ class Solver:
             loop_settings = {}
 
         # Set global time logging level
-        _default_timelogger.set_verbosity(time_logging_level)
+        default_timelogger.set_verbosity(time_logging_level)
 
         super().__init__()
         precision = system.precision
@@ -481,6 +502,9 @@ class Solver:
         if kwargs:
             self.update(kwargs, silent=True)
 
+        # Start wall-clock timing for solve
+        default_timelogger.start_event("solver_solve")
+
         # Classify inputs to determine processing path
         input_type = self._classify_inputs(initial_values, parameters)
 
@@ -520,6 +544,12 @@ class Solver:
             chunk_axis=chunk_axis,
         )
         self.memory_manager.sync_stream(self.kernel)
+
+        # Stop wall-clock timing and print all timing summaries
+        # (CUDA events retrieved automatically by print_summary)
+        default_timelogger.stop_event("solver_solve")
+        default_timelogger.print_summary()
+
         return SolveResult.from_solver(
             self,
             results_type=results_type,
@@ -681,9 +711,12 @@ class Solver:
         recognised = set()
 
         if "mem_proportion" in updates_dict:
-            self.memory_manager.set_manual_proportion(
-                self.kernel, updates_dict["mem_proportion"]
-            )
+            if updates_dict["mem_proportion"] is None:
+                self.memory_manager.set_auto_limit_mode(self.kernel)
+            else:
+                self.memory_manager.set_manual_proportion(
+                    self.kernel, updates_dict["mem_proportion"]
+                )
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
             self.memory_manager.set_allocator(
@@ -1042,7 +1075,7 @@ class Solver:
         Updates the global time logger verbosity. This affects all
         timing events across the entire CuBIE package.
         """
-        _default_timelogger.set_verbosity(verbosity)
+        default_timelogger.set_verbosity(verbosity)
 
     @property
     def solve_info(self) -> SolveSpec:

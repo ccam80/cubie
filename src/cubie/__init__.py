@@ -16,21 +16,20 @@ from cubie.batchsolving import *        # noqa
 from cubie.integrators import *         # noqa
 from cubie.outputhandling import *      # noqa
 from cubie.memory import *              # noqa
-import cubie.odesystems as systems    # noqa
 from cubie.odesystems import *        # noqa
 from cubie._utils import *              # noqa
-from cubie.time_logger import TimeLogger  # noqa
+from cubie.time_logger import TimeLogger, default_timelogger
 
 __all__ = [
     "summary_metrics",
     "default_memmgr",
-    "systems",
     "ArrayTypes",
     "Solver",
     "solve_ivp",
     "SymbolicODE",
     "create_ODE_system",
     "TimeLogger",
+    "default_timelogger",
     "load_cellml_model",
 ]
 

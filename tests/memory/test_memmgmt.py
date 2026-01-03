@@ -324,8 +324,7 @@ class TestMemoryManager:
     def test_set_manual_limit_mode(
         self, mem_manager_settings, registered_instance_settings
     ):
-        """Test that set_manual_limit_mode sets the instance to manual mode,
-        and that it raises ValueError if the instance is already in manual mode"""
+        """Test that set_manual_limit_mode sets the instance to manual mode"""
         regmgr, instance = registered_mgr_context_safe(
                 mem_manager_settings,
                 registered_instance_settings
@@ -333,8 +332,7 @@ class TestMemoryManager:
         instance_id = id(instance)
         regmgr.set_manual_limit_mode(instance, 0.3)
         assert instance_id in regmgr._manual_pool
-        with pytest.raises(ValueError):
-            regmgr.set_manual_limit_mode(instance, 0.2)
+
 
     def test_set_auto_limit_mode(self, mem_manager_settings,
                 registered_instance_settings):

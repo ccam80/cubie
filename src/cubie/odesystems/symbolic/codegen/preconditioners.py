@@ -24,18 +24,18 @@ from cubie.odesystems.symbolic.sym_utils import (
     topological_sort,
     prune_unused_assignments,
 )
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 
 # Register timing events for codegen functions
 # Module-level registration required since codegen functions return code
 # strings rather than cacheable objects that could auto-register
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_generate_neumann_preconditioner_code", "codegen",
     "Codegen time for generate_neumann_preconditioner_code")
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_generate_neumann_preconditioner_cached_code", "codegen",
     "Codegen time for generate_neumann_preconditioner_cached_code")
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_generate_n_stage_neumann_preconditioner_code", "codegen",
     "Codegen time for generate_n_stage_neumann_preconditioner_code")
 
@@ -430,7 +430,7 @@ def generate_n_stage_neumann_preconditioner_code(
     jvp_equations: Optional[JVPEquations] = None,
 ) -> str:
     """Generate a flattened n-stage FIRK Neumann preconditioner factory."""
-    _default_timelogger.start_event("codegen_generate_n_stage_neumann_preconditioner_code")
+    default_timelogger.start_event("codegen_generate_n_stage_neumann_preconditioner_code")
 
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
@@ -463,7 +463,7 @@ def generate_n_stage_neumann_preconditioner_code(
         total_states=total_states,
         state_count=state_count,
     )
-    _default_timelogger.stop_event("codegen_generate_n_stage_neumann_preconditioner_code")
+    default_timelogger.stop_event("codegen_generate_n_stage_neumann_preconditioner_code")
     return result
 
 def generate_neumann_preconditioner_code(
@@ -477,7 +477,7 @@ def generate_neumann_preconditioner_code(
     
     For Newton-Krylov usage: applies inline state evaluation.
     """
-    _default_timelogger.start_event("codegen_generate_neumann_preconditioner_code")
+    default_timelogger.start_event("codegen_generate_neumann_preconditioner_code")
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -496,7 +496,7 @@ def generate_neumann_preconditioner_code(
         jv_body=jv_body,
         const_lines=const_block,
     )
-    _default_timelogger.stop_event("codegen_generate_neumann_preconditioner_code")
+    default_timelogger.stop_event("codegen_generate_neumann_preconditioner_code")
     return result
 
 def generate_neumann_preconditioner_cached_code(
@@ -511,7 +511,7 @@ def generate_neumann_preconditioner_cached_code(
     For Rosenbrock usage: state param is actual state,
     no inline substitution needed.
     """
-    _default_timelogger.start_event("codegen_generate_neumann_preconditioner_cached_code")
+    default_timelogger.start_event("codegen_generate_neumann_preconditioner_cached_code")
 
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -530,7 +530,7 @@ def generate_neumann_preconditioner_cached_code(
         jv_body=jv_body,
         const_lines=const_block,
     )
-    _default_timelogger.stop_event("codegen_generate_neumann_preconditioner_cached_code")
+    default_timelogger.stop_event("codegen_generate_neumann_preconditioner_cached_code")
     return result
 
 

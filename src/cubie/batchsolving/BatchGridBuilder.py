@@ -39,9 +39,12 @@ improving code clarity and reducing unnecessary transformations.
 Examples
 --------
 >>> import numpy as np
+>>> import cubie as qb
 >>> from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
->>> from cubie.odesystems.systems.decays import Decays
->>> system = Decays(coefficients=[1.0, 2.0])
+>>> system = qb.create_ODE_system(
+...    dxdt=["dx = p0 * p1 * y","dy = p1 * x"],
+...    parameters = {'p0': 2.0, 'p1': 1.5}
+... )
 >>> grid_builder = BatchGridBuilder.from_system(system)
 >>> params = {"p0": [0.1, 0.2], "p1": [10, 20]}
 >>> states = {"x0": [1.0, 2.0], "x1": [0.5, 1.5]}
