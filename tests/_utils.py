@@ -647,12 +647,9 @@ def deterministic_array(
     # Filter values to be within the scale range
     filtered_values = []
     for v in base_values:
-        if v == 0:
+        v_exp = math.log10(v)
+        if min_exp <= v_exp <= max_exp:
             filtered_values.append(v)
-        else:
-            v_exp = math.log10(abs(v))
-            if min_exp <= v_exp <= max_exp:
-                filtered_values.append(v)
 
     # Ensure we have at least some values
     if not filtered_values:
