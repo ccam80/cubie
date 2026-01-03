@@ -4,10 +4,9 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
 import warnings
 
-import attrs
-import numpy as np
-from attrs import validators
-import numba
+from attrs import define, field, validators
+from numba import from_dtype
+from numpy import dtype as np_dtype, sum as np_sum
 
 from cubie._utils import (
     PrecisionDType,
@@ -51,7 +50,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
 }
 
 
-@attrs.define(frozen=True)
+@define(frozen=True)
 class ButcherTableau:
     """ Generic ``Butcher Tableau``` object.
 
@@ -82,11 +81,11 @@ class ButcherTableau:
         Returns a given matrix (rows) as precision-typed tuples for each stage.
     """
 
-    a: Tuple[Tuple[float, ...], ...] = attrs.field()
-    b: Tuple[float, ...] = attrs.field()
-    c: Tuple[float, ...] = attrs.field()
-    order: int = attrs.field()
-    b_hat: Optional[Tuple[float, ...]] = attrs.field(default=None)
+    a: Tuple[Tuple[float, ...], ...] = field()
+    b: Tuple[float, ...] = field()
+    c: Tuple[float, ...] = field()
+    order: int = field()
+    b_hat: Optional[Tuple[float, ...]] = field(default=None)
 
     def __attrs_post_init__(self) -> None:
         """Validate tableau coefficients after initialisation."""
@@ -95,9 +94,9 @@ class ButcherTableau:
         if self.b_hat is not None:
             if len(self.b_hat) != stage_count:
                 raise ValueError("b_hat must match the number of stages in b")
-            if (1.0 - np.sum(self.b_hat)) > 1e-8:
+            if (1.0 - np_sum(self.b_hat)) > 1e-8:
                 raise ValueError("b_hat must sum to one")
-        if (1.0 - np.sum(self.b)) > 1e-8:
+        if (1.0 - np_sum(self.b)) > 1e-8:
             raise ValueError("b must sum to one")
 
     @property
@@ -324,11 +323,11 @@ class ButcherTableau:
         return self._find_matching_row(self.b_hat)
 
 
-@attrs.define
+@define
 class StepControlDefaults:
     """Per-algorithm defaults for step controller settings."""
 
-    step_controller: Dict[str, Any] = attrs.field(factory=dict)
+    step_controller: Dict[str, Any] = field(factory=dict)
 
     def copy(self) -> "StepControlDefaults":
         """Return a deep-copy of the defaults container."""
@@ -336,7 +335,7 @@ class StepControlDefaults:
             step_controller=dict(self.step_controller),
         )
 
-@attrs.define
+@define
 class BaseStepConfig(ABC):
     """Configuration shared by explicit and implicit integration steps.
 
@@ -360,29 +359,29 @@ class BaseStepConfig(ABC):
         nonlinear solver construction.
     """
 
-    precision: PrecisionDType = attrs.field(
+    precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator,
     )
 
-    n: int = attrs.field(default=1, validator=getype_validator(int, 1))
-    n_drivers: int = attrs.field(default=0, validator=getype_validator(int, 0))
-    dxdt_function: Optional[Callable] = attrs.field(
+    n: int = field(default=1, validator=getype_validator(int, 1))
+    n_drivers: int = field(default=0, validator=getype_validator(int, 0))
+    dxdt_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    observables_function: Optional[Callable] = attrs.field(
+    observables_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    driver_function: Optional[Callable] = attrs.field(
+    driver_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    get_solver_helper_fn: Optional[Callable] = attrs.field(
+    get_solver_helper_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(validators.is_callable()),
         eq=False
@@ -392,13 +391,13 @@ class BaseStepConfig(ABC):
     def numba_precision(self) -> type:
         """Return the Numba dtype associated with ``precision``."""
 
-        return numba.from_dtype(np.dtype(self.precision))
+        return from_dtype(np_dtype(self.precision))
 
     @property
     def simsafe_precision(self) -> type:
         """Return the CUDA-simulator-safe dtype for ``precision``."""
 
-        return simsafe_dtype(np.dtype(self.precision))
+        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, object]:
@@ -442,7 +441,7 @@ class BaseStepConfig(ABC):
             return 1
         return tableau.stage_count
 
-@attrs.define
+@define
 class StepCache(CUDAFunctionCache):
     """Container for compiled device helpers used by an algorithm step.
 
@@ -455,8 +454,8 @@ class StepCache(CUDAFunctionCache):
         nonlinear solves.
     """
 
-    step: Callable = attrs.field(validator=is_device_validator)
-    nonlinear_solver: Optional[Callable] = attrs.field(
+    step: Callable = field(validator=is_device_validator)
+    nonlinear_solver: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
     )
@@ -548,7 +547,7 @@ class BaseAlgorithmStep(CUDAFactory):
         # Mark valid algorithm parameters as recognized to prevent error propagation
         recognised |= valid_but_inapplicable
 
-        if valid_but_inapplicable:
+        if valid_but_inapplicable and not silent:
             algorithm_type = self.__class__.__name__
             params_str = ", ".join(sorted(valid_but_inapplicable))
             warnings.warn(

@@ -9,8 +9,8 @@ instance so the compiled functions always reflect the active configuration.
 
 from typing import Callable, Sequence, Union, Optional
 
-import attrs
-import numpy as np
+from attrs import define, field, validators
+from numpy import int_
 from numpy.typing import ArrayLike, NDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -38,7 +38,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
 }
 
 
-@attrs.define
+@define
 class OutputFunctionCache(CUDAFunctionCache):
     """Cache container for compiled output functions.
 
@@ -52,14 +52,14 @@ class OutputFunctionCache(CUDAFunctionCache):
         Compiled CUDA function for saving summary results.
     """
 
-    save_state_function: Callable = attrs.field(
-        validator=attrs.validators.instance_of(Callable)
+    save_state_function: Callable = field(
+        validator=validators.instance_of(Callable)
     )
-    update_summaries_function: Callable = attrs.field(
-        validator=attrs.validators.instance_of(Callable)
+    update_summaries_function: Callable = field(
+        validator=validators.instance_of(Callable)
     )
-    save_summaries_function: Callable = attrs.field(
-        validator=attrs.validators.instance_of(Callable)
+    save_summaries_function: Callable = field(
+        validator=validators.instance_of(Callable)
     )
 
 
@@ -262,22 +262,22 @@ class OutputFunctions(CUDAFactory):
         return self.compile_settings.save_time
 
     @property
-    def saved_state_indices(self) -> NDArray[np.int_]:
+    def saved_state_indices(self) -> NDArray[int_]:
         """Indices of states saved in time-domain output."""
         return self.compile_settings.saved_state_indices
 
     @property
-    def saved_observable_indices(self) -> NDArray[np.int_]:
+    def saved_observable_indices(self) -> NDArray[int_]:
         """Indices of observables saved in time-domain output."""
         return self.compile_settings.saved_observable_indices
 
     @property
-    def summarised_state_indices(self) -> NDArray[np.int_]:
+    def summarised_state_indices(self) -> NDArray[int_]:
         """Indices of states tracked by summary metrics."""
         return self.compile_settings.summarised_state_indices
 
     @property
-    def summarised_observable_indices(self) -> NDArray[np.int_]:
+    def summarised_observable_indices(self) -> NDArray[int_]:
         """Indices of observables tracked by summary metrics."""
         return self.compile_settings.summarised_observable_indices
 

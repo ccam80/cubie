@@ -62,7 +62,7 @@ class StepResult:
     observables: Array
     error: Array
     status: int
-    niters: int
+    n_iters: Optional[int] = None
     counters: Optional[Array] = None
 
 

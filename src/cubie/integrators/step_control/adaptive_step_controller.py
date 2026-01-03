@@ -4,7 +4,7 @@ from abc import abstractmethod
 from typing import Callable, Optional, Union
 from warnings import warn
 
-import numpy as np
+from numpy import asarray, full, isscalar, ndarray, sqrt
 from attrs import Converter, define, field
 from numpy.typing import ArrayLike
 
@@ -22,7 +22,7 @@ from cubie.integrators.step_control.base_step_controller import (
 def tol_converter(
     value: Union[float, ArrayLike],
     self_: "AdaptiveStepControlConfig",
-) -> np.ndarray:
+) -> ndarray:
     """Convert tolerance input into an array with controller precision.
 
     Parameters
@@ -43,13 +43,13 @@ def tol_converter(
         Raised when ``value`` cannot be broadcast to the expected shape.
     """
 
-    if np.isscalar(value):
-        tol = np.full(self_.n, value, dtype=self_.precision)
+    if isscalar(value):
+        tol = full(self_.n, value, dtype=self_.precision)
     else:
-        tol = np.asarray(value, dtype=self_.precision)
+        tol = asarray(value, dtype=self_.precision)
         # Broadcast single-element arrays to shape (n,)
         if tol.shape[0] == 1 and self_.n > 1:
-            tol = np.full(self_.n, tol[0], dtype=self_.precision)
+            tol = full(self_.n, tol[0], dtype=self_.precision)
         elif tol.shape[0] != self_.n:
             raise ValueError("tol must have shape (n,).")
     return tol
@@ -69,13 +69,13 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     _dt_max: Optional[float] = field(
         default=1.0, validator=getype_validator(float, 0)
     )
-    atol: np.ndarray = field(
-        default=np.asarray([1e-6]),
+    atol: ndarray = field(
+        default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True)
     )
-    rtol: np.ndarray = field(
-        default=np.asarray([1e-6]),
+    rtol: ndarray = field(
+        default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True)
     )
@@ -138,7 +138,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     @property
     def dt0(self) -> float:
         """Return the initial step size."""
-        return self.precision(np.sqrt(self.dt_min * self.dt_max))
+        return self.precision(sqrt(self.dt_min * self.dt_max))
 
     @property
     def is_adaptive(self) -> bool:
@@ -243,8 +243,8 @@ class BaseAdaptiveStepController(BaseStepController):
         dt_min: float,
         dt_max: float,
         n: int,
-        atol: np.ndarray,
-        rtol: np.ndarray,
+        atol: ndarray,
+        rtol: ndarray,
         algorithm_order: int,
         safety: float,
     ) -> ControllerCache:
@@ -329,12 +329,12 @@ class BaseAdaptiveStepController(BaseStepController):
         return int(self.compile_settings.algorithm_order)
 
     @property
-    def atol(self) -> np.ndarray:
+    def atol(self) -> ndarray:
         """Return absolute tolerance."""
         return self.compile_settings.atol
 
     @property
-    def rtol(self) -> np.ndarray:
+    def rtol(self) -> ndarray:
         """Return relative tolerance."""
         return self.compile_settings.rtol
 

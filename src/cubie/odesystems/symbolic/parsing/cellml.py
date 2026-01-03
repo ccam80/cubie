@@ -52,23 +52,23 @@ from typing import Optional, List
 import re
 
 from cubie._utils import PrecisionDType
-from cubie.time_logger import _default_timelogger
+from cubie.time_logger import default_timelogger
 
 # Register timing events for cellml import functions
 # Module-level registration required for proper event tracking
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_cellml_load_model", "codegen",
     "Codegen time for cellmlmanip.load_model()"
 )
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_cellml_symbol_conversion", "codegen",
     "Codegen time for converting Dummy symbols to Symbols"
 )
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_cellml_equation_processing", "codegen",
     "Codegen time for processing differential and algebraic equations"
 )
-_default_timelogger.register_event(
+default_timelogger.register_event(
     "codegen_cellml_sympy_preparation", "codegen",
     "Codegen time for preparing SymPy equations for parser"
 )
@@ -204,17 +204,17 @@ def load_cellml_model(
     if name is None:
         name = path_obj.stem
     
-    _default_timelogger.start_event("codegen_cellml_load_model")
+    default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
-    _default_timelogger.stop_event("codegen_cellml_load_model")
+    default_timelogger.stop_event("codegen_cellml_load_model")
     
     # Extract initial values and units from CellML model
     initial_values = {}
     state_units = {}
     
-    _default_timelogger.start_event("codegen_cellml_symbol_conversion")
+    default_timelogger.start_event("codegen_cellml_symbol_conversion")
     # Convert Dummy symbols to regular Symbols with sanitized names
     # cellmlmanip returns Dummy symbols but we need regular Symbols
     states = []
@@ -291,9 +291,9 @@ def load_cellml_model(
                     all_symbol_units[clean_name] = str(atom.units)
                 else:
                     all_symbol_units[clean_name] = "dimensionless"
-    _default_timelogger.stop_event("codegen_cellml_symbol_conversion")
+    default_timelogger.stop_event("codegen_cellml_symbol_conversion")
     
-    _default_timelogger.start_event("codegen_cellml_equation_processing")
+    default_timelogger.start_event("codegen_cellml_equation_processing")
     # Filter differential equations and algebraic equations separately
     differential_equations = []
     algebraic_equations = []
@@ -304,9 +304,9 @@ def load_cellml_model(
             differential_equations.append(eq_substituted)
         else:
             algebraic_equations.append(eq_substituted)
-    _default_timelogger.stop_event("codegen_cellml_equation_processing")
+    default_timelogger.stop_event("codegen_cellml_equation_processing")
     
-    _default_timelogger.start_event("codegen_cellml_sympy_preparation")
+    default_timelogger.start_event("codegen_cellml_sympy_preparation")
     
     dxdt_equations = []
     for eq in differential_equations:
@@ -358,7 +358,7 @@ def load_cellml_model(
     if parameters is not None and isinstance(parameters, dict):
         parameters_dict = {**parameters_dict, **parameters}
     
-    _default_timelogger.stop_event("codegen_cellml_sympy_preparation")
+    default_timelogger.stop_event("codegen_cellml_sympy_preparation")
     
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
     

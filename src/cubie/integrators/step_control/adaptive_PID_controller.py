@@ -1,7 +1,7 @@
 """Adaptive proportional–integral–derivative controller implementations."""
 from typing import Callable, Optional, Union
 
-import numpy as np
+from numpy import ndarray
 from numba import cuda, int32
 from attrs import define, field, validators
 
@@ -119,8 +119,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         dt_min: float,
         dt_max: float,
         n: int,
-        atol: np.ndarray,
-        rtol: np.ndarray,
+        atol: ndarray,
+        rtol: ndarray,
         algorithm_order: int,
         safety: float,
     ) -> ControllerCache:

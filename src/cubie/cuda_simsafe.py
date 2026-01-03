@@ -25,6 +25,7 @@ compile_kwargs: dict[str, bool] = (
         else {
             'lineinfo': True,
             # 'debug':True,
+            # 'opt':False,
             'fastmath': {
                 'nsz': True,
                    'contract': True,
@@ -110,20 +111,6 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
 
     free = 1024 ** 3
     total = 8 * 1024 ** 3
-
-
-class LocalArrayFactory:  # pragma: no cover - simulated
-    """Factory for local array allocation in simulation mode.
-
-    Provides a simulation-compatible interface for cuda.local.array().
-    In simulation mode, returns a numpy zeros array instead of a CUDA
-    local memory array.
-    """
-
-    @staticmethod
-    def array(size, dtype):
-        """Allocate a local array with the given size and dtype."""
-        return np.zeros(size, dtype=dtype)
 
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
@@ -331,7 +318,6 @@ __all__ = [
     "FakeStream",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
-    # "local",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",

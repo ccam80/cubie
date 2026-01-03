@@ -575,7 +575,7 @@ class MemoryManager:
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
-            raise ValueError("Instance is already in manual allocation pool")
+            return
         self._auto_pool.remove(instance_id)
         self._add_manual_proportion(instance, proportion)
         settings.proportion = proportion
@@ -601,7 +601,7 @@ class MemoryManager:
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._auto_pool:
-            raise ValueError("Instance is already in auto allocation pool")
+            return
         self._manual_pool.remove(instance_id)
         settings.proportion = self._add_auto_proportion(instance)
 

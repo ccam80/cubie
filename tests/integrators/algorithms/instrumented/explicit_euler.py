@@ -32,6 +32,7 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
+        **kwargs,
     ) -> None:
         """Initialise the explicit Euler step configuration.
 

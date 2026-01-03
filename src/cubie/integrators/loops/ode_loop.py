@@ -7,8 +7,8 @@ device call so that compiled kernels only focus on algorithmic updates.
 """
 from typing import Callable, Optional, Set
 
-import attrs
-import numpy as np
+from attrs import define, field
+from numpy import int32 as np_int32
 from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -19,7 +19,7 @@ from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
-@attrs.define
+@define
 class IVPLoopCache(CUDAFunctionCache):
     """Cache for IVP loop device function.
     
@@ -28,7 +28,7 @@ class IVPLoopCache(CUDAFunctionCache):
     loop_function
         Compiled CUDA device function that executes the integration loop.
     """
-    loop_function: Callable = attrs.field()
+    loop_function: Callable = field()
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
 # the solver API so helper utilities can consistently merge keyword arguments
@@ -281,7 +281,7 @@ class IVPLoop(CUDAFactory):
         )
         buffer_registry.register(
             'proposed_counters', self, 2, config.proposed_counters_location,
-            precision=np.int32
+            precision=np_int32
         )
 
     @property
@@ -364,7 +364,8 @@ class IVPLoop(CUDAFactory):
         n_observables = int32(config.n_observables)
         n_drivers = int32(config.n_drivers)
         n_counters = int32(config.n_counters)
-        
+        n_error = int32(config.n_error)
+
         fixed_mode = not config.is_adaptive
 
         @cuda.jit(
@@ -560,7 +561,7 @@ class IVPLoop(CUDAFactory):
                     proposed_counters[i] = int32(0)
 
             mask = activemask()
-
+            irrecoverable = False
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
@@ -576,8 +577,7 @@ class IVPLoop(CUDAFactory):
                                  dt_raw)
 
                 # Exit loop if finished, or min_step exceeded, or time stagnant
-                finished = finished or bool_(status & int32(0x8)) or bool_(
-                        status * int32(0x40))
+                finished = finished or irrecoverable
 
                 if all_sync(mask, finished):
                     return status
@@ -614,7 +614,16 @@ class IVPLoop(CUDAFactory):
                     niters = proposed_counters[0]
                     status = int32(status | step_status)
 
-                    # Adjust dt if step rejected - auto-accepts if fixed-step
+                    # A nonzero step status indicates step failure (e.g., solver
+                    # convergence failure). In adaptive mode this should reject the
+                    # step and trigger a timestep reduction; in fixed mode it is
+                    # irrecoverable.
+                    step_failed = bool_(step_status != int32(0))
+                    irrecoverable = bool_(irrecoverable or (fixed_mode and step_failed))
+                    for i in range(n_error):
+                        error[i] = selp(step_failed, precision(1e16), error[i])
+
+                    # Adjust dt based on calculated error if adaptive
                     if not fixed_mode:
                         controller_status = step_controller(
                             dt,
@@ -628,10 +637,16 @@ class IVPLoop(CUDAFactory):
                         )
 
                         accept = bool_(accept_step[0] != int32(0))
+                        accept = bool_(accept and (not step_failed))
                         status = int32(status | controller_status)
 
+                        # If the step size drops below dt_min, we can't recover
+                        irrecoverable = bool_(
+                            irrecoverable or (
+                                    (controller_status & 0x8) != int32(0))
+                        )
                     else:
-                        accept = True
+                        accept = bool_(not step_failed)
 
                     dt_raw = dt[0]
 
@@ -663,6 +678,7 @@ class IVPLoop(CUDAFactory):
                             int32(status | int32(0x40)),
                             status
                     )
+                    irrecoverable = bool_(irrecoverable or stagnant)
 
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
@@ -729,41 +745,6 @@ class IVPLoop(CUDAFactory):
                             for i in range(n_counters):
                                 counters_since_save[i] = int32(0)
 
-        # Attach critical shapes for dummy execution
-        # Parameters in order: initial_states, parameters, driver_coefficients,
-        # shared_scratch, persistent_local, state_output, observables_output,
-        # state_summaries_output, observable_summaries_output,
-        # iteration_counters_output, duration, settling_time, t0
-        loop_fn.critical_shapes = (
-            (n_states,),  # initial_states
-            (n_parameters,),  # parameters
-            (100,n_states,6),  # driver_coefficients
-            (32768//8), # local persistent - arbitrary 32kb provided / float64
-            (32768//8),  # persistent_local - arbitrary 32kb provided / float64
-            (100, n_states), # state_output
-            (100, n_observables), # observables_output
-            (100, n_states),  # state_summaries_output
-            (100, n_observables), # obs summ output
-            (1, n_counters),  # iteration_counters_output
-            None,  # duration - scalar
-            None,  # settling_time - scalar
-            None,  # t0 - scalar (optional)
-        )
-        loop_fn.critical_values = (
-            None,  # initial_states
-            None,  # parameters
-            None,  # driver_coefficients
-            None,  # local persistent - not really used
-            None,  # persistent_local - arbitrary 32kb provided / float64
-            None,  # state_output
-            None,  # observables_output
-            None,  # state_summaries_output
-            None,  # obs summ output
-            None,  # iteration_counters_output
-            self.dt_save + 0.01,  # duration - scalar
-            0.0,  # settling_time - scalar
-            0.0,  # t0 - scalar (optional)
-        )
         return IVPLoopCache(loop_function=loop_fn)
 
     @property

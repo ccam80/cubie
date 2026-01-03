@@ -9,9 +9,9 @@ function dispatch tables.
 from typing import Any, Callable, Optional, Union
 from warnings import warn
 from abc import abstractmethod
-import attrs
-import attrs.validators as val
-import numpy as np
+from attrs import define, field
+from attrs.validators import instance_of, optional as val_optional
+from numpy import floating
 
 from cubie._utils import (
     gttype_validator,
@@ -22,7 +22,7 @@ from cubie._utils import (
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 
 
-@attrs.define
+@define
 class MetricFuncCache(CUDAFunctionCache):
     """Cache container for compiled metric functions.
 
@@ -34,10 +34,10 @@ class MetricFuncCache(CUDAFunctionCache):
         Callable save device function.
     """
 
-    update: Callable = attrs.field(default=None)
-    save: Callable = attrs.field(default=None)
+    update: Callable = field(default=None)
+    save: Callable = field(default=None)
 
-@attrs.define
+@define
 class MetricConfig:
     """Configuration for summary metric compilation.
     
@@ -50,13 +50,13 @@ class MetricConfig:
         Numerical precision for metric calculations. Defaults to
         np.float32.
     """
-    _precision: PrecisionDType = attrs.field(
+    _precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator,
     )
-    _dt_save: float = attrs.field(
+    _dt_save: float = field(
         default=0.01,
-        validator=val.optional(gttype_validator(float, 0.0))
+        validator=val_optional(gttype_validator(float, 0.0))
     )
 
     
@@ -66,7 +66,7 @@ class MetricConfig:
         return self._dt_save
     
     @property
-    def precision(self) -> type[np.floating]:
+    def precision(self) -> type[floating]:
         """Numerical precision for metric calculations."""
         return self._precision
 
@@ -207,7 +207,7 @@ class SummaryMetric(CUDAFactory):
         return self.get_cached_output("save")
 
     @property
-    def precision(self) -> type[np.floating]:
+    def precision(self) -> type[floating]:
         """Numerical precision for metric calculations."""
         return self.compile_settings.precision
 
@@ -231,7 +231,7 @@ class SummaryMetric(CUDAFactory):
         """
         self.update_compile_settings(kwargs, silent=True)
 
-@attrs.define
+@define
 class SummaryMetrics:
     """Registry and dispatcher for summary metrics.
 
@@ -253,30 +253,30 @@ class SummaryMetrics:
     Methods only report information for metrics explicitly requested so the
     caller can compile device functions tailored to the active configuration.
     """
-    precision: PrecisionDType = attrs.field()
-    _names: list[str] = attrs.field(
-        validator=attrs.validators.instance_of(list), factory=list, init=False
+    precision: PrecisionDType = field()
+    _names: list[str] = field(
+        validator=instance_of(list), factory=list, init=False
     )
-    _buffer_sizes: dict[str, Union[int, Callable]] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
+    _buffer_sizes: dict[str, Union[int, Callable]] = field(
+        validator=instance_of(dict),
         factory=dict,
         init=False,
     )
-    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
+    _output_sizes: dict[str, Union[int, Callable]] = field(
+        validator=instance_of(dict),
         factory=dict,
         init=False,
     )
-    _metric_objects = attrs.field(
-        validator=attrs.validators.instance_of(dict), factory=dict, init=False
+    _metric_objects = field(
+        validator=instance_of(dict), factory=dict, init=False
     )
-    _params: dict[str, Optional[Any]] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
+    _params: dict[str, Optional[Any]] = field(
+        validator=instance_of(dict),
         factory=dict,
         init=False,
     )
-    _combined_metrics: dict[frozenset[str], str] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
+    _combined_metrics: dict[frozenset[str], str] = field(
+        validator=instance_of(dict),
         factory=dict,
         init=False,
     )

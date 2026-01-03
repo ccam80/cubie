@@ -2,7 +2,7 @@
 from typing import Callable, Optional, Union
 
 from numba import cuda, int32
-import numpy as np
+from numpy import ndarray
 from numpy._typing import ArrayLike
 from attrs import field, define, validators
 
@@ -110,8 +110,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         dt_min: float,
         dt_max: float,
         n: int,
-        atol: np.ndarray,
-        rtol: np.ndarray,
+        atol: ndarray,
+        rtol: ndarray,
         algorithm_order: int,
         safety: float,
     ) -> ControllerCache:

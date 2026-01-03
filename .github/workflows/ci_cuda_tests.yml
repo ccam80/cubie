@@ -64,7 +64,7 @@ jobs:
               f"cd repo && "
               f"python -m pip install -e . && "
               f"mkdir -p /artifacts && "
-              f"pytest -m \"not specific_algos and not sim_only\" --cov --cov-branch -vv -ra "
+              f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov --cov-branch -vv -ra "
               f"--junitxml=/artifacts/pytest-results.xml "
               f"--cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log; "
               f"ec=$?; "
