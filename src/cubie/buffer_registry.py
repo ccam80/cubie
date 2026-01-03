@@ -20,8 +20,8 @@ from attrs.validators import (
 from numpy import float32 as np_float32
 
 from numba import cuda
-from numba import int32 as numba_int32
-from numba import float32 as numba_float32
+from numba import int32 as int32
+from numba import float32 as float32
 
 from cubie._utils import getype_validator, buffer_dtype_validator
 from cubie.cuda_simsafe import compile_kwargs, from_dtype
@@ -130,7 +130,7 @@ class CUDABuffer:
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
         _zero = zero
-        elements = numba_int32(self.size)
+        elements = int32(self.size)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def allocate_buffer(shared, persistent):
@@ -936,7 +936,7 @@ class BufferRegistry:
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_shared():
             return cuda.shared.array(0,
-                                     dtype=numba_float32)
+                                     dtype=float32)
 
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_persistent():

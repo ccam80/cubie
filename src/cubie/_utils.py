@@ -31,7 +31,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators, Attribute, Factory as attrsFactory, NOTHING
+from attrs import fields, has, validators, Attribute
 from cubie.cuda_simsafe import compile_kwargs, is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
@@ -92,8 +92,8 @@ def buffer_dtype_validator(
     """Validate that value is a supported buffer dtype (float or int)."""
     if np_dtype(value) not in ALLOWED_BUFFER_DTYPES:
         raise ValueError(
-            "Buffer dtype must be one of np_float16, np_float32, np_float64, "
-            "np_int32, or np_int64",
+            "Buffer dtype must be one of np.float16, np.float32, np.float64, "
+            "np.int32, or np.int64",
         )
 
 
