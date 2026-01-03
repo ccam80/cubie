@@ -709,10 +709,13 @@ class Solver:
         all_unrecognized = set(updates_dict.keys())
         recognised = set()
 
-        if getattr(updates_dict, "mem_proportion", None) is not None:
-            self.memory_manager.set_manual_proportion(
-                self.kernel, updates_dict["mem_proportion"]
-            )
+        if "mem_proportion" in updates_dict:
+            if updates_dict["mem_proportion"] is None:
+                self.memory_manager.set_auto_limit_mode(self.kernel)
+            else:
+                self.memory_manager.set_manual_proportion(
+                    self.kernel, updates_dict["mem_proportion"]
+                )
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
             self.memory_manager.set_allocator(
