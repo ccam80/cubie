@@ -9,7 +9,8 @@ import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-from cubie import SingleIntegratorRun, Solver
+from cubie import SingleIntegratorRun
+import cubie.batchsolving.solver
 from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.baseODE import BaseODE
@@ -1075,7 +1076,8 @@ def rebuild_solver(system, driver_array, solver_settings):
     reload(sys.modules['cuda'])
     reload(sys.modules['cubie'])
     reload(sys.modules['cubie.buffer_registry'])
-    solver = Solver(system, **solver_settings)
+    reload(sys.modules['cubie.batchsolving.solver'])
+    solver = cubie.batchsolving.solver.Solver(system, **solver_settings)
     if driver_array is not None:
         solver.update({"driver_function": driver_array.evaluation_function})
     return solver
