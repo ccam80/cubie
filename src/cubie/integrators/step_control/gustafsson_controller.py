@@ -1,7 +1,7 @@
 """Gustafsson predictive step controller."""
 from typing import Callable, Optional, Union
 
-import numpy as np
+from numpy import ndarray
 from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field
@@ -116,8 +116,8 @@ class GustafssonController(BaseAdaptiveStepController):
         dt_min: float,
         dt_max: float,
         n: int,
-        atol: np.ndarray,
-        rtol: np.ndarray,
+        atol: ndarray,
+        rtol: ndarray,
         algorithm_order: int,
         safety: float,
     ) -> ControllerCache:

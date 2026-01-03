@@ -3,8 +3,8 @@
 from abc import abstractmethod
 from typing import Callable, Optional, Union, Set
 
-import attrs
-import numpy as np
+from attrs import define, field, validators
+from numpy import ndarray
 import sympy as sp
 
 from cubie._utils import inrangetype_validator, is_device_validator
@@ -21,7 +21,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 )
 
 
-@attrs.define
+@define
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps.
 
@@ -36,22 +36,22 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order
         Order of the truncated Neumann preconditioner.
     """
-    _beta: float = attrs.field(
+    _beta: float = field(
         default=1.0,
         validator=inrangetype_validator(float, 0, 1)
     )
-    _gamma: float = attrs.field(
+    _gamma: float = field(
         default=1.0,
         validator=inrangetype_validator(float, 0, 1)
     )
-    M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
-    preconditioner_order: int = attrs.field(
+    M: Union[ndarray, sp.Matrix] = field(default=sp.eye(1))
+    preconditioner_order: int = field(
         default=2,
         validator=inrangetype_validator(int, 1, 32)
     )
-    solver_function = attrs.field(
+    solver_function = field(
         default=None,
-        validator=attrs.validators.optional(is_device_validator),
+        validator=validators.optional(is_device_validator),
         eq=False
     )
 

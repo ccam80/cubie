@@ -7,8 +7,8 @@ device call so that compiled kernels only focus on algorithmic updates.
 """
 from typing import Callable, Optional, Set
 
-import attrs
-import numpy as np
+from attrs import define, field
+from numpy import int32 as np_int32
 from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -19,7 +19,7 @@ from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
-@attrs.define
+@define
 class IVPLoopCache(CUDAFunctionCache):
     """Cache for IVP loop device function.
     
@@ -28,7 +28,7 @@ class IVPLoopCache(CUDAFunctionCache):
     loop_function
         Compiled CUDA device function that executes the integration loop.
     """
-    loop_function: Callable = attrs.field()
+    loop_function: Callable = field()
 
 # Recognised compile-critical loop configuration parameters. These keys mirror
 # the solver API so helper utilities can consistently merge keyword arguments
@@ -290,7 +290,7 @@ class IVPLoop(CUDAFactory):
         )
         buffer_registry.register(
             'proposed_counters', self, 2, config.proposed_counters_location,
-            precision=np.int32
+            precision=np_int32
         )
 
     @property
@@ -777,41 +777,6 @@ class IVPLoop(CUDAFactory):
                                 )
                                 summary_idx += int32(1)
 
-        # Attach critical shapes for dummy execution
-        # Parameters in order: initial_states, parameters, driver_coefficients,
-        # shared_scratch, persistent_local, state_output, observables_output,
-        # state_summaries_output, observable_summaries_output,
-        # iteration_counters_output, duration, settling_time, t0
-        loop_fn.critical_shapes = (
-            (n_states,),  # initial_states
-            (n_parameters,),  # parameters
-            (100,n_states,6),  # driver_coefficients
-            (32768//8), # local persistent - arbitrary 32kb provided / float64
-            (32768//8),  # persistent_local - arbitrary 32kb provided / float64
-            (100, n_states), # state_output
-            (100, n_observables), # observables_output
-            (100, n_states),  # state_summaries_output
-            (100, n_observables), # obs summ output
-            (1, n_counters),  # iteration_counters_output
-            None,  # duration - scalar
-            None,  # settling_time - scalar
-            None,  # t0 - scalar (optional)
-        )
-        loop_fn.critical_values = (
-            None,  # initial_states
-            None,  # parameters
-            None,  # driver_coefficients
-            None,  # local persistent - not really used
-            None,  # persistent_local - arbitrary 32kb provided / float64
-            None,  # state_output
-            None,  # observables_output
-            None,  # state_summaries_output
-            None,  # obs summ output
-            None,  # iteration_counters_output
-            self.dt_save + 0.01,  # duration - scalar
-            0.0,  # settling_time - scalar
-            0.0,  # t0 - scalar (optional)
-        )
         return IVPLoopCache(loop_function=loop_fn)
 
     @property

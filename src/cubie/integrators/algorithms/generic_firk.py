@@ -27,9 +27,9 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import attrs
-import numpy as np
+from attrs import define, field, validators
 from numba import cuda, int32
+from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -102,24 +102,24 @@ explicitly specifying it in the step controller settings.
 """
 
 
-@attrs.define
+@define
 class FIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the FIRK integrator."""
 
-    tableau: FIRKTableau = attrs.field(
+    tableau: FIRKTableau = field(
         default=DEFAULT_FIRK_TABLEAU,
     )
-    stage_increment_location: str = attrs.field(
+    stage_increment_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_driver_stack_location: str = attrs.field(
+    stage_driver_stack_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
-    stage_state_location: str = attrs.field(
+    stage_state_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
     @property
@@ -199,7 +199,7 @@ class FIRKStep(ODEImplicitStep):
         simultaneously, which is more computationally expensive than DIRK
         methods but can achieve higher orders of accuracy for stiff systems.
         """
-        mass = np.eye(n, dtype=precision)
+        mass = eye(n, dtype=precision)
 
         config = build_config(
             FIRKStepConfig,

@@ -3,8 +3,8 @@
 from abc import abstractmethod
 from typing import Any, Callable, Dict, Optional, Set, Tuple, Union
 
-import attrs
-import numpy as np
+from attrs import define, field
+from numpy import asarray, float32, floating
 from numpy.typing import NDArray
 
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
@@ -12,41 +12,41 @@ from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 
 
-@attrs.define
+@define
 class ODECache(CUDAFunctionCache):
     """Cache compiled CUDA device and support functions for an ODE system.
 
     Attributes default to ``-1`` when the corresponding function is not built.
     """
 
-    dxdt: Optional[Callable] = attrs.field()
-    linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    linear_operator_cached: Optional[Union[Callable, int]] = attrs.field(
+    dxdt: Optional[Callable] = field()
+    linear_operator: Optional[Union[Callable, int]] = field(default=-1)
+    linear_operator_cached: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
+    neumann_preconditioner: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    neumann_preconditioner_cached: Optional[Union[Callable, int]] = attrs.field(
+    neumann_preconditioner_cached: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    n_stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    n_stage_linear_operator: Optional[Union[Callable, int]] = attrs.field(
+    stage_residual: Optional[Union[Callable, int]] = field(default=-1)
+    n_stage_residual: Optional[Union[Callable, int]] = field(default=-1)
+    n_stage_linear_operator: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
+    n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    prepare_jac: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    calculate_cached_jvp: Optional[Union[Callable, int]] = attrs.field(
+    observables: Optional[Union[Callable, int]] = field(default=-1)
+    prepare_jac: Optional[Union[Callable, int]] = field(default=-1)
+    calculate_cached_jvp: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    time_derivative_rhs: Optional[Union[Callable, int]] = attrs.field(
+    time_derivative_rhs: Optional[Union[Callable, int]] = field(
         default=-1
     )
-    cached_aux_count: Optional[int] = attrs.field(default=-1)
+    cached_aux_count: Optional[int] = field(default=-1)
 
 
 class BaseODE(CUDAFactory):
@@ -67,7 +67,7 @@ class BaseODE(CUDAFactory):
 
     def __init__(
         self,
-        precision: PrecisionDType = np.float32,
+        precision: PrecisionDType = float32,
         initial_values: Optional[Dict[str, float]] = None,
         parameters: Optional[Dict[str, float]] = None,
         constants: Optional[Dict[str, float]] = None,
@@ -161,10 +161,10 @@ class BaseODE(CUDAFactory):
 
     def correct_answer_python(
         self,
-        states: NDArray[np.floating[Any]],
-        parameters: NDArray[np.floating[Any]],
-        drivers: NDArray[np.floating[Any]],
-    ) -> Tuple[NDArray[np.floating[Any]], NDArray[np.floating[Any]]]:
+        states: NDArray[floating[Any]],
+        parameters: NDArray[floating[Any]],
+        drivers: NDArray[floating[Any]],
+    ) -> Tuple[NDArray[floating[Any]], NDArray[floating[Any]]]:
         """Python reference ``dxdt`` for testing.
 
         Parameters
@@ -181,7 +181,7 @@ class BaseODE(CUDAFactory):
         tuple of numpy.ndarray
             Tuple containing the state derivatives and observable outputs.
         """
-        return np.asarray([0]), np.asarray([0])
+        return asarray([0]), asarray([0])
 
     def update(
         self,

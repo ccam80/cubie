@@ -8,7 +8,7 @@ consistent, ready-to-compile settings.
 from typing import Callable, Optional
 
 from attrs import define, field, validators
-import numba
+from numba import from_dtype as numba_from_dtype
 from numpy import float32
 
 from cubie._utils import (
@@ -263,7 +263,7 @@ class ODELoopConfig:
     @property
     def numba_precision(self) -> type:
         """Return the Numba precision type."""
-        return numba.from_dtype(self.precision)
+        return numba_from_dtype(self.precision)
 
     @property
     def simsafe_precision(self) -> type:

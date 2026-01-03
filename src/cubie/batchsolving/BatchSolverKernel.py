@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities."""
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from warnings import warn
 
-import numpy as np
+from numpy import ceil as np_ceil, float64 as np_float64, floor as np_floor, floating
 from numba import cuda, float64
 from numba import int32
 
-import attrs
+from attrs import define, field
 
-from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
+from cubie.cuda_simsafe import is_cudasim_enabled, \
+    compile_kwargs
+from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
@@ -40,7 +42,7 @@ DEFAULT_MEMORY_SETTINGS = {
 }
 
 
-@attrs.define(frozen=True)
+@define(frozen=True)
 class ChunkParams:
     """Chunked execution parameters calculated for a batch run.
 
@@ -64,9 +66,9 @@ class ChunkParams:
     size: int
     runs: int
 
-@attrs.define()
+@define()
 class BatchSolverCache(CUDAFunctionCache):
-    solver_kernel: Union[int, Callable] = attrs.field(default=-1)
+    solver_kernel: Union[int, Callable] = field(default=-1)
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -136,6 +138,10 @@ class BatchSolverKernel(CUDAFactory):
         self.chunks = None
         self.chunk_axis = "run"
         self.num_runs = 1
+
+        # CUDA event tracking for timing
+        self._cuda_events: List = []
+        self._gpu_workload_event: Optional[CUDAEvent] = None
 
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
@@ -209,11 +215,57 @@ class BatchSolverKernel(CUDAFactory):
         )
         return memory_manager
 
+    def _setup_cuda_events(self, chunks: int) -> None:
+        """Create CUDA events for timing instrumentation.
+
+        Parameters
+        ----------
+        chunks : int
+            Number of chunks to process
+
+        Notes
+        -----
+        Creates one GPU workload event and 3 events per chunk
+        (h2d_transfer, kernel, d2h_transfer).
+        Events are created regardless of verbosity - they become no-ops
+        internally when verbosity is None.
+        """
+        # Create overall GPU workload event
+        self._gpu_workload_event = CUDAEvent("gpu_workload")
+
+        # Create per-chunk events (3 events per chunk: h2d, kernel, d2h)
+        self._cuda_events = []
+        for i in range(chunks):
+            h2d_event = CUDAEvent(f"h2d_transfer_chunk_{i}")
+            kernel_event = CUDAEvent(f"kernel_chunk_{i}")
+            d2h_event = CUDAEvent(f"d2h_transfer_chunk_{i}")
+            self._cuda_events.extend([h2d_event, kernel_event, d2h_event])
+
+    def _get_chunk_events(self, chunk_idx: int) -> Tuple:
+        """Get the three CUDA events for a specific chunk.
+
+        Parameters
+        ----------
+        chunk_idx : int
+            Chunk index (0-based)
+
+        Returns
+        -------
+        tuple
+            (h2d_event, kernel_event, d2h_event) for the chunk
+        """
+        base_idx = chunk_idx * 3
+        return (
+            self._cuda_events[base_idx],
+            self._cuda_events[base_idx + 1],
+            self._cuda_events[base_idx + 2]
+        )
+
     def run(
         self,
-        inits: NDArray[np.floating],
-        params: NDArray[np.floating],
-        driver_coefficients: Optional[NDArray[np.floating]],
+        inits: NDArray[floating],
+        params: NDArray[floating],
+        driver_coefficients: Optional[NDArray[floating]],
         duration: float,
         blocksize: int = 256,
         stream: Optional[Any] = None,
@@ -262,9 +314,9 @@ class BatchSolverKernel(CUDAFactory):
             stream = self.stream
 
         # Time parameters always use float64 for accumulation accuracy
-        duration = np.float64(duration)
-        warmup = np.float64(warmup)
-        t0 = np.float64(t0)
+        duration = np_float64(duration)
+        warmup = np_float64(warmup)
+        t0 = np_float64(t0)
 
         self._duration = duration
         self._warmup = warmup
@@ -333,21 +385,36 @@ class BatchSolverKernel(CUDAFactory):
         dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np.ceil(kernel_runs / blocksize)))
+        BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
 
+        # Setup CUDA events for timing (no-op when verbosity is None)
+        self._setup_cuda_events(self.chunks)
+
+        # Record start of overall GPU workload
+        self._gpu_workload_event.record_start(stream)
+
         for i in range(self.chunks):
             indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
+
+            # Get events for this chunk
+            h2d_event, kernel_event, d2h_event = self._get_chunk_events(i)
+
+            # h2d transfer timing
+            h2d_event.record_start(stream)
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
+            h2d_event.record_end(stream)
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = np.float64(0.0)
-                chunk_t0 = t0 + np.float64(i) * chunk_params.duration
+                chunk_warmup = np_float64(0.0)
+                chunk_t0 = t0 + np_float64(i) * chunk_params.duration
 
+            # Kernel execution timing
+            kernel_event.record_start(stream)
             self.kernel[
                 BLOCKSPERGRID,
                 (threads_per_loop, runsperblock),
@@ -368,12 +435,20 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_t0,
                 kernel_runs,
             )
+            kernel_event.record_end(stream)
+
             # We don't want to sync between chunks, we should queue runs and
             # transfers in the stream and sync before final result fetch.
             # self.memory_manager.sync_stream(self)
 
+            # d2h transfer timing
+            d2h_event.record_start(stream)
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
+            d2h_event.record_end(stream)
+
+        # Finalize GPU workload timing
+        self._gpu_workload_event.record_end(stream)
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
@@ -461,11 +536,11 @@ class BatchSolverKernel(CUDAFactory):
         chunk_duration = duration
         chunk_t0 = t0
         if chunk_axis == "run":
-            chunkruns = int(np.ceil(numruns / chunks))
+            chunkruns = int(np_ceil(numruns / chunks))
             chunksize = chunkruns
         elif chunk_axis == "time":
             chunk_duration = duration / chunks
-            chunksize = int(np.ceil(self.output_length / chunks))
+            chunksize = int(np_ceil(self.output_length / chunks))
             chunkruns = numruns
 
         return ChunkParams(
@@ -626,49 +701,7 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
         # no cover: end
-        
-        # Attach critical shapes for dummy execution
-        # Parameters in order: inits, params, d_coefficients, state_output,
-        # observables_output, state_summaries_output, observables_summaries_output,
-        # iteration_counters_output, status_codes_output, duration, warmup, t0, n_runs
-        system_sizes = self.system_sizes
-        n_states = int(system_sizes.states)
-        n_parameters = int(system_sizes.parameters)
-        n_observables = int(system_sizes.observables)
-        integration_kernel.critical_shapes = (
-            (n_states, 1),  # inits - [n_states, n_runs]
-            (n_parameters, 1),  # params - [n_parameters, n_runs]
-            (100, n_states, 6),  # d_coefficients - (time, variable, run)
-            (100, n_states, 1),  # state_output - (time, variable, run)
-            (100, n_observables, 1),  # observables_output
-            (100, n_observables, 1),  # state_summaries_output
-            (100, n_observables, 1),  # observables_summaries_output
-            (100, 4, 1),  # iteration_counters_output - (time, 4, run)
-            (1,),  # status_codes_output
-            None,  # duration - scalar
-            None,  # warmup - scalar
-            None,  # t0 - scalar
-            None,  # n_runs - scalar
-        )
-        
-        # Attach critical values for scalar parameters to avoid infinite loops
-        # in adaptive step controllers during dummy compilation
-        integration_kernel.critical_values = (
-            None,  # inits - array
-            None,  # params - array
-            None,  # d_coefficients - array
-            None,  # state_output - array
-            None,  # observables_output - array
-            None,  # state_summaries_output - array
-            None,  # observables_summaries_output - array
-            None,  # iteration_counters_output - array
-            None,  # status_codes_output - array
-            0.001,  # duration - small value to avoid long loops
-            0.0,  # warmup - zero for dummy runs
-            0.0,  # t0 - zero start time
-            1,  # n_runs - single run
-        )
-        
+
         return integration_kernel
 
     def update(
@@ -794,7 +827,7 @@ class BatchSolverKernel(CUDAFactory):
         trigger misaligned-access faults, so padding only applies to single
         precision workloads where the skew preserves alignment.
         """
-        if self.precision == np.float64:
+        if self.precision == np_float64:
             return False
         elif self.shared_memory_elements == 0:
             return False
@@ -873,11 +906,11 @@ class BatchSolverKernel(CUDAFactory):
     def duration(self) -> float:
         """Requested integration duration."""
 
-        return np.float64(self._duration)
+        return np_float64(self._duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        self._duration = np.float64(value)
+        self._duration = np_float64(value)
 
     @property
     def dt(self) -> Optional[float]:
@@ -889,21 +922,21 @@ class BatchSolverKernel(CUDAFactory):
     def warmup(self) -> float:
         """Configured warmup duration."""
 
-        return np.float64(self._warmup)
+        return np_float64(self._warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        self._warmup = np.float64(value)
+        self._warmup = np_float64(value)
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
 
-        return np.float64(self._t0)
+        return np_float64(self._t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        self._t0 = np.float64(value)
+        self._t0 = np_float64(value)
 
     @property
     def output_length(self) -> int:
@@ -913,7 +946,7 @@ class BatchSolverKernel(CUDAFactory):
         state (at t=t_end) for complete trajectory coverage.
         """
         return (int(
-                np.floor(self.precision(self.duration) /
+                np_floor(self.precision(self.duration) /
                         self.precision(self.single_integrator.dt_save)))
                 + 1)
 
@@ -938,7 +971,7 @@ class BatchSolverKernel(CUDAFactory):
         to save both endpoints in the warmup phase.
         """
 
-        return int(np.ceil(self._warmup / self.single_integrator.dt_save))
+        return int(np_ceil(self._warmup / self.single_integrator.dt_save))
 
     @property
     def system(self) -> "BaseODE":
@@ -1127,13 +1160,13 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.parameters
 
     @property
-    def driver_coefficients(self) -> Optional[NDArray[np.floating]]:
+    def driver_coefficients(self) -> Optional[NDArray[floating]]:
         """Horner-ordered driver coefficients on the host."""
 
         return self.input_arrays.driver_coefficients
 
     @property
-    def device_driver_coefficients(self) -> Optional[NDArray[np.floating]]:
+    def device_driver_coefficients(self) -> Optional[NDArray[floating]]:
         """Device-resident driver coefficients."""
 
         return self.input_arrays.device_driver_coefficients

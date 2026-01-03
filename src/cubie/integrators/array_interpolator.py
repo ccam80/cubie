@@ -4,7 +4,12 @@ import math
 from typing import Callable, Dict, Optional, Set, TYPE_CHECKING, Union, Any, \
     Tuple
 
-import numpy as np
+from numpy import (
+    allclose, any as np_any, arange, array_equal, asarray, ascontiguousarray,
+    column_stack, concatenate, diff, dtype as np_dtype, empty, floating,
+    full_like, transpose as np_transpose, zeros, vstack,
+)
+from numpy.linalg import solve as np_solve
 from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
@@ -23,7 +28,7 @@ if TYPE_CHECKING:
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
-FloatArray = NDArray[np.floating]
+FloatArray = NDArray[floating]
 
 
 @define
@@ -194,7 +199,7 @@ class ArrayInterpolator(CUDAFactory):
         fn_changed = any(self.update_compile_settings(config))
 
         input_array = self._normalise_input_array(inputs)
-        if np.array_equal(input_array, self.input_array):
+        if array_equal(input_array, self.input_array):
             return False
         else:
             self._input_array = input_array
@@ -249,7 +254,7 @@ class ArrayInterpolator(CUDAFactory):
 
         for key, array in input_dict.items():
             try:
-                array = np.asarray(array, dtype=self.precision)
+                array = asarray(array, dtype=self.precision)
             except ValueError:
                 raise ValueError(
                     f"Forcing array {key} could not be converted "
@@ -268,7 +273,7 @@ class ArrayInterpolator(CUDAFactory):
                 "All forcing vectors must have the same length / be sampled "
                 "on the same grid",
             )
-        input_array = np.column_stack(input_vectors)
+        input_array = column_stack(input_vectors)
         if input_array.shape[0] < self.order + 1:
             raise ValueError(
                 "At least order + 1 samples are required to construct"
@@ -312,12 +317,12 @@ class ArrayInterpolator(CUDAFactory):
                 raise ValueError("Time array length must match the number of"
                                  " samples in provided input vectors.")
             t0 = timeArray[0]
-            time_differences = np.diff(timeArray)
-            if np.any(time_differences <= 0.0):
+            time_differences = diff(timeArray)
+            if np_any(time_differences <= 0.0):
                 raise ValueError("Time array must be strictly increasing.")
-            if not np.allclose(
+            if not allclose(
                 time_differences,
-                np.full_like(time_differences,time_differences[0]),
+                full_like(time_differences,time_differences[0]),
                 rtol=1e-6,
                 atol=1e-6,
             ):
@@ -522,8 +527,8 @@ class ArrayInterpolator(CUDAFactory):
 
     def get_interpolated(
         self,
-        eval_times: NDArray[np.floating],
-    ) -> NDArray[np.floating]:
+        eval_times: NDArray[floating],
+    ) -> NDArray[floating]:
         """Evaluate the interpolated drivers on the device.
 
         Parameters
@@ -545,13 +550,13 @@ class ArrayInterpolator(CUDAFactory):
             Raised when interpolation coefficients are unavailable.
         """
 
-        times = np.asarray(eval_times, dtype=self.precision)
+        times = asarray(eval_times, dtype=self.precision)
         if times.ndim != 1:
             raise ValueError("eval_times must be one-dimensional.")
 
         num_points = times.size
         if num_points == 0:
-            return np.empty((0, self.num_inputs), dtype=self.precision)
+            return empty((0, self.num_inputs), dtype=self.precision)
 
         coefficients = self.coefficients
         if coefficients is None:
@@ -596,7 +601,7 @@ class ArrayInterpolator(CUDAFactory):
 
     def plot_interpolated(
         self,
-        eval_times: NDArray[np.floating],
+        eval_times: NDArray[floating],
     ) -> Tuple[Any, Any]: # pragma: no cover - optional dependency
         """Plot interpolated drivers against the sampled input data.
 
@@ -626,13 +631,13 @@ class ArrayInterpolator(CUDAFactory):
                 "Optional dependency matplotlib is required for plotting."
             ) from exc
 
-        times = np.asarray(eval_times, dtype=self.precision)
+        times = asarray(eval_times, dtype=self.precision)
         if times.ndim != 1:
             raise ValueError("eval_times must be one-dimensional.")
 
         interpolated = self.get_interpolated(times)
 
-        sample_times = self.t0 + self.dt * np.arange(
+        sample_times = self.t0 + self.dt * arange(
             self.num_samples,
             dtype=self.precision,
         )
@@ -658,8 +663,8 @@ class ArrayInterpolator(CUDAFactory):
             for step in range(1, repeats_after + 1):
                 time_tiles.append(sample_times + step * period)
                 value_tiles.append(sample_values)
-            marker_times = np.concatenate(time_tiles)
-            marker_values = np.vstack(value_tiles)
+            marker_times = concatenate(time_tiles)
+            marker_values = vstack(value_tiles)
         else:
             marker_times = sample_times
             marker_values = sample_values
@@ -745,8 +750,8 @@ class ArrayInterpolator(CUDAFactory):
 
         pad_with_zeros = (not self.wrap) and boundary_condition == "clamped"
         if pad_with_zeros:
-            zero_row = np.zeros((1, num_inputs), dtype=precision)
-            inputs = np.vstack((zero_row, base_inputs, zero_row))
+            zero_row = zeros((1, num_inputs), dtype=precision)
+            inputs = vstack((zero_row, base_inputs, zero_row))
         else:
             inputs = base_inputs
 
@@ -758,22 +763,22 @@ class ArrayInterpolator(CUDAFactory):
                     "Periodic boundary conditions require wrap=True so that "
                     "the input repeats after the final segment."
                 )
-            if not np.allclose(inputs[0], inputs[-1]):
+            if not allclose(inputs[0], inputs[-1]):
                 raise ValueError(
                     "Periodic boundary conditions require the first and "
                     "last samples to match."
                 )
 
         num_coeffs = num_segments * (order + 1)
-        matrix = np.zeros((num_coeffs, num_coeffs), dtype=precision)
-        rhs = np.zeros((num_coeffs, num_inputs), dtype=precision)
+        matrix = zeros((num_coeffs, num_coeffs), dtype=precision)
+        rhs = zeros((num_coeffs, num_inputs), dtype=precision)
         row_index = 0
 
         def coeff_index(segment: int, power: int) -> int:
             """Return the flattened coefficient index for ``segment``."""
             return segment * (order + 1) + power
 
-        falling = np.zeros((order + 1, order + 1), dtype=precision)
+        falling = zeros((order + 1, order + 1), dtype=precision)
         falling[:, 0] = precision(1.0)
         for derivative in range(1, order + 1):
             for power in range(derivative, order + 1):
@@ -901,10 +906,10 @@ class ArrayInterpolator(CUDAFactory):
                 "please verify boundary condition handling."
             )
 
-        solution = np.linalg.solve(matrix, rhs)
+        solution = np_solve(matrix, rhs)
         coefficients = solution.reshape(num_segments, order + 1, num_inputs)
-        coefficients = np.transpose(coefficients, (0, 2, 1))
-        return np.ascontiguousarray(coefficients, dtype=self.precision)
+        coefficients = np_transpose(coefficients, (0, 2, 1))
+        return ascontiguousarray(coefficients, dtype=self.precision)
 
     # ---------------------------------------------------------------------- #
     # Getters and pass-through

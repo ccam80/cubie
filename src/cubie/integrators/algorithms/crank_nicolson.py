@@ -2,9 +2,9 @@
 
 from typing import Callable, Optional
 
-import attrs
+from attrs import define, field, validators
 from numba import cuda, int32
-import numpy as np
+from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
@@ -15,7 +15,7 @@ from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
-                  'M': np.eye}
+                  'M': eye}
 
 CN_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -32,13 +32,13 @@ CN_DEFAULTS = StepControlDefaults(
 )
 
 
-@attrs.define
+@define
 class CrankNicolsonStepConfig(ImplicitStepConfig):
     """Configuration for Crank-Nicolson step."""
 
-    dxdt_location: str = attrs.field(
+    dxdt_location: str = field(
         default='local',
-        validator=attrs.validators.in_(['local', 'shared'])
+        validator=validators.in_(['local', 'shared'])
     )
 
 
