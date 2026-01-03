@@ -709,7 +709,7 @@ class Solver:
         all_unrecognized = set(updates_dict.keys())
         recognised = set()
 
-        if "mem_proportion" in updates_dict:
+        if getattr(updates_dict, "mem_proportion", None) is not None:
             self.memory_manager.set_manual_proportion(
                 self.kernel, updates_dict["mem_proportion"]
             )
