@@ -47,7 +47,11 @@ jobs:
     - name: Replace numba-cuda with forked branch
       run: |
         python -m pip uninstall -y numba-cuda || true
-        python -m pip install git+https://github.com/ccam80/numba-cuda.git@refs/heads/cubie_patch
+        git clone https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda
+        cd /tmp/numba-cuda && git checkout cubie_patch
+        python -m uv pip install -e .
+        cd "$GITHUB_WORKSPACE"
+
 
     - name: Lint with flake8
       run: |
