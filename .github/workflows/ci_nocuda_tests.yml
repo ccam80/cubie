@@ -43,6 +43,12 @@ jobs:
         python -m pip install --upgrade pip uv
         python -m uv pip install --system -r ci/requirements.ci.txt
         python -m uv pip install --system -e .[dev]
+    - name: Replace numba-cuda with forked branch
+      run: |
+        # uninstall any packaged numba-cuda installed via requirements
+        python -m uv pip uninstall -y numba-cuda || true
+        # Install from your personal fork's cubie_patch branch (public)
+        python -m uv pip install git+https://github.com/ccam80/numba-cuda.git@cubie_patch
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -52,4 +58,4 @@ jobs:
     - name: Test with pytest
       
       run: |
-        pytest -m "not nocudasim and not cupy and not specific_algos" -n logical -p numba_patches_plugin
+        pytest -m "not nocudasim and not cupy and not specific_algos" -n logical
