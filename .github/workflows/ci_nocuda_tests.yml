@@ -46,7 +46,7 @@ jobs:
     - name: Replace numba-cuda with forked branch
       run: |
         # uninstall any packaged numba-cuda installed via requirements
-        python -m uv pip uninstall '-- -y' numba-cuda || true
+        python -m pip uninstall -y numba-cuda || true
         # Install from your personal fork's cubie_patch branch (public)
         python -m uv pip install git+https://github.com/ccam80/numba-cuda.git@cubie_patch
     - name: Lint with flake8
