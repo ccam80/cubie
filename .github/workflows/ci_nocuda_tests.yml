@@ -60,7 +60,3 @@ jobs:
       
       run: |
         pytest -m "not nocudasim and not cupy and not specific_algos" -n logical
-
-git+https://github:
-  com/ccam80/numba-cuda:
-    git@refs/heads/cubie_patch:
