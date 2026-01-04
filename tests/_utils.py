@@ -10,7 +10,6 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from cubie import SingleIntegratorRun
-import cubie.batchsolving.solver
 from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.baseODE import BaseODE
@@ -1068,16 +1067,3 @@ def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array)
         enhanced['driver_del_t'] = None
 
     return enhanced
-
-def rebuild_solver(system, driver_array, solver_settings):
-    # Try reloading 'cuda' to get a fresh cuda context.
-    from importlib import reload
-    import sys
-    reload(sys.modules['cuda'])
-    reload(sys.modules['cubie'])
-    reload(sys.modules['cubie.buffer_registry'])
-    reload(sys.modules['cubie.batchsolving.solver'])
-    solver = cubie.batchsolving.solver.Solver(system, **solver_settings)
-    if driver_array is not None:
-        solver.update({"driver_function": driver_array.evaluation_function})
-    return solver
