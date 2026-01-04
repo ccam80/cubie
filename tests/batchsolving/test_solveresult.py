@@ -4,8 +4,6 @@ import pandas as pd
 import pytest
 from numba import cuda # noqa - attempt to kick cuda import to prevent
 
-from tests._utils import rebuild_solver
-
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
