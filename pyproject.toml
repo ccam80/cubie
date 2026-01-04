@@ -53,6 +53,7 @@ optional = [
 
 
 [tool.pytest.ini_options]
+pythonpath = ["pytest_plugins"]
 minversion = "6.0"
 testpaths = [
     "tests"
@@ -65,6 +66,7 @@ markers = [
     "sim_only: Marks tests that can only run on the CUDA simulator (debug tests only, otherwise what's the point?)"
 ]
 addopts = [
+    "-p numba_patches_plugin",
     "--import-mode=importlib",
     "-nlogical",
     "-ra",
