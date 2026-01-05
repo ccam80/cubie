@@ -577,7 +577,7 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
 
 def test_classify_inputs_dict(solver, simple_initial_values, simple_parameters):
     """Test that dict inputs are classified as 'dict'."""
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=simple_initial_values,
         params=simple_parameters
     )
@@ -590,7 +590,7 @@ def test_classify_inputs_mixed(solver, system):
     inits_array = np.ones((n_states, 2), dtype=solver.precision)
     params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits_array,
         params=params_dict
     )
@@ -601,7 +601,7 @@ def test_classify_inputs_mixed(solver, system):
     n_params = solver.system_sizes.parameters
     params_array = np.ones((n_params, 2), dtype=solver.precision)
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits_dict,
         params=params_array
     )
@@ -617,7 +617,7 @@ def test_classify_inputs_array(solver):
     inits = np.ones((n_states, n_runs), dtype=solver.precision)
     params = np.ones((n_params, n_runs), dtype=solver.precision)
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits,
         params=params
     )
@@ -632,7 +632,7 @@ def test_classify_inputs_mismatched_runs(solver):
     inits = np.ones((n_states, 3), dtype=solver.precision)
     params = np.ones((n_params, 5), dtype=solver.precision)
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits,
         params=params
     )
@@ -648,7 +648,7 @@ def test_classify_inputs_wrong_var_count(solver):
     inits = np.ones((999, n_runs), dtype=solver.precision)
     params = np.ones((n_params, n_runs), dtype=solver.precision)
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits,
         params=params
     )
@@ -663,7 +663,7 @@ def test_classify_inputs_1d_arrays(solver):
     inits = np.ones(n_states, dtype=solver.precision)
     params = np.ones(n_params, dtype=solver.precision)
 
-    result = solver.input_handler.classify_inputs(
+    result = solver.input_handler._classify_inputs(
         states=inits,
         params=params
     )
@@ -686,7 +686,7 @@ def test_validate_arrays_dtype_cast(solver):
     inits = np.ones((n_states, n_runs), dtype=wrong_dtype)
     params = np.ones((n_params, n_runs), dtype=wrong_dtype)
 
-    validated_inits, validated_params = solver.input_handler.validate_arrays(
+    validated_inits, validated_params = solver.input_handler._validate_arrays(
         states=inits,
         params=params
     )
