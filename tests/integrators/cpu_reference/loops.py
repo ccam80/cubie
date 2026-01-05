@@ -88,8 +88,12 @@ def run_reference_loop(
     duration = np.float64(solver_settings["duration"])
     warmup = np.float64(solver_settings["warmup"])
     t0 = np.float64(solver_settings["t0"])
-    dt_save = precision(solver_settings["save_every"])
-    dt_summarise = precision(solver_settings["summarise_every"])
+    save_every = precision(solver_settings["save_every"])
+    summarise_every = precision(solver_settings["summarise_every"])
+    sample_summaries_every = precision(
+        solver_settings.get("sample_summaries_every",
+                            solver_settings["save_every"])
+    )
 
     stepper = get_ref_stepper(
         evaluator,
@@ -120,7 +124,7 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = (int(np.floor(precision(duration) / precision(dt_save)))
+    max_save_samples = (int(np.floor(precision(duration) / precision(save_every)))
                         + 1)
 
     state = initial_state.copy()
@@ -141,7 +145,7 @@ def run_reference_loop(
         next_save_time = precision(warmup + t0)
         save_idx = 0
     else:
-        next_save_time = precision(warmup + t0 + (dt_save))
+        next_save_time = precision(warmup + t0 + (save_every))
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
@@ -187,7 +191,7 @@ def run_reference_loop(
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(t32 - warmup))
-            next_save_time = next_save_time + dt_save
+            next_save_time = next_save_time + save_every
             save_idx += 1
 
     state_output = _collect_saved_outputs(
@@ -208,18 +212,18 @@ def run_reference_loop(
             time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
-    summarise_every = int(dt_summarise / dt_save)
+    samples_per_summary = int(summarise_every / sample_summaries_every)
 
     state_summary, observable_summary = calculate_expected_summaries(
         state_output,
         observables_output,
         summarised_state_indices,
         summarised_observable_indices,
-        summarise_every,
+        samples_per_summary,
         output_functions.compile_settings.output_types,
         output_functions.summaries_output_height_per_var,
         precision,
-        dt_save=dt_save,
+        dt_save=save_every,
         exclude_first=True,  # Match IVP loop behavior: skip t=0 in summaries
     )
     final_status = status_flags & STATUS_MASK

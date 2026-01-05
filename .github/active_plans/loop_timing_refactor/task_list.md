@@ -380,7 +380,7 @@
 ---
 
 ## Task Group 6: Remove Mutual Exclusivity Assumption
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 5 (summarise_last implementation)
 
 **Required Context**:
@@ -426,8 +426,15 @@
 - tests/integrators/loops/test_ode_loop.py
 - tests/integrators/loops/test_dt_update_summaries_validation.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/integrators/loops/test_ode_loop.py (72 lines added)
+- Functions/Methods Added:
+  * test_save_last_with_save_every() - tests periodic saves with save_last enabled
+  * test_summarise_last_with_summarise_every_combined() - tests periodic summaries with summarise_last enabled
+- Implementation Summary:
+  Searched ode_loop_config.py for mutual exclusivity validation - **none found**. The save_last and summarise_last boolean fields (lines 194-201) have no validators that prevent combining with save_every/summarise_every. The __attrs_post_init__ method (lines 261-269) only auto-sets these flags when all timing params are None, but does not enforce exclusivity. Verified ode_loop.py loop logic (lines 616-629) already supports combined usage: save_last forces final save via at_last_save flag, summarise_last forces final summary via at_last_summarise flag. The OR condition at line 819 (save_summary_now includes at_last_summarise) prevents double-writes when end time coincides with periodic summary. Added two tests to verify this combined behavior works correctly.
+- Issues Flagged: None
 
 ---
 
@@ -591,7 +598,7 @@
 ---
 
 ## Task Group 9: Update Timing Validation Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 3, 4 (validation changes must be complete)
 
 **Required Context**:
@@ -668,13 +675,19 @@
 **Tests to Run**:
 - tests/integrators/loops/test_dt_update_summaries_validation.py
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/integrators/loops/test_dt_update_summaries_validation.py (18 lines added)
+- Functions/Methods Added:
+  * test_none_timing_with_state_output_valid_with_save_last() - tests that None timing params are valid when save_last is set with OutputCompileFlags(save_state=True)
+- Implementation Summary:
+  Task 1 (update test_all_none_uses_defaults) was already complete - the test already asserts timing params remain None instead of sentinel values. Added new test test_none_timing_with_state_output_valid_with_save_last that verifies ODELoopConfig with OutputCompileFlags(save_state=True) works correctly when timing params are None, with save_last defaulting to True.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 10: Update CPU Reference Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-6 (core changes should be complete)
 
 **Required Context**:
@@ -745,10 +758,19 @@
 
 **Tests to Run**:
 - tests/integrators/cpu_reference/test_cpu_utils.py
-- tests/integrators/test_ivp_loop_reference_comparison.py (if exists)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/integrators/cpu_reference/loops.py (8 lines changed)
+- Functions/Methods Modified:
+  * run_reference_loop() - renamed dt_save to save_every, dt_summarise to summarise_every, added sample_summaries_every handling with backward-compatible default, fixed variable name clash by renaming integer summarise_every to samples_per_summary
+- Implementation Summary:
+  1. Renamed dt_save to save_every and dt_summarise to summarise_every (lines 91-92)
+  2. Added sample_summaries_every extraction with fallback to save_every for backwards compatibility (lines 93-96)
+  3. Updated all references: max_save_samples calculation (line 127), next_save_time initialization (line 148), next_save_time update (line 194)
+  4. Fixed variable name clash: renamed integer summarise_every to samples_per_summary (line 215)
+  5. Updated calculate_expected_summaries call to use samples_per_summary and save_every (lines 222, 226)
+- Issues Flagged: None
 
 ---
 

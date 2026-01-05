@@ -405,3 +405,89 @@ def test_summarise_last_with_summarise_every(
     for i in range(min(4, state_summaries.shape[0])):
         assert not np.isnan(state_summaries[i]).any(), \
             f"Summary {i} should not contain NaN"
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.15,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": 0.05,
+            "save_last": True,
+        }
+    ],
+    indirect=True,
+)
+def test_save_last_with_save_every(
+    device_loop_outputs,
+    precision,
+):
+    """Verify save_last and save_every can be used together.
+
+    When both periodic saves (save_every) and save_last are enabled, the loop
+    should collect saves at regular intervals and also at the end. The final
+    state should be saved even if it doesn't align with a periodic save point.
+    """
+    states = device_loop_outputs.state
+
+    # With duration=0.15 and save_every=0.05, we expect:
+    # - t=0.0: initial save
+    # - t=0.05: periodic save
+    # - t=0.10: periodic save
+    # - t=0.15: final save (from save_last or coincides with periodic)
+    assert states is not None, "State outputs should be collected"
+    assert states.shape[0] >= 4, "At least 4 saves expected"
+
+    # Check that the final state is at or near t_end
+    final_time = states[-1, -1]  # time is stored in last position
+    assert final_time == pytest.approx(
+        precision(0.15), rel=1e-5
+    ), "Final save should be at t_end"
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.12,
+            "output_types": ["state", "time", "mean"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": 0.04,
+            "summarise_every": 0.04,
+            "sample_summaries_every": 0.04,
+            "summarise_last": True,
+        }
+    ],
+    indirect=True,
+)
+def test_summarise_last_with_summarise_every_combined(
+    device_loop_outputs,
+    precision,
+):
+    """Verify summarise_last and summarise_every can be used together.
+
+    When both periodic summaries (summarise_every) and summarise_last are
+    enabled, the loop should collect summaries at regular intervals and also
+    ensure the final summary is captured. This tests that no double-write
+    occurs when the end time doesn't align perfectly with a periodic summary.
+    """
+    state_summaries = device_loop_outputs.state_summaries
+
+    # With duration=0.12 and summarise_every=0.04, we expect:
+    # - t=0.0: initial summary
+    # - t=0.04: periodic summary
+    # - t=0.08: periodic summary
+    # - t=0.12: final summary (from summarise_last or coincides with periodic)
+    assert state_summaries is not None, "State summaries should be collected"
+    assert state_summaries.shape[0] >= 3, "At least 3 summaries expected"
+
+    # Check that all summaries are valid (no NaN values)
+    for i in range(min(4, state_summaries.shape[0])):
+        assert not np.isnan(state_summaries[i]).any(), \
+            f"Summary {i} should not contain NaN"

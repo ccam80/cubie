@@ -359,3 +359,23 @@ def test_all_none_sets_flags_only():
     assert config._save_every is None
     assert config._summarise_every is None
     assert config._sample_summaries_every is None
+
+
+def test_none_timing_with_state_output_valid_with_save_last():
+    """Test that None timing params are valid when save_last is set."""
+    from cubie.outputhandling.output_config import OutputCompileFlags
+
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        compile_flags=OutputCompileFlags(save_state=True),
+    )
+
+    # Should be valid because save_last defaults to True
+    assert config.save_last is True
