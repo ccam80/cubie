@@ -83,13 +83,15 @@ class ODELoopConfig:
         Whether the loop operates with an adaptive controller.
     """
 
-    # Size parameters (previously from buffer_settings)
+    # System size parameters
     n_states: int = field(default=0, validator=getype_validator(int, 0))
     n_parameters: int = field(default=0, validator=getype_validator(int, 0))
     n_drivers: int = field(default=0, validator=getype_validator(int, 0))
     n_observables: int = field(default=0, validator=getype_validator(int, 0))
     n_error: int = field(default=0, validator=getype_validator(int, 0))
     n_counters: int = field(default=0, validator=getype_validator(int, 0))
+
+    # Array sizes
     state_summaries_buffer_height: int = field(
         default=0, validator=getype_validator(int, 0)
     )
@@ -172,6 +174,8 @@ class ODELoopConfig:
         default=OutputCompileFlags(),
         validator=validators.instance_of(OutputCompileFlags),
     )
+
+    #Loop timing parameters
     _dt_save: float = field(
         default=0.1,
         validator=gttype_validator(float, 0)
@@ -184,6 +188,7 @@ class ODELoopConfig:
         default=None,
         validator=opt_gttype_validator(float, 0)
     )
+
     save_state_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
