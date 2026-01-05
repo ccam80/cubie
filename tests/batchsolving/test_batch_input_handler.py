@@ -1011,9 +1011,6 @@ def test_align_run_counts_verbatim(input_handler, system):
     # States should be broadcast
     assert_allclose(aligned_states[0, :], [1.0, 1.0, 1.0], rtol=1e-7)
 
-
-
-
 def test_call_positional_argument_order(input_handler, system):
     """Verify positional args to __call__ route correctly.
 
@@ -1039,7 +1036,6 @@ def test_call_positional_argument_order(input_handler, system):
     # Verify shapes are correct
     assert result_states.shape == (n_states, 2)
     assert result_params.shape == (n_params, 2)
-
 
 def test_call_device_arrays_passthrough(input_handler, system):
     """Verify device arrays pass through __call__ without processing.
