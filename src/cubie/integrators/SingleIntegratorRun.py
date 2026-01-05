@@ -168,6 +168,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.summarise_every
 
     @property
+    def sample_summaries_every(self) -> float:
+        """Return the loop sample summaries interval."""
+
+        return self._loop.sample_summaries_every
+
+    @property
     def shared_memory_elements_loop(self) -> int:
         """Return the loop contribution to shared memory."""
 

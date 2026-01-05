@@ -107,6 +107,17 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    # Reject deprecated parameter names
+    deprecated_params = {'dt_save', 'dt_summarise', 'dt_update_summaries'}
+    found_deprecated = deprecated_params & set(kwargs.keys())
+    if found_deprecated:
+        raise TypeError(
+            f"solve_ivp() got unexpected keyword argument(s): "
+            f"{', '.join(repr(p) for p in found_deprecated)}. "
+            f"Use 'save_every', 'summarise_every', 'sample_summaries_every' "
+            f"instead."
+        )
+
     loop_settings = kwargs.pop("loop_settings", None)
 
     if save_every is not None:
