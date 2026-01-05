@@ -269,7 +269,7 @@ class OutputConfig:
         Notes
         -----
         Converts index collections to numpy int arrays. Empty arrays are
-        preserved as empty; defaults are handled upstream in SystemInterface.
+        preserved as empty.
         """
         self._saved_state_indices = np.asarray(
             self._saved_state_indices, dtype=np.int_
@@ -289,7 +289,7 @@ class OutputConfig:
         Notes
         -----
         Converts index collections to numpy int arrays. Empty arrays are
-        preserved as empty; defaults are handled upstream in SystemInterface.
+        preserved as empty.
         """
         self._summarised_state_indices = np.asarray(
             self._summarised_state_indices, dtype=np.int_

@@ -327,15 +327,20 @@ class SystemInterface:
         state_idxs = self.state_indices(labels, silent=True)
         obs_idxs = self.observable_indices(labels, silent=True)
 
+        # Track which labels were resolved
+        state_names_set = set(self.states.names)
+        obs_names_set = set(self.observables.names)
+        resolved_labels = state_names_set.union(obs_names_set)
+        unresolved = [lbl for lbl in labels if lbl not in resolved_labels]
+
         # Validate all labels found (unless silent)
-        if not silent:
-            if len(state_idxs) == 0 and len(obs_idxs) == 0:
-                raise ValueError(
-                    f"Variables not found in states or observables: "
-                    f"{labels}. "
-                    f"Available states: {self.states.names}. "
-                    f"Available observables: {self.observables.names}."
-                )
+        if not silent and unresolved:
+            raise ValueError(
+                f"Variables not found in states or observables: "
+                f"{unresolved}. "
+                f"Available states: {self.states.names}. "
+                f"Available observables: {self.observables.names}."
+            )
 
         return (
             state_idxs.astype(np.int32),

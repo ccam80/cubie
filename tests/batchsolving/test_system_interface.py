@@ -122,6 +122,13 @@ def test_resolve_variable_labels_silent_mode(interface):
     assert len(obs_idx) == 0
 
 
+def test_resolve_variable_labels_partial_invalid_raises(interface, system):
+    state_names = list(system.initial_values.names)
+    mixed_labels = [state_names[0], "invalid_label"]
+    with pytest.raises(ValueError, match="Variables not found"):
+        interface.resolve_variable_labels(mixed_labels, silent=False)
+
+
 # =============================================================================
 # Tests for merge_variable_inputs
 # =============================================================================
