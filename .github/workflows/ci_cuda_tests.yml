@@ -67,7 +67,7 @@ jobs:
               # Numba CUDA patch - compile time advantage
               f"git clone https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda && "
               f"cd /tmp/numba-cuda && git checkout cubie_patch && python -m pip install -e . && "
-              f"cd repo && "
+              f"cd /workspace/repo && "
               # --------------------------------------------------------------------------------------- #
               f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov ... "
               f"mkdir -p /artifacts && "
