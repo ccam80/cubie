@@ -32,7 +32,6 @@ jobs:
           cache: "pip"
 
       - name: Install Python dependencies
-        # Newer numba versions have changed "can_cast" which is causing 90 failures - have not investigated.
         run: |
           python -m pip install --upgrade pip uv
           python -m uv pip install --system -r ci/requirements.ci.txt
