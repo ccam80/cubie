@@ -109,11 +109,11 @@ def test_getters_get(solverkernel):
     assert solverkernel.warmup is not None, (
         "BatchSolverKernel.warmup returning None"
     )
-    assert solverkernel.dt_save is not None, (
-        "BatchSolverKernel.dt_save returning None"
+    assert solverkernel.save_every is not None, (
+        "BatchSolverKernel.save_every returning None"
     )
-    assert solverkernel.dt_summarise is not None, (
-        "BatchSolverKernel.dt_summarise returning None"
+    assert solverkernel.summarise_every is not None, (
+        "BatchSolverKernel.summarise_every returning None"
     )
     assert solverkernel.system_sizes is not None, (
         "BatchSolverKernel.system_sizes returning None"
@@ -154,8 +154,8 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         # "duration": 1.0,
         "dt_min": 0.0001,
         "dt_max": 0.01,
-        "dt_save": 0.01,
-        "dt_summarise": 0.1,
+        "save_every": 0.01,
+        "summarise_every": 0.1,
         "atol": 1e-2,
         "rtol": 1e-1,
         "saved_state_indices": [0, 1, 2],
@@ -184,7 +184,7 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         "saved_observable_indices": np.asarray([0, 1, 2]),
         "summarised_state_indices": np.asarray([0]),
         "summarised_observable_indices": np.asarray([0]),
-        "dt_save": 0.01,
+        "save_every": 0.01,
         "output_types": [
             "state",
             "observables",
@@ -199,7 +199,7 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         step_control_settings=updated_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
-        loop_settings={"dt_save": 0.01, "dt_summarise": 0.1},
+        loop_settings={"save_every": 0.01, "summarise_every": 0.1},
     )
     inits = np.ones((3,1), dtype=precision)
     params = np.ones((3,1), dtype=precision)

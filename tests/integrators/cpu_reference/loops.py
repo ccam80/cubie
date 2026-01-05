@@ -88,8 +88,8 @@ def run_reference_loop(
     duration = np.float64(solver_settings["duration"])
     warmup = np.float64(solver_settings["warmup"])
     t0 = np.float64(solver_settings["t0"])
-    dt_save = precision(solver_settings["dt_save"])
-    dt_summarise = precision(solver_settings["dt_summarise"])
+    dt_save = precision(solver_settings["save_every"])
+    dt_summarise = precision(solver_settings["summarise_every"])
 
     stepper = get_ref_stepper(
         evaluator,

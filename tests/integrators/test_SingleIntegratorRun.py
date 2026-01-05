@@ -64,8 +64,8 @@ def _settings_to_dict(settings_source):
             "rtol": 1e-5,
             "dt_min": 1e-7,
             "dt_max": 0.1,
-            "dt_save": 0.1,
-            "dt_summarise": 0.3,
+            "save_every": 0.1,
+            "summarise_every": 0.3,
             "duration": 0.3,
             "output_types": ["state","time", "observables","mean"],
             "saved_state_indices": [0],
@@ -109,13 +109,13 @@ class TestSingleIntegratorRun:
         expected_controller = solver_settings["step_controller"].lower()
         assert run.step_controller == expected_controller
 
-        assert run.dt_save == pytest.approx(
-            solver_settings["dt_save"],
+        assert run.save_every == pytest.approx(
+            solver_settings["save_every"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
-        assert run.dt_summarise == pytest.approx(
-            solver_settings["dt_summarise"],
+        assert run.summarise_every == pytest.approx(
+            solver_settings["summarise_every"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
