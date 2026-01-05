@@ -25,8 +25,8 @@ def time_driver_solver_settings(precision):
         "dt_min": precision(0.05),
         "dt": 0.01,
         "dt_max": precision(0.05),
-        "dt_save": precision(0.05),
-        "dt_summarise": precision(0.1),
+        "save_every": precision(0.05),
+        "summarise_every": precision(0.1),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0],
@@ -82,7 +82,7 @@ def time_driver_systems(precision):
 @pytest.fixture(scope="session")
 def sinusoid_driver_array(precision, time_driver_solver_settings):
     duration = float(time_driver_solver_settings["duration"])
-    sample_dt = float(time_driver_solver_settings["dt_save"])
+    sample_dt = float(time_driver_solver_settings["save_every"])
     num_samples = int(np.round(duration / sample_dt)) + 1
     times = np.linspace(0.0, duration, num_samples, dtype=precision)
     values = np.sin(times.astype(np.float64)).astype(precision)
@@ -212,7 +212,7 @@ def build_single_integrator(
     
     # Build output settings from solver_settings
     output_settings = {
-        "dt_save": solver_settings["dt_save"],
+        "save_every": solver_settings["save_every"],
         "output_types": solver_settings["output_types"],
         "saved_state_indices": solver_settings["saved_state_indices"],
         "saved_observable_indices": solver_settings["saved_observable_indices"],
@@ -222,8 +222,8 @@ def build_single_integrator(
     
     # Build loop settings
     loop_settings = {
-        "dt_save": solver_settings["dt_save"],
-        "dt_summarise": solver_settings["dt_summarise"],
+        "save_every": solver_settings["save_every"],
+        "summarise_every": solver_settings["summarise_every"],
         "dt_min": solver_settings["dt_min"],
         "dt_max": solver_settings["dt_max"],
     }

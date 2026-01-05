@@ -126,7 +126,7 @@ class OutputConfig:
         *saved_observable_indices*.
     output_types
         Requested output type names, including summary metric identifiers.
-    dt_save
+    save_every
         Time between saved samples. Defaults to 0.01 seconds.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
@@ -179,7 +179,7 @@ class OutputConfig:
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
     )
-    _dt_save: float = attrs.field(
+    _save_every: float = attrs.field(
         default=0.01,
         validator=opt_gttype_validator(float, 0.0)
     )
@@ -662,9 +662,9 @@ class OutputConfig:
         return summary_metrics.params(list(self._summary_types))
 
     @property
-    def dt_save(self) -> float:
+    def save_every(self) -> float:
         """Time interval between saved states."""
-        return self._dt_save
+        return self._save_every
 
     @property
     def precision(self) -> type[np.floating]:
@@ -902,7 +902,7 @@ class OutputConfig:
         summarised_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         max_states: int = 0,
         max_observables: int = 0,
-        dt_save: Optional[float] = 0.01,
+        save_every: Optional[float] = 0.01,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -926,7 +926,7 @@ class OutputConfig:
             Total number of state variables in the system.
         max_observables
             Total number of observable variables in the system.
-        dt_save
+        save_every
             Time interval between saved states. Defaults to ``0.01`` if
         precision
             Numerical precision for output calculations. Defaults to
@@ -965,6 +965,6 @@ class OutputConfig:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
-            dt_save=dt_save,
+            save_every=save_every,
             precision=precision,
         )

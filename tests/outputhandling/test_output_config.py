@@ -547,5 +547,47 @@ class TestUtilityProperties:
         assert config.n_summarised_observables == 1
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+class TestSaveEveryProperty:
+    """Test save_every property behavior."""
+
+    def test_save_every_property(self, precision):
+        """Verify OutputConfig has save_every property that returns value."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            output_types=["state"],
+            save_every=0.05,
+        )
+        assert config.save_every == 0.05
+
+    def test_save_every_default(self, precision):
+        """Verify save_every uses default value when not specified."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            output_types=["state"],
+        )
+        assert config.save_every == 0.01
+
+    def test_from_loop_settings_save_every(self, precision):
+        """Verify from_loop_settings accepts save_every parameter."""
+        config = OutputConfig.from_loop_settings(
+            output_types=["state"],
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            save_every=0.1,
+        )
+        assert config.save_every == 0.1
+
+    def test_from_loop_settings_save_every_default(self, precision):
+        """Verify from_loop_settings uses default save_every value."""
+        config = OutputConfig.from_loop_settings(
+            output_types=["state"],
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+        )
+        assert config.save_every == 0.01

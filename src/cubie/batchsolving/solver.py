@@ -54,7 +54,6 @@ def solve_ivp(
     parameters: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
     save_every: Optional[float] = None,
-    dt_save: Optional[float] = None,
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
@@ -81,8 +80,6 @@ def solve_ivp(
     save_every
         Interval at which solution values are stored. Defaults to None
         (auto-configured).
-    dt_save
-        Deprecated alias for save_every. Use save_every instead.
     method
         Integration algorithm to use. Default is ``"euler"``.
     duration
@@ -111,16 +108,7 @@ def solve_ivp(
         Results returned from :meth:`Solver.solve`.
     """
     loop_settings = kwargs.pop("loop_settings", None)
-    
-    # Handle backward compatibility for dt_save vs save_every
-    if dt_save is not None and save_every is not None:
-        raise ValueError(
-            "Cannot specify both 'dt_save' (deprecated) and 'save_every'. "
-            "Use 'save_every' only."
-        )
-    if dt_save is not None:
-        save_every = dt_save
-    
+
     if save_every is not None:
         kwargs.setdefault("save_every", save_every)
 
@@ -178,8 +166,8 @@ class Solver:
         keyword arguments.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
-        ``dt_save`` and ``dt_summarise`` may also be supplied as loose keyword
-        arguments.
+        ``save_every`` and ``summarise_every`` may also be supplied as loose
+        keyword arguments.
     strict
         If ``True`` unknown keyword arguments raise ``KeyError``.
     time_logging_level : str or None, default='default'
@@ -1035,20 +1023,10 @@ class Solver:
         return self.kernel.dt_max
 
     @property
-    def dt_save(self):
-        """Return the interval between saved outputs (deprecated, use save_every)."""
-        return self.kernel.save_every
-    
-    @property
     def save_every(self):
         """Return the interval between saved outputs."""
         return self.kernel.save_every
 
-    @property
-    def dt_summarise(self):
-        """Return the interval between summary computations (deprecated, use summarise_every)."""
-        return self.kernel.summarise_every
-    
     @property
     def summarise_every(self):
         """Return the interval between summary computations."""
@@ -1113,8 +1091,8 @@ class Solver:
             dt=self.dt,
             dt_min=self.dt_min,
             dt_max=self.dt_max,
-            dt_save=self.save_every,
-            dt_summarise=self.summarise_every,
+            save_every=self.save_every,
+            summarise_every=self.summarise_every,
             duration=self.duration,
             warmup=self.warmup,
             t0=self.t0,

@@ -37,13 +37,12 @@ ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
     "sample_summaries_every",
-    "dt_save",  # Deprecated, backward compatibility
-    "dt_summarise",  # Deprecated, backward compatibility
-    "dt_update_summaries",  # Deprecated, backward compatibility
     "dt0",
     "dt_min",
     "dt_max",
     "is_adaptive",
+    "save_last",
+    "summarise_last",
     # Loop buffer location parameters
     "state_location",
     "proposed_state_location",
@@ -135,9 +134,6 @@ class IVPLoop(CUDAFactory):
         save_every: Optional[float] = None,
         summarise_every: Optional[float] = None,
         sample_summaries_every: Optional[float] = None,
-        dt_save: Optional[float] = None,
-        dt_summarise: Optional[float] = None,
-        dt_update_summaries: Optional[float] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -179,13 +175,6 @@ class IVPLoop(CUDAFactory):
         sample_summaries_every
             Interval between summary metric updates. Must be an integer divisor
             of ``summarise_every``. Defaults to None (auto-configured).
-        dt_save
-            Deprecated alias for save_every. Use save_every instead.
-        dt_summarise
-            Deprecated alias for summarise_every. Use summarise_every instead.
-        dt_update_summaries
-            Deprecated alias for sample_summaries_every. Use
-            sample_summaries_every instead.
         save_state_func
             Device function that writes state and observable snapshots.
         update_summaries_func
@@ -225,9 +214,6 @@ class IVPLoop(CUDAFactory):
                 'save_every': save_every,
                 'summarise_every': summarise_every,
                 'sample_summaries_every': sample_summaries_every,
-                'dt_save': dt_save,
-                'dt_summarise': dt_summarise,
-                'dt_update_summaries': dt_update_summaries,
                 'save_state_fn': save_state_func,
                 'update_summaries_fn': update_summaries_func,
                 'save_summaries_fn': save_summaries_func,
@@ -378,14 +364,13 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
-        updates_per_summary = config.updates_per_summary
+        updates_per_summary = config.samples_per_summary
         dt_save = precision(config.save_every)
         dt_update_summaries = precision(config.sample_summaries_every)
         dt0 = precision(config.dt0)
-        # save_last flag controls whether final time point is saved
-        save_last = False
-        # summarise_last flag controls whether final summary is computed
-        summarise_last = False
+        # Flags for end-of-run-only behavior from config
+        save_last = config.save_last
+        summarise_last = config.summarise_last
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -810,19 +795,9 @@ class IVPLoop(CUDAFactory):
         return IVPLoopCache(loop_function=loop_fn)
 
     @property
-    def dt_save(self) -> float:
-        """Return the save interval (deprecated, use save_every)."""
-        return self.compile_settings.save_every
-
-    @property
     def save_every(self) -> float:
         """Return the save interval."""
         return self.compile_settings.save_every
-
-    @property
-    def dt_summarise(self) -> float:
-        """Return the summary interval (deprecated, use summarise_every)."""
-        return self.compile_settings.summarise_every
     
     @property
     def summarise_every(self) -> float:

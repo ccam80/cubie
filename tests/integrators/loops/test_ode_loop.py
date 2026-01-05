@@ -28,15 +28,15 @@ def test_getters(
 
     #Test getters get
     assert loop.precision == precision, "precision getter"
-    assert loop.dt_save == precision(solver_settings['dt_save']), \
-        "dt_save getter"
-    assert loop.dt_summarise == precision(solver_settings[
-                                              'dt_summarise']),\
-        "dt_summarise getter"
+    assert loop.save_every == precision(solver_settings['save_every']), \
+        "save_every getter"
+    assert loop.summarise_every == precision(solver_settings[
+                                              'summarise_every']),\
+        "summarise_every getter"
     # test update
-    loop.update({"dt_save": 2 * solver_settings["dt_save"]})
-    assert loop.dt_save == pytest.approx(
-        2 * solver_settings["dt_save"], rel=1e-6, abs=1e-6
+    loop.update({"save_every": 2 * solver_settings["save_every"]})
+    assert loop.save_every == pytest.approx(
+        2 * solver_settings["save_every"], rel=1e-6, abs=1e-6
     )
 
 
@@ -180,7 +180,7 @@ def test_all_summary_metrics_numerical_check(
                              'precision': np.float32,
                              'output_types': ['state', 'time'],
                              'duration': 1e-4,
-                             'dt_save': 2e-5,  # representable in f32: 2e6*1.0
+                             'save_every': 2e-5,  # representable in f32: 2e6*1.0
                              't0': 1.0,
                              'algorithm': "euler",
                              'dt': 1e-7,  # smaller than 1f32 eps
@@ -198,7 +198,7 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
                                  'precision': np.float32,
                                  'output_types': ['state', 'time'],
                                  'duration': 1e-3,
-                                 'dt_save': 2e-4,
+                                 'save_every': 2e-4,
                                  't0': 1e2,
                                  'algorithm': 'euler',
                                  'dt': 1e-6,
@@ -207,7 +207,7 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
                                  'precision': np.float64,
                                  'output_types': ['state', 'time'],
                                  'duration': 1e-3,
-                                 'dt_save': 2e-4,
+                                 'save_every': 2e-4,
                                  't0': 1e2,
                                  'algorithm': 'euler',
                                  'dt': 1e-6,
@@ -229,7 +229,7 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                          [{
                              'precision': np.float32,
                              'duration': 1e-4,
-                             'dt_save': 2e-5,
+                             'save_every': 2e-5,
                              't0': 1.0,
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
@@ -257,7 +257,7 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
             "output_types": ["state", "time"],
             "algorithm": "euler",
             "dt": 1e-2,
-            "dt_save": 0.1,
+            "save_every": 0.1,
         }
     ],
     indirect=True,
@@ -266,4 +266,56 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1] == precision(1.2)
-    assert device_loop_outputs.state[-2,-1] == precision(1.1)
+    assert device_loop_outputs.state[-2, -1] == precision(1.1)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.1,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+    ],
+    indirect=True,
+)
+def test_save_last_flag_from_config(loop_mutable):
+    """Verify IVPLoop reads save_last flag from ODELoopConfig.
+
+    When all timing parameters are None, ODELoopConfig sets save_last=True.
+    IVPLoop.build() should read this from config.save_last.
+    """
+    config = loop_mutable.compile_settings
+    assert config.save_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.1,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+    ],
+    indirect=True,
+)
+def test_summarise_last_flag_from_config(loop_mutable):
+    """Verify IVPLoop reads summarise_last flag from ODELoopConfig.
+
+    When all timing parameters are None, ODELoopConfig sets summarise_last=True.
+    IVPLoop.build() should read this from config.summarise_last.
+    """
+    config = loop_mutable.compile_settings
+    assert config.summarise_last is True
