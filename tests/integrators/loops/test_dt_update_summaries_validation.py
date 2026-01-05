@@ -1,4 +1,4 @@
-"""Tests for dt_update_summaries parameter validation."""
+"""Tests for timing parameter validation and None-handling logic."""
 
 import pytest
 import numpy as np
@@ -6,8 +6,8 @@ from cubie.integrators.loops.ode_loop_config import ODELoopConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 
-def test_dt_update_summaries_default_to_dt_save():
-    """Test that dt_update_summaries defaults to dt_save."""
+def test_all_none_uses_defaults():
+    """Test that all None uses default values."""
     config = ODELoopConfig(
         n_states=3,
         n_parameters=0,
@@ -17,16 +17,15 @@ def test_dt_update_summaries_default_to_dt_save():
         n_counters=0,
         state_summaries_buffer_height=0,
         observable_summaries_buffer_height=0,
-        dt_save=0.1,
-        dt_summarise=1.0,
     )
     
-    assert config.dt_update_summaries == pytest.approx(0.1)
-    assert config._dt_update_summaries == pytest.approx(0.1)
+    assert config.save_every == pytest.approx(0.1)
+    assert config.summarise_every == pytest.approx(1.0)
+    assert config.sample_summaries_every == pytest.approx(0.1)
 
 
-def test_dt_update_summaries_explicit_value():
-    """Test that explicit dt_update_summaries is used."""
+def test_only_save_every_specified():
+    """Test that specifying only save_every infers other values."""
     config = ODELoopConfig(
         n_states=3,
         n_parameters=0,
@@ -36,16 +35,76 @@ def test_dt_update_summaries_explicit_value():
         n_counters=0,
         state_summaries_buffer_height=0,
         observable_summaries_buffer_height=0,
-        dt_save=0.1,
-        dt_summarise=1.0,
-        dt_update_summaries=0.2,
+        save_every=0.2,
     )
     
-    assert config.dt_update_summaries == pytest.approx(0.2)
+    assert config.save_every == pytest.approx(0.2)
+    assert config.summarise_every == pytest.approx(2.0)
+    assert config.sample_summaries_every == pytest.approx(0.2)
 
 
-def test_dt_update_summaries_must_divide_dt_summarise():
-    """Test that dt_update_summaries must divide dt_summarise."""
+def test_only_summarise_every_specified():
+    """Test that specifying only summarise_every infers other values."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        summarise_every=2.0,
+    )
+    
+    assert config.save_every == pytest.approx(0.2)
+    assert config.summarise_every == pytest.approx(2.0)
+    assert config.sample_summaries_every == pytest.approx(0.2)
+
+
+def test_save_and_summarise_specified():
+    """Test that specifying save and summarise infers sample."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        save_every=0.1,
+        summarise_every=1.0,
+    )
+    
+    assert config.save_every == pytest.approx(0.1)
+    assert config.summarise_every == pytest.approx(1.0)
+    assert config.sample_summaries_every == pytest.approx(0.1)
+
+
+def test_all_three_specified():
+    """Test that all three values can be explicitly set."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        save_every=0.1,
+        summarise_every=1.0,
+        sample_summaries_every=0.2,
+    )
+    
+    assert config.save_every == pytest.approx(0.1)
+    assert config.summarise_every == pytest.approx(1.0)
+    assert config.sample_summaries_every == pytest.approx(0.2)
+
+
+def test_sample_must_divide_summarise():
+    """Test that sample_summaries_every must divide summarise_every."""
     with pytest.raises(ValueError, match="must be an integer divisor"):
         ODELoopConfig(
             n_states=3,
@@ -56,15 +115,95 @@ def test_dt_update_summaries_must_divide_dt_summarise():
             n_counters=0,
             state_summaries_buffer_height=0,
             observable_summaries_buffer_height=0,
-            dt_save=0.1,
-            dt_summarise=1.0,
-            dt_update_summaries=0.3,
+            save_every=0.1,
+            summarise_every=1.0,
+            sample_summaries_every=0.3,
         )
 
 
-def test_dt_update_summaries_positive():
-    """Test that dt_update_summaries must be positive."""
-    with pytest.raises((ValueError, TypeError)):
+def test_float32_tolerance():
+    """Test that float32 uses appropriate tolerance for validation."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        precision=np.float32,
+        save_every=0.1,
+        summarise_every=1.0,
+        sample_summaries_every=0.1,
+    )
+    
+    assert config.save_every == pytest.approx(0.1)
+    assert config.updates_per_summary == 10
+
+
+def test_backward_compat_dt_save():
+    """Test backward compatibility with dt_save parameter."""
+    with pytest.warns(DeprecationWarning, match="dt_save.*deprecated"):
+        config = ODELoopConfig(
+            n_states=3,
+            n_parameters=0,
+            n_drivers=0,
+            n_observables=0,
+            n_error=0,
+            n_counters=0,
+            state_summaries_buffer_height=0,
+            observable_summaries_buffer_height=0,
+            dt_save=0.2,
+        )
+    
+    assert config.save_every == pytest.approx(0.2)
+    assert config.dt_save == pytest.approx(0.2)
+
+
+def test_backward_compat_dt_summarise():
+    """Test backward compatibility with dt_summarise parameter."""
+    with pytest.warns(DeprecationWarning, match="dt_summarise.*deprecated"):
+        config = ODELoopConfig(
+            n_states=3,
+            n_parameters=0,
+            n_drivers=0,
+            n_observables=0,
+            n_error=0,
+            n_counters=0,
+            state_summaries_buffer_height=0,
+            observable_summaries_buffer_height=0,
+            dt_summarise=2.0,
+        )
+    
+    assert config.summarise_every == pytest.approx(2.0)
+    assert config.dt_summarise == pytest.approx(2.0)
+
+
+def test_backward_compat_dt_update_summaries():
+    """Test backward compatibility with dt_update_summaries parameter."""
+    with pytest.warns(DeprecationWarning, match="dt_update_summaries.*deprecated"):
+        config = ODELoopConfig(
+            n_states=3,
+            n_parameters=0,
+            n_drivers=0,
+            n_observables=0,
+            n_error=0,
+            n_counters=0,
+            state_summaries_buffer_height=0,
+            observable_summaries_buffer_height=0,
+            save_every=0.1,
+            summarise_every=1.0,
+            dt_update_summaries=0.2,
+        )
+    
+    assert config.sample_summaries_every == pytest.approx(0.2)
+    assert config.dt_update_summaries == pytest.approx(0.2)
+
+
+def test_cannot_specify_both_dt_save_and_save_every():
+    """Test that using both old and new names raises an error."""
+    with pytest.raises(ValueError, match="Cannot specify both"):
         ODELoopConfig(
             n_states=3,
             n_parameters=0,
@@ -75,14 +214,13 @@ def test_dt_update_summaries_positive():
             state_summaries_buffer_height=0,
             observable_summaries_buffer_height=0,
             dt_save=0.1,
-            dt_summarise=1.0,
-            dt_update_summaries=-0.1,
+            save_every=0.1,
         )
 
 
-@pytest.mark.parametrize("dt_update", [0.1, 0.2, 0.25, 0.5, 1.0])
-def test_valid_dt_update_summaries_values(dt_update):
-    """Test various valid dt_update_summaries values."""
+@pytest.mark.parametrize("sample_every", [0.1, 0.2, 0.25, 0.5, 1.0])
+def test_valid_sample_summaries_every_values(sample_every):
+    """Test various valid sample_summaries_every values."""
     config = ODELoopConfig(
         n_states=3,
         n_parameters=0,
@@ -92,11 +230,11 @@ def test_valid_dt_update_summaries_values(dt_update):
         n_counters=0,
         state_summaries_buffer_height=0,
         observable_summaries_buffer_height=0,
-        dt_save=0.1,
-        dt_summarise=1.0,
-        dt_update_summaries=dt_update,
+        save_every=0.1,
+        summarise_every=1.0,
+        sample_summaries_every=sample_every,
     )
     
-    assert config.dt_update_summaries == pytest.approx(dt_update)
-    expected_updates = int(1.0 / dt_update)
+    assert config.sample_summaries_every == pytest.approx(sample_every)
+    expected_updates = int(1.0 / sample_every)
     assert config.updates_per_summary == expected_updates

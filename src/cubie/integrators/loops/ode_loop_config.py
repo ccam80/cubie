@@ -6,6 +6,7 @@ callbacks. They centralise validation so that loop factories receive
 consistent, ready-to-compile settings.
 """
 from typing import Callable, Optional
+from warnings import warn
 
 from attrs import define, field, validators
 from numba import from_dtype as numba_from_dtype
@@ -55,10 +56,12 @@ class ODELoopConfig:
         Precision used for all loop-managed computations.
     compile_flags
         Output configuration governing save and summary cadence.
-    _dt_save
+    _save_every
         Interval between accepted saves.
-    _dt_summarise
+    _summarise_every
         Interval between summary accumulations.
+    _sample_summaries_every
+        Interval between summary metric updates.
     save_state_fn
         Device function that records state and observable snapshots.
     update_summaries_fn
@@ -175,14 +178,28 @@ class ODELoopConfig:
         validator=validators.instance_of(OutputCompileFlags),
     )
 
-    #Loop timing parameters
-    _dt_save: float = field(
-        default=0.1,
-        validator=gttype_validator(float, 0)
+    # Loop timing parameters
+    _save_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
     )
-    _dt_summarise: float = field(
-        default=1.0,
-        validator=gttype_validator(float, 0)
+    _summarise_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
+    _sample_summaries_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
+    
+    # Deprecated timing parameters (backward compatibility)
+    _dt_save: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
+    _dt_summarise: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
     )
     _dt_update_summaries: Optional[float] = field(
         default=None,
@@ -241,29 +258,126 @@ class ODELoopConfig:
             validator=validators.optional(validators.instance_of(bool)))
 
     def __attrs_post_init__(self):
-        """Validate dt_update_summaries and set default if needed."""
-        if self._dt_update_summaries is None:
-            object.__setattr__(self, '_dt_update_summaries', self._dt_save)
+        """Validate timing parameters and apply backward compatibility.
         
-        # Check if dt_update_summaries divides dt_summarise evenly
-        # Use division and check if result is close to an integer
-        ratio = self._dt_summarise / self._dt_update_summaries
-        if abs(ratio - round(ratio)) > 1e-9:
+        Handles deprecated parameter names (dt_save, dt_summarise,
+        dt_update_summaries) with deprecation warnings. Applies None-handling
+        logic for all timing parameters based on configuration context.
+        """
+        # Backward compatibility: handle deprecated parameter names
+        deprecated_used = False
+        if self._dt_save is not None:
+            if self._save_every is not None:
+                raise ValueError(
+                    "Cannot specify both 'dt_save' (deprecated) and "
+                    "'save_every'. Use 'save_every' only."
+                )
+            warn(
+                "Parameter 'dt_save' is deprecated. Use 'save_every' instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            object.__setattr__(self, '_save_every', self._dt_save)
+            deprecated_used = True
+        
+        if self._dt_summarise is not None:
+            if self._summarise_every is not None:
+                raise ValueError(
+                    "Cannot specify both 'dt_summarise' (deprecated) and "
+                    "'summarise_every'. Use 'summarise_every' instead."
+                )
+            warn(
+                "Parameter 'dt_summarise' is deprecated. Use 'summarise_every' "
+                "instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            object.__setattr__(self, '_summarise_every', self._dt_summarise)
+            deprecated_used = True
+        
+        if self._dt_update_summaries is not None:
+            if self._sample_summaries_every is not None:
+                raise ValueError(
+                    "Cannot specify both 'dt_update_summaries' (deprecated) "
+                    "and 'sample_summaries_every'. Use 'sample_summaries_every' "
+                    "only."
+                )
+            warn(
+                "Parameter 'dt_update_summaries' is deprecated. Use "
+                "'sample_summaries_every' instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            object.__setattr__(
+                self, '_sample_summaries_every', self._dt_update_summaries
+            )
+            deprecated_used = True
+        
+        # Apply None-handling logic based on what's configured
+        # Case 1: All None (use defaults: save=0.1, summarise=1.0, sample=save)
+        if (self._save_every is None and self._summarise_every is None and 
+                self._sample_summaries_every is None):
+            object.__setattr__(self, '_save_every', 0.1)
+            object.__setattr__(self, '_summarise_every', 1.0)
+            object.__setattr__(self, '_sample_summaries_every', 0.1)
+        
+        # Case 2: Only save_every specified
+        elif (self._save_every is not None and self._summarise_every is None and
+                self._sample_summaries_every is None):
+            # summarise_every = 10 * save_every, sample = save
+            object.__setattr__(self, '_summarise_every', 10.0 * self._save_every)
+            object.__setattr__(self, '_sample_summaries_every', self._save_every)
+        
+        # Case 3: Only summarise_every specified
+        elif (self._save_every is None and self._summarise_every is not None and
+                self._sample_summaries_every is None):
+            # save_every = summarise_every / 10, sample = save
+            object.__setattr__(self, '_save_every', self._summarise_every / 10.0)
+            object.__setattr__(
+                self, '_sample_summaries_every', self._summarise_every / 10.0
+            )
+        
+        # Case 4: save_every and summarise_every specified
+        elif (self._save_every is not None and self._summarise_every is not None and
+                self._sample_summaries_every is None):
+            # sample = save
+            object.__setattr__(self, '_sample_summaries_every', self._save_every)
+        
+        # Case 5: save_every and sample_summaries_every specified
+        elif (self._save_every is not None and self._summarise_every is None and
+                self._sample_summaries_every is not None):
+            # summarise_every = 10 * save_every
+            object.__setattr__(self, '_summarise_every', 10.0 * self._save_every)
+        
+        # Case 6: summarise_every and sample_summaries_every specified
+        elif (self._save_every is None and self._summarise_every is not None and
+                self._sample_summaries_every is not None):
+            # save_every = sample_summaries_every
+            object.__setattr__(self, '_save_every', self._sample_summaries_every)
+        
+        # Case 7: All three specified - no defaults needed
+        # (values already set)
+        
+        # Validate that sample_summaries_every divides summarise_every evenly
+        # Use precision-aware tolerance for float32 compatibility
+        tolerance = 1e-6 if self.precision == float32 else 1e-9
+        ratio = self._summarise_every / self._sample_summaries_every
+        if abs(ratio - round(ratio)) > tolerance:
             raise ValueError(
-                f"dt_update_summaries ({self._dt_update_summaries}) must be "
-                f"an integer divisor of dt_summarise ({self._dt_summarise}). "
-                f"Ratio: {ratio}"
+                f"sample_summaries_every ({self._sample_summaries_every}) must "
+                f"be an integer divisor of summarise_every "
+                f"({self._summarise_every}). Ratio: {ratio}"
             )
 
     @property
     def saves_per_summary(self) -> int:
         """Return the number of saves between summary outputs."""
-        return round(self.dt_summarise / self.dt_save)
+        return round(self.summarise_every / self.save_every)
 
     @property
     def updates_per_summary(self) -> int:
         """Return the number of updates between summary outputs."""
-        return round(self.dt_summarise / self.dt_update_summaries)
+        return round(self.summarise_every / self.sample_summaries_every)
 
     @property
     def numba_precision(self) -> type:
@@ -276,24 +390,35 @@ class ODELoopConfig:
         return simsafe_dtype(self.precision)
 
     @property
-    def dt_save(self) -> float:
+    def save_every(self) -> float:
         """Return the output save interval."""
-        return self.precision(self._dt_save)
+        return self.precision(self._save_every)
+    
+    @property
+    def summarise_every(self) -> float:
+        """Return the summary interval."""
+        return self.precision(self._summarise_every)
+    
+    @property
+    def sample_summaries_every(self) -> float:
+        """Return the summary sampling interval."""
+        return self.precision(self._sample_summaries_every)
+    
+    # Backward compatibility properties (deprecated)
+    @property
+    def dt_save(self) -> float:
+        """Return the output save interval (deprecated, use save_every)."""
+        return self.save_every
 
     @property
     def dt_summarise(self) -> float:
-        """Return the summary interval."""
-        return self.precision(self._dt_summarise)
+        """Return the summary interval (deprecated, use summarise_every)."""
+        return self.summarise_every
 
     @property
     def dt_update_summaries(self) -> float:
-        """Return the summary update interval."""
-        update_val = (
-            self._dt_update_summaries 
-            if self._dt_update_summaries is not None 
-            else self._dt_save
-        )
-        return self.precision(update_val)
+        """Return the summary update interval (deprecated, use sample_summaries_every)."""
+        return self.sample_summaries_every
 
     @property
     def dt0(self) -> float:
