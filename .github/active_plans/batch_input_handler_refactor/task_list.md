@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/batch_input_handler_refactor/agent_plan.md
 
 ## Task Group 1: Rename BatchGridBuilder File and Class
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -217,13 +217,27 @@
 **Tests to Run**:
 - None for this group (deferred to after Task Group 4)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchInputHandler.py (978 lines - new file)
+  * src/cubie/batchsolving/BatchGridBuilder.py (17 lines - converted to compatibility shim)
+- Functions/Methods Added/Modified:
+  * BatchInputHandler class (renamed from BatchGridBuilder)
+  * BatchInputHandler.from_system() - return type annotation updated
+  * BatchInputHandler.__call__() - argument order changed to (states, params)
+  * BatchInputHandler._are_right_sized_arrays() - parameter renamed from inits to states
+- Implementation Summary:
+  Created new BatchInputHandler.py with renamed class and updated API. The __call__ 
+  method signature changed from (params, states) to (states, params) to match the 
+  return order. Updated module docstring with new class name and responsibilities.
+  Converted BatchGridBuilder.py to a backward-compatibility shim that re-exports
+  all symbols from BatchInputHandler.py with BatchGridBuilder as an alias.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Add classify_inputs and validate_arrays Methods
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -363,17 +377,37 @@
 - Description: Verify arrays are cast to system precision
 
 **Tests to Run**:
-- tests/batchsolving/test_batch_input_handler.py::test_classify_inputs_dict
-- tests/batchsolving/test_batch_input_handler.py::test_classify_inputs_array
-- tests/batchsolving/test_batch_input_handler.py::test_validate_arrays_dtype_cast
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_dict
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_dict_mixed
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_array
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_array_wrong_shape
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_array_mismatched_runs
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_1d_arrays
+- tests/batchsolving/test_batch_grid_builder.py::test_classify_inputs_device
+- tests/batchsolving/test_batch_grid_builder.py::test_validate_arrays_dtype_cast
+- tests/batchsolving/test_batch_grid_builder.py::test_validate_arrays_preserves_correct_dtype
+- tests/batchsolving/test_batch_grid_builder.py::test_validate_arrays_contiguous
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchInputHandler.py (91 lines added)
+  * tests/batchsolving/test_batch_grid_builder.py (150 lines added)
+- Functions/Methods Added/Modified:
+  * classify_inputs() in BatchInputHandler.py - classifies input types
+  * validate_arrays() in BatchInputHandler.py - validates and casts arrays
+  * Tuple added to typing imports
+- Implementation Summary:
+  Added classify_inputs method that returns 'dict', 'array', or 'device'
+  based on input types. Added validate_arrays method that casts arrays
+  to system precision and ensures contiguity. Added comprehensive tests
+  for both methods covering dict inputs, array inputs, device arrays,
+  mixed inputs, wrong shapes, mismatched runs, and dtype casting.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Update Solver and Package Exports
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1 and 2
 
 **Required Context**:
@@ -480,13 +514,29 @@
 **Tests to Run**:
 - tests/batchsolving/test_solver.py::test_solver_initialization
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (85 lines removed, 6 lines modified)
+  * src/cubie/batchsolving/__init__.py (4 lines modified)
+- Functions/Methods Added/Modified:
+  * Solver.__init__() - renamed grid_builder to input_handler
+  * Solver.solve() - now delegates to input_handler.classify_inputs() and input_handler.validate_arrays()
+  * Solver.build_grid() - now delegates to input_handler()
+  * Solver._classify_inputs() - REMOVED (delegated to BatchInputHandler)
+  * Solver._validate_arrays() - REMOVED (delegated to BatchInputHandler)
+- Implementation Summary:
+  Updated Solver class to use BatchInputHandler instead of BatchGridBuilder.
+  Renamed grid_builder attribute to input_handler. Removed duplicate _classify_inputs
+  and _validate_arrays methods from Solver (now delegated to input_handler methods).
+  Updated __init__.py to import BatchInputHandler and provide BatchGridBuilder as
+  a backward compatibility alias. Added BatchInputHandler to __all__ exports.
+  Updated docstring reference from BatchGridBuilder to BatchInputHandler.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Update Tests and Fixtures
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, and 3
 
 **Required Context**:
@@ -761,13 +811,39 @@
 - tests/batchsolving/test_batch_input_handler.py (entire file)
 - tests/batchsolving/test_solver.py (entire file)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/test_batch_input_handler.py (created - renamed from test_batch_grid_builder.py, 1177 lines)
+  * tests/batchsolving/test_batch_grid_builder.py (7 lines - converted to deprecation notice)
+  * tests/batchsolving/conftest.py (15 lines changed)
+  * tests/batchsolving/test_solver.py (40 lines changed)
+- Functions/Methods Added/Modified:
+  * input_handler fixture in test_batch_input_handler.py (new primary fixture)
+  * grid_builder fixture in test_batch_input_handler.py (backward compat alias)
+  * input_handler fixture in conftest.py (new primary fixture)
+  * batchconfig_instance fixture in conftest.py (backward compat alias)
+  * batch_input_arrays fixture in conftest.py (uses input_handler)
+  * test_solver_initialization in test_solver.py (checks input_handler)
+  * test_classify_inputs_* tests in test_solver.py (use input_handler.classify_inputs)
+  * test_validate_arrays_dtype_cast in test_solver.py (uses input_handler.validate_arrays)
+- Implementation Summary:
+  Created new test_batch_input_handler.py file with updated imports from BatchInputHandler.
+  Added input_handler fixture and kept grid_builder as backward compatibility alias.
+  Updated test_docstring_examples to use handler variable and new class name.
+  Updated conftest.py to import BatchInputHandler, added input_handler fixture with
+  batchconfig_instance as backward compat alias. Updated batch_input_arrays to use
+  input_handler. Updated test_solver.py imports to BatchInputHandler, changed
+  test_solver_initialization to check input_handler attribute and isinstance
+  BatchInputHandler. Updated all test_classify_inputs_* tests to call
+  solver.input_handler.classify_inputs() instead of solver._classify_inputs().
+  Updated test_validate_arrays_dtype_cast to use solver.input_handler.validate_arrays().
+  Old test_batch_grid_builder.py converted to deprecation notice.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Add Positional Argument Regression Test
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2, 3, and 4
 
 **Required Context**:
@@ -862,8 +938,24 @@
 - tests/batchsolving/test_batch_input_handler.py::test_call_positional_argument_order
 - tests/batchsolving/test_solver.py::test_solve_ivp_positional_argument_order
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/test_batch_input_handler.py (26 lines added)
+  * tests/batchsolving/test_solver.py (29 lines added)
+- Functions/Methods Added/Modified:
+  * test_call_positional_argument_order() in test_batch_input_handler.py
+  * test_solve_ivp_positional_argument_order() in test_solver.py
+- Implementation Summary:
+  Added two regression tests to verify positional argument ordering. The first
+  test (test_call_positional_argument_order) verifies that calling
+  BatchInputHandler.__call__(states, params, kind) with positional arguments
+  routes values correctly (states=1.5 to result_states, params=99.0 to
+  result_params). The second test (test_solve_ivp_positional_argument_order)
+  verifies that calling solve_ivp(system, y0, parameters, ...) with positional
+  y0 and parameters routes values correctly to result.initial_values and
+  result.parameters respectively. Both tests use distinctive values (1.5 vs
+  99.0) to make swapped arguments immediately obvious.
+- Issues Flagged: None
 
 ---
 

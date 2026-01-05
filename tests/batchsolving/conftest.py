@@ -7,17 +7,27 @@ import attrs
 import numpy as np
 import pytest
 
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
+
+# Backward compatibility alias
+BatchGridBuilder = BatchInputHandler
 
 
 Array = np.ndarray
 
 
 @pytest.fixture(scope="session")
-def batchconfig_instance(system) -> BatchGridBuilder:
-    """Return a batch grid builder for the configured system."""
+def input_handler(system) -> BatchInputHandler:
+    """Return a batch input handler for the configured system."""
 
-    return BatchGridBuilder.from_system(system)
+    return BatchInputHandler.from_system(system)
+
+
+# Backward compatibility alias
+@pytest.fixture(scope="session")
+def batchconfig_instance(input_handler) -> BatchInputHandler:
+    """Backward compatibility alias for input_handler."""
+    return input_handler
 
 
 @pytest.fixture(scope="session")
@@ -73,7 +83,7 @@ def batch_request(system, batch_settings, precision) -> dict[str, Array]:
 def batch_input_arrays(
     batch_request,
     batch_settings,
-    batchconfig_instance,
+    input_handler,
     system,
 ) -> tuple[Array, Array]:
     """Return the initial state and parameter arrays for the batch run."""
@@ -84,7 +94,7 @@ def batch_input_arrays(
     states_dict = {k: v for k, v in batch_request.items() if k in state_names}
     params_dict = {k: v for k, v in batch_request.items() if k in param_names}
 
-    return batchconfig_instance(
+    return input_handler(
         states=states_dict,
         params=params_dict,
         kind=batch_settings["kind"]

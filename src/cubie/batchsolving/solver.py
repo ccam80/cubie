@@ -12,7 +12,7 @@ import numpy as np
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
@@ -221,7 +221,7 @@ class Solver:
             },
         )
 
-        self.grid_builder = BatchGridBuilder(interface)
+        self.input_handler = BatchInputHandler(interface)
 
         recognized_kwargs: set[str] = set()
 
@@ -337,93 +337,6 @@ class Solver:
                     )
                 output_settings[outkey] = indices
 
-    def _classify_inputs(
-        self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-    ) -> str:
-        """Classify input types to determine optimal processing path.
-
-        Parameters
-        ----------
-        initial_values
-            Initial state values as dict or array.
-        parameters
-            Parameter values as dict or array.
-
-        Returns
-        -------
-        str
-            Classification: 'dict', 'array', or 'device'.
-
-        Notes
-        -----
-        Returns 'dict' when either input is a dictionary, triggering
-        full grid construction. Returns 'array' when both inputs are
-        numpy arrays with matching run counts in (n_vars, n_runs) format.
-        Returns 'device' when both have __cuda_array_interface__.
-        """
-        # If either input is a dict, use grid builder path
-        if isinstance(initial_values, dict) or isinstance(parameters, dict):
-            return 'dict'
-
-        # Check for device arrays (CUDA arrays with interface)
-        init_is_device = hasattr(initial_values, '__cuda_array_interface__')
-        param_is_device = hasattr(parameters, '__cuda_array_interface__')
-        if init_is_device and param_is_device:
-            return 'device'
-
-        # Check for numpy arrays with correct shapes
-        if isinstance(initial_values, np.ndarray) and isinstance(
-            parameters, np.ndarray
-        ):
-            # Must be 2D arrays in (n_vars, n_runs) format
-            if initial_values.ndim == 2 and parameters.ndim == 2:
-                n_states = self.system_sizes.states
-                n_params = self.system_sizes.parameters
-                # Verify variable counts match system expectations
-                if (initial_values.shape[0] == n_states and
-                        parameters.shape[0] == n_params):
-                    # Verify run counts match
-                    if initial_values.shape[1] == parameters.shape[1]:
-                        return 'array'
-
-        # Default to dict path (grid builder handles conversion)
-        return 'dict'
-
-    def _validate_arrays(
-        self,
-        initial_values: np.ndarray,
-        parameters: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Validate and prepare pre-built arrays for kernel execution.
-
-        Parameters
-        ----------
-        initial_values
-            Initial state array in (n_states, n_runs) format.
-        parameters
-            Parameter array in (n_params, n_runs) format.
-
-        Returns
-        -------
-        Tuple[np.ndarray, np.ndarray]
-            Validated arrays cast to system precision.
-
-        Notes
-        -----
-        Arrays are cast to the system precision dtype when needed.
-        """
-        precision = self.precision
-
-        # Cast to correct dtype if needed
-        if initial_values.dtype != precision:
-            initial_values = initial_values.astype(precision, copy=False)
-        if parameters.dtype != precision:
-            parameters = parameters.astype(precision, copy=False)
-
-        return initial_values, parameters
-
     def solve(
         self,
         initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
@@ -493,7 +406,7 @@ class Solver:
         Input type detection determines the processing path:
 
         - Dictionary inputs trigger grid construction via
-          :class:`BatchGridBuilder`
+          :class:`BatchInputHandler`
         - Pre-built numpy arrays with correct shapes skip grid
           construction for improved performance
         - Device arrays receive minimal processing before kernel
@@ -506,16 +419,22 @@ class Solver:
         default_timelogger.start_event("solver_solve")
 
         # Classify inputs to determine processing path
-        input_type = self._classify_inputs(initial_values, parameters)
+        input_type = self.input_handler.classify_inputs(
+            states=initial_values,
+            params=parameters
+        )
 
         if input_type == 'dict':
-            # Dictionary inputs: use grid builder (existing behavior)
-            inits, params = self.grid_builder(
+            # Dictionary inputs: use input handler (existing behavior)
+            inits, params = self.input_handler(
                 states=initial_values, params=parameters, kind=grid_type
             )
         elif input_type == 'array':
             # Pre-built arrays: validate and use directly (fast path)
-            inits, params = self._validate_arrays(initial_values, parameters)
+            inits, params = self.input_handler.validate_arrays(
+                states=initial_values,
+                params=parameters
+            )
         else:
             # Device arrays: use directly with minimal processing
             inits, params = initial_values, parameters
@@ -593,7 +512,7 @@ class Solver:
         ... )
         >>> result = solver.solve(inits, params)  # Uses fast path
         """
-        return self.grid_builder(
+        return self.input_handler(
             states=initial_values, params=parameters, kind=grid_type
         )
 

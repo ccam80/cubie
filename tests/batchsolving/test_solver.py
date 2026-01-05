@@ -4,7 +4,10 @@ import pytest
 import numpy as np
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
+
+# Backward compatibility alias
+BatchGridBuilder = BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
 
 from cubie.cuda_simsafe import DeviceNDArray
@@ -54,10 +57,10 @@ def test_solver_initialization(solver, system):
     """Test that the solver initializes correctly."""
     assert solver is not None
     assert solver.system_interface is not None
-    assert solver.grid_builder is not None
+    assert solver.input_handler is not None
     assert solver.kernel is not None
     assert isinstance(solver.system_interface, SystemInterface)
-    assert isinstance(solver.grid_builder, BatchGridBuilder)
+    assert isinstance(solver.input_handler, BatchInputHandler)
 
 
 def test_solver_properties(solver, solver_settings):
@@ -577,7 +580,10 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
 
 def test_classify_inputs_dict(solver, simple_initial_values, simple_parameters):
     """Test that dict inputs are classified as 'dict'."""
-    result = solver._classify_inputs(simple_initial_values, simple_parameters)
+    result = solver.input_handler.classify_inputs(
+        states=simple_initial_values,
+        params=simple_parameters
+    )
     assert result == 'dict'
 
 
@@ -587,7 +593,10 @@ def test_classify_inputs_mixed(solver, system):
     inits_array = np.ones((n_states, 2), dtype=solver.precision)
     params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
 
-    result = solver._classify_inputs(inits_array, params_dict)
+    result = solver.input_handler.classify_inputs(
+        states=inits_array,
+        params=params_dict
+    )
     assert result == 'dict'
 
     # Test the reverse case
@@ -595,7 +604,10 @@ def test_classify_inputs_mixed(solver, system):
     n_params = solver.system_sizes.parameters
     params_array = np.ones((n_params, 2), dtype=solver.precision)
 
-    result = solver._classify_inputs(inits_dict, params_array)
+    result = solver.input_handler.classify_inputs(
+        states=inits_dict,
+        params=params_array
+    )
     assert result == 'dict'
 
 
@@ -608,7 +620,10 @@ def test_classify_inputs_array(solver):
     inits = np.ones((n_states, n_runs), dtype=solver.precision)
     params = np.ones((n_params, n_runs), dtype=solver.precision)
 
-    result = solver._classify_inputs(inits, params)
+    result = solver.input_handler.classify_inputs(
+        states=inits,
+        params=params
+    )
     assert result == 'array'
 
 
@@ -620,7 +635,10 @@ def test_classify_inputs_mismatched_runs(solver):
     inits = np.ones((n_states, 3), dtype=solver.precision)
     params = np.ones((n_params, 5), dtype=solver.precision)
 
-    result = solver._classify_inputs(inits, params)
+    result = solver.input_handler.classify_inputs(
+        states=inits,
+        params=params
+    )
     assert result == 'dict'
 
 
@@ -633,7 +651,10 @@ def test_classify_inputs_wrong_var_count(solver):
     inits = np.ones((999, n_runs), dtype=solver.precision)
     params = np.ones((n_params, n_runs), dtype=solver.precision)
 
-    result = solver._classify_inputs(inits, params)
+    result = solver.input_handler.classify_inputs(
+        states=inits,
+        params=params
+    )
     assert result == 'dict'
 
 
@@ -645,7 +666,10 @@ def test_classify_inputs_1d_arrays(solver):
     inits = np.ones(n_states, dtype=solver.precision)
     params = np.ones(n_params, dtype=solver.precision)
 
-    result = solver._classify_inputs(inits, params)
+    result = solver.input_handler.classify_inputs(
+        states=inits,
+        params=params
+    )
     assert result == 'dict'
 
 
@@ -665,7 +689,10 @@ def test_validate_arrays_dtype_cast(solver):
     inits = np.ones((n_states, n_runs), dtype=wrong_dtype)
     params = np.ones((n_params, n_runs), dtype=wrong_dtype)
 
-    validated_inits, validated_params = solver._validate_arrays(inits, params)
+    validated_inits, validated_params = solver.input_handler.validate_arrays(
+        states=inits,
+        params=params
+    )
 
     assert validated_inits.dtype == solver.precision
     assert validated_params.dtype == solver.precision
@@ -801,3 +828,35 @@ def test_solve_dict_path_backward_compatible(
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
+
+
+def test_solve_ivp_positional_argument_order(system, solver_settings):
+    """Verify positional args to solve_ivp route correctly.
+
+    Regression test: y0 (states) must go to states bucket,
+    parameters must go to params bucket, even without keywords.
+    The underlying routing is verified in test_batch_input_handler.py.
+    """
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+
+    # Use distinctive values to verify routing
+    states = np.full((n_states, 2), 1.5, dtype=system.precision)
+    params = np.full((n_params, 2), 99.0, dtype=system.precision)
+
+    # Solve should complete without error using positional args
+    result = solve_ivp(
+        system,
+        states,      # positional: y0
+        params,      # positional: parameters
+        duration=0.01,
+        dt=0.001,
+        dt_save=0.01,
+    )
+
+    # Verify result structure is valid
+    assert hasattr(result, "time_domain_array")
+    assert hasattr(result, "summaries_array")
+    # Verify correct number of runs were executed
+    assert result.time_domain_array.shape[2] == 2, \
+        "Should have 2 runs from 2-column input arrays"
