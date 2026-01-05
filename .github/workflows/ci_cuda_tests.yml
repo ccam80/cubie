@@ -69,7 +69,6 @@ jobs:
               f"cd /tmp/numba-cuda && git checkout cubie_patch && python -m pip install -e . && "
               f"cd /workspace/repo && "
               # --------------------------------------------------------------------------------------- #
-              f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov ... "
               f"mkdir -p /artifacts && "
               f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov --cov-branch -vv -ra "
               f"--junitxml=/artifacts/pytest-results.xml "
