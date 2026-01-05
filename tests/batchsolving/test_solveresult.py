@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests._utils import rebuild_solver
-
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
@@ -16,39 +14,20 @@ def solver_with_arrays(
     solver,
     batch_input_arrays,
     solver_settings,
-    system,
     precision,
     driver_array,
 ):
     """Solver with actual arrays computed - ready for SolveResult instantiation"""
     inits, params = batch_input_arrays
-    try:
-        solver.kernel.run(
-            duration=solver_settings["duration"],
-            params=params,
-            inits=inits,
-            driver_coefficients=driver_array.coefficients,
-            blocksize=solver_settings["blocksize"],
-            stream=solver_settings["stream"],
-            warmup=solver_settings["warmup"],
-        )
-    except AttributeError:
-        # The solver has failed to find cuda.local in one batch thread. Try
-        # again.
-        rebuild_solver(
-            system=system,
-            solver_settings=solver_settings,
-            driver_array=driver_array
-        )
-        solver.kernel.run(
-            duration=solver_settings["duration"],
-            params=params,
-            inits=inits,
-            driver_coefficients=driver_array.coefficients,
-            blocksize=solver_settings["blocksize"],
-            stream=solver_settings["stream"],
-            warmup=solver_settings["warmup"],
-        )
+    solver.kernel.run(
+        duration=solver_settings["duration"],
+        params=params,
+        inits=inits,
+        driver_coefficients=driver_array.coefficients,
+        blocksize=solver_settings["blocksize"],
+        stream=solver_settings["stream"],
+        warmup=solver_settings["warmup"],
+    )
 
     return solver
 
@@ -496,36 +475,19 @@ def solved_batch_solver_errorcode(system, precision):
     solver = Solver(system, dt_save=0.01)
 
     # Run a single batch solve with multiple runs
-    try:
-        solver.solve(
-            initial_values={
-                "x0": [1.0, 2.0, 3.0],
-                "x1": [0.0, 0.0, 0.0],
-                "x2": [0.0, 0.0, 0.0],
-            },
-            parameters={
-                "p0": [0.1, 0.2, 0.3],
-                "p1": [0.1, 0.2, 0.3],
-                "p2": [0.1, 0.2, 0.3],
-            },
-            duration=0.1,
-        )
-    except AttributeError:
-        #CUDASIM error, try again
-        solver.update(dt_save=0.01)
-        solver.solve(
-            initial_values={
-                "x0": [1.0, 2.0, 3.0],
-                "x1": [0.0, 0.0, 0.0],
-                "x2": [0.0, 0.0, 0.0],
-            },
-            parameters={
-                "p0": [0.1, 0.2, 0.3],
-                "p1": [0.1, 0.2, 0.3],
-                "p2": [0.1, 0.2, 0.3],
-            },
-            duration=0.1,
-        )
+    solver.solve(
+        initial_values={
+            "x0": [1.0, 2.0, 3.0],
+            "x1": [0.0, 0.0, 0.0],
+            "x2": [0.0, 0.0, 0.0],
+        },
+        parameters={
+            "p0": [0.1, 0.2, 0.3],
+            "p1": [0.1, 0.2, 0.3],
+            "p2": [0.1, 0.2, 0.3],
+        },
+        duration=0.1,
+    )
     solver.kernel.output_arrays.host.status_codes.array[1] = 1
     return solver
 
