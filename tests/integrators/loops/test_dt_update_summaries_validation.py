@@ -238,3 +238,66 @@ def test_valid_sample_summaries_every_values(sample_every):
     assert config.sample_summaries_every == pytest.approx(sample_every)
     expected_updates = int(1.0 / sample_every)
     assert config.updates_per_summary == expected_updates
+
+
+def test_all_none_sets_save_last_flag():
+    """Test that all None timing params sets save_last=True."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+    )
+    assert config.save_last is True
+
+
+def test_all_none_sets_summarise_last_flag():
+    """Test that all None timing params sets summarise_last=True."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+    )
+    assert config.summarise_last is True
+
+
+def test_only_save_every_sets_summarise_last():
+    """Test that specifying only save_every sets summarise_last=True."""
+    config = ODELoopConfig(
+        n_states=3,
+        n_parameters=0,
+        n_drivers=0,
+        n_observables=0,
+        n_error=0,
+        n_counters=0,
+        state_summaries_buffer_height=0,
+        observable_summaries_buffer_height=0,
+        save_every=0.2,
+    )
+    assert config.summarise_last is True
+    assert config.save_last is False
+
+
+def test_deprecated_params_removed():
+    """Test that dt_save, dt_summarise, dt_update_summaries are not valid."""
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        ODELoopConfig(
+            n_states=3,
+            n_parameters=0,
+            n_drivers=0,
+            n_observables=0,
+            n_error=0,
+            n_counters=0,
+            state_summaries_buffer_height=0,
+            observable_summaries_buffer_height=0,
+            dt_save=0.1,
+        )

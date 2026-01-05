@@ -59,9 +59,9 @@ class SolveSpec:
         Minimum time step size.
     dt_max
         Maximum time step size.
-    dt_save
+    save_every
         Interval at which state values are stored.
-    dt_summarise
+    summarise_every
         Interval for computing summary outputs.
     atol
         Absolute error tolerance when configured.
@@ -92,8 +92,8 @@ class SolveSpec:
                                                                     0.0))
     dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
-    dt_save: float = attrs.field(validator=gttype_validator(float, 0.0))
-    dt_summarise: float = attrs.field(validator=getype_validator(float, 0.0))
+    save_every: float = attrs.field(validator=gttype_validator(float, 0.0))
+    summarise_every: float = attrs.field(validator=getype_validator(float, 0.0))
     atol: Optional[float] = attrs.field(
             validator=val.or_(opt_gttype_validator(float, 0.0),
                               val.instance_of(np.ndarray)),

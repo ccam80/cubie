@@ -33,7 +33,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
-    "dt_save",  # Time interval for derivative metric scaling
+    "save_every",  # Time interval for derivative metric scaling
     "precision",  # Numerical precision for output calculations
 }
 
@@ -82,7 +82,7 @@ class OutputFunctions(CUDAFactory):
         Indices of state variables to include in summary calculations.
     summarised_observable_indices
         Indices of observable variables to include in summary calculations.
-    dt_save
+    save_every
         Time interval for save operations. Defaults to None.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
@@ -105,7 +105,7 @@ class OutputFunctions(CUDAFactory):
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
-        dt_save: Optional[float] = None,
+        save_every: Optional[float] = None,
     ):
         super().__init__()
 
@@ -121,7 +121,7 @@ class OutputFunctions(CUDAFactory):
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
-            dt_save=dt_save,
+            save_every=save_every,
             precision=precision,
         )
         self.setup_compile_settings(config)
@@ -199,7 +199,7 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        summary_metrics.update(dt_save=config.dt_save, precision=config.precision)
+        summary_metrics.update(dt_save=config.save_every, precision=config.precision)
 
         # Build functions using output sizes objects
         save_state_func = save_state_factory(

@@ -801,3 +801,46 @@ def test_solve_dict_path_backward_compatible(
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
+
+
+# ============================================================================
+# solve_ivp Parameter Tests
+# ============================================================================
+
+
+def test_solve_ivp_save_every_param(
+    system, simple_initial_values, simple_parameters, driver_settings
+):
+    """Verify solve_ivp accepts save_every parameter."""
+    result = solve_ivp(
+        system=system,
+        y0=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        dt=1e-2,
+        save_every=0.02,
+        duration=0.05,
+        summarise_every=0.04,
+        output_types=["state", "time", "observables", "mean"],
+        method="euler",
+        settling_time=0.0,
+    )
+
+    assert isinstance(result, SolveResult)
+
+
+def test_solve_ivp_no_dt_save(
+    system, simple_initial_values, simple_parameters, driver_settings
+):
+    """Verify solve_ivp rejects dt_save parameter."""
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        solve_ivp(
+            system=system,
+            y0=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            dt=1e-2,
+            dt_save=0.02,
+            duration=0.05,
+            method="euler",
+        )
