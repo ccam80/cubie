@@ -626,7 +626,14 @@ class Solver:
         if updates_dict == {}:
             return set()
 
-        self.convert_output_labels(updates_dict)
+        # Only convert output labels if variable-related keys are present
+        variable_keys = {
+            "save_variables", "summarise_variables",
+            "saved_state_indices", "saved_observable_indices",
+            "summarised_state_indices", "summarised_observable_indices",
+        }
+        if any(key in updates_dict for key in variable_keys):
+            self.convert_output_labels(updates_dict)
 
         driver_recognised = self.driver_interpolator.update(
             updates_dict, silent=True
