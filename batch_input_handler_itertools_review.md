@@ -7,34 +7,53 @@ Summary of places where existing conditional or combining logic in
 ## Opportunities
 
 1. **Deduped Cartesian expansion**  
-   The chain `_process_input → generate_grid → combinatorial_grid →
-   unique_cartesian_product` (lines 137-223) first deduplicates values,
-   then calls a bespoke helper that just wraps `itertools.product`. That
-   helper can be inlined with:
-   `deduped = map(dict.fromkeys, cleaned_request.values())` followed by
-   `np_array(list(product(*deduped))).T`. Removing
-   `unique_cartesian_product` entirely and folding the two-line call in
-   `combinatorial_grid` cuts roughly 30 lines while keeping ordering.
+   For dict inputs, `_process_input` routes into `generate_grid`, which
+   calls `combinatorial_grid`, which in turn calls
+   `unique_cartesian_product` (lines 137-223) before returning to
+   `_process_input`. That path already relies on
+   `itertools.product` after deduplicating each vector with
+   `dict.fromkeys`. The bespoke helper can be removed by performing that
+   deduplication in `combinatorial_grid` and passing the result directly
+   to `product`:
 
-2. **Run pairing for combinatorial alignment**  
-   In `combine_grids` (lines 320-355), the combinatorial branch manually
-   repeats and tiles columns. Using column views with
-   `zip(*product(grid1.T, grid2.T))` and a pair of `np_column_stack`
-   calls produces the same output in about three lines, trimming roughly
-   3–4 lines and removes the need for separate repeat/tile reasoning.
+   ```python
+   deduped = [list(dict.fromkeys(v)) for v in cleaned_request.values()]
+   ```
 
-3. **Mirrored fast-path branching**  
+   The behaviour stays the same, but collapsing the helper and call site
+   trims roughly 30 lines.
+
+1. **Run pairing for combinatorial alignment**  
+   In `combine_grids` (lines 320-355), the combinatorial branch uses
+   `np_repeat`/`np_tile` to form the Cartesian product of run columns.
+   An itertools alternative would build the same combinations by
+   iterating over column indices from `product(range(grid1.shape[1]),
+   range(grid2.shape[1]))`, then stacking the selected views. That avoids
+   explicit repeat/tile branches but offers little code reduction (at
+   most a couple of lines) and would trade vectorised NumPy for Python
+   loops.
+
+1. **Mirrored fast-path branching**  
    `_try_fast_path_arrays` (lines 1033-1093) has two nearly identical
-   branches for the states/params symmetry. Iterating over
-   `product((states, params), ((self.states, self.parameters),))` (or a
-   simple tuple-driven loop) and unpacking with a single block collapses
-   the duplication. That consolidation would drop about 14–16 lines.
-   `_is_1d_or_none` (lines 980-1010) can also lean on
-   `chain.from_iterable` to replace the bespoke nested `any`, trimming a
-   few more lines.
+   branches for the states/params symmetry. Iterating once over a tuple
+   such as:
+
+   ```python
+   (
+       (states, params, self.states, self.parameters),
+       (params, states, self.parameters, self.states),
+   )
+   ```
+
+   and unpacking in a single block collapses the duplicate conditionals.
+   That consolidation would drop about 14–16 lines. If desired,
+   `_is_1d_or_none` (lines 980-1010) could also be expressed with
+   `chain.from_iterable` to mirror the itertools style, though the
+   existing generator expression is already clear.
 
 ## Total estimated impact
 
 Collectively, delegating the above to `itertools` primitives could
-remove roughly 45–50 lines while preserving current behaviour and
-ordering guarantees.
+remove roughly 44–48 lines while preserving current behaviour and
+ordering guarantees, with most of the savings coming from folding
+`unique_cartesian_product` and the mirrored fast path.
