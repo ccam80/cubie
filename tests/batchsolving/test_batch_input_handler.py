@@ -12,8 +12,6 @@ from cubie.batchsolving.BatchInputHandler import (
     unique_cartesian_product,
     verbatim_grid,
 )
-# Backward compatibility alias
-BatchGridBuilder = BatchInputHandler
 import itertools
 # from cubie.odesystems.systems.decays import Decays
 
@@ -21,12 +19,6 @@ import itertools
 @pytest.fixture(scope="session")
 def input_handler(system):
     return BatchInputHandler.from_system(system)
-
-
-# Keep backward compatibility alias
-@pytest.fixture(scope="session")
-def grid_builder(input_handler):
-    return input_handler
 
 
 @pytest.fixture(scope="session")
@@ -100,12 +92,12 @@ def test_combinatorial_and_verbatim_grid(system):
     assert_array_equal(grid_v, np.array([[0, 1], [10, 20]]))
 
 
-def test_call_with_request(grid_builder, system):
+def test_call_with_request(input_handler, system):
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     params = {param_names[0]: [10, 20]}
     states = {state_names[0]: [0, 1]}
-    inits, params = grid_builder(params=params, states=states, kind="combinatorial")
+    inits, params = input_handler(params=params, states=states, kind="combinatorial")
     # Arrays are in (variable, run) format - runs in shape[1]
     assert inits.shape[1] == params.shape[1] == 4
 
@@ -309,7 +301,7 @@ def param_array(system, batch_settings):
     list(itertools.product(["dict", "seq", "array", None], repeat=2)),
 )
 def test_call_input_types(
-    grid_builder,
+    input_handler,
     system,
     params_type,
     states_type,
@@ -338,7 +330,7 @@ def test_call_input_types(
         states = state_array
 
     # All combinations of params and states are valid
-    initial, param = grid_builder(params=params, states=states)
+    initial, param = input_handler(params=params, states=states)
 
     sizes = system.sizes
 
@@ -355,7 +347,7 @@ def test_call_input_types(
         np.full_like(initial[-1, :], system.initial_values.values_array[-1]),
     )
 
-def test_call_outputs(system, grid_builder):
+def test_call_outputs(system, input_handler):
     # Input arrays are in (variable, run) format
     testarray1 = np.array([[1, 2], [3, 4]])  # 2 vars, 2 runs
     state_testarray1 = extend_test_array(testarray1, system.initial_values)
@@ -377,12 +369,12 @@ def test_call_outputs(system, grid_builder):
     )
 
     # Combine input arrays
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=testarray1, states=testarray1, kind="combinatorial"
     )
     assert_array_equal(inits, arraycomb1)
     assert_array_equal(params, arraycomb2)
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=testarray1, states=testarray1, kind="verbatim"
     )
 
@@ -401,7 +393,7 @@ def test_call_outputs(system, grid_builder):
         np.tile(fullcombosingle_param, (1, 4)), system.parameters
     )
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=testparamdict, states=teststatedict, kind="combinatorial"
     )
     assert_array_equal(inits, statefullcombdouble)
@@ -414,7 +406,7 @@ def test_call_outputs(system, grid_builder):
     verbatim_param = extend_test_array(
         np.asarray([[1, 3], [2, 4]]), system.parameters
     )
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=testparamdict, states=teststatedict, kind="verbatim"
     )
     assert_array_equal(inits, verbatim_state)
@@ -633,7 +625,7 @@ def test_input_handler_precision_enforcement(system, precision):
     assert params.dtype == np.float32
 
 
-def test_single_param_dict_sweep(grid_builder, system):
+def test_single_param_dict_sweep(input_handler, system):
     """Test single parameter sweep with dict produces correct runs.
 
     User story US-1: params={'p1': np.linspace(0,1,100)} should
@@ -642,7 +634,7 @@ def test_single_param_dict_sweep(grid_builder, system):
     param_names = list(system.parameters.names)
     sweep_values = np.linspace(0, 1, 100)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params={param_names[0]: sweep_values},
         kind="combinatorial"
     )
@@ -671,14 +663,14 @@ def test_single_param_dict_sweep(grid_builder, system):
         )
 
 
-def test_single_state_dict_single_run(grid_builder, system):
+def test_single_state_dict_single_run(input_handler, system):
     """Test single state scalar override produces one run.
 
     User story: states={'x': 0.5} should produce 1 run with x=0.5.
     """
     state_names = list(system.initial_values.names)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         states={state_names[0]: 0.5},
         kind="combinatorial"
     )
@@ -707,7 +699,7 @@ def test_single_state_dict_single_run(grid_builder, system):
         )
 
 
-def test_states_dict_params_sweep(grid_builder, system):
+def test_states_dict_params_sweep(input_handler, system):
     """Test state override with parameter sweep.
 
     User story US-2: states={'x': 0.2}, params={'p1': linspace(0,3,300)}
@@ -717,7 +709,7 @@ def test_states_dict_params_sweep(grid_builder, system):
     param_names = list(system.parameters.names)
     sweep_values = np.linspace(0, 3, 300)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         states={state_names[0]: 0.2},
         params={param_names[0]: sweep_values},
         kind="combinatorial"
@@ -734,7 +726,7 @@ def test_states_dict_params_sweep(grid_builder, system):
     assert_allclose(params[0, :], sweep_values, rtol=1e-7)
 
 
-def test_combinatorial_states_params(grid_builder, system):
+def test_combinatorial_states_params(input_handler, system):
     """Test combinatorial expansion of states and params.
 
     User story US-3: states={'y': [0.1, 0.2]}, params={'p1': linspace(0,1,100)}
@@ -745,7 +737,7 @@ def test_combinatorial_states_params(grid_builder, system):
     state_values = [0.1, 0.2]
     param_values = np.linspace(0, 1, 100)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         states={state_names[0]: state_values},
         params={param_names[0]: param_values},
         kind="combinatorial"
@@ -756,7 +748,7 @@ def test_combinatorial_states_params(grid_builder, system):
     assert params.shape[1] == 200
 
 
-def test_1d_param_array_single_run(grid_builder, system):
+def test_1d_param_array_single_run(input_handler, system):
     """Test 1D parameter array is treated as single run.
 
     User story US-5: 1D array of length n_params treated as single run.
@@ -764,7 +756,7 @@ def test_1d_param_array_single_run(grid_builder, system):
     n_params = system.sizes.parameters
     param_values = np.arange(n_params, dtype=float)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=param_values,
         kind="combinatorial"
     )
@@ -777,7 +769,7 @@ def test_1d_param_array_single_run(grid_builder, system):
     assert_allclose(params[:, 0], param_values, rtol=1e-7)
 
 
-def test_1d_state_array_partial_warning(grid_builder, system):
+def test_1d_state_array_partial_warning(input_handler, system):
     """Test 1D partial state array triggers warning and fills defaults.
 
     User story US-5: Partial arrays should warn and fill missing values.
@@ -786,7 +778,7 @@ def test_1d_state_array_partial_warning(grid_builder, system):
     partial_values = np.array([1.0, 2.0])
 
     with pytest.warns(UserWarning, match="Missing values"):
-        inits, params = grid_builder(
+        inits, params = input_handler(
             states=partial_values,
             kind="combinatorial"
         )
@@ -807,12 +799,12 @@ def test_1d_state_array_partial_warning(grid_builder, system):
         )
 
 
-def test_empty_inputs_returns_defaults(grid_builder, system):
+def test_empty_inputs_returns_defaults(input_handler, system):
     """Test empty inputs return single run with all defaults.
 
     User story: Empty/None inputs should return defaults.
     """
-    inits, params = grid_builder(
+    inits, params = input_handler(
         params=None,
         states=None,
         kind="combinatorial"
@@ -835,7 +827,7 @@ def test_empty_inputs_returns_defaults(grid_builder, system):
     )
 
 
-def test_verbatim_single_run_broadcast(grid_builder, system):
+def test_verbatim_single_run_broadcast(input_handler, system):
     """Test verbatim mode broadcasts single-run grids.
 
     User story: states={'x': 0.5}, params={'p1': [1,2,3]}, kind='verbatim'
@@ -844,7 +836,7 @@ def test_verbatim_single_run_broadcast(grid_builder, system):
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
 
-    inits, params = grid_builder(
+    inits, params = input_handler(
         states={state_names[0]: 0.5},
         params={param_names[0]: [1.0, 2.0, 3.0]},
         kind="verbatim"
@@ -861,36 +853,36 @@ def test_verbatim_single_run_broadcast(grid_builder, system):
     assert_allclose(params[0, :], [1.0, 2.0, 3.0], rtol=1e-7)
 
 
-def test_call_combinatorial_1each(grid_builder, system):
+def test_call_combinatorial_1each(input_handler, system):
     """Test combinatorial expansion with 1 state and 1 param swept."""
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     states = {state_names[0]: [0, 1]}
     params = {param_names[1]: np.arange(10)}
-    inits, params_out = grid_builder(
+    inits, params_out = input_handler(
         params=params, states=states, kind="combinatorial"
     )
     assert inits.shape == (system.sizes.states, 20)
     assert params_out.shape == (system.sizes.parameters, 20)
 
 
-def test_call_verbatim_mismatch_raises(grid_builder, system):
+def test_call_verbatim_mismatch_raises(input_handler, system):
     """Test verbatim with mismatched lengths raises ValueError."""
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     states = {state_names[0]: [0, 1, 2]}
     params = {param_names[0]: [0, 1]}
     with pytest.raises(ValueError):
-        grid_builder(params=params, states=states, kind="verbatim")
+        input_handler(params=params, states=states, kind="verbatim")
 
 
-def test_call_empty_dict_values(grid_builder, system):
+def test_call_empty_dict_values(input_handler, system):
     """Test that empty dict values are filtered correctly."""
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     states = {state_names[0]: [0, 1, 2], state_names[1]: []}
     params = {param_names[0]: np.arange(3), param_names[1]: np.array([])}
-    inits, params_out = grid_builder(
+    inits, params_out = input_handler(
         params=params, states=states, kind="verbatim"
     )
     assert inits.shape[1] == 3
@@ -902,9 +894,9 @@ def test_call_empty_dict_values(grid_builder, system):
 # ---------------------------------------------------------------------------
 
 
-def test_process_input_none(grid_builder, system):
+def test_process_input_none(input_handler, system):
     """Verify _process_input with None returns single-column defaults."""
-    result = grid_builder._process_input(
+    result = input_handler._process_input(
         None, system.initial_values, kind="combinatorial"
     )
 
@@ -913,12 +905,12 @@ def test_process_input_none(grid_builder, system):
     assert_allclose(result[:, 0], system.initial_values.values_array, rtol=1e-7)
 
 
-def test_process_input_dict_combinatorial(grid_builder, system):
+def test_process_input_dict_combinatorial(input_handler, system):
     """Verify _process_input with dict expands correctly for combinatorial."""
     state_names = list(system.initial_values.names)
     input_dict = {state_names[0]: [1.0, 2.0], state_names[1]: [3.0, 4.0]}
 
-    result = grid_builder._process_input(
+    result = input_handler._process_input(
         input_dict, system.initial_values, kind="combinatorial"
     )
 
@@ -928,12 +920,12 @@ def test_process_input_dict_combinatorial(grid_builder, system):
     assert result.shape[0] == system.sizes.states
 
 
-def test_process_input_dict_verbatim(grid_builder, system):
+def test_process_input_dict_verbatim(input_handler, system):
     """Verify _process_input with dict expands correctly for verbatim."""
     state_names = list(system.initial_values.names)
     input_dict = {state_names[0]: [1.0, 2.0, 3.0], state_names[1]: [4.0, 5.0, 6.0]}
 
-    result = grid_builder._process_input(
+    result = input_handler._process_input(
         input_dict, system.initial_values, kind="verbatim"
     )
 
@@ -944,13 +936,13 @@ def test_process_input_dict_verbatim(grid_builder, system):
     assert_allclose(result[1, :], [4.0, 5.0, 6.0], rtol=1e-7)
 
 
-def test_process_input_array(grid_builder, system):
+def test_process_input_array(input_handler, system):
     """Verify _process_input with array sanitizes correctly."""
     # Create a 2D array in (variable, run) format
     input_array = np.array([[1.0, 2.0], [3.0, 4.0]])
 
     with pytest.warns(UserWarning, match="Missing values"):
-        result = grid_builder._process_input(
+        result = input_handler._process_input(
             input_array, system.initial_values, kind="combinatorial"
         )
 
@@ -959,22 +951,22 @@ def test_process_input_array(grid_builder, system):
     assert result.shape[1] == 2  # 2 runs preserved
 
 
-def test_process_input_invalid_type(grid_builder, system):
+def test_process_input_invalid_type(input_handler, system):
     """Verify _process_input raises TypeError for invalid input."""
     with pytest.raises(TypeError, match="Input must be None, dict, or array-like"):
-        grid_builder._process_input(
+        input_handler._process_input(
             "invalid_string", system.initial_values, kind="combinatorial"
         )
 
 
-def test_align_run_counts_combinatorial(grid_builder, system):
+def test_align_run_counts_combinatorial(input_handler, system):
     """Verify _align_run_counts produces Cartesian product."""
     # Create two arrays with different run counts
     states_array = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])  # 3 vars, 2 runs
     params_array = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0],
                              [70.0, 80.0, 90.0]])  # 3 vars, 3 runs
 
-    aligned_states, aligned_params = grid_builder._align_run_counts(
+    aligned_states, aligned_params = input_handler._align_run_counts(
         states_array, params_array, kind="combinatorial"
     )
 
@@ -983,14 +975,14 @@ def test_align_run_counts_combinatorial(grid_builder, system):
     assert aligned_params.shape[1] == 6
 
 
-def test_align_run_counts_verbatim(grid_builder, system):
+def test_align_run_counts_verbatim(input_handler, system):
     """Verify _align_run_counts pairs directly with broadcast."""
     # Single-run states, multi-run params
     states_array = np.array([[1.0], [2.0], [3.0]])  # 3 vars, 1 run
     params_array = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0],
                              [70.0, 80.0, 90.0]])  # 3 vars, 3 runs
 
-    aligned_states, aligned_params = grid_builder._align_run_counts(
+    aligned_states, aligned_params = input_handler._align_run_counts(
         states_array, params_array, kind="verbatim"
     )
 

@@ -9,9 +9,6 @@ import pytest
 
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 
-# Backward compatibility alias
-BatchGridBuilder = BatchInputHandler
-
 
 Array = np.ndarray
 
@@ -21,13 +18,6 @@ def input_handler(system) -> BatchInputHandler:
     """Return a batch input handler for the configured system."""
 
     return BatchInputHandler.from_system(system)
-
-
-# Backward compatibility alias
-@pytest.fixture(scope="session")
-def batchconfig_instance(input_handler) -> BatchInputHandler:
-    """Backward compatibility alias for input_handler."""
-    return input_handler
 
 
 @pytest.fixture(scope="session")

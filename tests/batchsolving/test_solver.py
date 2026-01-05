@@ -5,9 +5,6 @@ import numpy as np
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
-
-# Backward compatibility alias
-BatchGridBuilder = BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
 
 from cubie.cuda_simsafe import DeviceNDArray
