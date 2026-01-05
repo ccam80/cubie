@@ -266,7 +266,7 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1] == precision(1.2)
-    assert device_loop_outputs.state[-2,-1] == precision(1.1)
+    assert device_loop_outputs.state[-2, -1] == precision(1.1)
 
 
 @pytest.mark.parametrize(
@@ -278,14 +278,16 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
             "output_types": ["state", "time"],
             "algorithm": "euler",
             "dt": 0.01,
-            # No timing params - triggers save_last and summarise_last
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
         }
     ],
     indirect=True,
 )
 def test_save_last_flag_from_config(loop_mutable):
     """Verify IVPLoop reads save_last flag from ODELoopConfig.
-    
+
     When all timing parameters are None, ODELoopConfig sets save_last=True.
     IVPLoop.build() should read this from config.save_last.
     """
@@ -302,14 +304,16 @@ def test_save_last_flag_from_config(loop_mutable):
             "output_types": ["state", "time"],
             "algorithm": "euler",
             "dt": 0.01,
-            # No timing params - triggers save_last and summarise_last
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
         }
     ],
     indirect=True,
 )
 def test_summarise_last_flag_from_config(loop_mutable):
     """Verify IVPLoop reads summarise_last flag from ODELoopConfig.
-    
+
     When all timing parameters are None, ODELoopConfig sets summarise_last=True.
     IVPLoop.build() should read this from config.summarise_last.
     """

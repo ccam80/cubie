@@ -364,7 +364,7 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
-        updates_per_summary = config.updates_per_summary
+        updates_per_summary = config.samples_per_summary
         dt_save = precision(config.save_every)
         dt_update_summaries = precision(config.sample_summaries_every)
         dt0 = precision(config.dt0)

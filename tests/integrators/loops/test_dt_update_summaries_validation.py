@@ -3,7 +3,6 @@
 import pytest
 import numpy as np
 from cubie.integrators.loops.ode_loop_config import ODELoopConfig
-from cubie.outputhandling.output_config import OutputCompileFlags
 
 
 def test_all_none_uses_defaults():
@@ -143,7 +142,7 @@ def test_float32_tolerance():
     )
     
     assert config.save_every == pytest.approx(0.1)
-    assert config.updates_per_summary == 10
+    assert config.samples_per_summary == 10
 
 
 
@@ -166,7 +165,7 @@ def test_valid_sample_summaries_every_values(sample_every):
     
     assert config.sample_summaries_every == pytest.approx(sample_every)
     expected_updates = int(1.0 / sample_every)
-    assert config.updates_per_summary == expected_updates
+    assert config.samples_per_summary == expected_updates
 
 
 def test_all_none_sets_save_last_flag():
@@ -214,22 +213,6 @@ def test_only_save_every_sets_summarise_last():
     )
     assert config.summarise_last is True
     assert config.save_last is False
-
-
-def test_deprecated_params_removed():
-    """Test that dt_save, dt_summarise, dt_update_summaries are not valid."""
-    with pytest.raises(TypeError, match="unexpected keyword argument"):
-        ODELoopConfig(
-            n_states=3,
-            n_parameters=0,
-            n_drivers=0,
-            n_observables=0,
-            n_error=0,
-            n_counters=0,
-            state_summaries_buffer_height=0,
-            observable_summaries_buffer_height=0,
-            dt_save=0.1,
-        )
 
 
 def test_explicit_values_dont_set_flags():

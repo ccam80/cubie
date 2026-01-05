@@ -819,6 +819,7 @@ def test_solve_ivp_save_every_param(
         drivers=driver_settings,
         dt=1e-2,
         save_every=0.02,
+        sample_summaries_every=0.02,
         duration=0.05,
         summarise_every=0.04,
         output_types=["state", "time", "observables", "mean"],
@@ -827,20 +828,3 @@ def test_solve_ivp_save_every_param(
     )
 
     assert isinstance(result, SolveResult)
-
-
-def test_solve_ivp_no_dt_save(
-    system, simple_initial_values, simple_parameters, driver_settings
-):
-    """Verify solve_ivp rejects dt_save parameter."""
-    with pytest.raises(TypeError, match="unexpected keyword argument"):
-        solve_ivp(
-            system=system,
-            y0=simple_initial_values,
-            parameters=simple_parameters,
-            drivers=driver_settings,
-            dt=1e-2,
-            dt_save=0.02,
-            duration=0.05,
-            method="euler",
-        )

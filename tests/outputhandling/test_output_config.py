@@ -591,7 +591,3 @@ class TestSaveEveryProperty:
             precision=precision,
         )
         assert config.save_every == 0.01
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

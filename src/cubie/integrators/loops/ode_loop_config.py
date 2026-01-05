@@ -14,7 +14,6 @@ from numpy import float32
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
-    gttype_validator,
     is_device_validator,
     precision_converter,
     precision_validator,
@@ -254,58 +253,71 @@ class ODELoopConfig:
 
     def __attrs_post_init__(self):
         """Validate timing parameters and set flags for None handling.
-        
-        When all timing parameters are None, sets save_last and 
+
+        When all timing parameters are None, sets save_last and
         summarise_last flags to True for end-of-run-only behavior.
         Otherwise applies inference logic to fill missing values.
         """
         # Case 1: All three None - set flags for end-of-run-only behavior
-        if (self._save_every is None and self._summarise_every is None and 
-                self._sample_summaries_every is None):
-            object.__setattr__(self, 'save_last', True)
-            object.__setattr__(self, 'summarise_last', True)
+        if (
+            self._save_every is None
+            and self._summarise_every is None
+            and self._sample_summaries_every is None
+        ):
+            self.save_last = True
+            self.summarise_last = True
             # Set sentinel values for loop timing (will be overridden)
-            object.__setattr__(self, '_save_every', 0.1)
-            object.__setattr__(self, '_summarise_every', 1.0)
-            object.__setattr__(self, '_sample_summaries_every', 0.1)
+            self._save_every = 0.1
+            self._summarise_every = 1.0
+            self._sample_summaries_every = 0.1
             return  # Skip validation when using save_last/summarise_last
-        
+
         # Case 2: Only save_every specified
-        elif (self._save_every is not None and self._summarise_every is None and
-                self._sample_summaries_every is None):
-            object.__setattr__(self, 'summarise_last', True)
-            object.__setattr__(self, '_summarise_every', 10.0 * self._save_every)
-            object.__setattr__(self, '_sample_summaries_every', self._save_every)
-        
+        elif (
+            self._save_every is not None
+            and self._summarise_every is None
+            and self._sample_summaries_every is None
+        ):
+            self.summarise_last = True
+            self._summarise_every = 10.0 * self._save_every
+            self._sample_summaries_every = self._save_every
+
         # Case 3: Only summarise_every specified
-        elif (self._save_every is None and self._summarise_every is not None and
-                self._sample_summaries_every is None):
-            object.__setattr__(self, '_save_every', self._summarise_every / 10.0)
-            object.__setattr__(
-                self, '_sample_summaries_every', self._summarise_every / 10.0
-            )
-        
+        elif (
+            self._save_every is None
+            and self._summarise_every is not None
+            and self._sample_summaries_every is None
+        ):
+            self._save_every = self._summarise_every / 10.0
+            self._sample_summaries_every = self._summarise_every / 10.0
+
         # Case 4: save_every and summarise_every specified
-        elif (self._save_every is not None and self._summarise_every is not None and
-                self._sample_summaries_every is None):
-            object.__setattr__(self, '_sample_summaries_every', self._save_every)
-        
+        elif (
+            self._save_every is not None
+            and self._summarise_every is not None
+            and self._sample_summaries_every is None
+        ):
+            self._sample_summaries_every = self._save_every
+
         # Case 5: save_every and sample_summaries_every specified
-        elif (self._save_every is not None and self._summarise_every is None and
-                self._sample_summaries_every is not None):
-            object.__setattr__(self, '_summarise_every', 10.0 * self._save_every)
-        
+        elif (
+            self._save_every is not None
+            and self._summarise_every is None
+            and self._sample_summaries_every is not None
+        ):
+            self._summarise_every = 10.0 * self._save_every
+
         # Case 6: summarise_every and sample_summaries_every specified
         elif (self._save_every is None and self._summarise_every is not None and
-                self._sample_summaries_every is not None):
-            object.__setattr__(self, '_save_every', self._sample_summaries_every)
+              self._sample_summaries_every is not None):
+            self._save_every = self._sample_summaries_every
         
         # Case 7: All three specified - no defaults needed
         
         # Validate that sample_summaries_every divides summarise_every evenly
         # Skip validation when summarise_last is True
         if not self.summarise_last:
-            tolerance = 1e-6 if self.precision == float32 else 1e-9
+            tolerance = 1e-3 #0.1% timing tolerance (summary freq vs sampling)
             ratio = self._summarise_every / self._sample_summaries_every
             if abs(ratio - round(ratio)) > tolerance:
                 raise ValueError(
@@ -315,12 +327,7 @@ class ODELoopConfig:
                 )
 
     @property
-    def saves_per_summary(self) -> int:
-        """Return the number of saves between summary outputs."""
-        return round(self.summarise_every / self.save_every)
-
-    @property
-    def updates_per_summary(self) -> int:
+    def samples_per_summary(self) -> int:
         """Return the number of updates between summary outputs."""
         return round(self.summarise_every / self.sample_summaries_every)
 
