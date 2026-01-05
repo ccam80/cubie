@@ -29,7 +29,7 @@ that every value combination is represented in the resulting grid.
 ``BatchInputHandler.__call__`` processes states and params through
 independent paths, combining only at the final alignment step:
 
-1. Each input is processed via ``_process_input()`` to produce
+1. Each input is processed via ``_process_single_input()`` to produce
    a 2D array in (variable, run) format
 2. Arrays are aligned via ``_align_run_counts()`` using the
    specified ``kind`` strategy
@@ -539,29 +539,13 @@ class BatchInputHandler:
         # Update precision from current system state
         self.precision = self.states.precision
 
-        # Fast path for device arrays - return immediately with no processing
-        states_is_device = hasattr(states, '__cuda_array_interface__')
-        params_is_device = hasattr(params, '__cuda_array_interface__')
-        if states_is_device and params_is_device:
-            return states, params
-
-        # Fast path - if right-sized arrays, return straight away.
-        if self._are_right_sized_arrays(states, params):
-            # Handle empty parameters case
-            if self.parameters.empty and params is None and states is not None:
-                n_runs = states.shape[1]
-                params = np_empty((0, n_runs), dtype=self.precision)
-            return self._cast_to_precision(states, params)
-
-        # Fast path arrays - if a single right-sized array and a None,
-        # or 1d array-like, extend the small one and return quickly.
-        fast_result = self._try_fast_path_arrays(states, params, kind)
+        fast_result = self._fast_return_arrays(states, params, kind)
         if fast_result is not None:
             return fast_result
 
         # Process each category independently
-        states_array = self._process_input(states, self.states, kind)
-        params_array = self._process_input(params, self.parameters, kind)
+        states_array = self._process_single_input(states, self.states, kind)
+        params_array = self._process_single_input(params, self.parameters, kind)
 
         # Align run counts
         states_array, params_array = self._align_run_counts(
@@ -570,98 +554,6 @@ class BatchInputHandler:
 
         # Cast to system precision
         return self._cast_to_precision(states_array, params_array)
-
-    def _classify_inputs(
-        self,
-        states: Union[ndarray, Dict[str, Union[float, ndarray]], None],
-        params: Union[ndarray, Dict[str, Union[float, ndarray]], None],
-    ) -> str:
-        """Classify input types to determine optimal processing path.
-
-        Parameters
-        ----------
-        states
-            Initial state values as dict, array, or None.
-        params
-            Parameter values as dict, array, or None.
-
-        Returns
-        -------
-        str
-            Classification: 'dict', 'array', or 'device'.
-
-        Notes
-        -----
-        Returns 'dict' when either input is a dictionary, triggering
-        full grid construction. Returns 'array' when both inputs are
-        numpy arrays with matching run counts in (n_vars, n_runs) format.
-        Returns 'device' when both have __cuda_array_interface__.
-        """
-        # If either input is a dict, use grid builder path
-        if isinstance(states, dict) or isinstance(params, dict):
-            return 'dict'
-
-        # Check for device arrays (CUDA arrays with interface)
-        states_is_device = hasattr(states, '__cuda_array_interface__')
-        params_is_device = hasattr(params, '__cuda_array_interface__')
-        if states_is_device and params_is_device:
-            return 'device'
-
-        # Check for numpy arrays with correct shapes
-        if isinstance(states, ndarray) and isinstance(params, ndarray):
-            # Must be 2D arrays in (n_vars, n_runs) format
-            if states.ndim == 2 and params.ndim == 2:
-                n_states = self.states.n
-                n_params = self.parameters.n
-                # Verify variable counts match system expectations
-                if (states.shape[0] == n_states and
-                        params.shape[0] == n_params):
-                    # Verify run counts match
-                    if states.shape[1] == params.shape[1]:
-                        return 'array'
-
-        # Default to dict path (grid builder handles conversion)
-        return 'dict'
-
-    def _validate_arrays(
-        self,
-        states: ndarray,
-        params: ndarray,
-    ) -> Tuple[ndarray, ndarray]:
-        """Validate and prepare pre-built arrays for kernel execution.
-
-        Parameters
-        ----------
-        states
-            Initial state array in (n_states, n_runs) format.
-        params
-            Parameter array in (n_params, n_runs) format.
-
-        Returns
-        -------
-        Tuple[ndarray, ndarray]
-            Validated arrays cast to system precision in (states, params)
-            order.
-
-        Notes
-        -----
-        Arrays are cast to the system precision dtype when needed.
-        Returned as contiguous arrays for optimal kernel performance.
-        """
-        # Update precision from current system state
-        self.precision = self.states.precision
-
-        # Cast to correct dtype if needed
-        if states.dtype != self.precision:
-            states = states.astype(self.precision, copy=False)
-        if params.dtype != self.precision:
-            params = params.astype(self.precision, copy=False)
-
-        # Ensure contiguous layout for optimal kernel performance
-        states = np_ascontiguousarray(states)
-        params = np_ascontiguousarray(params)
-
-        return states, params
 
     def _trim_or_extend(
         self, arr: ndarray, values_object: SystemValues
@@ -756,7 +648,7 @@ class BatchInputHandler:
 
         return arr  # correctly sized array just falls through untouched
 
-    def _process_input(
+    def _process_single_input(
         self,
         input_data: Optional[Union[Dict, ArrayLike]],
         values_object: SystemValues,
@@ -888,61 +780,6 @@ class BatchInputHandler:
             np_ascontiguousarray(params.astype(self.precision, copy=False)),
         )
 
-    def _are_right_sized_arrays(
-        self,
-        states: Optional[Union[ArrayLike, Dict]],
-        params: Optional[Union[ArrayLike, Dict]],
-    ) -> bool:
-        """Check if both inputs are pre-formatted arrays ready for the solver.
-
-        This method only returns True when both inputs are 2D numpy arrays
-        with matching run counts and correct variable counts for their
-        respective SystemValues objects. Returns False for None, dicts,
-        or arrays that need further processing.
-
-        Also handles the special case where a SystemValues object is empty
-        (no variables), in which case None or an empty 2D array is acceptable.
-
-        Parameters
-        ----------
-        states
-            Initial states as array or dict.
-        params
-            Parameters as array, dict, or None.
-
-        Returns
-        -------
-        bool
-            True if both inputs are correctly sized 2D arrays with matching
-            run counts.
-        """
-        # Handle empty parameters case: states must be right-sized array,
-        # params can be None
-        if self.parameters.empty:
-            if isinstance(states, ndarray) and states.ndim == 2:
-                if states.shape[0] == self.states.n:
-                    if params is None:
-                        return True
-                    if isinstance(params, ndarray) and params.ndim == 2:
-                        return (params.shape[0] == 0
-                                and params.shape[1] == states.shape[1])
-            return False
-
-        # Normal case: both must be 2D arrays
-        if isinstance(states, ndarray) and isinstance(params, ndarray):
-            # Both arrays: check run counts match and arrays are system-sized
-            if states.ndim != 2 or params.ndim != 2:
-                return False
-            states_runs = states.shape[1]
-            states_variables = states.shape[0]
-            params_runs = params.shape[1]
-            params_variables = params.shape[0]
-            if states_runs == params_runs:
-                if (states_variables == self.states.n
-                        and params_variables == self.parameters.n):
-                    return True
-        return False
-
     def _is_right_sized_array(
         self,
         arr: Optional[Union[ArrayLike, Dict]],
@@ -1030,42 +867,54 @@ class BatchInputHandler:
         """
         return np_tile(values_object.values_array[:, np_newaxis], (1, n_runs))
 
-    def _try_fast_path_arrays(
+    def _fast_return_arrays(
         self,
         states: Optional[Union[ArrayLike, Dict]],
         params: Optional[Union[ArrayLike, Dict]],
         kind: str,
     ) -> Optional[tuple[ndarray, ndarray]]:
-        """Try fast path for single right-sized array with None or 1D input.
+        """Attempt fast returns for device arrays or pre-sized inputs."""
+        states_is_device = hasattr(states, '__cuda_array_interface__')
+        params_is_device = hasattr(params, '__cuda_array_interface__')
 
-        Parameters
-        ----------
-        states
-            States input (array, dict, or None).
-        params
-            Params input (array, dict, or None).
-        kind
-            Grid type: "combinatorial" or "verbatim".
+        states_runs = self._get_run_count(states)
+        params_runs = (
+            self._get_run_count(params)
+            if not (self.parameters.empty and params is None)
+            else None
+        )
 
-        Returns
-        -------
-        Optional[tuple[ndarray, ndarray]]
-            Aligned (states, params) arrays if fast path applies, else None.
-        """
+        if states_is_device and params_is_device:
+            if states_runs is not None and params_runs is not None:
+                if states_runs == params_runs:
+                    return states, params
+            return None
+
         states_ok = self._is_right_sized_array(states, self.states)
         params_ok = self._is_right_sized_array(params, self.parameters)
+
+        if self.parameters.empty and params is None:
+            params_ok = True
+            if states_runs is None:
+                params_runs = 1
+            else:
+                params_runs = states_runs
+            params = np_empty((0, params_runs), dtype=self.precision)
+
+        if states_ok and params_ok:
+            if states_runs is not None and params_runs is not None:
+                if states_runs == params_runs:
+                    return self._cast_to_precision(states, params)
+
         states_small = self._is_1d_or_none(states)
         params_small = self._is_1d_or_none(params)
 
-        # Case 1: states is right-sized array, params is None or 1D
         if states_ok and params_small:
-            n_runs = states.shape[1]
+            n_runs = states_runs if states_runs is not None else 1
             if params is None:
                 params_array = self._to_defaults_column(self.parameters, n_runs)
             else:
-                # 1D array: convert to column, extend with defaults
                 params_array = self._sanitise_arraylike(params, self.parameters)
-                # _sanitise_arraylike guarantees shape[0] == self.parameters.n
                 if params_array.shape[1] == 1:
                     params_array = np_repeat(params_array, n_runs, axis=1)
             states_array, params_array = self._align_run_counts(
@@ -1073,15 +922,12 @@ class BatchInputHandler:
             )
             return self._cast_to_precision(states_array, params_array)
 
-        # Case 2: params is right-sized array, states is None or 1D
         if params_ok and states_small:
-            n_runs = params.shape[1]
+            n_runs = params_runs if params_runs is not None else 1
             if states is None:
                 states_array = self._to_defaults_column(self.states, n_runs)
             else:
-                # 1D array: convert to column, extend with defaults
                 states_array = self._sanitise_arraylike(states, self.states)
-                # _sanitise_arraylike guarantees shape[0] == self.states.n
                 if states_array.shape[1] == 1:
                     states_array = np_repeat(states_array, n_runs, axis=1)
             states_array, params_array = self._align_run_counts(
@@ -1089,5 +935,17 @@ class BatchInputHandler:
             )
             return self._cast_to_precision(states_array, params_array)
 
-        # Fast path doesn't apply
+        return None
+
+    def _get_run_count(self, arr: Optional[Union[ArrayLike, Dict]]) -> Optional[int]:
+        """Return run count (columns) for array-like or device arrays."""
+        if isinstance(arr, ndarray):
+            if arr.ndim == 2:
+                return arr.shape[1]
+            return None
+        if hasattr(arr, '__cuda_array_interface__'):
+            iface = arr.__cuda_array_interface__
+            shape = iface.get('shape')
+            if shape and len(shape) >= 2:
+                return shape[1]
         return None

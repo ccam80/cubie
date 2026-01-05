@@ -7,7 +7,7 @@ Summary of places where existing conditional or combining logic in
 ## Opportunities
 
 1. **Deduped Cartesian expansion**  
-   For dict inputs, `_process_input` routes into `generate_grid`, which
+   For dict inputs, `_process_single_input` routes into `generate_grid`, which
    calls `combinatorial_grid`, which in turn calls
    `unique_cartesian_product` (lines 137-223) before returning to
    `_process_input`. That path already relies on

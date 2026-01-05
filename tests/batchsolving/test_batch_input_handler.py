@@ -890,13 +890,13 @@ def test_call_empty_dict_values(input_handler, system):
 
 
 # ---------------------------------------------------------------------------
-# Tests for _process_input and _align_run_counts helper methods
+# Tests for _process_single_input and _align_run_counts helper methods
 # ---------------------------------------------------------------------------
 
 
-def test_process_input_none(input_handler, system):
-    """Verify _process_input with None returns single-column defaults."""
-    result = input_handler._process_input(
+def test_process_single_input_none(input_handler, system):
+    """Verify _process_single_input with None returns single-column defaults."""
+    result = input_handler._process_single_input(
         None, system.initial_values, kind="combinatorial"
     )
 
@@ -905,12 +905,12 @@ def test_process_input_none(input_handler, system):
     assert_allclose(result[:, 0], system.initial_values.values_array, rtol=1e-7)
 
 
-def test_process_input_dict_combinatorial(input_handler, system):
-    """Verify _process_input with dict expands correctly for combinatorial."""
+def test_process_single_input_dict_combinatorial(input_handler, system):
+    """Verify _process_single_input with dict expands correctly for combinatorial."""
     state_names = list(system.initial_values.names)
     input_dict = {state_names[0]: [1.0, 2.0], state_names[1]: [3.0, 4.0]}
 
-    result = input_handler._process_input(
+    result = input_handler._process_single_input(
         input_dict, system.initial_values, kind="combinatorial"
     )
 
@@ -920,12 +920,12 @@ def test_process_input_dict_combinatorial(input_handler, system):
     assert result.shape[0] == system.sizes.states
 
 
-def test_process_input_dict_verbatim(input_handler, system):
-    """Verify _process_input with dict expands correctly for verbatim."""
+def test_process_single_input_dict_verbatim(input_handler, system):
+    """Verify _process_single_input with dict expands correctly for verbatim."""
     state_names = list(system.initial_values.names)
     input_dict = {state_names[0]: [1.0, 2.0, 3.0], state_names[1]: [4.0, 5.0, 6.0]}
 
-    result = input_handler._process_input(
+    result = input_handler._process_single_input(
         input_dict, system.initial_values, kind="verbatim"
     )
 
@@ -936,25 +936,23 @@ def test_process_input_dict_verbatim(input_handler, system):
     assert_allclose(result[1, :], [4.0, 5.0, 6.0], rtol=1e-7)
 
 
-def test_process_input_array(input_handler, system):
-    """Verify _process_input with array sanitizes correctly."""
-    # Create a 2D array in (variable, run) format
+def test_process_single_input_array(input_handler, system):
+    """Verify _process_single_input with array sanitizes correctly."""
     input_array = np.array([[1.0, 2.0], [3.0, 4.0]])
 
     with pytest.warns(UserWarning, match="Missing values"):
-        result = input_handler._process_input(
+        result = input_handler._process_single_input(
             input_array, system.initial_values, kind="combinatorial"
         )
 
-    # Should be extended to full variable count
     assert result.shape[0] == system.sizes.states
-    assert result.shape[1] == 2  # 2 runs preserved
+    assert result.shape[1] == 2
 
 
-def test_process_input_invalid_type(input_handler, system):
-    """Verify _process_input raises TypeError for invalid input."""
+def test_process_single_input_invalid_type(input_handler, system):
+    """Verify _process_single_input raises TypeError for invalid input."""
     with pytest.raises(TypeError, match="Input must be None, dict, or array-like"):
-        input_handler._process_input(
+        input_handler._process_single_input(
             "invalid_string", system.initial_values, kind="combinatorial"
         )
 
@@ -993,179 +991,6 @@ def test_align_run_counts_verbatim(input_handler, system):
     assert_allclose(aligned_states[0, :], [1.0, 1.0, 1.0], rtol=1e-7)
 
 
-# Tests for _classify_inputs method (internal)
-def test_classify_inputs_dict(input_handler, system):
-    """Verify dict inputs are classified as 'dict'."""
-    states_dict = {list(system.initial_values.names)[0]: [1.0, 2.0]}
-    params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
-
-    result = input_handler._classify_inputs(
-        states=states_dict,
-        params=params_dict
-    )
-    assert result == 'dict'
-
-
-def test_classify_inputs_dict_mixed(input_handler, system):
-    """Verify mixed inputs (dict + array) are classified as 'dict'."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-
-    # Dict + array combo
-    states_dict = {list(system.initial_values.names)[0]: [1.0, 2.0]}
-    params_array = np.ones((n_params, 2), dtype=system.precision)
-
-    result = input_handler._classify_inputs(
-        states=states_dict,
-        params=params_array
-    )
-    assert result == 'dict'
-
-    # Reverse: array + dict
-    states_array = np.ones((n_states, 2), dtype=system.precision)
-    params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
-
-    result = input_handler._classify_inputs(
-        states=states_array,
-        params=params_dict
-    )
-    assert result == 'dict'
-
-
-def test_classify_inputs_array(input_handler, system):
-    """Verify correctly-shaped numpy arrays are classified as 'array'."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-    n_runs = 4
-
-    states = np.ones((n_states, n_runs), dtype=system.precision)
-    params = np.ones((n_params, n_runs), dtype=system.precision)
-
-    result = input_handler._classify_inputs(states=states, params=params)
-    assert result == 'array'
-
-
-def test_classify_inputs_array_wrong_shape(input_handler, system):
-    """Verify arrays with wrong shapes fall back to 'dict'."""
-    n_params = system.sizes.parameters
-    n_runs = 4
-
-    # Wrong number of state variables
-    states = np.ones((999, n_runs), dtype=system.precision)
-    params = np.ones((n_params, n_runs), dtype=system.precision)
-
-    result = input_handler._classify_inputs(states=states, params=params)
-    assert result == 'dict'
-
-
-def test_classify_inputs_array_mismatched_runs(input_handler, system):
-    """Verify arrays with mismatched run counts fall back to 'dict'."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-
-    states = np.ones((n_states, 3), dtype=system.precision)
-    params = np.ones((n_params, 5), dtype=system.precision)
-
-    result = input_handler._classify_inputs(states=states, params=params)
-    assert result == 'dict'
-
-
-def test_classify_inputs_1d_arrays(input_handler, system):
-    """Verify 1D arrays fall back to 'dict'."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-
-    states = np.ones(n_states, dtype=system.precision)
-    params = np.ones(n_params, dtype=system.precision)
-
-    result = input_handler._classify_inputs(states=states, params=params)
-    assert result == 'dict'
-
-
-class MockDeviceArray:
-    """Mock device array with __cuda_array_interface__."""
-
-    def __init__(self, shape, dtype):
-        self._data = np.ones(shape, dtype=dtype)
-
-    @property
-    def __cuda_array_interface__(self):
-        return {
-            'shape': self._data.shape,
-            'typestr': self._data.dtype.str,
-            'data': (self._data.ctypes.data, False),
-            'version': 3
-        }
-
-
-def test_classify_inputs_device(input_handler, system):
-    """Verify device arrays are classified as 'device'."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-    n_runs = 2
-
-    states = MockDeviceArray((n_states, n_runs), system.precision)
-    params = MockDeviceArray((n_params, n_runs), system.precision)
-
-    result = input_handler._classify_inputs(states=states, params=params)
-    assert result == 'device'
-
-
-# Tests for _validate_arrays method (internal)
-def test_validate_arrays_dtype_cast(input_handler, system):
-    """Verify arrays are cast to system precision."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-    n_runs = 2
-
-    # Create arrays with wrong dtype
-    wrong_dtype = np.float64 if system.precision == np.float32 else np.float32
-    states = np.ones((n_states, n_runs), dtype=wrong_dtype)
-    params = np.ones((n_params, n_runs), dtype=wrong_dtype)
-
-    validated_states, validated_params = input_handler._validate_arrays(
-        states=states, params=params
-    )
-
-    assert validated_states.dtype == system.precision
-    assert validated_params.dtype == system.precision
-
-
-def test_validate_arrays_preserves_correct_dtype(input_handler, system):
-    """Verify arrays at correct precision are preserved."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-    n_runs = 2
-
-    states = np.ones((n_states, n_runs), dtype=system.precision)
-    params = np.ones((n_params, n_runs), dtype=system.precision)
-
-    validated_states, validated_params = input_handler._validate_arrays(
-        states=states, params=params
-    )
-
-    assert validated_states.dtype == system.precision
-    assert validated_params.dtype == system.precision
-
-
-def test_validate_arrays_contiguous(input_handler, system):
-    """Verify returned arrays are contiguous."""
-    n_states = system.sizes.states
-    n_params = system.sizes.parameters
-    n_runs = 2
-
-    # Create non-contiguous arrays via slicing
-    states_base = np.ones((n_states, n_runs * 2), dtype=system.precision)
-    params_base = np.ones((n_params, n_runs * 2), dtype=system.precision)
-    states = states_base[:, ::2]  # Non-contiguous slice
-    params = params_base[:, ::2]
-
-    validated_states, validated_params = input_handler._validate_arrays(
-        states=states, params=params
-    )
-
-    assert validated_states.flags['C_CONTIGUOUS']
-    assert validated_params.flags['C_CONTIGUOUS']
 
 
 def test_call_positional_argument_order(input_handler, system):
@@ -1201,6 +1026,22 @@ def test_call_device_arrays_passthrough(input_handler, system):
     Device arrays with __cuda_array_interface__ should be returned
     immediately without any transformation.
     """
+    class MockDeviceArray:
+        def __init__(self, shape, dtype):
+            self._data = np.ones(shape, dtype=dtype)
+
+        @property
+        def __cuda_array_interface__(self):
+            return {
+                'shape': self._data.shape,
+                'typestr': self._data.dtype.str,
+                'data': (self._data.ctypes.data, False),
+                'version': 3,
+            }
+
+        @property
+        def shape(self):
+            return self._data.shape
     n_states = system.sizes.states
     n_params = system.sizes.parameters
     n_runs = 2
