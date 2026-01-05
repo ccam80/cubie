@@ -418,12 +418,11 @@ class Solver:
         # Start wall-clock timing for solve
         default_timelogger.start_event("solver_solve")
 
-        # Process inputs through handler (classification handled internally)
         inits, params = self.input_handler(
             states=initial_values, params=parameters, kind=grid_type
         )
 
-        fn_changed = False  # ensure defined if drivers is None
+        fn_changed = False
         if drivers is not None:
             ArrayInterpolator.check_against_system_drivers(
                 drivers, self.system

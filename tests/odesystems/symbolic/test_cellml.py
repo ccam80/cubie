@@ -137,7 +137,7 @@ def test_integration_with_solve_ivp(basic_model):
     assert basic_model.num_states == 1
     # Verify initial values are accessible
     assert basic_model.indices.states.defaults is not None
-    results = solve_ivp(basic_model, [1.0], [1.0])
+    results = solve_ivp(basic_model, [1.0])
     assert isinstance(results, SolveResult)
 
 
