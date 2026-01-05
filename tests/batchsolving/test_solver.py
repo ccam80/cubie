@@ -2,6 +2,8 @@ from typing import Iterable
 
 import pytest
 import numpy as np
+
+from cubie import create_ODE_system
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
@@ -1434,19 +1436,36 @@ class TestVariableResolutionIntegration:
         assert len(solver.summarised_state_indices) == 0
         assert len(solver.summarised_observable_indices) == 0
 
-    def test_system_no_observables_default(self, system, solver_settings):
+    def test_system_no_observables_default(self, precision, solver_settings):
         """Test default behavior with system having no observables.
 
         When a system has no observables, observable_indices should be
         empty arrays, not errors.
         """
-        n_observables = len(system.observables.names) if hasattr(
-            system.observables, "names"
-        ) else 0
+        THREE_STATE_LINEAR_EQUATIONS = [
+            "dx0 = -x0",
+            "dx1 = -x1/2",
+            "dx2 = -x2/3",
+            "o0 = dx0 * p0 + c0 + d0",
+            "o1 = dx1 * p1 + c1 + d0",
+            "o2 = dx2 * p2 + c2 + d0",
+        ]
 
-        if n_observables > 0:
-            pytest.skip("System has observables, test requires no observables")
-
+        THREE_STATE_LINEAR_STATES = {"x0": 1.0, "x1": 1.0, "x2": 1.0}
+        THREE_STATE_LINEAR_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
+        THREE_STATE_LINEAR_CONSTANTS = {"c0": 0.5, "c1": 1.0, "c2": 2.0}
+        THREE_STATE_LINEAR_DRIVERS = ["d0"]
+        THREE_STATE_LINEAR_OBSERVABLES = ["o0", "o1", "o2"]
+        system = create_ODE_system(
+                dxdt=THREE_STATE_LINEAR_EQUATIONS,
+                states=THREE_STATE_LINEAR_STATES,
+                parameters=THREE_STATE_LINEAR_PARAMETERS,
+                constants=THREE_STATE_LINEAR_CONSTANTS,
+                drivers=THREE_STATE_LINEAR_DRIVERS,
+                precision=precision,
+                name="three_state_linear",
+                strict=False,
+        )
         solver = Solver(
             system,
             output_types=["state"],
