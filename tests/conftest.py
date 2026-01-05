@@ -35,8 +35,6 @@ from tests.integrators.cpu_reference import (
     DriverEvaluator,
     run_reference_loop,
 )
-import json
-from collections import defaultdict
 
 from tests._utils import _driver_sequence, run_device_loop
 from tests.integrators.loops.test_ode_loop import Array
@@ -53,114 +51,6 @@ enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 
-def pytest_addoption(parser):
-    parser.addoption(
-        "--param-set-report",
-        action="store",
-        default=None,
-        help="Optional path to write a JSON report of test -> parameter-set grouping."
-    )
-
-def _session_param_fixture_names(session):
-    """
-    Return the set of fixture names that are:
-      - defined (arg2fixturedefs),
-      - have scope 'session', and
-      - are parameterized (fixturedef.params exists and is non-empty).
-    """
-    fm = session._fixturemanager
-    names = set()
-    # fm._arg2fixturedefs is a dict mapping fixture name -> list of FixtureDef
-    for name, defs in getattr(fm, "_arg2fixturedefs", {}).items():
-        for fdef in defs:
-            # some fixtures may have no .params attribute (not parameterized)
-            if getattr(fdef, "scope", None) == "session" and getattr(fdef, "params", None):
-                names.add(name)
-                break
-    return names
-
-def _callspec_signature_for_item(item, session_fixture_names):
-    """
-    Return a deterministic signature (tuple) for grouping:
-      - If the item has a callspec and at least one of its param names
-        matches a session-scoped parameterized fixture, use only those keys.
-      - Otherwise, use the item's full callspec (if any).
-      - If no callspec at all, return a sentinel ('__NO_PARAMS__',).
-    Signature is a tuple of (name, repr(value)) sorted by name so dict order doesn't matter.
-    """
-    callspec = getattr(item, "callspec", None)
-    if not callspec or not getattr(callspec, "params", None):
-        return ("__NO_PARAMS__",)
-
-    all_params = dict(callspec.params)
-    # choose keys that match session-scoped parameterized fixtures
-    session_keys = [k for k in all_params.keys() if k in session_fixture_names]
-
-    if session_keys:
-        keys = sorted(session_keys)
-    else:
-        # fallback: group by the full callspec keys
-        keys = sorted(all_params.keys())
-
-    # represent values deterministically; use repr to keep it JSON-serializable-friendly
-    sig = tuple((k, repr(all_params[k])) for k in keys)
-    return sig
-
-def pytest_collection_finish(session):
-    """
-    After collection, group items by the signature that determines session fixture instances,
-    then print a summary and optionally write JSON.
-    """
-    items = list(session.items)
-    session_fixture_names = _session_param_fixture_names(session)
-
-    groups = defaultdict(list)
-    for item in items:
-        sig = _callspec_signature_for_item(item, session_fixture_names)
-        groups[sig].append(item.nodeid)
-
-    # Print summary to terminal
-    total_sets = len(groups)
-    total_tests = len(items)
-    session.config._metadata = getattr(session.config, "_metadata", {})
-    print("\n=== pytest parameter-set grouping report ===")
-    print(f"Total collected tests: {total_tests}")
-    print(f"Unique parameter-sets (groups): {total_sets}")
-    print("Groups (showing signature -> tests):\n")
-
-    # sort groups for stable ordering: place NO_PARAMS last
-    def sig_sort_key(sig):
-        return (sig == ("__NO_PARAMS__",), str(sig))
-
-    for i, sig in enumerate(sorted(groups.keys(), key=sig_sort_key), start=1):
-        tests = groups[sig]
-        print(f"GROUP {i}: {len(tests)} test(s)")
-        if sig == ("__NO_PARAMS__",):
-            print("  signature: (no callspec / no params)")
-        else:
-            # pretty print signature
-            pretty = ", ".join(f"{k}={v}" for k, v in sig)
-            print(f"  signature: {pretty}")
-        for t in tests:
-            print(f"    - {t}")
-        print()
-
-    # optionally dump JSON
-    outpath = session.config.getoption("--param-set-report")
-    if outpath:
-        # produce JSON-serializable structure
-        json_groups = []
-        for sig, tests in groups.items():
-            if sig == ("__NO_PARAMS__",):
-                sig_dict = {}
-            else:
-                sig_dict = {k: v for k, v in sig}
-            json_groups.append({"signature": sig_dict, "tests": tests})
-        with open(outpath, "w", encoding="utf-8") as fh:
-            json.dump({"total_tests": total_tests, "groups": json_groups}, fh, indent=2)
-        print(f"Param-set JSON report written to: {outpath}")
-
-    print("=== end of report ===\n")
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
@@ -258,39 +148,6 @@ def _build_solver_instance(
     return solver
 
 
-def build_single_integrator_run(
-    system: SymbolicODE,
-    solver_settings: Dict[str, Any],
-    algorithm_settings: Dict[str, Any],
-    step_controller_settings: Dict[str, Any],
-    output_settings: Dict[str, Any],
-    loop_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator] = None,
-) -> SingleIntegratorRun:
-    """Build a SingleIntegratorRun for tests.
-    
-    This helper creates a fully configured SingleIntegratorRun instance,
-    injecting system functions into algorithm_settings before construction.
-    """
-    driver_function = _get_driver_function(driver_array)
-    driver_del_t = _get_driver_del_t(driver_array)
-    
-    # Enhance algorithm_settings with system functions
-    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
-        algorithm_settings, system, driver_array
-    )
-    
-    return SingleIntegratorRun(
-        system=system,
-        driver_function=driver_function,
-        driver_del_t=driver_del_t,
-        algorithm_settings=enhanced_algorithm_settings,
-        step_control_settings=step_controller_settings,
-        output_settings=output_settings,
-        loop_settings=loop_settings,
-    )
-
-
 def _build_cpu_step_controller(
     precision: np.dtype,
     step_controller_settings: Dict[str, Any],
@@ -373,46 +230,6 @@ def _get_algorithm_order(algorithm_name_or_tableau):
         return defaults.get(algorithm_name, 1)
     
     return 1
-
-
-def _get_algorithm_is_adaptive(algorithm_name_or_tableau):
-    """Determine if algorithm is adaptive without building step object.
-    
-    Parameters
-    ----------
-    algorithm_name_or_tableau : str or ButcherTableau
-        Algorithm identifier or tableau instance.
-    
-    Returns
-    -------
-    bool
-        True if algorithm has embedded error estimate (adaptive).
-    """
-    from cubie.integrators.algorithms import (
-        resolve_alias, resolve_supplied_tableau
-    )
-    from cubie.integrators.algorithms.generic_rosenbrock_w import (
-        GenericRosenbrockWStep,
-        DEFAULT_ROSENBROCK_TABLEAU,
-    )
-    
-    if isinstance(algorithm_name_or_tableau, str):
-        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
-    else:
-        algorithm_type, tableau = resolve_supplied_tableau(
-            algorithm_name_or_tableau
-        )
-    
-    # For rosenbrock without explicit tableau, use default
-    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
-        tableau = DEFAULT_ROSENBROCK_TABLEAU
-    
-    # Check if tableau has error estimate
-    if tableau is not None and hasattr(tableau, 'has_error_estimate'):
-        return tableau.has_error_estimate
-    
-    # Non-adaptive algorithms by default
-    return False
 
 
 def _get_algorithm_tableau(algorithm_name_or_tableau):
