@@ -480,6 +480,11 @@ class SystemValues:
         """List of parameter names."""
         return list(self.values_dict.keys())
 
+    @property
+    def empty(self) -> bool:
+        """Return True if this SystemValues instance has no values."""
+        return self.n == 0
+
     def get_labels(self, indices: Union[list[int], ndarray]) -> list[str]:
         """Return parameter labels for supplied indices.
 

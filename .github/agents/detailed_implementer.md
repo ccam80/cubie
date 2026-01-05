@@ -46,7 +46,7 @@ Convert high-level architectural plans (agent_plan.md) into detailed, function-l
 
 ## Expertise
 
-- Python 3.8+ advanced patterns
+- Python 3.10+ patterns
 - CUDA programming and GPU optimization
 - Numba JIT compilation and device functions
 - Code architecture and refactoring
@@ -150,6 +150,8 @@ Structure:
 - **Input Validation Required**: Exact validation to perform (taskmaster adds NO extra validation)
 - **No Ambiguity**: taskmaster should not need to make design decisions
 - **CuBIE Conventions**: Follow repository guidelines strictly
+- **Complete Implementations**: NEVER include a "partial implementation" option. 
+- **Breaking Changes**: NEVER leave backwards compatibility stubs or fallbacks in place. Your job is to erase any trace of legacy code and ensure your implementation is correct with legacy code removed.
 
 ## Task Group Context Requirements
 
@@ -170,8 +172,6 @@ For each task group, you MUST provide:
 
 - Include .github/context/cubie_internal_structure.md for architecture context
 - Follow conventions from .github/copilot-instructions.md
-- When faced with ambiguity, ASK the user for clarification
-- When multiple implementation approaches exist, ASK which to use
 - Save the user from reviewing incorrect implementations
 - Prefer architectural changes before content changes
 - Consider both CUDA and CUDASIM compatibility
