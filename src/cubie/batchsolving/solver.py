@@ -418,26 +418,10 @@ class Solver:
         # Start wall-clock timing for solve
         default_timelogger.start_event("solver_solve")
 
-        # Classify inputs to determine processing path
-        input_type = self.input_handler.classify_inputs(
-            states=initial_values,
-            params=parameters
+        # Process inputs through handler (classification handled internally)
+        inits, params = self.input_handler(
+            states=initial_values, params=parameters, kind=grid_type
         )
-
-        if input_type == 'dict':
-            # Dictionary inputs: use input handler (existing behavior)
-            inits, params = self.input_handler(
-                states=initial_values, params=parameters, kind=grid_type
-            )
-        elif input_type == 'array':
-            # Pre-built arrays: validate and use directly (fast path)
-            inits, params = self.input_handler.validate_arrays(
-                states=initial_values,
-                params=parameters
-            )
-        else:
-            # Device arrays: use directly with minimal processing
-            inits, params = initial_values, parameters
 
         fn_changed = False  # ensure defined if drivers is None
         if drivers is not None:

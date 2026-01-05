@@ -993,13 +993,13 @@ def test_align_run_counts_verbatim(input_handler, system):
     assert_allclose(aligned_states[0, :], [1.0, 1.0, 1.0], rtol=1e-7)
 
 
-# Tests for classify_inputs method
+# Tests for _classify_inputs method (internal)
 def test_classify_inputs_dict(input_handler, system):
     """Verify dict inputs are classified as 'dict'."""
     states_dict = {list(system.initial_values.names)[0]: [1.0, 2.0]}
     params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
 
-    result = input_handler.classify_inputs(
+    result = input_handler._classify_inputs(
         states=states_dict,
         params=params_dict
     )
@@ -1015,7 +1015,7 @@ def test_classify_inputs_dict_mixed(input_handler, system):
     states_dict = {list(system.initial_values.names)[0]: [1.0, 2.0]}
     params_array = np.ones((n_params, 2), dtype=system.precision)
 
-    result = input_handler.classify_inputs(
+    result = input_handler._classify_inputs(
         states=states_dict,
         params=params_array
     )
@@ -1025,7 +1025,7 @@ def test_classify_inputs_dict_mixed(input_handler, system):
     states_array = np.ones((n_states, 2), dtype=system.precision)
     params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
 
-    result = input_handler.classify_inputs(
+    result = input_handler._classify_inputs(
         states=states_array,
         params=params_dict
     )
@@ -1041,7 +1041,7 @@ def test_classify_inputs_array(input_handler, system):
     states = np.ones((n_states, n_runs), dtype=system.precision)
     params = np.ones((n_params, n_runs), dtype=system.precision)
 
-    result = input_handler.classify_inputs(states=states, params=params)
+    result = input_handler._classify_inputs(states=states, params=params)
     assert result == 'array'
 
 
@@ -1054,7 +1054,7 @@ def test_classify_inputs_array_wrong_shape(input_handler, system):
     states = np.ones((999, n_runs), dtype=system.precision)
     params = np.ones((n_params, n_runs), dtype=system.precision)
 
-    result = input_handler.classify_inputs(states=states, params=params)
+    result = input_handler._classify_inputs(states=states, params=params)
     assert result == 'dict'
 
 
@@ -1066,7 +1066,7 @@ def test_classify_inputs_array_mismatched_runs(input_handler, system):
     states = np.ones((n_states, 3), dtype=system.precision)
     params = np.ones((n_params, 5), dtype=system.precision)
 
-    result = input_handler.classify_inputs(states=states, params=params)
+    result = input_handler._classify_inputs(states=states, params=params)
     assert result == 'dict'
 
 
@@ -1078,7 +1078,7 @@ def test_classify_inputs_1d_arrays(input_handler, system):
     states = np.ones(n_states, dtype=system.precision)
     params = np.ones(n_params, dtype=system.precision)
 
-    result = input_handler.classify_inputs(states=states, params=params)
+    result = input_handler._classify_inputs(states=states, params=params)
     assert result == 'dict'
 
 
@@ -1107,11 +1107,11 @@ def test_classify_inputs_device(input_handler, system):
     states = MockDeviceArray((n_states, n_runs), system.precision)
     params = MockDeviceArray((n_params, n_runs), system.precision)
 
-    result = input_handler.classify_inputs(states=states, params=params)
+    result = input_handler._classify_inputs(states=states, params=params)
     assert result == 'device'
 
 
-# Tests for validate_arrays method
+# Tests for _validate_arrays method (internal)
 def test_validate_arrays_dtype_cast(input_handler, system):
     """Verify arrays are cast to system precision."""
     n_states = system.sizes.states
@@ -1123,7 +1123,7 @@ def test_validate_arrays_dtype_cast(input_handler, system):
     states = np.ones((n_states, n_runs), dtype=wrong_dtype)
     params = np.ones((n_params, n_runs), dtype=wrong_dtype)
 
-    validated_states, validated_params = input_handler.validate_arrays(
+    validated_states, validated_params = input_handler._validate_arrays(
         states=states, params=params
     )
 
@@ -1140,7 +1140,7 @@ def test_validate_arrays_preserves_correct_dtype(input_handler, system):
     states = np.ones((n_states, n_runs), dtype=system.precision)
     params = np.ones((n_params, n_runs), dtype=system.precision)
 
-    validated_states, validated_params = input_handler.validate_arrays(
+    validated_states, validated_params = input_handler._validate_arrays(
         states=states, params=params
     )
 
@@ -1160,7 +1160,7 @@ def test_validate_arrays_contiguous(input_handler, system):
     states = states_base[:, ::2]  # Non-contiguous slice
     params = params_base[:, ::2]
 
-    validated_states, validated_params = input_handler.validate_arrays(
+    validated_states, validated_params = input_handler._validate_arrays(
         states=states, params=params
     )
 
@@ -1193,3 +1193,24 @@ def test_call_positional_argument_order(input_handler, system):
     # Verify shapes are correct
     assert result_states.shape == (n_states, 2)
     assert result_params.shape == (n_params, 2)
+
+
+def test_call_device_arrays_passthrough(input_handler, system):
+    """Verify device arrays pass through __call__ without processing.
+
+    Device arrays with __cuda_array_interface__ should be returned
+    immediately without any transformation.
+    """
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    n_runs = 2
+
+    states = MockDeviceArray((n_states, n_runs), system.precision)
+    params = MockDeviceArray((n_params, n_runs), system.precision)
+
+    # Call __call__ directly with device arrays
+    result_states, result_params = input_handler(states, params, "verbatim")
+
+    # Verify the same objects are returned (no processing)
+    assert result_states is states
+    assert result_params is params

@@ -522,9 +522,18 @@ class BatchInputHandler:
         complete grid. ``kind="combinatorial"`` computes the Cartesian
         product of both grids. When arrays already describe paired runs,
         set ``kind`` to ``"verbatim"`` to keep them aligned.
+
+        Device arrays with ``__cuda_array_interface__`` are returned
+        immediately with no processing.
         """
         # Update precision from current system state
         self.precision = self.states.precision
+
+        # Fast path for device arrays - return immediately with no processing
+        states_is_device = hasattr(states, '__cuda_array_interface__')
+        params_is_device = hasattr(params, '__cuda_array_interface__')
+        if states_is_device and params_is_device:
+            return states, params
 
         # Fast path - if right-sized arrays, return straight away.
         if self._are_right_sized_arrays(states, params):
@@ -552,7 +561,7 @@ class BatchInputHandler:
         # Cast to system precision
         return self._cast_to_precision(states_array, params_array)
 
-    def classify_inputs(
+    def _classify_inputs(
         self,
         states: Union[np.ndarray, Dict[str, Union[float, np.ndarray]], None],
         params: Union[np.ndarray, Dict[str, Union[float, np.ndarray]], None],
@@ -604,7 +613,7 @@ class BatchInputHandler:
         # Default to dict path (grid builder handles conversion)
         return 'dict'
 
-    def validate_arrays(
+    def _validate_arrays(
         self,
         states: np.ndarray,
         params: np.ndarray,
