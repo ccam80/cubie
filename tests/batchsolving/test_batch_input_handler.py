@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal, assert_allclose
+from typing import Tuple
 
 from cubie.batchsolving.BatchInputHandler import (
     BatchInputHandler,
@@ -14,6 +15,26 @@ from cubie.batchsolving.BatchInputHandler import (
 )
 import itertools
 # from cubie.odesystems.systems.decays import Decays
+
+
+class MockDeviceArray:
+    """Lightweight mock implementing __cuda_array_interface__ for tests."""
+
+    def __init__(self, shape: Tuple[int, ...], dtype):
+        self._data = np.ones(shape, dtype=dtype)
+
+    @property
+    def __cuda_array_interface__(self):
+        return {
+            'shape': self._data.shape,
+            'typestr': self._data.dtype.str,
+            'data': (self._data.ctypes.data, False),
+            'version': 3,
+        }
+
+    @property
+    def shape(self):
+        return self._data.shape
 
 
 @pytest.fixture(scope="session")
@@ -1026,22 +1047,6 @@ def test_call_device_arrays_passthrough(input_handler, system):
     Device arrays with __cuda_array_interface__ should be returned
     immediately without any transformation.
     """
-    class MockDeviceArray:
-        def __init__(self, shape, dtype):
-            self._data = np.ones(shape, dtype=dtype)
-
-        @property
-        def __cuda_array_interface__(self):
-            return {
-                'shape': self._data.shape,
-                'typestr': self._data.dtype.str,
-                'data': (self._data.ctypes.data, False),
-                'version': 3,
-            }
-
-        @property
-        def shape(self):
-            return self._data.shape
     n_states = system.sizes.states
     n_params = system.sizes.parameters
     n_runs = 2

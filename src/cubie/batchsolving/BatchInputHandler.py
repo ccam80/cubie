@@ -878,11 +878,9 @@ class BatchInputHandler:
         params_is_device = hasattr(params, '__cuda_array_interface__')
 
         states_runs = self._get_run_count(states)
-        params_runs = (
-            self._get_run_count(params)
-            if not (self.parameters.empty and params is None)
-            else None
-        )
+        params_runs = None
+        if not (self.parameters.empty and params is None):
+            params_runs = self._get_run_count(params)
 
         if states_is_device and params_is_device:
             if states_runs is not None and params_runs is not None:
@@ -895,10 +893,7 @@ class BatchInputHandler:
 
         if self.parameters.empty and params is None:
             params_ok = True
-            if states_runs is None:
-                params_runs = 1
-            else:
-                params_runs = states_runs
+            params_runs = states_runs or 1
             params = np_empty((0, params_runs), dtype=self.precision)
 
         if states_ok and params_ok:
