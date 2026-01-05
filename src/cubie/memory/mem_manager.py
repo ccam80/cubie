@@ -6,10 +6,13 @@ import contextlib
 from copy import deepcopy
 
 from numba import cuda
-import attrs
-import attrs.validators as val
-from attrs import Factory
-import numpy as np
+from attrs import define, Factory as attrsFactory, field
+from attrs.validators import (
+    in_ as attrsval_in,
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
+from numpy import ceil as np_ceil, ndarray, zeros as np_zeros
 from math import prod
 
 from cubie.cuda_simsafe import (
@@ -109,7 +112,7 @@ def _ensure_cuda_context() -> None:
 
 
 # These will be keys to a dict, so must be hashable: eq=False
-@attrs.define(eq=False)
+@define(eq=False)
 class InstanceMemorySettings:
     """
     Memory registry information for a registered instance.
@@ -153,20 +156,20 @@ class InstanceMemorySettings:
     re-allocated or redefined.
     """
 
-    proportion: float = attrs.field(
-        default=1.0, validator=val.instance_of(float)
+    proportion: float = field(
+        default=1.0, validator=attrsval_instance_of(float)
     )
-    allocations: dict = attrs.field(
-        default=Factory(dict), validator=val.instance_of(dict)
+    allocations: dict = field(
+        default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
-    invalidate_hook: Callable[[], None] = attrs.field(
-        default=placeholder_invalidate, validator=val.instance_of(Callable)
+    invalidate_hook: Callable[[], None] = field(
+        default=placeholder_invalidate, validator=attrsval_instance_of(Callable)
     )
-    allocation_ready_hook: Callable[[ArrayResponse], None] = attrs.field(
+    allocation_ready_hook: Callable[[ArrayResponse], None] = field(
         default=placeholder_dataready
     )
-    cap: Optional[int] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(int))
+    cap: Optional[int] = field(
+        default=None, validator=attrsval_optional(attrsval_instance_of(int))
     )
 
     def add_allocation(self, key: str, arr: Any) -> None:
@@ -241,7 +244,7 @@ class InstanceMemorySettings:
         return total
 
 
-@attrs.define
+@define
 class MemoryManager:
     """
     Singleton interface coordinating GPU memory allocation and stream usage.
@@ -276,32 +279,32 @@ class MemoryManager:
     only when necessary.
     """
 
-    totalmem: int = attrs.field(
-        default=None, validator=val.optional(val.instance_of(int))
+    totalmem: int = field(
+        default=None, validator=attrsval_optional(attrsval_instance_of(int))
     )
-    registry: dict[int, InstanceMemorySettings] = attrs.field(
-        default=Factory(dict), validator=val.optional(val.instance_of(dict))
+    registry: dict[int, InstanceMemorySettings] = field(
+        default=attrsFactory(dict), validator=attrsval_optional(attrsval_instance_of(dict))
     )
-    stream_groups: StreamGroups = attrs.field(default=Factory(StreamGroups))
-    _mode: str = attrs.field(
-        default="passive", validator=val.in_(["passive", "active"])
+    stream_groups: StreamGroups = field(default=attrsFactory(StreamGroups))
+    _mode: str = field(
+        default="passive", validator=attrsval_in(["passive", "active"])
     )
-    _allocator: BaseCUDAMemoryManager = attrs.field(
+    _allocator: BaseCUDAMemoryManager = field(
         default=NumbaCUDAMemoryManager,
-        validator=val.optional(val.instance_of(object)),
+        validator=attrsval_optional(attrsval_instance_of(object)),
     )
-    _auto_pool: list[int] = attrs.field(
-        default=Factory(list), validator=val.instance_of(list)
+    _auto_pool: list[int] = field(
+        default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
-    _manual_pool: list[int] = attrs.field(
-        default=Factory(list), validator=val.instance_of(list)
+    _manual_pool: list[int] = field(
+        default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
-    _stride_order: tuple[str, str, str] = attrs.field(
-        default=("time", "variable", "run"), validator=val.instance_of(
+    _stride_order: tuple[str, str, str] = field(
+        default=("time", "variable", "run"), validator=attrsval_instance_of(
                     tuple)
     )
-    _queued_allocations: Dict[str, Dict] = attrs.field(
-        default=Factory(dict), validator=val.instance_of(dict)
+    _queued_allocations: Dict[str, Dict] = field(
+        default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
 
     def __attrs_post_init__(self) -> None:
@@ -923,7 +926,7 @@ class MemoryManager:
         dtype: type,
         stride_order: Optional[tuple[str, ...]] = None,
         memory_type: str = "pinned",
-    ) -> np.ndarray:
+    ) -> ndarray:
         """
         Create a host array with strides matching the memory manager's order.
 
@@ -972,7 +975,7 @@ class MemoryManager:
                 arr = cuda.pinned_array(shape, dtype=dtype)
                 arr.fill(0)
             else:
-                arr = np.zeros(shape, dtype=dtype)
+                arr = np_zeros(shape, dtype=dtype)
             return arr
 
         desired_order = self._stride_order
@@ -981,7 +984,7 @@ class MemoryManager:
                 arr = cuda.pinned_array(shape, dtype=dtype)
                 arr.fill(0)
             else:
-                arr = np.zeros(shape, dtype=dtype)
+                arr = np_zeros(shape, dtype=dtype)
             return arr
 
         # Build shape in desired stride order
@@ -995,7 +998,7 @@ class MemoryManager:
             arr = cuda.pinned_array(ordered_shape, dtype=dtype)
             arr.fill(0)
         else:
-            arr = np.zeros(ordered_shape, dtype=dtype)
+            arr = np_zeros(ordered_shape, dtype=dtype)
 
         # Compute transpose axes to return to native order
         # We need axes that map desired_order -> stride_order
@@ -1103,7 +1106,7 @@ class MemoryManager:
                 f"Available VRAM = {free}, request size = {request_size}.",
                 UserWarning,
             )
-        return int(np.ceil(request_size / available))
+        return int(np_ceil(request_size / available))
 
     def get_memory_info(self) -> tuple[int, int]:
         """
@@ -1310,7 +1313,7 @@ class MemoryManager:
             # Divide all indices along selected axis by chunks
             run_index = request.stride_order.index(axis)
             newshape = tuple(
-                int(np.ceil(value / numchunks)) if i == run_index else value
+                int(np_ceil(value / numchunks)) if i == run_index else value
                 for i, value in enumerate(request.shape)
             )
             request.shape = newshape

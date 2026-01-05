@@ -5,9 +5,15 @@ from typing import TYPE_CHECKING, Dict, Union
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
-import attrs
-import attrs.validators as val
-import numpy as np
+from attrs import define, field
+from attrs.validators import instance_of as attrsval_instance_of
+from numpy import (
+    float32 as np_float32,
+    floating as np_floating,
+    int32 as np_int32,
+    integer as np_integer,
+    issubdtype as np_issubdtype,
+)
 from numpy.typing import NDArray
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -19,52 +25,52 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
 
-ChunkIndices = Union[slice, NDArray[np.integer]]
+ChunkIndices = Union[slice, NDArray[np_integer]]
 
 
-@attrs.define(slots=False)
+@define(slots=False)
 class OutputArrayContainer(ArrayContainer):
     """Container for batch output arrays."""
 
-    state: ManagedArray = attrs.field(
+    state: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
-    observables: ManagedArray = attrs.field(
+    observables: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
-    state_summaries: ManagedArray = attrs.field(
+    state_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
-    observable_summaries: ManagedArray = attrs.field(
+    observable_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.float32,
+            dtype=np_float32,
             stride_order=("time", "variable", "run"),
             shape=(1, 1, 1),
         )
     )
-    status_codes: ManagedArray = attrs.field(
+    status_codes: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.int32,
+            dtype=np_int32,
             stride_order=("run",),
             shape=(1,),
             is_chunked=False,
         )
     )
-    iteration_counters: ManagedArray = attrs.field(
+    iteration_counters: ManagedArray = field(
         factory=lambda: ManagedArray(
-            dtype=np.int32,
+            dtype=np_int32,
             stride_order=("time", "variable", "run"),
             shape=(1, 4, 1),
         )
@@ -106,7 +112,7 @@ class OutputArrayContainer(ArrayContainer):
         return container
 
 
-@attrs.define
+@define
 class OutputArrays(BaseArrayManager):
     """
     Manage batch integration output arrays between host and device.
@@ -133,17 +139,17 @@ class OutputArrays(BaseArrayManager):
     update the expected sizes, check the cache, and allocate if required.
     """
 
-    _sizes: BatchOutputSizes = attrs.field(
-        factory=BatchOutputSizes, validator=val.instance_of(BatchOutputSizes)
+    _sizes: BatchOutputSizes = field(
+        factory=BatchOutputSizes, validator=attrsval_instance_of(BatchOutputSizes)
     )
-    host: OutputArrayContainer = attrs.field(
+    host: OutputArrayContainer = field(
         factory=OutputArrayContainer.host_factory,
-        validator=val.instance_of(OutputArrayContainer),
+        validator=attrsval_instance_of(OutputArrayContainer),
         init=True,
     )
-    device: OutputArrayContainer = attrs.field(
+    device: OutputArrayContainer = field(
         factory=OutputArrayContainer.device_factory,
-        validator=val.instance_of(OutputArrayContainer),
+        validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
     )
 
@@ -272,7 +278,7 @@ class OutputArrays(BaseArrayManager):
 
     def update_from_solver(
         self, solver_instance: "BatchSolverKernel"
-    ) -> Dict[str, NDArray[np.floating]]:
+    ) -> Dict[str, NDArray[np_floating]]:
         """
         Update sizes and precision from solver, returning new host arrays.
 
@@ -297,26 +303,26 @@ class OutputArrays(BaseArrayManager):
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)
             slot.shape = newshape
-            dtype = slot.dtype
-            if np.issubdtype(dtype, np.floating):
+            slot_dtype = slot.dtype
+            if np_issubdtype(slot_dtype, np_floating):
                 slot.dtype = self._precision
-                dtype = slot.dtype
+                slot_dtype = self._precision
             # Fast path: skip allocation if existing array matches
             current = slot.array
             if (
                 current is not None
                 and current.shape == newshape
-                and current.dtype == dtype
+                and current.dtype == slot_dtype
             ):
                 new_arrays[name] = current
             else:
                 new_arrays[name] = self._memory_manager.create_host_array(
-                    newshape, dtype, slot.stride_order, slot.memory_type
+                    newshape, slot_dtype, slot.stride_order, slot.memory_type
                 )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
-            dtype = slot.dtype
-            if np.issubdtype(dtype, np.floating):
+            slot_dtype = slot.dtype
+            if np_issubdtype(slot_dtype, np_floating):
                 slot.dtype = self._precision
         return new_arrays
 

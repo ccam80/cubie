@@ -11,17 +11,23 @@ computed on demand and invalidated when any buffer is modified.
 
 from typing import Callable, Dict, Optional, Tuple, Any, Set
 
-import attrs
-from attrs import validators
-import numpy as np
-from numba import cuda, int32
+from attrs import asdict as attrs_asdict, define, field
+from attrs.validators import (
+    in_ as attrsval_in,
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
+from numpy import float32 as np_float32
+
+from numba import cuda
+from numba import int32
+from numba import float32
 
 from cubie._utils import getype_validator, buffer_dtype_validator
 from cubie.cuda_simsafe import compile_kwargs, from_dtype
-from numba import float32
 
 
-@attrs.define
+@define
 class CUDABuffer:
     """Immutable record describing a single buffer's requirements.
 
@@ -41,20 +47,20 @@ class CUDABuffer:
         NumPy precision type for the buffer.
     """
 
-    name: str = attrs.field(validator=validators.instance_of(str))
-    size: int = attrs.field(validator=getype_validator(int, 0))
-    location: str = attrs.field(
-        validator=validators.in_(["shared", "local"])
+    name: str = field(validator=attrsval_instance_of(str))
+    size: int = field(validator=getype_validator(int, 0))
+    location: str = field(
+        validator=attrsval_in(["shared", "local"])
     )
-    persistent: bool = attrs.field(
-        default=False, validator=validators.instance_of(bool)
+    persistent: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    aliases: Optional[str] = attrs.field(
+    aliases: Optional[str] = field(
         default=None,
-        validator=validators.optional(validators.instance_of(str))
+        validator=attrsval_optional(attrsval_instance_of(str))
     )
-    precision: type = attrs.field(
-        default=np.float32,
+    precision: type = field(
+        default=np_float32,
         validator=buffer_dtype_validator
     )
 
@@ -143,7 +149,7 @@ class CUDABuffer:
         return allocate_buffer
 
 
-@attrs.define
+@define
 class BufferGroup:
     """Groups all buffer entries for a single parent object.
 
@@ -164,18 +170,18 @@ class BufferGroup:
         computation.
     """
 
-    parent: object = attrs.field()
-    entries: Dict[str, CUDABuffer] = attrs.field(factory=dict)
-    _shared_layout: Optional[Dict[str, slice]] = attrs.field(
+    parent: object = field()
+    entries: Dict[str, CUDABuffer] = field(factory=dict)
+    _shared_layout: Optional[Dict[str, slice]] = field(
         default=None, init=False
     )
-    _persistent_layout: Optional[Dict[str, slice]] = attrs.field(
+    _persistent_layout: Optional[Dict[str, slice]] = field(
         default=None, init=False
     )
-    _local_sizes: Optional[Dict[str, int]] = attrs.field(
+    _local_sizes: Optional[Dict[str, int]] = field(
         default=None, init=False
     )
-    _alias_consumption: Dict[str, int] = attrs.field(
+    _alias_consumption: Dict[str, int] = field(
         factory=dict, init=False
     )
 
@@ -318,7 +324,7 @@ class BufferGroup:
         location: str,
         persistent: bool = False,
         aliases: Optional[str] = None,
-        precision: type = np.float32,
+        precision: type = np_float32,
     ) -> None:
         """Register a buffer with this group.
 
@@ -397,10 +403,10 @@ class BufferGroup:
         else:
             recognized = True
             old_entry = self.entries[name]
-            new_values = attrs.asdict(old_entry)
+            new_values = attrs_asdict(old_entry)
             new_values.update(kwargs)
 
-            if new_values != attrs.asdict(old_entry):
+            if new_values != attrs_asdict(old_entry):
                 changed = True
                 self.entries[name] = CUDABuffer(**new_values)
                 self.invalidate_layouts()
@@ -533,7 +539,7 @@ class BufferGroup:
         )
 
 
-@attrs.define
+@define
 class BufferRegistry:
     """Central registry managing all buffer metadata for CUDA parents.
 
@@ -548,7 +554,7 @@ class BufferRegistry:
         Maps parent instances to their buffer groups.
     """
 
-    _groups: Dict[object, BufferGroup] = attrs.field(
+    _groups: Dict[object, BufferGroup] = field(
         factory=dict, init=False
     )
 
@@ -560,7 +566,7 @@ class BufferRegistry:
         location: str,
         persistent: bool = False,
         aliases: Optional[str] = None,
-        precision: type = np.float32,
+        precision: type = np_float32,
     ) -> None:
         """Register a buffer with the central registry.
 

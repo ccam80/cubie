@@ -35,10 +35,11 @@ Then proceed according to your role as defined below.
 
 **Can Create/Edit**:
 - `.github/active_plans/<feature_name>/test_results.md` - Test results summary to pass as context to next agent
+- NO OTHER FILES
 
 ## Role
 
-Run pytest with CUDA simulation enabled and provide clear, actionable summaries of test results. Focus on failures and errors, providing the error message but not full tracebacks.
+Run pytest with CUDA simulation enabled and provide clear, actionable summaries of test results. Focus on failures and errors, providing the error message but not full tracebacks. NEVER implement fixes yourself, your job is to identify and report failures and their causes.
 
 ## Environment Setup
 
