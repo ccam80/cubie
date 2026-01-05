@@ -12,9 +12,22 @@ if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     import pandas as pd
 
-import attrs
-import attrs.validators as val
-import numpy as np
+from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
+from attrs.validators import (
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+    or_ as attrsval_or,
+)
+from numpy import (
+    amax as np_amax,
+    array as np_array,
+    array_equal as np_array_equal,
+    concatenate as np_concatenate,
+    nan as np_nan,
+    ndarray,
+    squeeze as np_squeeze,
+    where as np_where,
+)
 from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
@@ -49,7 +62,7 @@ def _format_time_domain_label(label: str, unit: str) -> str:
     return label
 
 
-@attrs.define
+@define
 class SolveSpec:
     """Describe the configuration of a solver run.
 
@@ -88,38 +101,37 @@ class SolveSpec:
     precision
         Floating-point precision factory used for host conversions.
     """
-    dt: Optional[float] = attrs.field(validator=opt_gttype_validator(float,
-                                                                    0.0))
-    dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
-    dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
-    dt_save: float = attrs.field(validator=gttype_validator(float, 0.0))
-    dt_summarise: float = attrs.field(validator=getype_validator(float, 0.0))
-    atol: Optional[float] = attrs.field(
-            validator=val.or_(opt_gttype_validator(float, 0.0),
-                              val.instance_of(np.ndarray)),
+    dt: Optional[float] = field(validator=opt_gttype_validator(float, 0.0))
+    dt_min: float = field(validator=gttype_validator(float, 0.0))
+    dt_max: float = field(validator=gttype_validator(float, 0.0))
+    dt_save: float = field(validator=gttype_validator(float, 0.0))
+    dt_summarise: float = field(validator=getype_validator(float, 0.0))
+    atol: Optional[float] = field(
+            validator=attrsval_or(opt_gttype_validator(float, 0.0),
+                             attrsval_instance_of(ndarray)),
     )
-    rtol: Optional[float] = attrs.field(
-            validator=val.or_(opt_gttype_validator(float, 0.0),
-                              val.instance_of(np.ndarray)),
+    rtol: Optional[float] = field(
+            validator=attrsval_or(opt_gttype_validator(float, 0.0),
+                             attrsval_instance_of(ndarray)),
     )
-    duration: float = attrs.field(validator=gttype_validator(float, 0.0))
-    warmup: float = attrs.field(validator=getype_validator(float, 0.0))
-    t0: float = attrs.field(
+    duration: float = field(validator=gttype_validator(float, 0.0))
+    warmup: float = field(validator=getype_validator(float, 0.0))
+    t0: float = field(
         validator=getype_validator(float, float("-inf"))
     )
-    algorithm: str = attrs.field(validator=val.instance_of(str))
-    saved_states: Optional[List[str]] = attrs.field()
-    saved_observables: Optional[List[str]] = attrs.field()
-    summarised_states: Optional[List[str]] = attrs.field()
-    summarised_observables: Optional[List[str]] = attrs.field()
-    output_types: Optional[List[str]] = attrs.field()
-    precision: PrecisionDType = attrs.field(
+    algorithm: str = field(validator=attrsval_instance_of(str))
+    saved_states: Optional[List[str]] = field()
+    saved_observables: Optional[List[str]] = field()
+    summarised_states: Optional[List[str]] = field()
+    summarised_observables: Optional[List[str]] = field()
+    output_types: Optional[List[str]] = field()
+    precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator,
     )
 
 
-@attrs.define
+@define
 class SolveResult:
     """Aggregate output arrays and related metadata for a solver run.
 
@@ -150,49 +162,49 @@ class SolveResult:
         Optional mapping from summary offsets to legend labels.
     """
 
-    time_domain_array: NDArray = attrs.field(
-        default=attrs.Factory(lambda: np.array([])),
-        validator=val.instance_of(np.ndarray),
-        eq=attrs.cmp_using(eq=np.array_equal),
+    time_domain_array: NDArray = field(
+        default=attrsFactory(lambda: np_array([])),
+        validator=attrsval_instance_of(ndarray),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
-    summaries_array: NDArray = attrs.field(
-        default=attrs.Factory(lambda: np.array([])),
-        validator=val.instance_of(np.ndarray),
-        eq=attrs.cmp_using(eq=np.array_equal),
+    summaries_array: NDArray = field(
+        default=attrsFactory(lambda: np_array([])),
+        validator=attrsval_instance_of(ndarray),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
-    time: Optional[NDArray] = attrs.field(
-        default=attrs.Factory(lambda: np.array([])),
-        validator=val.optional(val.instance_of(np.ndarray)),
+    time: Optional[NDArray] = field(
+        default=attrsFactory(lambda: np_array([])),
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
     )
-    iteration_counters: NDArray = attrs.field(
-        default=attrs.Factory(lambda: np.array([])),
-        validator=val.instance_of(np.ndarray),
-        eq=attrs.cmp_using(eq=np.array_equal),
+    iteration_counters: NDArray = field(
+        default=attrsFactory(lambda: np_array([])),
+        validator=attrsval_instance_of(ndarray),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
-    status_codes: Optional[NDArray] = attrs.field(
+    status_codes: Optional[NDArray] = field(
         default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
-        eq=attrs.cmp_using(eq=np.array_equal),
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
-    time_domain_legend: Optional[dict[int, str]] = attrs.field(
-        default=attrs.Factory(dict),
-        validator=val.optional(val.instance_of(dict)),
+    time_domain_legend: Optional[dict[int, str]] = field(
+        default=attrsFactory(dict),
+        validator=attrsval_optional(attrsval_instance_of(dict)),
     )
-    summaries_legend: Optional[dict[int, str]] = attrs.field(
-        default=attrs.Factory(dict),
-        validator=val.optional(val.instance_of(dict)),
+    summaries_legend: Optional[dict[int, str]] = field(
+        default=attrsFactory(dict),
+        validator=attrsval_optional(attrsval_instance_of(dict)),
     )
-    solve_settings: Optional[SolveSpec] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(SolveSpec))
+    solve_settings: Optional[SolveSpec] = field(
+        default=None, validator=attrsval_optional(attrsval_instance_of(SolveSpec))
     )
-    _singlevar_summary_legend: Optional[dict[int, str]] = attrs.field(
-        default=attrs.Factory(dict),
-        validator=val.optional(val.instance_of(dict)),
+    _singlevar_summary_legend: Optional[dict[int, str]] = field(
+        default=attrsFactory(dict),
+        validator=attrsval_optional(attrsval_instance_of(dict)),
     )
-    _active_outputs: Optional[ActiveOutputs] = attrs.field(
-        default=attrs.Factory(lambda: ActiveOutputs())
+    _active_outputs: Optional[ActiveOutputs] = field(
+        default=attrsFactory(ActiveOutputs)
     )
-    _stride_order: Union[tuple[str, ...], list[str]] = attrs.field(
+    _stride_order: Union[tuple[str, ...], list[str]] = field(
         default=("time", "variable", "run")
     )
 
@@ -270,7 +282,7 @@ class SolveResult:
         if (nan_error_trajectories and status_codes is not None
                 and status_codes.size > 0):
             # Find runs with nonzero status codes
-            error_run_indices = np.where(status_codes != 0)[0]
+            error_run_indices = np_where(status_codes != 0)[0]
 
             if len(error_run_indices) > 0:
                 # Get stride order and find run dimension
@@ -280,19 +292,19 @@ class SolveResult:
                 # Set error trajectories to NaN using vectorized indexing
                 if time_domain_array.size > 0:
                     if run_index == 0:
-                        time_domain_array[error_run_indices, :, :] = np.nan
+                        time_domain_array[error_run_indices, :, :] = np_nan
                     elif run_index == 1:
-                        time_domain_array[:, error_run_indices, :] = np.nan
+                        time_domain_array[:, error_run_indices, :] = np_nan
                     else:  # run_index == 2
-                        time_domain_array[:, :, error_run_indices] = np.nan
+                        time_domain_array[:, :, error_run_indices] = np_nan
 
                 if summaries_array.size > 0:
                     if run_index == 0:
-                        summaries_array[error_run_indices, :, :] = np.nan
+                        summaries_array[error_run_indices, :, :] = np_nan
                     elif run_index == 1:
-                        summaries_array[:, error_run_indices, :] = np.nan
+                        summaries_array[:, error_run_indices, :] = np_nan
                     else:  # run_index == 2
-                        summaries_array[:, :, error_run_indices] = np.nan
+                        summaries_array[:, :, error_run_indices] = np_nan
 
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
 
@@ -370,7 +382,7 @@ class SolveResult:
                 slice(run, run + 1, None), run_index, ndim
             )
 
-            singlerun_array = np.squeeze(
+            singlerun_array = np_squeeze(
                 self.time_domain_array[run_slice], axis=run_index
             )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
@@ -394,7 +406,7 @@ class SolveResult:
             time_dfs.append(df)
 
             if any_summaries:
-                singlerun_array = np.squeeze(
+                singlerun_array = np_squeeze(
                     self.summaries_array[run_slice], axis=run_index
                 )
                 df = pd.DataFrame(singlerun_array, columns=summary_headings)
@@ -475,7 +487,7 @@ class SolveResult:
         # Split summaries_array by type
         variable_legend = self.time_domain_legend
         singlevar_legend = self._singlevar_summary_legend
-        indices_per_var = np.max([k for k in singlevar_legend.keys()]) + 1
+        indices_per_var = np_amax([k for k in singlevar_legend.keys()]) + 1
         per_summary_arrays = {}
 
         for offset, label in singlevar_legend.items():
@@ -530,7 +542,7 @@ class SolveResult:
                 slice(None, -1), var_index, ndim
             )
 
-            time = np.squeeze(state[time_slice], axis=var_index)
+            time = np_squeeze(state[time_slice], axis=var_index)
             state_less_time = state[state_slice]
             return time, state_less_time
         else:
@@ -564,13 +576,13 @@ class SolveResult:
         """
         if state_active and observables_active:
             # Concatenate along variable axis (axis=1) for (time, variable, run)
-            return np.concatenate((state, observables), axis=1)
+            return np_concatenate((state, observables), axis=1)
         elif state_active:
             return state.copy()
         elif observables_active:
             return observables.copy()
         else:
-            return np.array([])
+            return np_array([])
 
     @staticmethod
     def combine_summaries_array(
@@ -578,7 +590,7 @@ class SolveResult:
         observable_summaries: ArrayTypes,
         summarise_states: bool,
         summarise_observables: bool,
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Combine state and observable summary arrays into a single array.
 
         Parameters
@@ -594,12 +606,12 @@ class SolveResult:
 
         Returns
         -------
-        np.ndarray
+        ndarray
             Combined summary array along the variable axis (axis=1).
         """
         if summarise_states and summarise_observables:
             # Concatenate along variable axis (axis=1) for (time, variable, run)
-            return np.concatenate(
+            return np_concatenate(
                 (state_summaries, observable_summaries), axis=1
             )
         elif summarise_states:
@@ -607,7 +619,7 @@ class SolveResult:
         elif summarise_observables:
             return observable_summaries.copy()
         else:
-            return np.array([])
+            return np_array([])
 
     @staticmethod
     def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:
