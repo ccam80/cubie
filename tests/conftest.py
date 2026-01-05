@@ -148,39 +148,6 @@ def _build_solver_instance(
     return solver
 
 
-def build_single_integrator_run(
-    system: SymbolicODE,
-    solver_settings: Dict[str, Any],
-    algorithm_settings: Dict[str, Any],
-    step_controller_settings: Dict[str, Any],
-    output_settings: Dict[str, Any],
-    loop_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator] = None,
-) -> SingleIntegratorRun:
-    """Build a SingleIntegratorRun for tests.
-    
-    This helper creates a fully configured SingleIntegratorRun instance,
-    injecting system functions into algorithm_settings before construction.
-    """
-    driver_function = _get_driver_function(driver_array)
-    driver_del_t = _get_driver_del_t(driver_array)
-    
-    # Enhance algorithm_settings with system functions
-    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
-        algorithm_settings, system, driver_array
-    )
-    
-    return SingleIntegratorRun(
-        system=system,
-        driver_function=driver_function,
-        driver_del_t=driver_del_t,
-        algorithm_settings=enhanced_algorithm_settings,
-        step_control_settings=step_controller_settings,
-        output_settings=output_settings,
-        loop_settings=loop_settings,
-    )
-
-
 def _build_cpu_step_controller(
     precision: np.dtype,
     step_controller_settings: Dict[str, Any],
@@ -263,46 +230,6 @@ def _get_algorithm_order(algorithm_name_or_tableau):
         return defaults.get(algorithm_name, 1)
     
     return 1
-
-
-def _get_algorithm_is_adaptive(algorithm_name_or_tableau):
-    """Determine if algorithm is adaptive without building step object.
-    
-    Parameters
-    ----------
-    algorithm_name_or_tableau : str or ButcherTableau
-        Algorithm identifier or tableau instance.
-    
-    Returns
-    -------
-    bool
-        True if algorithm has embedded error estimate (adaptive).
-    """
-    from cubie.integrators.algorithms import (
-        resolve_alias, resolve_supplied_tableau
-    )
-    from cubie.integrators.algorithms.generic_rosenbrock_w import (
-        GenericRosenbrockWStep,
-        DEFAULT_ROSENBROCK_TABLEAU,
-    )
-    
-    if isinstance(algorithm_name_or_tableau, str):
-        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
-    else:
-        algorithm_type, tableau = resolve_supplied_tableau(
-            algorithm_name_or_tableau
-        )
-    
-    # For rosenbrock without explicit tableau, use default
-    if (algorithm_type is GenericRosenbrockWStep and tableau is None):
-        tableau = DEFAULT_ROSENBROCK_TABLEAU
-    
-    # Check if tableau has error estimate
-    if tableau is not None and hasattr(tableau, 'has_error_estimate'):
-        return tableau.has_error_estimate
-    
-    # Non-adaptive algorithms by default
-    return False
 
 
 def _get_algorithm_tableau(algorithm_name_or_tableau):

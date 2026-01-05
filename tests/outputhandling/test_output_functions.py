@@ -4,7 +4,7 @@ from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
 
 from cubie.outputhandling import OutputFunctions
-from tests._utils import generate_test_array, calculate_expected_summaries
+from tests._utils import deterministic_array, calculate_expected_summaries
 
 
 @pytest.fixture(scope="session")
@@ -137,11 +137,11 @@ def input_arrays(output_test_settings):
     precision = output_test_settings["precision"]
     scale = output_test_settings["random_scale"]
 
-    states = generate_test_array(
-        precision, (num_samples, num_states), "random", scale
+    states = deterministic_array(
+        precision, (num_samples, num_states), scale
     )
-    observables = generate_test_array(
-        precision, (num_samples, num_observables), "random", scale
+    observables = deterministic_array(
+        precision, (num_samples, num_observables), scale
     )
 
     return states, observables
@@ -273,6 +273,14 @@ def output_functions_test_kernel(
         shared_memory_requirements * n_summarised_observables
     )
 
+    # Output heights for dummy initialization arrays
+    state_summary_output_height = (
+        max(output_functions.state_summaries_output_height, 1)
+    )
+    obs_summary_output_height = (
+        max(output_functions.observable_summaries_output_height, 1)
+    )
+
     if test_shared_mem is False:
         num_states = 1 if num_states == 0 else num_states
         num_observables = 1 if num_observables == 0 else num_observables
@@ -350,6 +358,23 @@ def output_functions_test_kernel(
         # Counters buffer - always use local memory for simplicity
         counters = cuda.local.array(4, dtype=np.int32)
         counters[:] = 0
+
+        # Initialize summary buffers with proper sentinel values by calling
+        # save_summary_metrics_func once with dummy output arrays.
+        # This resets max buffers to -1e30, min buffers to 1e30, etc.
+        dummy_state_summary_out = cuda.local.array(
+            state_summary_output_height, dtype=numba_precision
+        )
+        dummy_obs_summary_out = cuda.local.array(
+            obs_summary_output_height, dtype=numba_precision
+        )
+        save_summary_metrics_func(
+            state_summaries,
+            observable_summaries,
+            dummy_state_summary_out,
+            dummy_obs_summary_out,
+            summarise_every,
+        )
 
         for i in range(_state_input.shape[0]):
             for j in range(num_states):
