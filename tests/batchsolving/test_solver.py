@@ -6,7 +6,7 @@ import numpy as np
 from cubie import create_ODE_system
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
 
 from cubie.cuda_simsafe import DeviceNDArray
@@ -56,10 +56,10 @@ def test_solver_initialization(solver, system):
     """Test that the solver initializes correctly."""
     assert solver is not None
     assert solver.system_interface is not None
-    assert solver.grid_builder is not None
+    assert solver.input_handler is not None
     assert solver.kernel is not None
     assert isinstance(solver.system_interface, SystemInterface)
-    assert isinstance(solver.grid_builder, BatchGridBuilder)
+    assert isinstance(solver.input_handler, BatchInputHandler)
 
 
 def test_solver_properties(solver, solver_settings):
@@ -573,106 +573,6 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
 
 
 # ============================================================================
-# Input Classification Tests
-# ============================================================================
-
-
-def test_classify_inputs_dict(solver, simple_initial_values, simple_parameters):
-    """Test that dict inputs are classified as 'dict'."""
-    result = solver._classify_inputs(simple_initial_values, simple_parameters)
-    assert result == 'dict'
-
-
-def test_classify_inputs_mixed(solver, system):
-    """Test that mixed inputs (dict + array) are classified as 'dict'."""
-    n_states = solver.system_sizes.states
-    inits_array = np.ones((n_states, 2), dtype=solver.precision)
-    params_dict = {list(system.parameters.names)[0]: [1.0, 2.0]}
-
-    result = solver._classify_inputs(inits_array, params_dict)
-    assert result == 'dict'
-
-    # Test the reverse case
-    inits_dict = {list(system.initial_values.names)[0]: [0.1, 0.2]}
-    n_params = solver.system_sizes.parameters
-    params_array = np.ones((n_params, 2), dtype=solver.precision)
-
-    result = solver._classify_inputs(inits_dict, params_array)
-    assert result == 'dict'
-
-
-def test_classify_inputs_array(solver):
-    """Test that matching numpy arrays are classified as 'array'."""
-    n_states = solver.system_sizes.states
-    n_params = solver.system_sizes.parameters
-    n_runs = 4
-
-    inits = np.ones((n_states, n_runs), dtype=solver.precision)
-    params = np.ones((n_params, n_runs), dtype=solver.precision)
-
-    result = solver._classify_inputs(inits, params)
-    assert result == 'array'
-
-
-def test_classify_inputs_mismatched_runs(solver):
-    """Test that mismatched run counts fall back to 'dict'."""
-    n_states = solver.system_sizes.states
-    n_params = solver.system_sizes.parameters
-
-    inits = np.ones((n_states, 3), dtype=solver.precision)
-    params = np.ones((n_params, 5), dtype=solver.precision)
-
-    result = solver._classify_inputs(inits, params)
-    assert result == 'dict'
-
-
-def test_classify_inputs_wrong_var_count(solver):
-    """Test that wrong variable counts fall back to 'dict'."""
-    n_params = solver.system_sizes.parameters
-    n_runs = 4
-
-    # Wrong number of states
-    inits = np.ones((999, n_runs), dtype=solver.precision)
-    params = np.ones((n_params, n_runs), dtype=solver.precision)
-
-    result = solver._classify_inputs(inits, params)
-    assert result == 'dict'
-
-
-def test_classify_inputs_1d_arrays(solver):
-    """Test that 1D arrays fall back to 'dict'."""
-    n_states = solver.system_sizes.states
-    n_params = solver.system_sizes.parameters
-
-    inits = np.ones(n_states, dtype=solver.precision)
-    params = np.ones(n_params, dtype=solver.precision)
-
-    result = solver._classify_inputs(inits, params)
-    assert result == 'dict'
-
-
-# ============================================================================
-# Array Validation Tests
-# ============================================================================
-
-
-def test_validate_arrays_dtype_cast(solver):
-    """Test that arrays are cast to system precision."""
-    n_states = solver.system_sizes.states
-    n_params = solver.system_sizes.parameters
-    n_runs = 2
-
-    # Create arrays with wrong dtype
-    wrong_dtype = np.float64 if solver.precision == np.float32 else np.float32
-    inits = np.ones((n_states, n_runs), dtype=wrong_dtype)
-    params = np.ones((n_params, n_runs), dtype=wrong_dtype)
-
-    validated_inits, validated_params = solver._validate_arrays(inits, params)
-
-    assert validated_inits.dtype == solver.precision
-    assert validated_params.dtype == solver.precision
-
-# ============================================================================
 # build_grid() Tests
 # ============================================================================
 
@@ -805,6 +705,39 @@ def test_solve_dict_path_backward_compatible(
     assert hasattr(result, "summaries_array")
 
 
+def test_solve_ivp_positional_argument_order(system, solver_settings):
+    """Verify positional args to solve_ivp route correctly.
+
+    Regression test: y0 (states) must go to states bucket,
+    parameters must go to params bucket, even without keywords.
+    The underlying routing is verified in test_batch_input_handler.py.
+    """
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+
+    # Use distinctive values to verify routing
+    states = np.full((n_states, 2), 1.5, dtype=system.precision)
+    params = np.full((n_params, 2), 99.0, dtype=system.precision)
+
+    # Solve should complete without error using positional args
+    result = solve_ivp(
+        system,
+        states,      # positional: y0
+        params,      # positional: parameters
+        duration=0.01,
+        dt=0.001,
+        dt_save=0.01,
+    )
+
+    # Verify result structure is valid
+    assert hasattr(result, "time_domain_array")
+    assert hasattr(result, "summaries_array")
+    # Verify correct number of runs were executed
+    assert result.time_domain_array.shape[2] == 2, \
+        "Should have 2 runs from 2-column input arrays"
+
+
+
 # ============================================================================
 # save_variables and summarise_variables Tests
 # ============================================================================
@@ -813,10 +746,10 @@ def test_solve_dict_path_backward_compatible(
 def test_save_variables_pure_states(solver, system):
     """Test save_variables with only state names."""
     state_names = list(system.initial_values.names)[:2]
-    
+
     output_settings = {"save_variables": state_names}
     solver.convert_output_labels(output_settings)
-    
+
     # Verify save_variables was removed
     assert "save_variables" not in output_settings
     # Verify state indices were set
@@ -833,12 +766,12 @@ def test_save_variables_pure_observables(solver, system):
     if (not hasattr(system.observables, "names")
             or len(system.observables.names) == 0):
         pytest.skip("System has no observables")
-    
+
     obs_names = list(system.observables.names)[:2]
-    
+
     output_settings = {"save_variables": obs_names}
     solver.convert_output_labels(output_settings)
-    
+
     # Verify save_variables was removed
     assert "save_variables" not in output_settings
     # Verify observable indices were set
@@ -857,15 +790,15 @@ def test_save_variables_mixed(solver, system):
     if (hasattr(system.observables, "names")
             and len(system.observables.names) > 0):
         obs_names = list(system.observables.names)[:1]
-    
+
     if not obs_names:
         pytest.skip("System has no observables for mixed test")
-    
+
     mixed_names = state_names + obs_names
-    
+
     output_settings = {"save_variables": mixed_names}
     solver.convert_output_labels(output_settings)
-    
+
     # Verify both types classified
     assert "saved_state_indices" in output_settings
     assert "saved_observable_indices" in output_settings
@@ -876,10 +809,10 @@ def test_save_variables_mixed(solver, system):
 def test_summarise_variables_pure_states(solver, system):
     """Test summarise_variables with only state names."""
     state_names = list(system.initial_values.names)[:2]
-    
+
     output_settings = {"summarise_variables": state_names}
     solver.convert_output_labels(output_settings)
-    
+
     assert "summarise_variables" not in output_settings
     assert "summarised_state_indices" in output_settings
     assert len(output_settings["summarised_state_indices"]) == 2
@@ -890,12 +823,12 @@ def test_summarise_variables_pure_observables(solver, system):
     if (not hasattr(system.observables, "names")
             or len(system.observables.names) == 0):
         pytest.skip("System has no observables")
-    
+
     obs_names = list(system.observables.names)[:2]
-    
+
     output_settings = {"summarise_variables": obs_names}
     solver.convert_output_labels(output_settings)
-    
+
     assert "summarise_variables" not in output_settings
     assert "summarised_observable_indices" in output_settings
     assert len(output_settings["summarised_observable_indices"]) >= 1
@@ -908,15 +841,15 @@ def test_summarise_variables_mixed(solver, system):
     if (hasattr(system.observables, "names")
             and len(system.observables.names) > 0):
         obs_names = list(system.observables.names)[:1]
-    
+
     if not obs_names:
         pytest.skip("System has no observables for mixed test")
-    
+
     mixed_names = state_names + obs_names
-    
+
     output_settings = {"summarise_variables": mixed_names}
     solver.convert_output_labels(output_settings)
-    
+
     # Verify both types classified
     assert "summarised_state_indices" in output_settings
     assert "summarised_observable_indices" in output_settings
@@ -927,14 +860,14 @@ def test_summarise_variables_mixed(solver, system):
 def test_save_variables_union_with_indices(solver, system):
     """Test save_variables merges with existing saved_state_indices."""
     state_names = list(system.initial_values.names)
-    
+
     # Pre-populate with first state index
     output_settings = {
         "saved_state_indices": np.array([0], dtype=np.int32),
         "save_variables": [state_names[1]]
     }
     solver.convert_output_labels(output_settings)
-    
+
     # Should have union of indices 0 and 1
     result = output_settings["saved_state_indices"]
     assert len(result) == 2
@@ -945,13 +878,13 @@ def test_save_variables_union_with_indices(solver, system):
 def test_save_variables_union_with_saved_state_indices(solver, system):
     """Test save_variables merges with existing saved_state_indices."""
     state_names = list(system.initial_values.names)
-    
+
     output_settings = {
         "saved_state_indices": np.array([0], dtype=np.int32),
         "save_variables": [state_names[1]]
     }
     solver.convert_output_labels(output_settings)
-    
+
     result = output_settings["saved_state_indices"]
     assert len(result) == 2
     assert 0 in result
@@ -988,7 +921,7 @@ def test_save_variables_none(solver):
 def test_save_variables_invalid_name_raises(solver):
     """Test save_variables with invalid name raises clear error."""
     output_settings = {"save_variables": ["nonexistent_variable"]}
-    
+
     with pytest.raises(ValueError, match="Variables not found"):
         solver.convert_output_labels(output_settings)
 
@@ -996,7 +929,7 @@ def test_save_variables_invalid_name_raises(solver):
 def test_save_variables_error_includes_available_names(solver):
     """Test error message includes available variable names."""
     output_settings = {"save_variables": ["nonexistent_variable"]}
-    
+
     try:
         solver.convert_output_labels(output_settings)
         assert False, "Should have raised ValueError"
@@ -1008,18 +941,18 @@ def test_save_variables_error_includes_available_names(solver):
 def test_array_only_fast_path(solver):
     """Test array-only parameters don't trigger name resolution."""
     import time
-    
+
     output_settings = {
         "saved_state_indices": np.array([0, 1], dtype=np.int32)
     }
-    
+
     # Time the fast path (should be very quick)
     start = time.perf_counter()
     for _ in range(1000):
         settings_copy = output_settings.copy()
         solver.convert_output_labels(settings_copy)
     fast_time = time.perf_counter() - start
-    
+
     # Should be well under 1 second for 1000 iterations
     assert fast_time < 1.0
 
@@ -1027,7 +960,7 @@ def test_array_only_fast_path(solver):
 def test_solve_ivp_with_save_variables(system):
     """Test solve_ivp accepts save_variables and produces correct output."""
     state_names = list(system.initial_values.names)[:2]
-    
+
     result = solve_ivp(
         system,
         y0={state_names[0]: [1.0, 2.0]},
@@ -1037,7 +970,7 @@ def test_solve_ivp_with_save_variables(system):
         duration=0.1,
         method="euler",
     )
-    
+
     # Verify result contains saved states
     assert result is not None
     assert hasattr(result, 'time_domain_array')
@@ -1050,7 +983,7 @@ def test_solve_ivp_with_save_variables(system):
 def test_solver_solve_with_save_variables(system):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
-    
+
     # Create fresh solver to avoid driver conflicts
     solver = Solver(system)
     result = solver.solve(
@@ -1059,7 +992,7 @@ def test_solver_solve_with_save_variables(system):
         save_variables=state_names,
         duration=0.1,
     )
-    
+
     assert result is not None
     # Verify saved output contains requested states
     assert result.time_domain_array.shape[1] >= 1
@@ -1068,7 +1001,7 @@ def test_solver_solve_with_save_variables(system):
 def test_solve_ivp_with_summarise_variables(system):
     """Test solve_ivp accepts summarise_variables and produces summaries."""
     state_names = list(system.initial_values.names)[:2]
-    
+
     result = solve_ivp(
         system,
         y0={state_names[0]: [1.0, 2.0]},
@@ -1077,7 +1010,7 @@ def test_solve_ivp_with_summarise_variables(system):
         duration=0.1,
         method="euler",
     )
-    
+
     # Verify result contains summaries
     assert result is not None
 
@@ -1085,7 +1018,7 @@ def test_solve_ivp_with_summarise_variables(system):
 def test_save_variables_with_solve_ivp(system):
     """Test save_variables parameter works with solve_ivp."""
     state_names = list(system.initial_values.names)[:2]
-    
+
     result = solve_ivp(
         system,
         y0={state_names[0]: [1.0, 2.0]},
@@ -1095,7 +1028,7 @@ def test_save_variables_with_solve_ivp(system):
         duration=0.1,
         method="euler",
     )
-    
+
     assert result is not None
     assert result.time_domain_array is not None
 
@@ -1105,7 +1038,7 @@ def test_save_variables_with_multiple_states(system):
     state_names = list(system.initial_values.names)
     if len(state_names) < 2:
         pytest.skip("Need at least 2 states")
-    
+
     result = solve_ivp(
         system,
         y0={state_names[0]: [1.0], state_names[1]: [2.0]},
@@ -1115,14 +1048,14 @@ def test_save_variables_with_multiple_states(system):
         duration=0.1,
         method="euler",
     )
-    
+
     assert result is not None
     assert result.time_domain_array.shape[1] == 2
 
 
 def test_deprecated_label_parameters_rejected(system):
     """Test that deprecated label-based parameters are rejected.
-    
+
     The parameters saved_states, saved_observables, summarised_states,
     and summarised_observables are no longer accepted as input parameters.
     Users should use save_variables/summarise_variables or index-based
@@ -1131,12 +1064,12 @@ def test_deprecated_label_parameters_rejected(system):
     from cubie.outputhandling.output_functions import (
         ALL_OUTPUT_FUNCTION_PARAMETERS
     )
-    
+
     assert "saved_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
     assert "saved_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
     assert "summarised_states" not in ALL_OUTPUT_FUNCTION_PARAMETERS
     assert "summarised_observables" not in ALL_OUTPUT_FUNCTION_PARAMETERS
-    
+
     solver = Solver(
         system,
         algorithm="euler",
@@ -1146,7 +1079,7 @@ def test_deprecated_label_parameters_rejected(system):
 
 def test_unified_save_variables_parameter(system):
     """Test that save_variables parameter works as replacement for deprecated params.
-    
+
     This demonstrates the recommended migration path from deprecated
     saved_states/saved_observables to the unified save_variables parameter.
     """
@@ -1156,22 +1089,22 @@ def test_unified_save_variables_parameter(system):
         if hasattr(system.observables, "names") and system.observables.names
         else []
     )
-    
+
     all_vars = state_names[:2]
     if observable_names:
         all_vars.extend(observable_names[:1])
-    
+
     solver = Solver(
         system,
         algorithm="euler",
         save_variables=all_vars,
         output_types=["state", "observables"],
     )
-    
+
     assert len(solver.saved_state_indices) >= 2
     if observable_names:
         assert len(solver.saved_observable_indices) >= 1
-    
+
     saved_states_list = solver.saved_states
     assert isinstance(saved_states_list, list)
     assert len(saved_states_list) >= 2

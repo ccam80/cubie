@@ -13,7 +13,7 @@ from cubie.cuda_simsafe import DeviceNDArrayBase, MappedNDArray
 
 ArrayTypes = Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]
 
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder  # noqa: E402
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler  # noqa: E402
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig, \
     ActiveOutputs  # noqa: E402
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel  # noqa: E402
@@ -48,7 +48,7 @@ __all__ = [
     "ActiveOutputs",
     "ArrayContainer",
     "ArrayTypes",
-    "BatchGridBuilder",
+    "BatchInputHandler",
     "BatchSolverConfig",
     "BatchSolverKernel",
     "BaseArrayManager",
