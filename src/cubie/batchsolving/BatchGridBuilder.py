@@ -526,10 +526,6 @@ class BatchGridBuilder:
             if self.parameters.empty and params is None and states is not None:
                 n_runs = states.shape[1]
                 params = np.empty((0, n_runs), dtype=self.precision)
-            # Handle empty states case (unlikely but symmetric)
-            if self.states.empty and states is None and params is not None:
-                n_runs = params.shape[1]
-                states = np.empty((0, n_runs), dtype=self.precision)
             return self._cast_to_precision(states, params)
 
         # Fast path arrays - if a single right-sized array and a None,
@@ -815,16 +811,6 @@ class BatchGridBuilder:
                                 and params.shape[1] == inits.shape[1])
             return False
 
-        # Handle empty states case (unlikely but symmetric)
-        if self.states.empty:
-            if isinstance(params, np.ndarray) and params.ndim == 2:
-                if params.shape[0] == self.parameters.n:
-                    if inits is None:
-                        return True
-                    if isinstance(inits, np.ndarray) and inits.ndim == 2:
-                        return (inits.shape[0] == 0
-                                and inits.shape[1] == params.shape[1])
-            return False
 
         # Normal case: both must be 2D arrays
         if isinstance(inits, np.ndarray) and isinstance(params, np.ndarray):
