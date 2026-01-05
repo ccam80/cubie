@@ -281,6 +281,11 @@ def assert_ivploop_config(loop, settings, tolerance):
     assert loop.summarise_every == pytest.approx(
         settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
+    assert loop.sample_summaries_every == pytest.approx(
+        settings["sample_summaries_every"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight
+    )
     
     # Check precision
     assert loop.precision == settings["precision"]
@@ -300,6 +305,11 @@ def assert_ivploop_config(loop, settings, tolerance):
     )
     assert cs.summarise_every == pytest.approx(
         settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert cs.sample_summaries_every == pytest.approx(
+        settings["sample_summaries_every"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight
     )
     
     expected_dt_min = settings["dt_min"] if is_adaptive else settings["dt"]
@@ -600,6 +610,7 @@ def test_comprehensive_config_plumbing(
         "dt_max": precision(0.5),
         "save_every": precision(0.05),
         "summarise_every": precision(0.15),
+        "sample_summaries_every": precision(0.05),
         
         # Tolerances
         "atol": precision(5e-7),

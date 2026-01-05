@@ -364,13 +364,31 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
-        updates_per_summary = config.samples_per_summary
-        dt_save = precision(config.save_every)
-        dt_update_summaries = precision(config.sample_summaries_every)
         dt0 = precision(config.dt0)
         # Flags for end-of-run-only behavior from config
         save_last = config.save_last
         summarise_last = config.summarise_last
+
+        # When save_last or summarise_last is True, timing params may be None.
+        # Use infinity as placeholder so timing events never trigger; the
+        # save_last/summarise_last logic handles the final save instead.
+        save_every_val = (
+            precision(config.save_every)
+            if config.save_every is not None
+            else precision(float('inf'))
+        )
+        sample_summaries_val = (
+            precision(config.sample_summaries_every)
+            if config.sample_summaries_every is not None
+            else precision(float('inf'))
+        )
+        # samples_per_summary is 1 when timing params are None (single update)
+        updates_per_summary = (
+            config.samples_per_summary
+            if (config.summarise_every is not None and
+                config.sample_summaries_every is not None)
+            else 1
+        )
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -543,8 +561,8 @@ class IVPLoop(CUDAFactory):
             next_update_summary = precision(settling_time + t0)
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
-                next_save += dt_save
-                next_update_summary += dt_update_summaries
+                next_save += save_every_val
+                next_update_summary += sample_summaries_val
 
                 save_state(
                     state_buffer,
@@ -592,13 +610,23 @@ class IVPLoop(CUDAFactory):
             while True:
                 # Exit as soon as we've saved the final step
                 finished = bool_(next_save > t_end)
+                at_last_save = False
+                at_last_summarise = False
+
                 if save_last:
-                    # If last save requested, predicated commit dt, finished,
-                    # do_save
+                    # If last save requested, force one more step to reach t_end
                     at_last_save = finished and t_prec < t_end
                     finished = selp(at_last_save, False, True)
                     dt[0] = selp(at_last_save, precision(t_end - t),
                                  dt_raw)
+
+                if summarise_last:
+                    # If last summary requested, track when we're on final step
+                    at_last_summarise = bool_(
+                        (next_update_summary > t_end) and (t_prec < t_end)
+                    )
+                    # Keep running to collect final summary
+                    finished = selp(at_last_summarise, False, finished)
 
                 # Exit loop if finished, or min_step exceeded, or time stagnant
                 finished = finished or irrecoverable
@@ -609,13 +637,15 @@ class IVPLoop(CUDAFactory):
                 if not finished:
                     do_save = bool_((t_prec + dt_raw) >= next_save)
                     do_update_summary = bool_((t_prec + dt_raw) >= next_update_summary)
-                    
-                    # dt_eff is minimum of next save and next summary update events
-                    next_event = selp(
-                        next_save < next_update_summary,
-                        next_save,
-                        next_update_summary
-                    )
+                    # Force save/summary on final step when save_last/summarise_last
+                    do_save = bool_(do_save or at_last_save)
+                    do_update_summary = bool_(do_update_summary or at_last_summarise)
+
+                    # Compute target time for next event; include t_end when on
+                    # final step to ensure we don't overshoot
+                    at_last = at_last_save or at_last_summarise
+                    next_event = min(next_save, next_update_summary)
+                    next_event = selp(at_last, min(next_event, t_end), next_event)
                     dt_eff = selp(
                         (do_save or do_update_summary),
                         next_event - t_prec,
@@ -745,7 +775,7 @@ class IVPLoop(CUDAFactory):
                     do_update_summary = bool_(accept and do_update_summary)
                     
                     if do_save:
-                        next_save = selp(do_save, next_save + dt_save, next_save)
+                        next_save = selp(do_save, next_save + save_every_val, next_save)
                         save_state(
                             state_buffer,
                             observables_buffer,
@@ -767,7 +797,7 @@ class IVPLoop(CUDAFactory):
                     if do_update_summary:
                         next_update_summary = selp(
                             do_update_summary,
-                            next_update_summary + dt_update_summaries,
+                            next_update_summary + sample_summaries_val,
                             next_update_summary
                         )
                         if summarise:
@@ -782,7 +812,13 @@ class IVPLoop(CUDAFactory):
                             )
                             update_idx += int32(1)
 
-                            if (update_idx % updates_per_summary == int32(0)):
+                            # Save summary when enough updates collected, or when
+                            # on final step (summarise_last forces save at end)
+                            save_summary_now = (
+                                (update_idx % updates_per_summary == int32(0))
+                                or at_last_summarise
+                            )
+                            if save_summary_now:
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,

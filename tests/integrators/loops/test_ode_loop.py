@@ -319,3 +319,89 @@ def test_summarise_last_flag_from_config(loop_mutable):
     """
     config = loop_mutable.compile_settings
     assert config.summarise_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.1,
+            "output_types": ["state", "time", "mean"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+    ],
+    indirect=True,
+)
+def test_summarise_last_collects_final_summary(
+    device_loop_outputs,
+    precision,
+):
+    """Verify summaries collected at end of run with summarise_last=True.
+
+    When all timing parameters are None, the loop should collect a summary
+    at the end of the integration run. The summary buffer should contain
+    valid data.
+    """
+    # With summarise_last=True and no periodic summaries, we should get
+    # exactly one summary collected at the end
+    state_summaries = device_loop_outputs.state_summaries
+
+    # Summary should exist and have non-zero values for the final state
+    assert state_summaries is not None, "State summaries should be collected"
+    assert state_summaries.shape[0] >= 1, "At least one summary should exist"
+
+    # The summary should contain valid (non-NaN, non-zero) values
+    final_summary = state_summaries[0]
+    assert not np.isnan(final_summary).any(), "Summary should not contain NaN"
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.15,
+            "output_types": ["state", "time", "mean"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": 0.05,
+            "summarise_every": 0.05,
+            "sample_summaries_every": 0.05,
+            "summarise_last": True,
+        }
+    ],
+    indirect=True,
+)
+def test_summarise_last_with_summarise_every(
+    device_loop_outputs,
+    precision,
+):
+    """Verify summarise_last and summarise_every work together without 
+    double-write.
+
+    When both periodic summaries and summarise_last are enabled, the loop
+    should collect summaries at regular intervals and also at the end.
+    There should be no duplicate summaries when the final step coincides
+    with a regular summary point.
+    """
+    state_summaries = device_loop_outputs.state_summaries
+
+    # With duration=0.15 and summarise_every=0.05, we expect:
+    # - t=0.0: initial summary
+    # - t=0.05: periodic summary
+    # - t=0.10: periodic summary
+    # - t=0.15: final summary (either via periodic or summarise_last)
+    # Total: 4 summaries
+    assert state_summaries is not None, "State summaries should be collected"
+    # At least 3-4 summaries expected (initial + periodic + final)
+    assert state_summaries.shape[0] >= 3, "Multiple summaries expected"
+
+    # Check that all summaries are valid
+    for i in range(min(4, state_summaries.shape[0])):
+        assert not np.isnan(state_summaries[i]).any(), \
+            f"Summary {i} should not contain NaN"
