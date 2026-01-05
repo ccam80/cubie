@@ -274,9 +274,11 @@ def output_functions_test_kernel(
     )
 
     # Output heights for dummy initialization arrays
-    state_summary_output_height = output_functions.state_summaries_output_height
+    state_summary_output_height = (
+        max(output_functions.state_summaries_output_height, 1)
+    )
     obs_summary_output_height = (
-        output_functions.observable_summaries_output_height
+        max(output_functions.observable_summaries_output_height, 1)
     )
 
     if test_shared_mem is False:
@@ -289,14 +291,6 @@ def output_functions_test_kernel(
         )
         obs_summary_buffer_length = (
             1 if obs_summary_buffer_length == 0 else obs_summary_buffer_length
-        )
-        state_summary_output_height = (
-            1
-            if state_summary_output_height == 0
-            else state_summary_output_height
-        )
-        obs_summary_output_height = (
-            1 if obs_summary_output_height == 0 else obs_summary_output_height
         )
 
     numba_precision = from_dtype(precision)
