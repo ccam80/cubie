@@ -63,12 +63,12 @@ ALLOWED_BUFFER_DTYPES = {
 def precision_converter(value: PrecisionDType) -> type[np_floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
-    dt = np_dtype(value)
-    if dt not in ALLOWED_PRECISIONS:
+    dtype_ = np_dtype(value)
+    if dtype_ not in ALLOWED_PRECISIONS:
         raise ValueError(
             "precision must be one of float16, float32, or float64",
         )
-    return dt.type
+    return dtype_.type
 
 
 def precision_validator(
@@ -339,7 +339,7 @@ def clamp_factory(precision):
 
 
 @cuda.jit(
-    # (np_float64[:], np_float64[:], np_int32, xoro_type[:]),
+    # (float64[:], float64[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -354,11 +354,11 @@ def get_noise_64(
 
     Parameters
     ----------
-    noise_array : np_float64[:]
+    noise_array : float64[:]
         Output array to populate.
-    sigmas : np_float64[:]
+    sigmas : float64[:]
         Standard deviations for each element.
-    idx : np_int32
+    idx : int32
         Thread index used for RNG.
     RNG : xoro_type[:]
         RNG state array.
@@ -371,7 +371,7 @@ def get_noise_64(
 
 
 @cuda.jit(
-    # (np_float32[:], np_float32[:], np_int32, xoro_type[:]),
+    # (float32[:], float32[:], int32, xoro_type[:]),
     device=True,
     inline=True,
     **compile_kwargs,
@@ -386,11 +386,11 @@ def get_noise_32(
 
     Parameters
     ----------
-    noise_array : np_float32[:]
+    noise_array : float32[:]
         Output array to populate.
-    sigmas : np_float32[:]
+    sigmas : float32[:]
         Standard deviations for each element.
-    idx : np_int32
+    idx : int32
         Thread index used for RNG.
     RNG : xoro_type[:]
         RNG state array.

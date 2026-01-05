@@ -20,8 +20,8 @@ from attrs.validators import (
 from numpy import float32 as np_float32
 
 from numba import cuda
-from numba import int32 as int32
-from numba import float32 as float32
+from numba import int32
+from numba import float32
 
 from cubie._utils import getype_validator, buffer_dtype_validator
 from cubie.cuda_simsafe import compile_kwargs, from_dtype
