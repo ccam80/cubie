@@ -2,11 +2,14 @@
 
 from typing import Optional, Dict, Any
 
-import attrs
-import numpy as np
-from numpy import float32
+from attrs import define, field
+from attrs.validators import (
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
+from numpy import float32 as np_float32
 
-import numba
+from numba import from_dtype as numba_from_dtype
 
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie._utils import (
@@ -24,7 +27,7 @@ def update_precisions(instance, attribute, value):
     instance.observables.precision = value
     return value
 
-@attrs.define
+@define
 class SystemSizes:
     """Store counts for each component category in an ODE system.
 
@@ -47,14 +50,14 @@ class SystemSizes:
     and shared-memory structures correctly.
     """
 
-    states: int = attrs.field(validator=attrs.validators.instance_of(int))
-    observables: int = attrs.field(validator=attrs.validators.instance_of(int))
-    parameters: int = attrs.field(validator=attrs.validators.instance_of(int))
-    constants: int = attrs.field(validator=attrs.validators.instance_of(int))
-    drivers: int = attrs.field(validator=attrs.validators.instance_of(int))
+    states: int = field(validator=attrsval_instance_of(int))
+    observables: int = field(validator=attrsval_instance_of(int))
+    parameters: int = field(validator=attrsval_instance_of(int))
+    constants: int = field(validator=attrsval_instance_of(int))
+    drivers: int = field(validator=attrsval_instance_of(int))
 
 
-@attrs.define
+@define
 class ODEData:
     """Bundle numerical values and metadata for an ODE system.
 
@@ -81,44 +84,44 @@ class ODEData:
         compilation.
     """
 
-    constants: Optional[SystemValues] = attrs.field(
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(
+    constants: Optional[SystemValues] = field(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
-    parameters: Optional[SystemValues] = attrs.field(
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(
+    parameters: Optional[SystemValues] = field(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
-    initial_states: SystemValues = attrs.field(
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(
+    initial_states: SystemValues = field(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
-    observables: SystemValues = attrs.field(
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(
+    observables: SystemValues = field(
+        validator=attrsval_optional(
+            attrsval_instance_of(
                 SystemValues,
             ),
         ),
     )
-    precision: PrecisionDType = attrs.field(
+    precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator,
         on_setattr=update_precisions,
-        default=float32
+        default=np_float32
     )
-    num_drivers: int = attrs.field(
-        validator=attrs.validators.instance_of(int), default=1
+    num_drivers: int = field(
+        validator=attrsval_instance_of(int), default=1
     )
-    _mass: Any = attrs.field(default=None, eq=False)
+    _mass: Any = field(default=None, eq=False)
 
     @property
     def num_states(self) -> int:
@@ -154,7 +157,7 @@ class ODEData:
     @property
     def numba_precision(self) -> type:
         """Numba representation of the configured precision."""
-        return numba.from_dtype(self.precision)
+        return numba_from_dtype(self.precision)
 
     @property
     def simsafe_precision(self) -> type:

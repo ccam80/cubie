@@ -11,9 +11,9 @@ from ctypes import c_void_p
 import os
 from typing import Any, Callable, Tuple, Union
 
-import numba
 from numba import cuda
-import numpy as np
+from numba import from_dtype as numba_from_dtype
+from numpy import dtype
 
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
@@ -171,12 +171,25 @@ def is_cuda_array(value: Any) -> bool:
     return _is_cuda_array(value)
 
 
-def from_dtype(dtype: np.dtype):
-    """Return a CUDA-ready dtype or a simulator-safe placeholder."""
+def from_dtype(dt: dtype):
+    """Return a CUDA-ready dtype or a simulator-safe placeholder.
+
+    Parameters
+    ----------
+    dt
+        NumPy dtype to adapt for use with CUDA or the simulator.
+
+    Returns
+    -------
+    dtype
+        A Numba CUDA-compatible dtype when running on a real GPU, or
+        the original dtype unchanged when running in CUDA simulation
+        mode.
+    """
 
     if not CUDA_SIMULATION:
-        return numba.from_dtype(dtype)
-    return dtype
+        return numba_from_dtype(dt)
+    return dt
 
 
 def is_devfunc(func: Callable[..., Any]) -> bool:

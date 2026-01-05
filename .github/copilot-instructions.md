@@ -80,6 +80,21 @@ potentially improving compilation time.
 **Exception**: Complex modules like `sympy` may remain as whole-module
 imports when many diverse symbols are used.
 
+### Import Aliasing Conventions
+
+To avoid name clashes with builtins, math functions, or numba functions:
+
+- **NumPy functions**: Prefix with `np_` (e.g., `from numpy import ceil as np_ceil,
+  array as np_array, sum as np_sum`). NumPy scalar types like `float32`, `float64`,
+  `int32` also need prefixes (e.g., `from numpy import float32 as np_float32,
+  int32 as np_int32, floating as np_floating`) since bare names clash with numba types.
+- **Attrs validators**: Prefix with `attrsval_` (e.g., `from attrs.validators import
+  instance_of as attrsval_instance_of, optional as attrsval_optional`)
+- **Attrs utilities that may clash**: Prefix with `attrs` (e.g., `from attrs import
+  Factory as attrsFactory`)
+- **Attrs core decorators**: `define`, `frozen`, `field` do not need prefixes as
+  they are unlikely to clash with other names.
+
 ### Attrs Classes
 - For floating-point attributes: save with leading underscore, add property returning `self.precision(self._attribute)`
 - Never add aliases to underscored variables

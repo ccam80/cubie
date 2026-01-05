@@ -131,7 +131,9 @@ class TestTimeLogger:
         duration = logger.get_event_duration("test_operation")
         assert duration is not None
         assert duration >= 0.02
-        assert duration < 0.1
+        # When runnign in xdist, the thread might get parked for a bit!
+        assert duration < 1.0
+
 
     def test_get_event_duration_no_stop(self):
         """Test get_event_duration returns None when stop event missing."""

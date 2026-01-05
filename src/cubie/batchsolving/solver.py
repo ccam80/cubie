@@ -7,7 +7,7 @@ GPU.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
+from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
@@ -50,8 +50,8 @@ default_timelogger.register_event(
 
 def solve_ivp(
     system: BaseODE,
-    y0: Union[np.ndarray, Dict[str, np.ndarray]],
-    parameters: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
+    y0: Union[ndarray, Dict[str, ndarray]],
+    parameters: Optional[Union[ndarray, Dict[str, ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
     dt_save: Optional[float] = None,
     method: str = "euler",
@@ -216,7 +216,7 @@ class Solver:
         self.driver_interpolator = ArrayInterpolator(
             precision=precision,
             input_dict={
-                "placeholder": np.zeros(6, dtype=precision),
+                "placeholder": np_zeros(6, dtype=precision),
                 "dt": 0.1,
             },
         )
@@ -339,8 +339,8 @@ class Solver:
 
     def _classify_inputs(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
     ) -> str:
         """Classify input types to determine optimal processing path.
 
@@ -374,8 +374,8 @@ class Solver:
             return 'device'
 
         # Check for numpy arrays with correct shapes
-        if isinstance(initial_values, np.ndarray) and isinstance(
-            parameters, np.ndarray
+        if isinstance(initial_values, ndarray) and isinstance(
+            parameters, ndarray
         ):
             # Must be 2D arrays in (n_vars, n_runs) format
             if initial_values.ndim == 2 and parameters.ndim == 2:
@@ -393,9 +393,9 @@ class Solver:
 
     def _validate_arrays(
         self,
-        initial_values: np.ndarray,
-        parameters: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        initial_values: ndarray,
+        parameters: ndarray,
+    ) -> Tuple[ndarray, ndarray]:
         """Validate and prepare pre-built arrays for kernel execution.
 
         Parameters
@@ -407,7 +407,7 @@ class Solver:
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray]
+        Tuple[ndarray, ndarray]
             Validated arrays cast to system precision.
 
         Notes
@@ -426,8 +426,8 @@ class Solver:
 
     def solve(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,
@@ -558,10 +558,10 @@ class Solver:
 
     def build_grid(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
         grid_type: str = "verbatim",
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
 
         Parameters
@@ -579,7 +579,7 @@ class Solver:
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray]
+        Tuple[ndarray, ndarray]
             Tuple of (initial_values, parameters) arrays in
             (n_vars, n_runs) format with system precision dtype.
             These arrays can be passed directly to :meth:`solve`
@@ -765,7 +765,7 @@ class Solver:
         self.kernel.set_stride_order(order)
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Return indices for the specified state variables.
 
         Parameters
@@ -775,14 +775,14 @@ class Solver:
 
         Returns
         -------
-        np.ndarray
+        ndarray
             Integer indices corresponding to the requested states.
         """
         return self.system_interface.state_indices(state_labels)
 
     def get_observable_indices(
         self, observable_labels: Optional[List[str]] = None
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Return indices for the specified observables.
 
         Parameters
@@ -793,7 +793,7 @@ class Solver:
 
         Returns
         -------
-        np.ndarray
+        ndarray
             Integer indices corresponding to the requested observables.
         """
         return self.system_interface.observable_indices(observable_labels)
