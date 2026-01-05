@@ -107,7 +107,6 @@ Example 3: single parameter sweep (unspecified filled with defaults)
 [[0.1 0.2]
  [2.  2. ]]
 """
-from array import ArrayType
 from itertools import product
 from typing import Dict, List, Optional, Union
 from warnings import warn
@@ -352,7 +351,8 @@ def combine_grids(
         if grid1.shape[1] != grid2.shape[1]:
             raise ValueError(
                 "For 'verbatim', both grids must have the same number "
-                "of runs (or exactly one grid can have 1 run to broadcast)."
+                "of runs, or one grid must have exactly 1 run so it can be "
+                "broadcast to match the other."
             )
         return grid1, grid2
     # Any other kind is invalid
@@ -521,7 +521,15 @@ class BatchGridBuilder:
         self.precision = self.states.precision
 
         # Fast path - if right-sized arrays, return straight away.
-        if self.check_compatible(states, params):
+        if self._are_right_sized_arrays(states, params):
+            # Handle empty parameters case
+            if self.parameters.empty and params is None and states is not None:
+                n_runs = states.shape[1]
+                params = np.empty((0, n_runs), dtype=self.precision)
+            # Handle empty states case (unlikely but symmetric)
+            if self.states.empty and states is None and params is not None:
+                n_runs = params.shape[1]
+                states = np.empty((0, n_runs), dtype=self.precision)
             return self._cast_to_precision(states, params)
 
         # Fast path arrays - if a single right-sized array and a None,
@@ -666,7 +674,31 @@ class BatchGridBuilder:
         ------
         TypeError
             Raised when input_data is not None, dict, or array-like.
+        ValueError
+            Raised when non-empty input_data is provided but values_object
+            has no variables (is empty).
         """
+        # Handle empty SystemValues (system has no variables of this type)
+        if values_object.empty:
+            if input_data is not None:
+                # Check if input is truly empty or has actual data
+                is_empty_input = False
+                if isinstance(input_data, dict) and len(input_data) == 0:
+                    is_empty_input = True
+                elif isinstance(input_data, np.ndarray) and input_data.size == 0:
+                    is_empty_input = True
+                elif isinstance(input_data, (list, tuple)) and len(input_data) == 0:
+                    is_empty_input = True
+
+                if not is_empty_input:
+                    raise ValueError(
+                        f"Grid values were provided but the system has no "
+                        f"settable variables of this type. Expected None or "
+                        f"empty input, got {type(input_data).__name__}."
+                    )
+            # Return empty 2D array with 0 rows and 1 column
+            return np.empty((0, 1), dtype=values_object.precision)
+
         # None -> single-column defaults
         if input_data is None:
             return values_object.values_array[:, np.newaxis]
@@ -682,7 +714,11 @@ class BatchGridBuilder:
 
         # Array-like -> sanitize to 2D
         if isinstance(input_data, (list, tuple, np.ndarray)):
-            return self._sanitise_arraylike(input_data, values_object)
+            sanitised = self._sanitise_arraylike(input_data, values_object)
+            if sanitised is None:
+                # Treat empty inputs like None: use single-column defaults
+                return values_object.values_array[:, np.newaxis]
+            return sanitised
 
         # Unsupported type
         raise TypeError(
@@ -739,37 +775,71 @@ class BatchGridBuilder:
             np.ascontiguousarray(params.astype(self.precision, copy=False)),
         )
 
-    def check_compatible(
-            self,
-            inits: Optional[Union[ArrayType, Dict]],
-            params: Optional[Union[ArrayType, Dict]]
-         ) -> bool:
-        """Returns True if supplied arguments are compatible .
+    def _are_right_sized_arrays(
+        self,
+        inits: Optional[Union[ArrayLike, Dict]],
+        params: Optional[Union[ArrayLike, Dict]],
+    ) -> bool:
+        """Check if both inputs are pre-formatted arrays ready for the solver.
+
+        This method only returns True when both inputs are 2D numpy arrays
+        with matching run counts and correct variable counts for their
+        respective SystemValues objects. Returns False for None, dicts,
+        or arrays that need further processing.
+
+        Also handles the special case where a SystemValues object is empty
+        (no variables), in which case None or an empty 2D array is acceptable.
 
         Parameters
         ----------
         inits
             Initial states as array or dict.
         params
-            Parameters as array, dict, or None
+            Parameters as array, dict, or None.
 
         Returns
         -------
         bool
-            True if arrays are able to be passed to solver
+            True if both inputs are correctly sized 2D arrays with matching
+            run counts.
         """
+        # Handle empty parameters case: inits must be right-sized array,
+        # params can be None
+        if self.parameters.empty:
+            if isinstance(inits, np.ndarray) and inits.ndim == 2:
+                if inits.shape[0] == self.states.n:
+                    if params is None:
+                        return True
+                    if isinstance(params, np.ndarray) and params.ndim == 2:
+                        return (params.shape[0] == 0
+                                and params.shape[1] == inits.shape[1])
+            return False
+
+        # Handle empty states case (unlikely but symmetric)
+        if self.states.empty:
+            if isinstance(params, np.ndarray) and params.ndim == 2:
+                if params.shape[0] == self.parameters.n:
+                    if inits is None:
+                        return True
+                    if isinstance(inits, np.ndarray) and inits.ndim == 2:
+                        return (inits.shape[0] == 0
+                                and inits.shape[1] == params.shape[1])
+            return False
+
+        # Normal case: both must be 2D arrays
         if isinstance(inits, np.ndarray) and isinstance(params, np.ndarray):
             # Both arrays: check run counts match and arrays are system-sized
-
+            if inits.ndim != 2 or params.ndim != 2:
+                return False
             inits_runs = inits.shape[1]
             inits_variables = inits.shape[0]
             params_runs = params.shape[1]
             params_variables = params.shape[0]
             if inits_runs == params_runs:
                 if (inits_variables == self.states.n
-                    and params_variables == self.parameters.n):
+                        and params_variables == self.parameters.n):
                     return True
-            return False
+        return False
 
     def _is_right_sized_array(
         self,
@@ -788,8 +858,17 @@ class BatchGridBuilder:
         Returns
         -------
         bool
-            True if arr is a 2D ndarray with correct variable count.
+            True if arr is a 2D ndarray with correct variable count,
+            or True if values_object is empty and arr is None.
         """
+        # If the SystemValues is empty (no variables), consider it right-sized
+        # if the array is None or an empty 2D array with 0 rows
+        if values_object.empty:
+            if arr is None:
+                return True
+            if isinstance(arr, np.ndarray) and arr.ndim == 2 and arr.shape[0] == 0:
+                return True
+            return False
         if not isinstance(arr, np.ndarray):
             return False
         if arr.ndim != 2:
