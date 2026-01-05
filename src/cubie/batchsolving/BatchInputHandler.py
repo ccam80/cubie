@@ -872,7 +872,7 @@ class BatchInputHandler:
         states: Optional[Union[ArrayLike, Dict]],
         params: Optional[Union[ArrayLike, Dict]],
         kind: str,
-    ) -> Optional[tuple[ndarray, ndarray]]:
+    ) -> Optional[Tuple[ndarray, ndarray]]:
         """Attempt fast returns for device arrays or pre-sized inputs."""
         states_is_device = hasattr(states, '__cuda_array_interface__')
         params_is_device = hasattr(params, '__cuda_array_interface__')

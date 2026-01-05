@@ -20,7 +20,7 @@ import itertools
 class MockDeviceArray:
     """Lightweight mock implementing __cuda_array_interface__ for tests."""
 
-    def __init__(self, shape: Tuple[int, ...], dtype):
+    def __init__(self, shape: Tuple[int, ...], dtype: np.dtype):
         self._data = np.ones(shape, dtype=dtype)
 
     @property
