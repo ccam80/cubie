@@ -58,6 +58,8 @@ def solve_ivp(
     duration: float = 1.0,
     settling_time: float = 0.0,
     t0: float = 0.0,
+    save_variables: Optional[List[str]] = None,
+    summarise_variables: Optional[List[str]] = None,
     grid_type: str = "combinatorial",
     time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
@@ -87,6 +89,20 @@ def solve_ivp(
         Warm-up period prior to storing outputs. Default is ``0.0``.
     t0
         Initial integration time supplied to the solver. Default is ``0.0``.
+    save_variables : list of str, optional
+        Variable names (states or observables) to save in time-domain output.
+        ``None`` (default) saves all states and observables. An empty list
+        ``[]`` explicitly saves no variables. When both ``save_variables``
+        and index parameters (``saved_state_indices``, ``saved_observable_indices``)
+        are provided, their union is used. For less overhead, you can provide
+        indices directly, which don't require the solver to look up variable
+        names.
+    summarise_variables : list of str, optional
+        Variable names (states or observables) to include in summary
+        calculations. ``None`` (default) summarises the same variables that
+        are saved. An empty list ``[]`` explicitly summarises no variables.
+        When both ``summarise_variables`` and index parameters are provided,
+        their union is used.
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
@@ -106,9 +122,16 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
+
+    # Place non-explicit params into kwargs
     if dt_save is not None:
         kwargs.setdefault("dt_save", dt_save)
+    if save_variables is not None:
+        kwargs.setdefault("save_variables", save_variables)
+    if summarise_variables is not None:
+        kwargs.setdefault("summarise_variables", summarise_variables)
 
     solver = Solver(
         system,
@@ -156,8 +179,8 @@ class Solver:
         Explicit algorithm configuration overriding solver defaults.
     output_settings
         Explicit output configuration overriding solver defaults. Individual
-        selectors such as ``saved_states`` may also be supplied as keyword
-        arguments.
+        selectors such as ``save_variables`` or index-based parameters may also
+        be supplied as keyword arguments.
     memory_settings
         Explicit memory configuration overriding solver defaults. Keys like
         ``memory_manager`` or ``mem_proportion`` may likewise be provided as
@@ -172,13 +195,21 @@ class Solver:
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
     **kwargs
-        Additional keyword arguments forwarded to internal components.
+        Additional keyword arguments forwarded to internal components. See
+        "Optional Arguments" in the docs for the possibilities.
 
     Notes
     -----
     Instances coordinate batch grid construction, kernel configuration, and
     driver interpolation so that :meth:`solve` orchestrates a complete GPU
     integration run.
+
+    When specifying variables:
+
+    - ``None`` means "use all" (default behavior for both states and
+      observables)
+    - ``[]`` (empty list) means "explicitly no variables"
+    - When both labels and indices are provided, their union is used
     """
 
     def __init__(
@@ -269,73 +300,28 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve output label settings in-place.
+        """Convert variable labels to indices.
 
         Parameters
         ----------
         output_settings
-            Mapping of output configuration keys recognised by the solver.
-            Entries describing saved or summarised selectors are replaced with
-            integer indices when provided.
+            Output configuration kwargs. Entries used are ``save_variables``,
+            ``summarise_variables``, ``saved_state_indices``,
+            ``saved_observable_indices``, ``summarised_state_indices``,
+            and ``summarised_observable_indices``.
 
         Returns
         -------
         None
-            This method mutates ``output_settings`` in-place.
+            Modifies ``output_settings`` in-place.
 
         Raises
         ------
         ValueError
-            If the settings dict contains duplicate entries, for example both
-            ``"saved_states"`` and ``"saved_state_indices"``.
-
-        Notes
-        -----
-        Users may supply selectors as labels or integers; this resolver ensures
-        that downstream components receive numeric indices and canonical keys.
+            If variable labels are not recognized by the system.
         """
+        self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
-        resolvers = {
-            "saved_states": self.system_interface.state_indices,
-            "saved_state_indices": self.system_interface.state_indices,
-            "summarised_states": self.system_interface.state_indices,
-            "summarised_state_indices": self.system_interface.state_indices,
-            "saved_observables": self.system_interface.observable_indices,
-            "saved_observable_indices": (
-                self.system_interface.observable_indices
-            ),
-            "summarised_observables": self.system_interface.observable_indices,
-            "summarised_observable_indices": (
-                self.system_interface.observable_indices
-            ),
-        }
-
-        labels2index_keys = {
-            "saved_states": "saved_state_indices",
-            "saved_observables": "saved_observable_indices",
-            "summarised_states": "summarised_state_indices",
-            "summarised_observable_indices": (
-                "summarised_observable_indices"
-            ),
-        }
-        # Replace any labels with integer indices
-        for key, resolver in resolvers.items():
-            values = output_settings.get(key)
-            if values is not None:
-                output_settings[key] = resolver(values)
-
-        # Replace names for a list of labels, e.g. saved_states, with the
-        # indices key that outputfunctions expects
-        for inkey, outkey in labels2index_keys.items():
-            indices = output_settings.pop(inkey, None)
-            if indices is not None:
-                if output_settings.get(outkey, None) is not None:
-                    raise ValueError(
-                        "Duplicate output settings provided: got "
-                        f"{inkey}={output_settings[inkey]} and "
-                        f"{outkey} = {output_settings[outkey]}"
-                    )
-                output_settings[outkey] = indices
 
     def solve(
         self,
@@ -394,7 +380,8 @@ class Solver:
             and exclude from analysis. When ``False``, all trajectories are
             returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
-            Additional options forwarded to :meth:`update`.
+            Additional options forwarded to :meth:`update`. See "Optional
+            Arguments" in the docs for possibilities.
 
         Returns
         -------
@@ -535,7 +522,14 @@ class Solver:
         if updates_dict == {}:
             return set()
 
-        self.convert_output_labels(updates_dict)
+        # Only convert output labels if variable-related keys are present
+        variable_keys = {
+            "save_variables", "summarise_variables",
+            "saved_state_indices", "saved_observable_indices",
+            "summarised_state_indices", "summarised_observable_indices",
+        }
+        if any(key in updates_dict for key in variable_keys):
+            self.convert_output_labels(updates_dict)
 
         driver_recognised = self.driver_interpolator.update(
             updates_dict, silent=True

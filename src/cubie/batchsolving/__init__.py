@@ -8,9 +8,7 @@ managers for host and device buffers used throughout the workflow.
 """
 
 from typing import Optional, Union
-
 from numpy.typing import NDArray
-
 from cubie.cuda_simsafe import DeviceNDArrayBase, MappedNDArray
 
 ArrayTypes = Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]

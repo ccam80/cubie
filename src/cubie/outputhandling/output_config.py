@@ -268,7 +268,7 @@ class OutputConfig:
             )
 
     def _check_saved_indices(self) -> None:
-        """Convert saved indices to numpy arrays and provide defaults.
+        """Convert saved indices to numpy arrays.
 
         Returns
         -------
@@ -277,28 +277,17 @@ class OutputConfig:
 
         Notes
         -----
-        When no indices are provided the arrays are populated with the full
-        range for the corresponding variable type.
+        Converts index collections to numpy int arrays.
         """
-        if len(self._saved_state_indices) == 0:
-            self._saved_state_indices = np_arange(
-                self._max_states, dtype=np_int
-            )
-        else:
-            self._saved_state_indices = np_asarray(
-                self._saved_state_indices, dtype=np_int
-            )
-        if len(self._saved_observable_indices) == 0:
-            self._saved_observable_indices = np_arange(
-                self._max_observables, dtype=np_int
-            )
-        else:
-            self._saved_observable_indices = np_asarray(
-                self._saved_observable_indices, dtype=np_int
-            )
+        self._saved_state_indices = np_asarray(
+            self._saved_state_indices, dtype=np_int
+        )
+        self._saved_observable_indices = np_asarray(
+            self._saved_observable_indices, dtype=np_int
+        )
 
     def _check_summarised_indices(self) -> None:
-        """Default summarised indices to the saved selections when needed.
+        """Convert summarised indices to numpy arrays.
 
         Returns
         -------
@@ -307,23 +296,14 @@ class OutputConfig:
 
         Notes
         -----
-        Empty summary selections inherit the saved selections for the matching
-        variable type.
+        Converts index collections to numpy int arrays.
         """
-        if len(self._summarised_state_indices) == 0:
-            self._summarised_state_indices = self._saved_state_indices
-        else:
-            self._summarised_state_indices = np_asarray(
-                self._summarised_state_indices, dtype=np_int
-            )
-        if len(self._summarised_observable_indices) == 0:
-            self._summarised_observable_indices = (
-                self._saved_observable_indices
-            )
-        else:
-            self._summarised_observable_indices = np_asarray(
-                self._summarised_observable_indices, dtype=np_int
-            )
+        self._summarised_state_indices = np_asarray(
+            self._summarised_state_indices, dtype=np_int
+        )
+        self._summarised_observable_indices = np_asarray(
+            self._summarised_observable_indices, dtype=np_int
+        )
 
     @property
     def max_states(self) -> int:

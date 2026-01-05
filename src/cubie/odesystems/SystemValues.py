@@ -247,13 +247,14 @@ class SystemValues:
         if isinstance(keys_or_indices, list):
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
-                indices = np_asarray(
-                    [
-                        self.get_index_of_key(state, silent)
-                        for state in keys_or_indices
-                    ],
-                    dtype=np_int32,
-                )
+                index_list = [
+                    self.get_index_of_key(state, silent)
+                    for state in keys_or_indices
+                ]
+                # Filter out None values when silent=True
+                if silent:
+                    index_list = [idx for idx in index_list if idx is not None]
+                indices = np_asarray(index_list, dtype=np_int32)
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
                 indices = np_asarray(keys_or_indices, dtype=np_int32)
