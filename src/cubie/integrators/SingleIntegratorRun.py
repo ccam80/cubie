@@ -156,16 +156,16 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Loop properties
     # ------------------------------------------------------------------
     @property
-    def dt_save(self) -> float:
+    def save_every(self) -> float:
         """Return the loop save interval."""
 
-        return self._loop.dt_save
+        return self._loop.save_every
 
     @property
-    def dt_summarise(self) -> float:
+    def summarise_every(self) -> float:
         """Return the loop summary interval."""
 
-        return self._loop.dt_summarise
+        return self._loop.summarise_every
 
     @property
     def shared_memory_elements_loop(self) -> int:

@@ -23,8 +23,8 @@ Array = NDArray[np.floating]
 
 MID_RUN_PARAMS = {
     'dt': 0.001,
-    'dt_save': 0.02,
-    'dt_summarise': 0.1,
+    'save_every': 0.02,
+    'summarise_every': 0.1,
     'dt_max': 0.5,
     'output_types': ['state', 'time', 'observables', 'mean'],
 }
@@ -32,8 +32,8 @@ MID_RUN_PARAMS = {
 LONG_RUN_PARAMS = {
     'duration': 0.3,
     'dt': 0.0005,
-    'dt_save': 0.05,
-    'dt_summarise': 0.15,
+    'save_every': 0.05,
+    'summarise_every': 0.15,
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
 
@@ -699,11 +699,11 @@ def run_device_loop(
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
     precision = system.precision
-    dt_save = singleintegratorrun.dt_save
+    save_every = singleintegratorrun.save_every
     warmup = solver_config["warmup"]
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
-    save_samples = int(np.floor(precision(duration) / precision(dt_save))) + 1
+    save_samples = int(np.floor(precision(duration) / precision(save_every))) + 1
 
     heights = singleintegratorrun.output_array_heights
 
@@ -717,9 +717,9 @@ def run_device_loop(
         (save_samples, observable_width), dtype=precision
     )
 
-    summarise_dt = singleintegratorrun.dt_summarise
+    summarise_every = singleintegratorrun.summarise_every
     summary_samples = int(np.floor(precision(duration) /
-                                   precision(summarise_dt)))
+                                   precision(summarise_every)))
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

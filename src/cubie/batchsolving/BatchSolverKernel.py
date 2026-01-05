@@ -1010,16 +1010,41 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.rtol
 
     @property
-    def dt_save(self) -> float:
+    def save_every(self) -> float:
         """Interval between saved samples from the loop."""
 
-        return self.single_integrator.dt_save
+        return self.single_integrator.save_every
+
+    @property
+    def summarise_every(self) -> float:
+        """Interval between summary reductions from the loop."""
+
+        return self.single_integrator.summarise_every
+    
+    @property
+    def sample_summaries_every(self) -> float:
+        """Interval between summary metric samples from the loop."""
+
+        return self.single_integrator.sample_summaries_every
+
+    # Legacy aliases for backward compatibility
+    @property
+    def dt_save(self) -> float:
+        """Interval between saved samples from the loop.
+        
+        .. deprecated::
+            Use :attr:`save_every` instead.
+        """
+        return self.save_every
 
     @property
     def dt_summarise(self) -> float:
-        """Interval between summary reductions from the loop."""
-
-        return self.single_integrator.dt_summarise
+        """Interval between summary reductions from the loop.
+        
+        .. deprecated::
+            Use :attr:`summarise_every` instead.
+        """
+        return self.summarise_every
 
     @property
     def system_sizes(self) -> Any:

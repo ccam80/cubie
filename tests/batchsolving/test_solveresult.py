@@ -473,7 +473,7 @@ def solved_batch_solver_errorcode(system, precision):
     """Fixture providing a solver with multiple runs where some
     runs have error codes.
     """
-    solver = Solver(system, dt_save=0.01)
+    solver = Solver(system, save_every=0.01)
 
     # Run a single batch solve with multiple runs
     solver.solve(

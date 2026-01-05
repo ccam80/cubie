@@ -184,13 +184,13 @@ def test_solve_info_property(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
         )
-    assert solve_info.dt_save == pytest.approx(
-        solver_settings["dt_save"],
+    assert solve_info.save_every == pytest.approx(
+        solver_settings["save_every"],
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
-    assert solve_info.dt_summarise == pytest.approx(
-        solver_settings["dt_summarise"],
+    assert solve_info.summarise_every == pytest.approx(
+        solver_settings["summarise_every"],
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
@@ -229,8 +229,8 @@ def test_solve_basic(
         parameters=simple_parameters,
         drivers=driver_settings,
         duration=0.05,
-        dt_save=0.02,
-        dt_summarise=0.04,
+        save_every=0.02,
+        summarise_every=0.04,
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
@@ -298,8 +298,8 @@ def test_solve_with_different_result_types(
                 parameters=simple_parameters,
                 drivers=driver_settings,
                 duration=0.05,
-                dt_save=0.02,
-                dt_summarise=0.04,
+                save_every=0.02,
+                summarise_every=0.04,
                 results_type=result_type,
         )
 
@@ -453,10 +453,10 @@ def test_solve_ivp_function(
         parameters=simple_parameters,
         drivers=driver_settings,
         dt=1e-2,
-        dt_save=0.02,
-        duration= 0.05,
-        dt_summarise= 0.04,
-        output_types= ["state", "time", "observables",
+        save_every=0.02,
+        duration=0.05,
+        summarise_every=0.04,
+        output_types=["state", "time", "observables",
                      "mean"],
         method="euler",
         settling_time=0.0,
@@ -479,7 +479,7 @@ def test_solver_with_different_algorithms(system, solver_settings):
             precision=solver_settings["precision"],
             memory_manager=solver_settings["memory_manager"],
             stream_group=solver_settings["stream_group"],
-            loop_settings={"dt_save": solver_settings["dt_save"]},
+            loop_settings={"save_every": solver_settings["save_every"]},
         )
 
         assert solver is not None
@@ -503,7 +503,7 @@ def test_solver_output_types(system, solver_settings):
             precision=solver_settings["precision"],
             memory_manager=solver_settings["memory_manager"],
             stream_group=solver_settings["stream_group"],
-            loop_settings={"dt_save": solver_settings["dt_save"]},
+            loop_settings={"save_every": solver_settings["save_every"]},
         )
 
         assert solver.output_types == output_types

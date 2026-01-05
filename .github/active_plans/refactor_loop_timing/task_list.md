@@ -676,7 +676,7 @@
 ---
 
 ## Task Group 6: Test Updates - Remove Backward Compatibility Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-5
 
 **Required Context**:
@@ -853,9 +853,39 @@
 
 **Tests to Run**:
 - tests/integrators/loops/test_dt_update_summaries_validation.py
+- tests/integrators/loops/test_ode_loop.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/_utils.py (6 lines changed)
+  * tests/conftest.py (6 lines changed)
+  * tests/integrators/loops/test_dt_update_summaries_validation.py (87 lines removed, 20 lines added)
+  * tests/integrators/loops/test_ode_loop.py (12 lines changed)
+  * src/cubie/integrators/SingleIntegratorRun.py (4 lines changed)
+- Functions/Methods Added/Modified:
+  * MID_RUN_PARAMS dict updated (dt_save→save_every, dt_summarise→summarise_every)
+  * LONG_RUN_PARAMS dict updated (dt_save→save_every, dt_summarise→summarise_every)
+  * run_device_loop() updated to use save_every and summarise_every
+  * conftest.py defaults updated to use save_every and summarise_every
+  * test_getters() updated to test save_every and summarise_every properties
+  * test_all_none_uses_defaults() updated to verify save_last/summarise_last flags
+  * test_explicit_values_dont_set_flags() added
+  * SingleIntegratorRun.dt_save→save_every property renamed
+  * SingleIntegratorRun.dt_summarise→summarise_every property renamed
+- Implementation Summary:
+  Removed backward compatibility tests (test_backward_compat_dt_save, 
+  test_backward_compat_dt_summarise, test_backward_compat_dt_update_summaries,
+  test_cannot_specify_both_dt_save_and_save_every) that tested deprecated
+  behavior which no longer exists. Updated all test parameter dictionaries
+  to use new names (save_every, summarise_every). Updated test_getters to
+  test new property names. Added test_explicit_values_dont_set_flags to
+  verify flags remain False when explicit timing values provided. Updated
+  test_all_none_uses_defaults to also verify flags are set correctly.
+  Also updated SingleIntegratorRun properties to delegate to IVPLoop's
+  new save_every and summarise_every properties since the deprecated 
+  dt_save and dt_summarise properties were removed from IVPLoop in 
+  Task Group 2.
+- Issues Flagged: None
 
 ---
 
