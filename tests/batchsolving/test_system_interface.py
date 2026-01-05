@@ -137,38 +137,32 @@ def test_merge_variable_inputs_all_none_returns_full(interface, system):
     max_states = system.sizes.states
     max_obs = system.sizes.observables
     state_idx, obs_idx = interface.merge_variable_inputs(
-        None, None, None, max_states, max_obs
+        None, None, None
     )
     assert np.array_equal(state_idx, np.arange(max_states, dtype=np.int32))
     assert np.array_equal(obs_idx, np.arange(max_obs, dtype=np.int32))
 
 
 def test_merge_variable_inputs_empty_labels(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     state_idx, obs_idx = interface.merge_variable_inputs(
-        [], None, None, max_states, max_obs
+        [], None, None
     )
     assert len(state_idx) == 0
     assert len(obs_idx) == 0
 
 
 def test_merge_variable_inputs_empty_indices(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     state_idx, obs_idx = interface.merge_variable_inputs(
-        None, [], None, max_states, max_obs
+        None, [], None
     )
     assert len(state_idx) == 0
     assert np.array_equal(obs_idx, np.array([], dtype=np.int32))
 
 
 def test_merge_variable_inputs_union(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     state_names = list(system.initial_values.names)
     state_idx, obs_idx = interface.merge_variable_inputs(
-        [state_names[0]], [1], None, max_states, max_obs
+        [state_names[0]], [1], None
     )
     assert 0 in state_idx
     assert 1 in state_idx
@@ -176,11 +170,10 @@ def test_merge_variable_inputs_union(interface, system):
 
 
 def test_merge_variable_inputs_deduplication(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
+
     state_names = list(system.initial_values.names)
     state_idx, obs_idx = interface.merge_variable_inputs(
-        [state_names[0]], [0], None, max_states, max_obs
+        [state_names[0]], [0], None
     )
     assert len(state_idx) == 1
     assert state_idx[0] == 0
