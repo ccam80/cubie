@@ -928,7 +928,7 @@ def test_save_variables_union_with_indices(solver, system):
     
     # Pre-populate with first state index
     output_settings = {
-        "saved_state_indices": np.array([0], dtype=np.int16),
+        "saved_state_indices": np.array([0], dtype=np.int32),
         "save_variables": [state_names[1]]
     }
     solver.convert_output_labels(output_settings)
@@ -945,7 +945,7 @@ def test_save_variables_union_with_saved_state_indices(solver, system):
     state_names = list(system.initial_values.names)
     
     output_settings = {
-        "saved_state_indices": np.array([0], dtype=np.int16),
+        "saved_state_indices": np.array([0], dtype=np.int32),
         "save_variables": [state_names[1]]
     }
     solver.convert_output_labels(output_settings)
@@ -1001,7 +1001,7 @@ def test_array_only_fast_path(solver):
     import time
     
     output_settings = {
-        "saved_state_indices": np.array([0, 1], dtype=np.int16)
+        "saved_state_indices": np.array([0, 1], dtype=np.int32)
     }
     
     # Time the fast path (should be very quick)

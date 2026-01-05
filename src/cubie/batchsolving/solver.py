@@ -289,22 +289,67 @@ class Solver:
                     f"{set(kwargs) - recognized_kwargs}"
                 )
 
+    def _resolve_labels(self, labels: List[str]) -> tuple(
+        List[int], List[int]
+    ):
+        """Resolve a list of variable labels to state/observable indices."""
+        # Get indices for variables that match states
+        state_idxs = self.system_interface.state_indices(
+            labels, silent=True
+        )
+        # Get indices for variables that match observables
+        obs_idxs = self.system_interface.observable_indices(
+            labels, silent=True
+        )
+
+        # Validate that at least some variables were recognized
+        if len(state_idxs) == 0 and len(obs_idxs) == 0:
+            raise ValueError(
+                f"Variables not found in states or observables: "
+                f"{labels}. "
+                f"Available states: {self.system_interface.states.names}. "
+                f"Available observables: "
+                f"{self.system_interface.observables.names}."
+            )
+
+        return state_idxs, obs_idxs
+
+    def _merge_vars_and_indices(
+            self, vars_list, state_idxs, obs_idxs
+    ) -> np.ndarray:
+        """Merge a list of variable names with lists of state, obs indices."""
+        merged_vars = []
+        vars_state_idxs = []
+        vars_obs_idxs = []
+
+        if vars_list is not None:
+            vars_state_idxs, vars_obs_idxs = self._resolve_labels(vars_list)
+
+        state_idxs = np.union1d(vars_state_idxs, state_idxs).astype(
+                    np.int32
+        )
+        obs_idxs = np.union1d(vars_obs_idxs, obs_idxs).astype(
+                np.int32
+        )
+        return state_idxs, obs_idxs
+
     def convert_output_labels(
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve output labels in-place. Users can provide lists
-        of state and observable variable names, or lists/arrays of indices
-        if they know them and want a "fast path" solve to minimise overhead.
-        The expected usual pathway will be for a user to provide a list of
-        names to save_variables and summarise_variables.
+        """Update output_settings in-place with the combination of indices
+        requested directly through the *_indices list of indices or *_variables
+        list of variable labels. Users can provide lists/arrays of indices
+        only if they know them and want a "fast path" solve to minimise
+        overhead.
 
         Parameters
         ----------
         output_settings
             Output configuration kwargs recognised by the output functions
-            module. Entries describing saved or summarised variables are
-            replaced with integer indices when provided.
+            module. Entries used are `save_variables`, `summarise_variables`,
+            `saved_state_indices`, `saved_observable_indices`,
+            `summarised_state_indices`, and `summarised_observable_indices`.
 
         Returns
         -------
@@ -314,96 +359,50 @@ class Solver:
         Raises
         ------
         ValueError
-            If the settings dict would result in duplicate or conflicting
-            indices.
+            If any variable labels in `save_variables` or
+            `summarise_variables` are not recognised by the ODE system.
 
         Notes
         -----
-        Users may supply selectors as labels or integers; this resolver ensures
-        that downstream components receive numeric indices and canonical keys.
-        
         The unified parameters ``save_variables`` and ``summarise_variables``
         are automatically classified into states and observables using
         SystemInterface. Results are merged with index-based parameters
         (``saved_state_indices``, ``saved_observable_indices``,
         ``summarised_state_indices``, ``summarised_observable_indices``) using
-        set union.
+        set union. `save_variables` and `summarise_variables` are popped from
+        the output_settings dict in this method and not restored.
         """
         # Process save_variables parameter
         save_vars = output_settings.pop("save_variables", None)
-        if save_vars:
-            # Get indices for variables that match states
-            state_idxs = self.system_interface.state_indices(
-                save_vars, silent=True
-            )
-            # Get indices for variables that match observables
-            obs_idxs = self.system_interface.observable_indices(
-                save_vars, silent=True
-            )
-            
-            # Validate that at least some variables were recognized
-            if len(state_idxs) == 0 and len(obs_idxs) == 0:
-                raise ValueError(
-                    f"Variables not found in states or observables: "
-                    f"{save_vars}. "
-                    f"Available states: {self.system_interface.states.names}. "
-                    f"Available observables: "
-                    f"{self.system_interface.observables.names}."
-                )
-            
-            # Merge with existing indices using set union
-            existing_states = output_settings.get("saved_state_indices")
-            if existing_states is not None:
-                state_idxs = np.union1d(existing_states, state_idxs).astype(
-                    np.int16
-                )
-            if len(state_idxs) > 0:
-                output_settings["saved_state_indices"] = state_idxs
-            
-            existing_obs = output_settings.get("saved_observable_indices")
-            if existing_obs is not None:
-                obs_idxs = np.union1d(existing_obs, obs_idxs).astype(np.int16)
-            if len(obs_idxs) > 0:
-                output_settings["saved_observable_indices"] = obs_idxs
-        
-        # Process summarise_variables parameter
+
+        saved_state_idxs = output_settings.get(
+            "saved_state_indices", []
+        )
+        saved_obs_idxs = output_settings.get(
+            "saved_observable_indices", []
+        )
+        saved_state_idxs, saved_obs_idxs = self._merge_vars_and_indices(
+            save_vars, saved_state_idxs, saved_obs_idxs
+        )
+
         summarise_vars = output_settings.pop("summarise_variables", None)
-        if summarise_vars:
-            # Get indices for variables that match states
-            state_idxs = self.system_interface.state_indices(
-                summarise_vars, silent=True
-            )
-            # Get indices for variables that match observables
-            obs_idxs = self.system_interface.observable_indices(
-                summarise_vars, silent=True
-            )
-            
-            # Validate that at least some variables were recognized
-            if len(state_idxs) == 0 and len(obs_idxs) == 0:
-                raise ValueError(
-                    f"Variables not found in states or observables: "
-                    f"{summarise_vars}. "
-                    f"Available states: {self.system_interface.states.names}. "
-                    f"Available observables: "
-                    f"{self.system_interface.observables.names}."
-                )
-            
-            # Merge with existing indices using set union
-            existing_states = output_settings.get("summarised_state_indices")
-            if existing_states is not None:
-                state_idxs = np.union1d(existing_states, state_idxs).astype(
-                    np.int16
-                )
-            if len(state_idxs) > 0:
-                output_settings["summarised_state_indices"] = state_idxs
-            
-            existing_obs = output_settings.get(
-                "summarised_observable_indices"
-            )
-            if existing_obs is not None:
-                obs_idxs = np.union1d(existing_obs, obs_idxs).astype(np.int16)
-            if len(obs_idxs) > 0:
-                output_settings["summarised_observable_indices"] = obs_idxs
+        summ_state_idxs = output_settings.get(
+            "summarised_state_indices", []
+        )
+        summ_obs_idxs = output_settings.get(
+            "summarised_observable_indices", []
+        )
+
+        summ_state_idxs, summ_obs_idxs = self._merge_vars_and_indices(
+            summarise_vars, summ_state_idxs, summ_obs_idxs,
+        )
+
+        output_settings["saved_state_indices"] = saved_state_idxs
+        output_settings["saved_observable_indices"] = saved_obs_idxs
+        output_settings["summarised_state_indices"] = summ_state_idxs
+        output_settings["summarised_observable_indices"] = summ_obs_idxs
+        
+
 
     def _classify_inputs(
         self,
