@@ -25,7 +25,20 @@ Array = NDArray[np_floating]
 
 
 def _as_array(vector: Union[Sequence[float], Array], dt: np_dtype) -> Array:
-    """Return ``vector`` as a one-dimensional array of ``dt``."""
+    """Return ``vector`` as a one-dimensional array of ``dt``.
+
+    Parameters
+    ----------
+    vector
+        Sequence of floats to convert.
+    dt
+        NumPy dtype for the output array.
+
+    Returns
+    -------
+    Array
+        One-dimensional array with dtype ``dt``.
+    """
 
     arr = np_asarray(vector, dtype=dt)
     if arr.ndim != 1:

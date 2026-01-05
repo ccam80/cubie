@@ -306,7 +306,7 @@ class OutputArrays(BaseArrayManager):
             slot_dtype = slot.dtype
             if np_issubdtype(slot_dtype, np_floating):
                 slot.dtype = self._precision
-                slot_dtype = slot.dtype
+                slot_dtype = self._precision
             # Fast path: skip allocation if existing array matches
             current = slot.array
             if (

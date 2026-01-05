@@ -2,7 +2,7 @@
 
 from typing import Dict
 
-from attrs import define, frozen
+from attrs import frozen
 from numpy import (
     array as np_array,
     asarray as np_asarray,

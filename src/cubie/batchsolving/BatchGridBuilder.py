@@ -204,11 +204,12 @@ def combinatorial_grid(
 
     Examples
     --------
+    >>> import numpy as np
     >>> combinatorial_grid(
     ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20]}, system.parameters
     ... )
-    (np_array([0, 1]),
-     np_array([[ 0.1,  0.1,  0.2,  0.2,  0.3,  0.3],
+    (np.array([0, 1]),
+     np.array([[ 0.1,  0.1,  0.2,  0.2,  0.3,  0.3],
             [10. , 20. , 10. , 20. , 10. , 20. ]]))
     """
     cleaned_request = {
@@ -253,12 +254,13 @@ def verbatim_grid(
 
     Examples
     --------
+    >>> import numpy as np
     >>> verbatim_grid(
     ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20, 30]},
     ...     system.parameters,
     ... )
-    (np_array([0, 1]),
-     np_array([[ 0.1,  0.2,  0.3],
+    (np.array([0, 1]),
+     np.array([[ 0.1,  0.2,  0.3],
             [10. , 20. , 30. ]]))
     """
     cleaned_request = {

@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
 from attrs.validators import (
-    and_ as attrsval_and,
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
     or_ as attrsval_or,
@@ -203,7 +202,7 @@ class SolveResult:
         validator=attrsval_optional(attrsval_instance_of(dict)),
     )
     _active_outputs: Optional[ActiveOutputs] = field(
-        default=attrsFactory(lambda: ActiveOutputs())
+        default=attrsFactory(ActiveOutputs)
     )
     _stride_order: Union[tuple[str, ...], list[str]] = field(
         default=("time", "variable", "run")

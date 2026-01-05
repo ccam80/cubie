@@ -23,7 +23,6 @@ from numpy import (
     ceil as np_ceil,
     dtype as np_dtype,
     float32 as np_float32,
-    issubdtype as np_issubdtype,
     zeros as np_zeros,
 )
 from numpy.typing import NDArray
@@ -903,7 +902,6 @@ class BaseArrayManager(ABC):
         for _, slot in self.device.iter_managed_arrays():
             array = slot.array
             if array is not None:
-                zero = np_dtype(slot.dtype).type(0)
                 if len(array.shape) >= 3:
                     array[:, :, :] = slot.dtype(0.0)
                 elif len(array.shape) >= 2:

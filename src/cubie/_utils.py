@@ -493,12 +493,12 @@ def inrangetype_validator(dtype, min_, max_):
 # e.g. float -> (float, np_floating), int -> (int, np_integer)
 # Unknown types are returned unchanged.
 
-def _expand_dtype(dt):
-    if dt is float:
+def _expand_dtype(data_type):
+    if data_type is float:
         return (float, np_floating)
-    if dt is int:
+    if data_type is int:
         return (int, np_integer)
-    return dt
+    return data_type
 
 def lttype_validator(dtype, max_):
     return validators.and_(
@@ -614,12 +614,13 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
     
     Examples
     --------
+    >>> import numpy as np
     >>> result, unpacked = unpack_dict_values({
     ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
-    ...     'precision': np.np_float32
+    ...     'precision': np.float32
     ... })
     >>> result
-    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.np_float32'>}
+    {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
     >>> unpacked
     {'step_settings'}
     
@@ -700,9 +701,10 @@ def build_config(
 
     Examples
     --------
+    >>> import numpy as np
     >>> config = build_config(
     ...     DIRKStepConfig,
-    ...     required={'precision': np.np_float32, 'n': 3},
+    ...     required={'precision': np.float32, 'n': 3},
     ...     krylov_tolerance=1e-8
     ... )
 

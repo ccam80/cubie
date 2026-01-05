@@ -172,7 +172,20 @@ def is_cuda_array(value: Any) -> bool:
 
 
 def from_dtype(dt: dtype):
-    """Return a CUDA-ready dtype or a simulator-safe placeholder."""
+    """Return a CUDA-ready dtype or a simulator-safe placeholder.
+
+    Parameters
+    ----------
+    dt
+        NumPy dtype to adapt for use with CUDA or the simulator.
+
+    Returns
+    -------
+    dtype
+        A Numba CUDA-compatible dtype when running on a real GPU, or
+        the original dtype unchanged when running in CUDA simulation
+        mode.
+    """
 
     if not CUDA_SIMULATION:
         return numba_from_dtype(dt)
