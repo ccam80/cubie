@@ -320,7 +320,7 @@ class Solver:
         ValueError
             If variable labels are not recognized by the system.
         """
-        self.system_interface.convert_variable_labels(output_settings)
+        self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
 
     def _classify_inputs(

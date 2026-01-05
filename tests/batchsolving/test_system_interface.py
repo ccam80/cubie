@@ -194,7 +194,7 @@ def test_convert_variable_labels_mutates_dict(interface, system):
     max_states = system.sizes.states
     max_obs = system.sizes.observables
     settings = {}
-    interface.convert_variable_labels(settings)
+    interface.merge_variable_labels_and_idxs(settings)
     assert "saved_state_indices" in settings
     assert "saved_observable_indices" in settings
     assert "summarised_state_indices" in settings
@@ -209,7 +209,7 @@ def test_convert_variable_labels_pops_label_keys(interface, system):
         "save_variables": [state_names[0]],
         "summarise_variables": [state_names[0]],
     }
-    interface.convert_variable_labels(settings)
+    interface.merge_variable_labels_and_idxs(settings)
     assert "save_variables" not in settings
     assert "summarise_variables" not in settings
 
@@ -220,7 +220,7 @@ def test_convert_variable_labels_summarised_defaults_to_saved(interface,
     max_obs = system.sizes.observables
     state_names = list(system.initial_values.names)
     settings = {"save_variables": [state_names[0]]}
-    interface.convert_variable_labels(settings)
+    interface.merge_variable_labels_and_idxs(settings)
     assert np.array_equal(
         settings["saved_state_indices"],
         settings["summarised_state_indices"]

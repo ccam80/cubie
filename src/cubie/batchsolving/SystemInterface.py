@@ -14,8 +14,14 @@ common operations.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from numpy import ndarray
-
+from numpy import (
+    ndarray,
+    int32 as np_int32,
+    arange as np_arange,
+    union1d as np_union1d,
+    array as np_array,
+    asarray as np_asarray,
+)
 from cubie.odesystems.baseODE import BaseODE
 from cubie.odesystems.SystemValues import SystemValues
 
@@ -290,7 +296,7 @@ class SystemInterface:
         self,
         labels: Optional[List[str]],
         silent: bool = False,
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    ) -> Tuple[Optional[ndarray], Optional[ndarray]]:
         """Resolve variable labels to separate state and observable indices.
 
         Parameters
@@ -319,8 +325,8 @@ class SystemInterface:
 
         if len(labels) == 0:
             return (
-                np.array([], dtype=np.int32),
-                np.array([], dtype=np.int32),
+                np_array([], dtype=np_int32),
+                np_array([], dtype=np_int32),
             )
 
         # Resolve each label to state or observable index
@@ -343,18 +349,16 @@ class SystemInterface:
             )
 
         return (
-            state_idxs.astype(np.int32),
-            obs_idxs.astype(np.int32),
+            state_idxs.astype(np_int32),
+            obs_idxs.astype(np_int32),
         )
 
     def merge_variable_inputs(
         self,
         var_labels: Optional[List[str]],
-        state_indices: Optional[Union[List[int], np.ndarray]],
-        observable_indices: Optional[Union[List[int], np.ndarray]],
-        max_states: int,
-        max_observables: int,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        state_indices: Optional[Union[List[int], ndarray]],
+        observable_indices: Optional[Union[List[int], ndarray]],
+    ) -> Tuple[ndarray, ndarray]:
         """Merge label-based selections with index-based selections.
 
         Parameters
@@ -393,36 +397,34 @@ class SystemInterface:
         )
         if all_none:
             return (
-                np.arange(max_states, dtype=np.int32),
-                np.arange(max_observables, dtype=np.int32),
+                np_arange(self.states.n, dtype=np_int32),
+                np_arange(self.observables.n, dtype=np_int32),
             )
 
-        # Convert None to empty arrays for union computation
-        if resolved_state is None:
-            resolved_state = np.array([], dtype=np.int32)
-        if resolved_obs is None:
-            resolved_obs = np.array([], dtype=np.int32)
+        arrays_to_merge = {
+            'state_from_labels': resolved_state,
+            'obs_from_labels': resolved_obs,
+            'state_from_indices': state_indices,
+            'obs_from_indices': observable_indices
+        }
 
-        # Convert provided indices (None means empty for this computation)
-        if state_indices is None:
-            provided_state = np.array([], dtype=np.int32)
-        else:
-            provided_state = np.asarray(state_indices, dtype=np.int32)
-
-        if observable_indices is None:
-            provided_obs = np.array([], dtype=np.int32)
-        else:
-            provided_obs = np.asarray(observable_indices, dtype=np.int32)
+        for key, input in arrays_to_merge.items():
+            if input is None:
+                arrays_to_merge[key] = np_array([], dtype=np_int32)
 
         # Compute union of resolved label indices with provided indices
-        final_state = np.union1d(resolved_state, provided_state).astype(
-            np.int32
+        final_state = np_union1d(
+                arrays_to_merge['state_from_labels'],
+                arrays_to_merge['state_from_indices']
         )
-        final_obs = np.union1d(resolved_obs, provided_obs).astype(np.int32)
+        final_obs = np_union1d(
+                arrays_to_merge['obs_from_labels'],
+                arrays_to_merge['obs_from_indices']
+        )
 
-        return (final_state, final_obs)
+        return final_state, final_obs
 
-    def convert_variable_labels(
+    def merge_variable_labels_and_idxs(
         self,
         output_settings: Dict[str, Any]
     ) -> None:
@@ -462,8 +464,6 @@ class SystemInterface:
             save_vars,
             saved_state_idxs,
             saved_obs_idxs,
-            self.states.n,
-            self.observables.n,
         )
 
         # Extract summarise_variables and related indices
@@ -489,8 +489,6 @@ class SystemInterface:
                 summarise_vars,
                 summ_state_idxs,
                 summ_obs_idxs,
-                self.states.n,
-                self.observables.n,
             )
 
         # Update dict with final index arrays
