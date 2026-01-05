@@ -204,9 +204,7 @@ class Solver:
     driver interpolation so that :meth:`solve` orchestrates a complete GPU
     integration run.
 
-    Variable resolution for ``save_variables`` and ``summarise_variables``
-    is delegated to :class:`SystemInterface`, which serves as the single
-    source of truth for label-to-index conversion. When specifying variables:
+    When specifying variables:
 
     - ``None`` means "use all" (default behavior for both states and
       observables)
@@ -302,7 +300,7 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Convert variable labels to indices by delegating to SystemInterface.
+        """Convert variable labels to indices.
 
         Parameters
         ----------
@@ -322,11 +320,7 @@ class Solver:
         ValueError
             If variable labels are not recognized by the system.
         """
-        self.system_interface.convert_variable_labels(
-            output_settings,
-            self.system_interface.states.n,
-            self.system_interface.observables.n,
-        )
+        self.system_interface.convert_variable_labels(output_settings)
 
 
     def _classify_inputs(

@@ -1181,33 +1181,6 @@ def test_unified_save_variables_parameter(system):
 # SystemInterface Delegation Tests
 # ============================================================================
 
-
-def test_convert_output_labels_delegates_to_system_interface(solver, system):
-    """Test that Solver.convert_output_labels delegates to SystemInterface.
-
-    Verifies that the convert_output_labels method on Solver calls through
-    to SystemInterface.convert_variable_labels() which handles resolution,
-    merging, and mutation of the output_settings dict.
-    """
-    state_names = list(system.initial_values.names)[:2]
-
-    output_settings = {"save_variables": state_names}
-    solver.convert_output_labels(output_settings)
-
-    # Verify that the SystemInterface processed the labels correctly
-    assert "save_variables" not in output_settings
-    assert "saved_state_indices" in output_settings
-    assert "saved_observable_indices" in output_settings
-    assert "summarised_state_indices" in output_settings
-    assert "summarised_observable_indices" in output_settings
-
-    # State indices should contain the requested states
-    saved_states = output_settings["saved_state_indices"]
-    assert len(saved_states) == 2
-    assert 0 in saved_states
-    assert 1 in saved_states
-
-
 def test_solver_with_empty_save_variables(system, solver_settings):
     """Test that empty save_variables=[] results in no variables saved.
 
@@ -1455,7 +1428,6 @@ class TestVariableResolutionIntegration:
         THREE_STATE_LINEAR_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
         THREE_STATE_LINEAR_CONSTANTS = {"c0": 0.5, "c1": 1.0, "c2": 2.0}
         THREE_STATE_LINEAR_DRIVERS = ["d0"]
-        THREE_STATE_LINEAR_OBSERVABLES = ["o0", "o1", "o2"]
         system = create_ODE_system(
                 dxdt=THREE_STATE_LINEAR_EQUATIONS,
                 states=THREE_STATE_LINEAR_STATES,

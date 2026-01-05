@@ -34,16 +34,16 @@ class SystemInterface:
 
     Notes
     -----
-    Instances mirror the structure of
-    :class:`~cubie.odesystems.baseODE.BaseODE` components so that
-    higher-level utilities can access names, indices, and default values from a
-    single object.
+    Acts as a wrapper for :class:`~cubie.odesystems.baseODE.BaseODE` components
+    so that higher-level utilities can access names, indices, and default
+    values from an underlying system. Adds some layers of convenience for
+    resolving user-requested variable lists to indices for use by CUDA
+    functions.
 
-    This class serves as the single source of truth for variable label
-    handling. The variable resolution methods
-    (:meth:`resolve_variable_labels`, :meth:`merge_variable_inputs`,
-    :meth:`convert_variable_labels`) consolidate all label-to-index
-    conversion logic. These methods interpret input values as follows:
+     The variable resolution methods (:meth:`resolve_variable_labels`,
+     :meth:`merge_variable_inputs`, :meth:`convert_variable_labels`)
+     consolidate all label-to-index conversion logic. These methods
+     interpret input values as follows:
 
     - ``None`` means "use all" (default behavior)
     - ``[]`` or empty array means "explicitly no variables"
@@ -424,9 +424,7 @@ class SystemInterface:
 
     def convert_variable_labels(
         self,
-        output_settings: Dict[str, Any],
-        max_states: int,
-        max_observables: int,
+        output_settings: Dict[str, Any]
     ) -> None:
         """Convert variable label settings to index arrays in-place.
 
@@ -436,10 +434,6 @@ class SystemInterface:
             Settings dict containing ``save_variables``,
             ``summarise_variables``, and their index counterparts.
             Modified in-place.
-        max_states
-            Total number of states in the system.
-        max_observables
-            Total number of observables in the system.
 
         Returns
         -------
@@ -468,8 +462,8 @@ class SystemInterface:
             save_vars,
             saved_state_idxs,
             saved_obs_idxs,
-            max_states,
-            max_observables,
+            self.states.n,
+            self.observables.n,
         )
 
         # Extract summarise_variables and related indices
@@ -495,8 +489,8 @@ class SystemInterface:
                 summarise_vars,
                 summ_state_idxs,
                 summ_obs_idxs,
-                max_states,
-                max_observables,
+                self.states.n,
+                self.observables.n,
             )
 
         # Update dict with final index arrays
