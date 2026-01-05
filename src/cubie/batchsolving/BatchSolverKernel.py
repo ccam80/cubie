@@ -80,7 +80,7 @@ class BatchSolverKernel(CUDAFactory):
     loop_settings
         Mapping of loop configuration forwarded to
         :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
-        ``"dt_save"`` and ``"dt_summarise"``.
+        ``"save_every"`` and ``"summarise_every"``.
     driver_function
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
@@ -947,31 +947,31 @@ class BatchSolverKernel(CUDAFactory):
         """
         return (int(
                 np_floor(self.precision(self.duration) /
-                        self.precision(self.single_integrator.dt_save)))
+                        self.precision(self.single_integrator.save_every)))
                 + 1)
 
     @property
     def summaries_length(self) -> int:
         """Number of complete summary intervals across the integration window.
         
-        Summaries count only complete dt_summarise periods using floor
+        Summaries count only complete summarise_every periods using floor
         division. No summary is recorded for t=0 and partial intervals at
         the tail of integration are excluded.
         """
         precision = self.precision
-        return int(precision(self._duration) /precision(self.dt_summarise))
+        return int(precision(self._duration) / precision(self.summarise_every))
 
     @property
     def warmup_length(self) -> int:
         """Number of warmup save intervals completed before capturing output.
         
-        Note: Warmup uses ceil(warmup/dt_save) WITHOUT the +1 because warmup
+        Note: Warmup uses ceil(warmup/save_every) WITHOUT the +1 because warmup
         saves are transient and discarded after settling. The final warmup
         state becomes the initial state of the main run, so there is no need
         to save both endpoints in the warmup phase.
         """
 
-        return int(np_ceil(self._warmup / self.single_integrator.dt_save))
+        return int(np_ceil(self._warmup / self.single_integrator.save_every))
 
     @property
     def system(self) -> "BaseODE":
@@ -1026,25 +1026,6 @@ class BatchSolverKernel(CUDAFactory):
         """Interval between summary metric samples from the loop."""
 
         return self.single_integrator.sample_summaries_every
-
-    # Legacy aliases for backward compatibility
-    @property
-    def dt_save(self) -> float:
-        """Interval between saved samples from the loop.
-        
-        .. deprecated::
-            Use :attr:`save_every` instead.
-        """
-        return self.save_every
-
-    @property
-    def dt_summarise(self) -> float:
-        """Interval between summary reductions from the loop.
-        
-        .. deprecated::
-            Use :attr:`summarise_every` instead.
-        """
-        return self.summarise_every
 
     @property
     def system_sizes(self) -> Any:
