@@ -383,7 +383,7 @@ def test_update_saved_variables(solver_mutable, system):
         all_vars = [state_names[0]]
         if observable_names:
             all_vars.append(observable_names[0])
-        
+
         updates = {
             "save_variables": all_vars,
         }

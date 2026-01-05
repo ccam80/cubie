@@ -122,7 +122,7 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
-    #Collect required explicit parameters from kwargs
+    # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
 
     # Place non-explicit params into kwargs

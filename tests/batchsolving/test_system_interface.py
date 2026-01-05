@@ -170,7 +170,6 @@ def test_merge_variable_inputs_union(interface, system):
 
 
 def test_merge_variable_inputs_deduplication(interface, system):
-
     state_names = list(system.initial_values.names)
     state_idx, obs_idx = interface.merge_variable_inputs(
         [state_names[0]], [0], None
@@ -184,8 +183,6 @@ def test_merge_variable_inputs_deduplication(interface, system):
 # =============================================================================
 
 def test_convert_variable_labels_mutates_dict(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     settings = {}
     interface.merge_variable_labels_and_idxs(settings)
     assert "saved_state_indices" in settings
@@ -195,8 +192,6 @@ def test_convert_variable_labels_mutates_dict(interface, system):
 
 
 def test_convert_variable_labels_pops_label_keys(interface, system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     state_names = list(system.initial_values.names)
     settings = {
         "save_variables": [state_names[0]],
@@ -209,8 +204,6 @@ def test_convert_variable_labels_pops_label_keys(interface, system):
 
 def test_convert_variable_labels_summarised_defaults_to_saved(interface,
                                                                system):
-    max_states = system.sizes.states
-    max_obs = system.sizes.observables
     state_names = list(system.initial_values.names)
     settings = {"save_variables": [state_names[0]]}
     interface.merge_variable_labels_and_idxs(settings)

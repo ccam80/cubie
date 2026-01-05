@@ -20,7 +20,6 @@ from numpy import (
     arange as np_arange,
     union1d as np_union1d,
     array as np_array,
-    asarray as np_asarray,
 )
 from cubie.odesystems.baseODE import BaseODE
 from cubie.odesystems.SystemValues import SystemValues
@@ -369,10 +368,6 @@ class SystemInterface:
             Direct state index selection. None means "not provided".
         observable_indices
             Direct observable index selection. None means "not provided".
-        max_states
-            Total number of states in the system.
-        max_observables
-            Total number of observables in the system.
 
         Returns
         -------
@@ -414,12 +409,12 @@ class SystemInterface:
 
         # Compute union of resolved label indices with provided indices
         final_state = np_union1d(
-                arrays_to_merge['state_from_labels'],
-                arrays_to_merge['state_from_indices']
+            arrays_to_merge['state_from_labels'],
+            arrays_to_merge['state_from_indices']
         )
         final_obs = np_union1d(
-                arrays_to_merge['obs_from_labels'],
-                arrays_to_merge['obs_from_indices']
+            arrays_to_merge['obs_from_labels'],
+            arrays_to_merge['obs_from_indices']
         )
 
         return final_state, final_obs
