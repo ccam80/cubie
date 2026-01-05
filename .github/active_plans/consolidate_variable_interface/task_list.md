@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/consolidate_variable_interface/agent_plan.md
 
 ## Task Group 1: Add Variable Resolution Methods to SystemInterface
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -237,12 +237,28 @@
 - tests/batchsolving/test_system_interface.py::test_convert_variable_labels_summarised_defaults_to_saved
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/SystemInterface.py (214 lines added)
+- Functions/Methods Added:
+  * resolve_variable_labels() in SystemInterface
+  * merge_variable_inputs() in SystemInterface
+  * convert_variable_labels() in SystemInterface
+- Imports Updated:
+  * Added Tuple to typing imports
+- Tests Created:
+  * 15 unit tests in tests/batchsolving/test_system_interface.py
+- Implementation Summary:
+  Added three new variable resolution methods to SystemInterface that
+  consolidate variable label handling. Methods handle None (defaults),
+  empty lists (explicit no-variables), and non-empty lists (resolution).
+  The convert_variable_labels method pops label keys and mutates the
+  settings dict with resolved index arrays.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Update Solver to Delegate to SystemInterface
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -327,12 +343,29 @@
 - tests/batchsolving/test_solver.py::test_summarised_variables_properties
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (75 lines removed, 29 lines added)
+- Functions/Methods Removed:
+  * _resolve_labels() in Solver
+  * _merge_vars_and_indices() in Solver
+- Functions/Methods Modified:
+  * convert_output_labels() in Solver - now delegates to SystemInterface
+- Tests Created:
+  * test_convert_output_labels_delegates_to_system_interface
+  * test_solver_with_empty_save_variables
+  * test_solver_with_empty_summarise_variables
+  * test_solver_save_variables_and_indices_union
+- Implementation Summary:
+  Simplified the Solver class by removing the redundant _resolve_labels and
+  _merge_vars_and_indices methods. The convert_output_labels method now
+  delegates entirely to SystemInterface.convert_variable_labels(), which
+  handles all variable resolution, merging, and settings mutation.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Fix OutputConfig Empty Array Handling
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 2
 
 **Required Context**:
@@ -466,21 +499,42 @@
 - Description: Verify from_loop_settings preserves explicit empty arrays
 
 **Tests to Run**:
-- tests/outputhandling/test_output_config.py::test_empty_saved_state_indices_preserved
-- tests/outputhandling/test_output_config.py::test_empty_saved_observable_indices_preserved
-- tests/outputhandling/test_output_config.py::test_empty_summarised_state_indices_preserved
-- tests/outputhandling/test_output_config.py::test_empty_summarised_observable_indices_preserved
-- tests/outputhandling/test_output_config.py::test_from_loop_settings_preserves_empty_indices
+- tests/outputhandling/test_output_config.py::TestEmptyArrayPreservation::test_empty_saved_state_indices_preserved
+- tests/outputhandling/test_output_config.py::TestEmptyArrayPreservation::test_empty_saved_observable_indices_preserved
+- tests/outputhandling/test_output_config.py::TestEmptyArrayPreservation::test_empty_summarised_state_indices_preserved
+- tests/outputhandling/test_output_config.py::TestEmptyArrayPreservation::test_empty_summarised_observable_indices_preserved
+- tests/outputhandling/test_output_config.py::TestEmptyArrayPreservation::test_from_loop_settings_preserves_empty_indices
 - tests/outputhandling/test_output_config.py::TestInitialization
 - tests/outputhandling/test_output_config.py::TestFromLoopSettings
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/outputhandling/output_config.py (21 lines removed, 14 lines added)
+- Functions/Methods Modified:
+  * _check_saved_indices() - simplified to preserve empty arrays
+  * _check_summarised_indices() - simplified to preserve empty arrays
+- Tests Created:
+  * TestEmptyArrayPreservation class with 5 tests in test_output_config.py:
+    - test_empty_saved_state_indices_preserved
+    - test_empty_saved_observable_indices_preserved
+    - test_empty_summarised_state_indices_preserved
+    - test_empty_summarised_observable_indices_preserved
+    - test_from_loop_settings_preserves_empty_indices
+- Implementation Summary:
+  Simplified OutputConfig by removing default expansion logic from
+  _check_saved_indices and _check_summarised_indices. Empty arrays
+  are now preserved as empty numpy arrays. Defaults are handled
+  upstream in SystemInterface. from_loop_settings already converts
+  None to empty arrays, which is correct behavior.
+- Issues Flagged:
+  * Existing tests test_minimal_initialization, test_none_indices_conversion,
+    test_summarised_indices_default_to_saved expect old behavior and will
+    fail. Task Group 4 is responsible for updating these tests.
 
 ---
 
 ## Task Group 4: Integration Testing and Edge Cases
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 2, Task Group 3
 
 **Required Context**:
@@ -594,12 +648,42 @@
 - tests/outputhandling/test_output_config.py::TestFromLoopSettings
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/test_solver.py (185 lines added)
+  * tests/outputhandling/test_output_config.py (60 lines changed)
+- Tests Added:
+  * TestVariableResolutionIntegration class with 7 tests:
+    - test_none_inputs_default_to_all
+    - test_empty_labels_explicit_none
+    - test_empty_indices_explicit_none
+    - test_labels_and_indices_union
+    - test_summarised_defaults_to_saved
+    - test_explicit_empty_summarised_independent_of_saved
+    - test_system_no_observables_default
+- Tests Updated in test_output_config.py:
+  * basic_config fixture - now provides explicit indices
+  * config_with_summaries fixture - now provides explicit indices
+  * test_minimal_initialization - updated to reflect new behavior
+  * test_none_indices_conversion → test_empty_indices_preserved - renamed and updated
+  * test_summarised_indices_default_to_saved → test_summarised_indices_independent_of_saved
+  * test_basic_creation - updated to reflect None→empty behavior
+  * test_mixed_output_types - now provides explicit indices
+- Tests Updated in test_solver.py:
+  * test_save_variables_empty_list - updated to verify empty arrays are set
+  * test_save_variables_none - updated to verify full-range defaults
+- Implementation Summary:
+  Added comprehensive integration tests verifying the new variable resolution
+  behavior: None inputs default to all variables, empty inputs mean explicitly
+  no variables, and the union of labels and indices is correctly computed.
+  Updated existing OutputConfig tests to reflect that defaults are now handled
+  by SystemInterface, not OutputConfig. Updated solver tests to correctly
+  reflect the new behavior.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Update Documentation and Cleanup
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 2, Task Group 3, Task Group 4
 
 **Required Context**:
@@ -655,7 +739,23 @@
   - tests/outputhandling/test_output_config.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (20 lines changed)
+  * src/cubie/batchsolving/SystemInterface.py (11 lines changed)
+- Documentation Updated:
+  * Solver class docstring - added notes about variable resolution delegation
+    to SystemInterface and clarified None vs [] behavior
+  * solve_ivp function docstring - updated save_variables and summarise_variables
+    parameter documentation to clarify None (use all) vs [] (use none) behavior
+  * SystemInterface class docstring - added notes about variable resolution
+    methods and their role as single source of truth for label handling
+- Implementation Summary:
+  Updated docstrings across Solver and SystemInterface to reflect the new
+  variable resolution architecture. Documentation clarifies that variable
+  resolution is delegated to SystemInterface, None means "use all", empty
+  list means "explicitly no variables", and union is computed when both
+  labels and indices are provided.
+- Issues Flagged: None
 
 ---
 

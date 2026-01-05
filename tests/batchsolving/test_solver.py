@@ -957,23 +957,30 @@ def test_save_variables_union_with_saved_state_indices(solver, system):
 
 
 def test_save_variables_empty_list(solver):
-    """Test save_variables with empty list is no-op."""
+    """Test save_variables with empty list explicitly saves nothing."""
     output_settings = {"save_variables": []}
     solver.convert_output_labels(output_settings)
-    
-    # Empty list should be removed but not create indices
+
+    # Empty list means explicitly no variables saved
     assert "save_variables" not in output_settings
-    assert ("saved_state_indices" not in output_settings
-            or output_settings.get("saved_state_indices") is None)
+    # Empty arrays should be set (not None or missing)
+    assert "saved_state_indices" in output_settings
+    assert "saved_observable_indices" in output_settings
+    assert len(output_settings["saved_state_indices"]) == 0
+    assert len(output_settings["saved_observable_indices"]) == 0
 
 
 def test_save_variables_none(solver):
-    """Test save_variables=None is ignored."""
+    """Test save_variables=None means use all defaults."""
     output_settings = {"save_variables": None}
     solver.convert_output_labels(output_settings)
-    
-    # None should trigger fast-path and not be processed
-    # (parameter is not popped from dict)
+
+    # None means "use all" - indices should be full range
+    assert "save_variables" not in output_settings
+    n_states = solver.system_sizes.states
+    n_observables = solver.system_sizes.observables
+    assert len(output_settings["saved_state_indices"]) == n_states
+    assert len(output_settings["saved_observable_indices"]) == n_observables
 
 
 def test_save_variables_invalid_name_raises(solver):
@@ -1166,3 +1173,287 @@ def test_unified_save_variables_parameter(system):
     saved_states_list = solver.saved_states
     assert isinstance(saved_states_list, list)
     assert len(saved_states_list) >= 2
+
+
+# ============================================================================
+# SystemInterface Delegation Tests
+# ============================================================================
+
+
+def test_convert_output_labels_delegates_to_system_interface(solver, system):
+    """Test that Solver.convert_output_labels delegates to SystemInterface.
+
+    Verifies that the convert_output_labels method on Solver calls through
+    to SystemInterface.convert_variable_labels() which handles resolution,
+    merging, and mutation of the output_settings dict.
+    """
+    state_names = list(system.initial_values.names)[:2]
+
+    output_settings = {"save_variables": state_names}
+    solver.convert_output_labels(output_settings)
+
+    # Verify that the SystemInterface processed the labels correctly
+    assert "save_variables" not in output_settings
+    assert "saved_state_indices" in output_settings
+    assert "saved_observable_indices" in output_settings
+    assert "summarised_state_indices" in output_settings
+    assert "summarised_observable_indices" in output_settings
+
+    # State indices should contain the requested states
+    saved_states = output_settings["saved_state_indices"]
+    assert len(saved_states) == 2
+    assert 0 in saved_states
+    assert 1 in saved_states
+
+
+def test_solver_with_empty_save_variables(system, solver_settings):
+    """Test that empty save_variables=[] results in no variables saved.
+
+    When save_variables is an explicit empty list, the result should be
+    empty arrays for saved indices, not full-range defaults.
+    """
+    solver = Solver(
+        system,
+        save_variables=[],
+        output_types=["state", "observables"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+    )
+
+    # Empty save_variables should result in empty saved indices
+    assert len(solver.saved_state_indices) == 0
+    assert len(solver.saved_observable_indices) == 0
+
+
+def test_solver_with_empty_summarise_variables(system, solver_settings):
+    """Test that empty summarise_variables=[] results in no variables summarised.
+
+    When summarise_variables is an explicit empty list, the result should be
+    empty arrays for summarised indices, independent of saved variables.
+    """
+    state_names = list(system.initial_values.names)[:1]
+
+    solver = Solver(
+        system,
+        save_variables=state_names,
+        summarise_variables=[],
+        output_types=["state", "observables", "mean"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+    )
+
+    # save_variables should be preserved
+    assert len(solver.saved_state_indices) == 1
+
+    # summarise_variables=[] should result in empty summarised indices
+    assert len(solver.summarised_state_indices) == 0
+    assert len(solver.summarised_observable_indices) == 0
+
+
+def test_solver_save_variables_and_indices_union(system, solver_settings):
+    """Test union of save_variables and saved_*_indices.
+
+    When both label-based and index-based parameters are provided,
+    the result should be the union of both sets.
+    """
+    state_names = list(system.initial_values.names)
+
+    solver = Solver(
+        system,
+        save_variables=[state_names[1]],
+        saved_state_indices=np.array([0], dtype=np.int32),
+        output_types=["state", "observables"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+    )
+
+    # Result should be union of index 0 (from saved_state_indices)
+    # and index 1 (from save_variables)
+    saved_states = solver.saved_state_indices
+    assert len(saved_states) == 2
+    assert 0 in saved_states
+    assert 1 in saved_states
+
+
+# ============================================================================
+# Variable Resolution Integration Tests
+# ============================================================================
+
+
+class TestVariableResolutionIntegration:
+    """Integration tests for variable resolution through Solver.
+
+    These tests verify the full pipeline from user inputs through
+    SystemInterface to OutputConfig, testing the new behavior:
+    - None inputs → "use all" (default behavior)
+    - [] or empty array → "explicitly no variables"
+    - Union of labels and indices when both provided
+    - Summarised defaults to saved when not specified
+    """
+
+    def test_none_inputs_default_to_all(self, system, solver_settings):
+        """Test that None for both labels and indices saves all variables.
+
+        When save_variables=None and saved_*_indices=None, all states
+        and observables should be saved by default.
+        """
+        solver = Solver(
+            system,
+            output_types=["state", "observables"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        n_states = solver.system_sizes.states
+        n_observables = solver.system_sizes.observables
+
+        # All variables should be saved when nothing specified
+        assert len(solver.saved_state_indices) == n_states
+        assert len(solver.saved_observable_indices) == n_observables
+        np.testing.assert_array_equal(
+            solver.saved_state_indices, np.arange(n_states)
+        )
+        np.testing.assert_array_equal(
+            solver.saved_observable_indices, np.arange(n_observables)
+        )
+
+    def test_empty_labels_explicit_none(self, system, solver_settings):
+        """Test that empty save_variables=[] means no variables.
+
+        When save_variables is an explicit empty list, no states or
+        observables should be saved.
+        """
+        solver = Solver(
+            system,
+            save_variables=[],
+            output_types=["time"],  # Need at least one output
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Empty list means explicitly no variables
+        assert len(solver.saved_state_indices) == 0
+        assert len(solver.saved_observable_indices) == 0
+
+    def test_empty_indices_explicit_none(self, system, solver_settings):
+        """Test that empty indices means no variables for that type.
+
+        When saved_state_indices=[] explicitly, no states should be saved
+        even though observables may be saved normally.
+        """
+        n_observables = len(system.observables.names) if hasattr(
+            system.observables, "names"
+        ) else 0
+
+        solver = Solver(
+            system,
+            saved_state_indices=np.array([], dtype=np.int32),
+            output_types=["time", "observables"] if n_observables > 0
+                         else ["time"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Empty indices means explicitly no states
+        assert len(solver.saved_state_indices) == 0
+
+    def test_labels_and_indices_union(self, system, solver_settings):
+        """Test union of labels and indices.
+
+        When both save_variables and saved_state_indices are provided,
+        the result should be the union of both selections.
+        """
+        state_names = list(system.initial_values.names)
+        if len(state_names) < 3:
+            pytest.skip("Need at least 3 states for union test")
+
+        solver = Solver(
+            system,
+            save_variables=[state_names[0]],
+            saved_state_indices=np.array([1, 2], dtype=np.int32),
+            output_types=["state", "observables"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Union of label (index 0) and explicit indices (1, 2)
+        saved = solver.saved_state_indices
+        assert len(saved) == 3
+        assert 0 in saved
+        assert 1 in saved
+        assert 2 in saved
+
+    def test_summarised_defaults_to_saved(self, system, solver_settings):
+        """Test summarised defaults to saved when not specified.
+
+        When save_variables is specified but summarise_variables is not,
+        the summarised indices should match the saved indices.
+        """
+        state_names = list(system.initial_values.names)[:2]
+
+        solver = Solver(
+            system,
+            save_variables=state_names,
+            output_types=["state", "observables", "mean"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Summarised should default to saved
+        np.testing.assert_array_equal(
+            solver.summarised_state_indices,
+            solver.saved_state_indices,
+        )
+        np.testing.assert_array_equal(
+            solver.summarised_observable_indices,
+            solver.saved_observable_indices,
+        )
+
+    def test_explicit_empty_summarised_independent_of_saved(
+        self, system, solver_settings
+    ):
+        """Test explicit empty summarised is independent of saved.
+
+        When summarise_variables=[] is explicitly provided, it should
+        remain empty even when save_variables has values.
+        """
+        state_names = list(system.initial_values.names)[:1]
+
+        solver = Solver(
+            system,
+            save_variables=state_names,
+            summarise_variables=[],
+            output_types=["state", "observables", "mean"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Saved should have the state
+        assert len(solver.saved_state_indices) == 1
+        # Summarised should be empty (explicit empty list)
+        assert len(solver.summarised_state_indices) == 0
+        assert len(solver.summarised_observable_indices) == 0
+
+    def test_system_no_observables_default(self, system, solver_settings):
+        """Test default behavior with system having no observables.
+
+        When a system has no observables, observable_indices should be
+        empty arrays, not errors.
+        """
+        n_observables = len(system.observables.names) if hasattr(
+            system.observables, "names"
+        ) else 0
+
+        if n_observables > 0:
+            pytest.skip("System has observables, test requires no observables")
+
+        solver = Solver(
+            system,
+            output_types=["state"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+        )
+
+        # Observable indices should be empty when no observables exist
+        assert len(solver.saved_observable_indices) == 0
+        assert len(solver.summarised_observable_indices) == 0

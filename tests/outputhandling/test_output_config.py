@@ -11,20 +11,37 @@ from cubie.batchsolving import summary_metrics
 
 @pytest.fixture
 def basic_config(precision):
-    """Basic OutputConfig with minimal parameters."""
+    """Basic OutputConfig with minimal parameters.
+
+    Explicit indices are provided since SystemInterface normally provides
+    full-range defaults before OutputConfig is created. OutputConfig itself
+    preserves empty arrays as empty.
+    """
     return OutputConfig(
-        max_states=10, max_observables=5, precision=precision, output_types=[
-        "state", "observables"]
+        max_states=10,
+        max_observables=5,
+        precision=precision,
+        saved_state_indices=np.arange(10, dtype=np.int_),
+        saved_observable_indices=np.arange(5, dtype=np.int_),
+        output_types=["state", "observables"],
     )
 
 
 @pytest.fixture
 def config_with_summaries(precision):
-    """OutputConfig with summary metrics enabled."""
+    """OutputConfig with summary metrics enabled.
+
+    Explicit indices are provided since SystemInterface normally provides
+    full-range defaults before OutputConfig is created.
+    """
     return OutputConfig(
         max_states=10,
         max_observables=5,
         precision=precision,
+        saved_state_indices=np.arange(10, dtype=np.int_),
+        saved_observable_indices=np.arange(5, dtype=np.int_),
+        summarised_state_indices=np.arange(10, dtype=np.int_),
+        summarised_observable_indices=np.arange(5, dtype=np.int_),
         output_types=["state", "observables", "time", "mean", "max"],
     )
 
@@ -48,7 +65,11 @@ class TestInitialization:
     """Test initialization and validation of OutputConfig."""
 
     def test_minimal_initialization(self, basic_config, precision):
-        """Test minimal valid initialization with defaults."""
+        """Test initialization with explicit indices as SystemInterface provides.
+
+        In normal usage, SystemInterface provides full-range defaults before
+        OutputConfig is created. OutputConfig just validates and stores them.
+        """
         config = basic_config
         assert config.max_states == 10
         assert config.max_observables == 5
@@ -56,7 +77,7 @@ class TestInitialization:
         assert config.save_observables is True
         assert config.save_time is False
         assert len(config.summary_types) == 0
-        # Check default indices
+        # Explicit indices are stored as provided
         np.testing.assert_array_equal(
             config.saved_state_indices, np.arange(10, dtype=np.int_)
         )
@@ -186,19 +207,24 @@ class TestProperties:
         assert config.saved_state_indices.dtype == np.int_
         assert config.saved_observable_indices.dtype == np.int_
 
-    def test_none_indices_conversion(self, precision):
-        """Test that empty indices lists are converted to full range arrays."""
+    def test_empty_indices_preserved(self, precision):
+        """Test that empty indices lists are preserved as empty arrays.
+
+        Default expansion to full range is handled upstream in SystemInterface,
+        not OutputConfig. OutputConfig preserves empty arrays as empty.
+        """
         config = OutputConfig(
             max_states=3,
             max_observables=2,
             precision=precision,
-            output_types=["state", "observables"],
+            output_types=["time"],  # Use time to avoid "no output" error
+        )
+        # Empty defaults are preserved, not expanded
+        np.testing.assert_array_equal(
+            config._saved_state_indices, np.array([], dtype=np.int_)
         )
         np.testing.assert_array_equal(
-            config.saved_state_indices, np.array([0, 1, 2])
-        )
-        np.testing.assert_array_equal(
-            config.saved_observable_indices, np.array([0, 1])
+            config._saved_observable_indices, np.array([], dtype=np.int_)
         )
 
 
@@ -377,18 +403,24 @@ class TestFromLoopSettings:
     """Test the from_loop_settings factory method."""
 
     def test_basic_creation(self, precision):
-        """Test basic creation with defaults."""
+        """Test basic creation with None indices.
+
+        from_loop_settings converts None to empty arrays. Default expansion
+        to full range is handled upstream in SystemInterface, which calls
+        from_loop_settings with already-resolved indices.
+        """
         config = OutputConfig.from_loop_settings(
-            output_types=["state", "observables"],
+            output_types=["time"],  # Use time to avoid "no output" error
             max_states=10,
             max_observables=5,
             precision=precision,
         )
 
-        assert config.save_state is True
-        assert config.save_observables is True
-        assert config.n_saved_states == 10
-        assert config.n_saved_observables == 5
+        # None indices converted to empty arrays
+        assert config.save_state is False
+        assert config.save_observables is False
+        assert config.n_saved_states == 0
+        assert config.n_saved_observables == 0
 
     def test_with_specified_indices(self, precision):
         """Test creation with specified indices."""
@@ -435,29 +467,45 @@ class TestFromLoopSettings:
 
         assert "peaks[3]" in config.summary_types
 
-    def test_summarised_indices_default_to_saved(self, precision):
-        """Test that summarised indices default to saved indices."""
+    def test_summarised_indices_independent_of_saved(self, precision):
+        """Test that summarised indices are independent of saved indices.
+
+        The "summarised defaults to saved" logic is handled upstream in
+        SystemInterface, not OutputConfig. from_loop_settings preserves
+        whatever indices are passed (or empty if None).
+        """
         config = OutputConfig.from_loop_settings(
             output_types=["mean"],
             saved_state_indices=np.array([0, 1], dtype=np.int_),
             saved_observable_indices=np.array([0], dtype=np.int_),
+            summarised_state_indices=None,  # Explicitly None
+            summarised_observable_indices=None,
             max_states=10,
             max_observables=5,
             precision=precision,
         )
+        # Summarised indices are empty when not explicitly provided
+        # Defaults are handled by SystemInterface, not OutputConfig
         np.testing.assert_array_equal(
-            config.summarised_state_indices, np.array([0, 1])
+            config._summarised_state_indices, np.array([], dtype=np.int_)
         )
         np.testing.assert_array_equal(
-            config.summarised_observable_indices, np.array([0])
+            config._summarised_observable_indices, np.array([], dtype=np.int_)
         )
 
     def test_mixed_output_types(self, precision):
-        """Test mixed output types."""
+        """Test mixed output types.
+
+        from_loop_settings now converts None indices to empty arrays.
+        The save_state/save_observables flags are set based on output_types,
+        but the properties return False when indices are empty.
+        """
         config = OutputConfig.from_loop_settings(
             output_types=["state", "mean", "peaks[3]", "observables"],
             max_states=10,
             max_observables=5,
+            saved_state_indices=np.arange(10, dtype=np.int_),
+            saved_observable_indices=np.arange(5, dtype=np.int_),
             precision=precision,
         )
         assert config.save_state is True
@@ -545,6 +593,87 @@ class TestUtilityProperties:
         config.output_types = ("mean",)
         config.summarised_observable_indices = np.array([0], dtype=np.int_)
         assert config.n_summarised_observables == 1
+
+
+class TestEmptyArrayPreservation:
+    """Test that empty arrays are preserved instead of expanded to full range."""
+
+    def test_empty_saved_state_indices_preserved(self, precision):
+        """Verify empty saved_state_indices stays empty (not expanded)."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            saved_state_indices=[],
+            output_types=["time"],
+        )
+        np.testing.assert_array_equal(
+            config._saved_state_indices, np.array([], dtype=np.int_)
+        )
+
+    def test_empty_saved_observable_indices_preserved(self, precision):
+        """Verify empty saved_observable_indices stays empty."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            saved_observable_indices=[],
+            output_types=["time"],
+        )
+        np.testing.assert_array_equal(
+            config._saved_observable_indices, np.array([], dtype=np.int_)
+        )
+
+    def test_empty_summarised_state_indices_preserved(self, precision):
+        """Verify empty summarised_state_indices stays empty."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            summarised_state_indices=[],
+            output_types=["time"],
+        )
+        np.testing.assert_array_equal(
+            config._summarised_state_indices, np.array([], dtype=np.int_)
+        )
+
+    def test_empty_summarised_observable_indices_preserved(self, precision):
+        """Verify empty summarised_observable_indices stays empty."""
+        config = OutputConfig(
+            max_states=10,
+            max_observables=5,
+            precision=precision,
+            summarised_observable_indices=[],
+            output_types=["time"],
+        )
+        np.testing.assert_array_equal(
+            config._summarised_observable_indices, np.array([], dtype=np.int_)
+        )
+
+    def test_from_loop_settings_preserves_empty_indices(self, precision):
+        """Verify from_loop_settings preserves explicit empty arrays."""
+        config = OutputConfig.from_loop_settings(
+            output_types=["time"],
+            precision=precision,
+            saved_state_indices=np.array([], dtype=np.int_),
+            saved_observable_indices=np.array([], dtype=np.int_),
+            summarised_state_indices=np.array([], dtype=np.int_),
+            summarised_observable_indices=np.array([], dtype=np.int_),
+            max_states=10,
+            max_observables=5,
+        )
+        np.testing.assert_array_equal(
+            config._saved_state_indices, np.array([], dtype=np.int_)
+        )
+        np.testing.assert_array_equal(
+            config._saved_observable_indices, np.array([], dtype=np.int_)
+        )
+        np.testing.assert_array_equal(
+            config._summarised_state_indices, np.array([], dtype=np.int_)
+        )
+        np.testing.assert_array_equal(
+            config._summarised_observable_indices, np.array([], dtype=np.int_)
+        )
 
 
 if __name__ == "__main__":
