@@ -33,7 +33,6 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
-    "save_every",  # Time interval for derivative metric scaling
     "sample_summaries_every",  # Sample interval for summary metrics
     "precision",  # Numerical precision for output calculations
 }
@@ -83,8 +82,9 @@ class OutputFunctions(CUDAFactory):
         Indices of state variables to include in summary calculations.
     summarised_observable_indices
         Indices of observable variables to include in summary calculations.
-    save_every
-        Time interval for save operations. Defaults to None.
+    sample_summaries_every
+        Time interval between summary metric samples. Used by derivative
+        metrics to scale finite differences. Defaults to None.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
 
@@ -106,7 +106,7 @@ class OutputFunctions(CUDAFactory):
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
-        save_every: Optional[float] = None,
+        sample_summaries_every: Optional[float] = None,
     ):
         super().__init__()
 
@@ -122,7 +122,7 @@ class OutputFunctions(CUDAFactory):
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
-            save_every=save_every,
+            sample_summaries_every=sample_summaries_every,
             precision=precision,
         )
         self.setup_compile_settings(config)

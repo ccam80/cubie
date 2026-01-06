@@ -126,10 +126,9 @@ class OutputConfig:
         *saved_observable_indices*.
     output_types
         Requested output type names, including summary metric identifiers.
-    save_every
-        Time between saved samples. Defaults to 0.01 seconds.
     sample_summaries_every
-        Time between summary metric samples. Defaults to save_every.
+        Time interval between summary metric samples. Used by derivative
+        metrics to scale finite differences. Defaults to 0.01 seconds.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
 
@@ -180,10 +179,6 @@ class OutputConfig:
     _save_counters: bool = attrs.field(default=False, init=False)
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
-    )
-    _save_every: Optional[float] = attrs.field(
-        default=None,
-        validator=opt_gttype_validator(float, 0.0)
     )
     _sample_summaries_every: Optional[float] = attrs.field(
         default=None,
@@ -667,19 +662,8 @@ class OutputConfig:
         return summary_metrics.params(list(self._summary_types))
 
     @property
-    def save_every(self) -> float:
-        """Time interval between saved states."""
-        return self._save_every
-
-    @property
     def sample_summaries_every(self) -> float:
-        """Time interval between summary metric samples.
-
-        Returns the configured sample_summaries_every value, or defaults
-        to save_every if not explicitly set.
-        """
-        if self._sample_summaries_every is None:
-            return self._save_every
+        """Time interval between summary metric samples."""
         return self._sample_summaries_every
 
     @property
@@ -918,8 +902,7 @@ class OutputConfig:
         summarised_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
         max_states: int = 0,
         max_observables: int = 0,
-        save_every: Optional[float] = 0.01,
-        sample_summaries_every: Optional[float] = None,
+        sample_summaries_every: Optional[float] = 0.01,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -943,11 +926,9 @@ class OutputConfig:
             Total number of state variables in the system.
         max_observables
             Total number of observable variables in the system.
-        save_every
-            Time interval between saved states. Defaults to ``0.01``.
         sample_summaries_every
-            Time interval between summary metric samples. Defaults to
-            save_every if not specified.
+            Time interval between summary metric samples. Used by derivative
+            metrics to scale finite differences. Defaults to ``0.01``.
         precision
             Numerical precision for output calculations. Defaults to
             ``np.float32`` if not provided.
@@ -985,7 +966,6 @@ class OutputConfig:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
-            save_every=save_every,
             sample_summaries_every=sample_summaries_every,
             precision=precision,
         )
