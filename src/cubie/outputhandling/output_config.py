@@ -662,7 +662,7 @@ class OutputConfig:
         return summary_metrics.params(list(self._summary_types))
 
     @property
-    def sample_summaries_every(self) -> float:
+    def sample_summaries_every(self) -> Optional[float]:
         """Time interval between summary metric samples."""
         return self._sample_summaries_every
 
