@@ -27,7 +27,7 @@ class D2xdt2Max(SummaryMetric):
     Uses three buffer slots: buffer[0] for previous value, buffer[1] for
     previous-previous value, and buffer[2] for maximum unscaled second
     derivative. The derivative is computed using central differences and
-    scaled by dt_save² in the save function.
+    scaled by sample_summaries_every² in the save function.
     """
 
     def __init__(self, precision) -> None:
@@ -52,10 +52,10 @@ class D2xdt2Max(SummaryMetric):
         -----
         The update callback computes central finite differences and tracks
         the maximum unscaled second derivative. The save callback scales
-        by dt_save² and resets the buffers.
+        by sample_summaries_every² and resets the buffers.
         """
 
-        dt_save = self.compile_settings.dt_save
+        sample_summaries_every = self.compile_settings.sample_summaries_every
         precision = self.compile_settings.precision
 
         # no cover: start
@@ -128,10 +128,13 @@ class D2xdt2Max(SummaryMetric):
 
             Notes
             -----
-            Scales the maximum unscaled second derivative by dt_save² and saves
-            to output_array[0], then resets buffers to sentinel values.
+            Scales the maximum unscaled second derivative by
+            sample_summaries_every² and saves to output_array[0], then resets
+            buffers to sentinel values.
             """
-            output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+            sample_interval_sq = (precision(sample_summaries_every)
+                                  * precision(sample_summaries_every))
+            output_array[0] = buffer[2] / sample_interval_sq
             buffer[2] = precision(-1.0e30)
 
         # no cover: end

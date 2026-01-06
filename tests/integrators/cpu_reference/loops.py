@@ -127,10 +127,21 @@ def run_reference_loop(
     max_save_samples = (int(np.floor(precision(duration) / precision(save_every)))
                         + 1)
 
+    # Calculate summary sample counts
+    max_summary_samples = (
+        int(np.floor(precision(duration) / precision(sample_summaries_every)))
+        + 1
+    )
+    samples_per_summary = int(summarise_every / sample_summaries_every)
+
     state = initial_state.copy()
     state_history = []
     observable_history = []
     time_history = []
+    # Separate history for summary calculations when cadences differ
+    summary_state_history = []
+    summary_observable_history = []
+
     t = t0
     t32 = precision(t)
     drivers_initial = driver_evaluator(t32)
@@ -143,25 +154,42 @@ def run_reference_loop(
 
     if warmup > np.float64(0.0):
         next_save_time = precision(warmup + t0)
+        next_summary_sample_time = precision(warmup + t0)
         save_idx = 0
     else:
-        next_save_time = precision(warmup + t0 + (save_every))
+        next_save_time = precision(warmup + t0 + save_every)
+        next_summary_sample_time = precision(warmup + t0 + sample_summaries_every)
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
+        summary_state_history = [state.copy()]
+        summary_observable_history = [observables.copy()]
         save_idx = 1
 
     end_time = precision(warmup + t0 + duration)
 
     status_flags = 0
 
-
-    while next_save_time <= end_time:
+    # Track when we need to sample for summaries vs save for output
+    while next_save_time <= end_time or next_summary_sample_time <= end_time:
         dt = controller.dt
         do_save = False
-        if t32 + dt >= next_save_time:
-            dt = precision(next_save_time - t32)
-            do_save = True
+        do_summary_sample = False
+
+        # Determine next event time
+        next_event_time = min(
+            next_save_time if next_save_time <= end_time else end_time + 1,
+            next_summary_sample_time if next_summary_sample_time <= end_time else end_time + 1
+        )
+        if next_event_time > end_time:
+            break
+
+        if t32 + dt >= next_event_time:
+            dt = precision(next_event_time - t32)
+            if next_event_time == next_save_time:
+                do_save = True
+            if next_event_time == next_summary_sample_time:
+                do_summary_sample = True
 
         result = stepper.step(
             state=state,
@@ -194,6 +222,12 @@ def run_reference_loop(
             next_save_time = next_save_time + save_every
             save_idx += 1
 
+        if do_summary_sample:
+            if len(summary_state_history) < max_summary_samples:
+                summary_state_history.append(result.state.copy())
+                summary_observable_history.append(result.observables.copy())
+            next_summary_sample_time = next_summary_sample_time + sample_summaries_every
+
     state_output = _collect_saved_outputs(
         state_history,
         max_save_samples,
@@ -212,18 +246,30 @@ def run_reference_loop(
             time_history.append(precision(0))
         state_output = np.column_stack((state_output, np.asarray(time_history)))
 
-    samples_per_summary = int(summarise_every / sample_summaries_every)
+    # Use summary-cadence data for summary calculations
+    summary_state_output = _collect_saved_outputs(
+        summary_state_history,
+        max_summary_samples,
+        summarised_state_indices,
+        precision,
+    )
+    summary_observable_output = _collect_saved_outputs(
+        summary_observable_history,
+        max_summary_samples,
+        summarised_observable_indices,
+        precision,
+    )
 
     state_summary, observable_summary = calculate_expected_summaries(
-        state_output,
-        observables_output,
-        summarised_state_indices,
-        summarised_observable_indices,
+        summary_state_output,
+        summary_observable_output,
+        np.arange(len(summarised_state_indices), dtype=np.int32),
+        np.arange(len(summarised_observable_indices), dtype=np.int32),
         samples_per_summary,
         output_functions.compile_settings.output_types,
         output_functions.summaries_output_height_per_var,
         precision,
-        dt_save=save_every,
+        sample_summaries_every=sample_summaries_every,
         exclude_first=True,  # Match IVP loop behavior: skip t=0 in summaries
     )
     final_status = status_flags & STATUS_MASK

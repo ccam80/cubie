@@ -26,7 +26,7 @@ class DxdtMax(SummaryMetric):
     -----
     Uses two buffer slots: buffer[0] for previous value and buffer[1] for
     maximum unscaled derivative. The derivative is computed using finite
-    differences and scaled by dt_save in the save function.
+    differences and scaled by sample_summaries_every in the save function.
     """
 
     def __init__(self, precision) -> None:
@@ -50,11 +50,11 @@ class DxdtMax(SummaryMetric):
         Notes
         -----
         The update callback computes finite differences and tracks the
-        maximum unscaled derivative. The save callback scales by dt_save
-        and resets the buffers.
+        maximum unscaled derivative. The save callback scales by
+        sample_summaries_every and resets the buffers.
         """
 
-        dt_save = self.compile_settings.dt_save
+        sample_summaries_every = self.compile_settings.sample_summaries_every
         precision = self.compile_settings.precision
 
         # no cover: start
@@ -125,10 +125,11 @@ class DxdtMax(SummaryMetric):
 
             Notes
             -----
-            Scales the maximum unscaled derivative by dt_save and saves to
-            output_array[0], then resets buffers to sentinel values.
+            Scales the maximum unscaled derivative by sample_summaries_every
+            and saves to output_array[0], then resets buffers to sentinel
+            values.
             """
-            output_array[0] = buffer[1] / precision(dt_save)
+            output_array[0] = buffer[1] / precision(sample_summaries_every)
             buffer[1] = precision(-1.0e30)
 
         # no cover: end

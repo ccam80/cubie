@@ -547,47 +547,47 @@ class TestUtilityProperties:
         assert config.n_summarised_observables == 1
 
 
-class TestSaveEveryProperty:
-    """Test save_every property behavior."""
+class TestSampleSummariesEveryProperty:
+    """Test sample_summaries_every property behavior."""
 
-    def test_save_every_property(self, precision):
-        """Verify OutputConfig has save_every property that returns value."""
+    def test_sample_summaries_every_property(self, precision):
+        """Verify OutputConfig has sample_summaries_every property."""
         config = OutputConfig(
             max_states=10,
             max_observables=5,
             precision=precision,
             output_types=["state"],
-            save_every=0.05,
+            sample_summaries_every=0.05,
         )
-        assert config.save_every == 0.05
+        assert config.sample_summaries_every == 0.05
 
-    def test_save_every_default(self, precision):
-        """Verify save_every uses default value when not specified."""
+    def test_sample_summaries_every_default(self, precision):
+        """Verify sample_summaries_every has no default when not specified."""
         config = OutputConfig(
             max_states=10,
             max_observables=5,
             precision=precision,
             output_types=["state"],
         )
-        assert config.save_every == 0.01
+        assert config.sample_summaries_every is None
 
-    def test_from_loop_settings_save_every(self, precision):
-        """Verify from_loop_settings accepts save_every parameter."""
+    def test_from_loop_settings_sample_summaries_every(self, precision):
+        """Verify from_loop_settings accepts sample_summaries_every."""
         config = OutputConfig.from_loop_settings(
             output_types=["state"],
             max_states=10,
             max_observables=5,
             precision=precision,
-            save_every=0.1,
+            sample_summaries_every=0.1,
         )
-        assert config.save_every == 0.1
+        assert config.sample_summaries_every == 0.1
 
-    def test_from_loop_settings_save_every_default(self, precision):
-        """Verify from_loop_settings uses default save_every value."""
+    def test_from_loop_settings_sample_summaries_every_default(self, precision):
+        """Verify from_loop_settings uses default sample_summaries_every."""
         config = OutputConfig.from_loop_settings(
             output_types=["state"],
             max_states=10,
             max_observables=5,
             precision=precision,
         )
-        assert config.save_every == 0.01
+        assert config.sample_summaries_every == 0.01
