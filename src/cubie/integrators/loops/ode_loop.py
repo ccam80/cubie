@@ -512,7 +512,7 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if n_drivers > int32(0):
+            if driver_function is not None and n_drivers > int32(0):
                 driver_function(
                     t_prec,
                     driver_coefficients,
