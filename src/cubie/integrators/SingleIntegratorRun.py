@@ -209,6 +209,18 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return True if end-of-run-only summary saving is configured."""
         return self._loop.compile_settings.summarise_last
 
+    @property
+    def is_duration_dependent(self) -> bool:
+        """Return True when the loop is compile-dependent on duration.
+
+        The loop function is duration-dependent when summarise_last mode
+        is active but no explicit sample_summaries_every was provided.
+        In this case, sample_summaries_every is computed from chunk_duration.
+        """
+        loop_config = self._loop.compile_settings
+        return (loop_config.summarise_last
+                and loop_config._sample_summaries_every is None)
+
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.
 

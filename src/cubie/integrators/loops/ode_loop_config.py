@@ -315,11 +315,12 @@ class ODELoopConfig:
 
     @property
     def samples_per_summary(self) -> Optional[int]:
-        """Return the number of updates between summary outputs."""
+        """Return the number of updates between summary outputs.
+
+        Returns None when timing is not configured; the loop build()
+        method handles None by using a large value for summarise_last mode.
+        """
         if self._summarise_every is None or self._sample_summaries_every is None:
-            # In summarise_last mode, return large sentinel so modulo never triggers
-            if self.summarise_last:
-                return 2**30
             return None
         return round(self.summarise_every / self.sample_summaries_every)
 

@@ -371,6 +371,10 @@ class IVPLoop(CUDAFactory):
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = config.samples_per_summary
+        # For summarise_last mode, use large value so modulo never triggers
+        # regular summary saves; summary is saved at end instead
+        if samples_per_summary is None and config.summarise_last:
+            samples_per_summary = 2**30
 
         # Boolean control-flow constants
         save_last = config.save_last

@@ -203,6 +203,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             driver_function=driver_function,
         )
 
+        # Provide sentinel sample_summaries_every to avoid NaN during initial
+        # build when summarise_last mode with no explicit timing
+        loop_config = self._loop.compile_settings
+        is_duration_dep = (loop_config.summarise_last
+                           and loop_config._sample_summaries_every is None)
+        if is_duration_dep:
+            self._loop.update({"sample_summaries_every": 0.01}, silent=True)
+
         # Register algorithm step and controller buffers with loop as parent
         buffer_registry.get_child_allocators(
             self._loop, self._algo_step, name="algorithm"
@@ -449,11 +457,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         # Compute sample_summaries_every from chunk_duration if needed
         if chunk_duration is not None:
             loop_config = self._loop.compile_settings
-            summarise_last = loop_config.summarise_last
-            current_sample_summaries_every = loop_config._sample_summaries_every
+            # Check duration dependency: summarise_last with no explicit timing
+            is_duration_dep = (loop_config.summarise_last
+                               and loop_config._sample_summaries_every is None)
 
-            # If summarise_last mode with no explicit sample_summaries_every
-            if summarise_last and current_sample_summaries_every is None:
+            if is_duration_dep:
                 computed_sample_summaries_every = chunk_duration / 100.0
                 updates_dict["sample_summaries_every"] = (
                     computed_sample_summaries_every
