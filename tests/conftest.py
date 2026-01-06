@@ -449,7 +449,11 @@ def solver_settings(solver_settings_override, solver_settings_override2,
             # Update defaults with any overrides provided
             for key, value in override.items():
                 if key in float_keys:
-                    defaults[key] = precision(value)
+                    # Handle None values for optional float parameters
+                    if value is None:
+                        defaults[key] = None
+                    else:
+                        defaults[key] = precision(value)
                 else:
                     defaults[key] = value
 

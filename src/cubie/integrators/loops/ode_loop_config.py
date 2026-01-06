@@ -190,6 +190,10 @@ class ODELoopConfig:
         default=None,
         validator=opt_gttype_validator(float, 0)
     )
+    _duration: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
 
     # Flags for end-of-run-only behavior
     save_last: bool = field(
@@ -335,10 +339,30 @@ class ODELoopConfig:
                     f"is not close to any integer."
                 )
 
+    def reset_timing_inference(self) -> None:
+        """Reset inferred timing values and re-run inference logic.
+
+        Call this method after updating timing parameters to None to
+        ensure derived values are recalculated rather than preserved.
+        This enables proper parameter reset on subsequent solves.
+        """
+        # Reset flags to defaults before re-inferring
+        self.save_last = False
+        self.summarise_last = False
+        # Re-run inference logic
+        self.__attrs_post_init__()
+
     @property
     def samples_per_summary(self) -> Optional[int]:
-        """Return the number of updates between summary outputs."""
+        """Return the number of updates between summary outputs.
+
+        When summarise_every is None but summarise_last is True,
+        defaults to duration/100 samples if duration is available.
+        """
         if self._summarise_every is None:
+            if self._duration is not None and self.summarise_last:
+                # Default to 100 samples when using summarise_last
+                return max(1, int(self._duration / 100))
             return None
         return round(self.summarise_every / self.sample_summaries_every)
 
@@ -372,6 +396,13 @@ class ODELoopConfig:
         if self._sample_summaries_every is None:
             return None
         return self.precision(self._sample_summaries_every)
+
+    @property
+    def duration(self) -> Optional[float]:
+        """Return the integration duration, or None if not configured."""
+        if self._duration is None:
+            return None
+        return self.precision(self._duration)
 
     @property
     def dt0(self) -> float:

@@ -156,20 +156,20 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Loop properties
     # ------------------------------------------------------------------
     @property
-    def save_every(self) -> float:
-        """Return the loop save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the loop save interval, or None if not configured."""
 
         return self._loop.save_every
 
     @property
-    def summarise_every(self) -> float:
-        """Return the loop summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the loop summary interval, or None if not configured."""
 
         return self._loop.summarise_every
 
     @property
-    def sample_summaries_every(self) -> float:
-        """Return the loop sample summaries interval."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the loop sample summaries interval, or None if not configured."""
 
         return self._loop.sample_summaries_every
 

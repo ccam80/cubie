@@ -37,6 +37,7 @@ ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
     "sample_summaries_every",
+    "duration",
     "dt0",
     "dt_min",
     "dt_max",
@@ -835,18 +836,18 @@ class IVPLoop(CUDAFactory):
         return IVPLoopCache(loop_function=loop_fn)
 
     @property
-    def save_every(self) -> float:
-        """Return the save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the save interval, or None if not configured."""
         return self.compile_settings.save_every
     
     @property
-    def summarise_every(self) -> float:
-        """Return the summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
         return self.compile_settings.summarise_every
     
     @property
-    def sample_summaries_every(self) -> float:
-        """Return the summary sampling interval."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
         return self.compile_settings.sample_summaries_every
 
     @property
@@ -984,7 +985,20 @@ class IVPLoop(CUDAFactory):
         #       -> {'dt_save': 0.01, 'other': 5}
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
+        # Check if any timing parameter was explicitly set to None
+        timing_params = {'save_every', 'summarise_every', 'sample_summaries_every'}
+        timing_reset_needed = any(
+            key in updates_dict and updates_dict[key] is None
+            for key in timing_params
+        )
+
         recognised = self.update_compile_settings(updates_dict, silent=True)
+
+        # If timing params were reset to None, re-run inference
+        if timing_reset_needed:
+            self.compile_settings.reset_timing_inference()
+            # Cache invalidated by timing changes
+            self._invalidate_cache()
 
         # Update buffer locations in registry
         recognised |= buffer_registry.update(self, updates_dict, silent=True)

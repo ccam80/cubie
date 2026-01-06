@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/refactor_loop_timing/agent_plan.md
 
 ## Task Group 1: ODELoopConfig Enhancement - Duration Field and samples_per_summary
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -96,17 +96,39 @@
 - Description: Verify duration property returns precision-cast value or None
 
 **Tests to Run**:
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_samples_per_summary_with_summarise_last_and_duration
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_samples_per_summary_without_duration_returns_none
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_duration_property
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestDurationProperty::test_duration_property_returns_precision_cast_value
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestDurationProperty::test_duration_property_returns_none_when_not_set
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestSamplesPerSummaryWithDuration::test_samples_per_summary_with_summarise_last_and_duration
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestSamplesPerSummaryWithDuration::test_samples_per_summary_minimum_is_one
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestSamplesPerSummaryWithDuration::test_samples_per_summary_without_duration_returns_none
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestSamplesPerSummaryWithDuration::test_samples_per_summary_with_periodic_summarise_every
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestDurationValidation::test_duration_rejects_negative_value
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestDurationValidation::test_duration_rejects_zero_value
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestDurationValidation::test_duration_accepts_positive_value
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/loops/ode_loop_config.py (18 lines changed)
+  * src/cubie/integrators/loops/ode_loop.py (1 line changed)
+- Files Created:
+  * tests/integrators/loops/test_ode_loop_config_timing.py (130 lines)
+- Functions/Methods Added/Modified:
+  * Added _duration field to ODELoopConfig class
+  * Added duration property to ODELoopConfig class
+  * Modified samples_per_summary property to include duration fallback
+  * Added 'duration' to ALL_LOOP_SETTINGS set
+- Implementation Summary:
+  Added _duration field with opt_gttype_validator for positive float validation.
+  Added duration property that returns precision-cast value or None.
+  Enhanced samples_per_summary to return duration/100 when summarise_last=True
+  and duration is available, with a minimum of 1. Added 'duration' to 
+  ALL_LOOP_SETTINGS to allow propagation through update chain.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: BatchSolverKernel None-Safe Output Length Properties
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -240,19 +262,48 @@
 - Description: Verify warmup_length returns 0 when save_every is None
 
 **Tests to Run**:
-- tests/batchsolving/test_kernel_output_lengths.py::test_output_length_with_save_every_none
-- tests/batchsolving/test_kernel_output_lengths.py::test_output_length_with_periodic_save
-- tests/batchsolving/test_kernel_output_lengths.py::test_summaries_length_with_summarise_every_none
-- tests/batchsolving/test_kernel_output_lengths.py::test_summaries_length_with_periodic_summarise
-- tests/batchsolving/test_kernel_output_lengths.py::test_warmup_length_with_save_every_none
+- tests/batchsolving/test_kernel_output_lengths.py::TestOutputLengthNoneSafe::test_output_length_with_save_every_none
+- tests/batchsolving/test_kernel_output_lengths.py::TestOutputLengthNoneSafe::test_output_length_with_periodic_save
+- tests/batchsolving/test_kernel_output_lengths.py::TestSummariesLengthNoneSafe::test_summaries_length_with_summarise_every_none
+- tests/batchsolving/test_kernel_output_lengths.py::TestSummariesLengthNoneSafe::test_summaries_length_with_periodic_summarise
+- tests/batchsolving/test_kernel_output_lengths.py::TestWarmupLengthNoneSafe::test_warmup_length_with_save_every_none
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (24 lines changed)
+  * src/cubie/integrators/loops/ode_loop.py (6 lines changed)
+  * src/cubie/integrators/SingleIntegratorRun.py (6 lines changed)
+  * tests/conftest.py (5 lines changed - added None handling for float_keys)
+- Files Created:
+  * tests/batchsolving/test_kernel_output_lengths.py (134 lines)
+- Functions/Methods Added/Modified:
+  * output_length property in BatchSolverKernel - added None check for save_every
+  * summaries_length property in BatchSolverKernel - added None check for summarise_every
+  * warmup_length property in BatchSolverKernel - added None check for save_every
+  * save_every property in BatchSolverKernel - changed return type to Optional[float]
+  * summarise_every property in BatchSolverKernel - changed return type to Optional[float]
+  * save_every property in IVPLoop - changed return type to Optional[float]
+  * summarise_every property in IVPLoop - changed return type to Optional[float]
+  * sample_summaries_every property in IVPLoop - changed return type to Optional[float]
+  * save_every property in SingleIntegratorRun - changed return type to Optional[float]
+  * summarise_every property in SingleIntegratorRun - changed return type to Optional[float]
+  * sample_summaries_every property in SingleIntegratorRun - changed return type to Optional[float]
+- Implementation Summary:
+  Made output_length, summaries_length, and warmup_length properties in BatchSolverKernel
+  None-safe by checking for save_every=None or summarise_every=None before performing
+  calculations. Updated return types of save_every and summarise_every properties
+  throughout the property chain (ODELoopConfig -> IVPLoop -> SingleIntegratorRun ->
+  BatchSolverKernel) to return Optional[float]. Updated test fixture conftest.py to
+  handle None values for optional float parameters. Created comprehensive test suite
+  with parameterized tests covering all None-safe scenarios.
+- Issues Flagged: None
+  with parameterized tests covering all None-safe scenarios.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Parameter Reset Mechanism for Timing Parameters
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -322,17 +373,34 @@
 - Description: Verify IVPLoop.update with timing param=None triggers reset_timing_inference
 
 **Tests to Run**:
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_timing_parameter_reset_on_none
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_reset_timing_inference_clears_flags
-- tests/integrators/loops/test_ode_loop_config_timing.py::test_update_with_none_timing_triggers_reset
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestTimingResetMechanism::test_reset_timing_inference_clears_flags
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestTimingResetMechanism::test_timing_parameter_reset_on_none
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestTimingResetMechanism::test_reset_handles_partial_none_values
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestIVPLoopTimingReset::test_update_with_none_timing_triggers_reset
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestIVPLoopTimingReset::test_update_without_none_timing_preserves_flags
+- tests/integrators/loops/test_ode_loop_config_timing.py::TestIVPLoopTimingReset::test_update_with_explicit_timing_value_no_reset
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/integrators/loops/ode_loop_config.py (12 lines added)
+  * src/cubie/integrators/loops/ode_loop.py (9 lines added)
+- Files Modified (Tests):
+  * tests/integrators/loops/test_ode_loop_config_timing.py (80 lines added)
+- Functions/Methods Added/Modified:
+  * Added reset_timing_inference() method to ODELoopConfig class
+  * Modified update() method in IVPLoop class to detect None timing params and trigger reset
+- Implementation Summary:
+  Added reset_timing_inference method to ODELoopConfig that resets save_last and
+  summarise_last flags to False before re-running __attrs_post_init__ inference logic.
+  Modified IVPLoop.update to detect when timing parameters are explicitly set to None
+  and call reset_timing_inference followed by cache invalidation. This ensures proper
+  parameter reset on subsequent solves when users set timing params back to None.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Duration Propagation Through Update Chain
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 3
 
 **Required Context**:
@@ -394,16 +462,31 @@
 - Description: Verify that samples_per_summary calculates correctly when summarise_last=True
 
 **Tests to Run**:
-- tests/batchsolving/test_duration_propagation.py::test_duration_propagates_to_loop_config
-- tests/batchsolving/test_duration_propagation.py::test_samples_per_summary_uses_propagated_duration
+- tests/batchsolving/test_duration_propagation.py::TestDurationPropagation::test_duration_propagates_to_loop_config
+- tests/batchsolving/test_duration_propagation.py::TestDurationPropagation::test_samples_per_summary_uses_propagated_duration
+- tests/batchsolving/test_duration_propagation.py::TestDurationUpdateChain::test_duration_update_recognized
+- tests/batchsolving/test_duration_propagation.py::TestDurationUpdateChain::test_duration_property_returns_value
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (3 lines added)
+- Files Created:
+  * tests/batchsolving/test_duration_propagation.py (100 lines)
+- Functions/Methods Added/Modified:
+  * Modified run() method in BatchSolverKernel to propagate duration to single_integrator
+- Implementation Summary:
+  Added duration propagation in BatchSolverKernel.run by calling
+  self.single_integrator.update({"duration": duration}, silent=True) after
+  setting self._duration. Verified that SingleIntegratorRunCore.update already
+  passes updates_dict to loop.update(), which flows through to ODELoopConfig
+  via update_compile_settings. The 'duration' key was added to ALL_LOOP_SETTINGS
+  in Task Group 1, enabling recognition in the update chain.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Duration Dependency Warning at Solver Level
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 4
 
 **Required Context**:
@@ -451,17 +534,31 @@
 - Description: Verify no warning when summarise_last=False
 
 **Tests to Run**:
-- tests/batchsolving/test_solver_warnings.py::test_duration_dependency_warning_emitted
-- tests/batchsolving/test_solver_warnings.py::test_no_warning_with_explicit_summarise_every
-- tests/batchsolving/test_solver_warnings.py::test_no_warning_with_summarise_last_false
+- tests/batchsolving/test_solver_warnings.py::TestDurationDependencyWarning::test_duration_dependency_warning_emitted
+- tests/batchsolving/test_solver_warnings.py::TestDurationDependencyWarning::test_no_warning_with_explicit_summarise_every
+- tests/batchsolving/test_solver_warnings.py::TestDurationDependencyWarning::test_no_warning_with_summarise_last_false
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (11 lines changed)
+- Files Created:
+  * tests/batchsolving/test_solver_warnings.py (113 lines)
+- Functions/Methods Added/Modified:
+  * Added `import warnings` at top of solver.py
+  * Added duration dependency check before kernel.run in Solver.solve method
+- Implementation Summary:
+  Added warning emission in Solver.solve that fires when summarise_last=True
+  and summarise_every=None, alerting users that changing duration will trigger
+  kernel recompilation. The warning suggests setting summarise_every explicitly
+  to avoid recompilation overhead. Created comprehensive test suite with three
+  test cases covering: warning emission when conditions are met, no warning with
+  explicit summarise_every, and no warning when summarise_last=False.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Solver Property Type Annotations and None-Safety
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -535,17 +632,40 @@
 - Description: Verify SolveSpec created from solve_info handles None timing values
 
 **Tests to Run**:
-- tests/batchsolving/test_solver_timing_properties.py::test_solver_save_every_returns_none_in_save_last_mode
-- tests/batchsolving/test_solver_timing_properties.py::test_solver_summarise_every_returns_none_in_summarise_last_mode
-- tests/batchsolving/test_solver_timing_properties.py::test_solve_info_handles_none_timing_values
+- tests/batchsolving/test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_save_every_returns_none_in_save_last_mode
+- tests/batchsolving/test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_summarise_every_returns_none_in_summarise_last_mode
+- tests/batchsolving/test_solver_timing_properties.py::TestSolveSpecNoneTimingValues::test_solve_info_handles_none_timing_values
+- tests/batchsolving/test_solver_timing_properties.py::TestSolveSpecNoneTimingValues::test_solve_spec_accepts_float_timing_values
+- tests/batchsolving/test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_save_every_returns_float_when_configured
+- tests/batchsolving/test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_summarise_every_returns_float_when_configured
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (6 lines changed)
+  * src/cubie/batchsolving/solveresult.py (9 lines changed)
+- Files Created:
+  * tests/batchsolving/test_solver_timing_properties.py (110 lines)
+- Functions/Methods Added/Modified:
+  * save_every property in Solver - added Optional[float] return type and updated docstring
+  * summarise_every property in Solver - added Optional[float] return type and updated docstring
+  * sample_summaries_every property in Solver - added Optional[float] return type and updated docstring
+  * save_every field in SolveSpec - changed to Optional[float] with opt_gttype_validator
+  * summarise_every field in SolveSpec - changed to Optional[float] with opt_getype_validator
+  * sample_summaries_every field in SolveSpec - changed to Optional[float] with opt_getype_validator
+- Implementation Summary:
+  Updated Solver timing properties (save_every, summarise_every, sample_summaries_every)
+  to return Optional[float] with updated docstrings indicating None is returned when in
+  save_last or summarise_last mode. Updated SolveSpec fields to use Optional[float] type
+  annotations with optional validators (opt_gttype_validator and opt_getype_validator)
+  to accept None values. Added opt_getype_validator import to solveresult.py. Created
+  comprehensive test suite covering None and float return value scenarios for both
+  Solver properties and SolveSpec instantiation.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 7: Integration Tests for All Timing Modes
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-6
 
 **Required Context**:
@@ -647,15 +767,34 @@
 - Description: Verify duration dependency warning is emitted
 
 **Tests to Run**:
-- tests/batchsolving/test_timing_modes.py::test_save_last_only_output_length
-- tests/batchsolving/test_timing_modes.py::test_summarise_last_only_summaries_length
-- tests/batchsolving/test_timing_modes.py::test_periodic_save_output_length
-- tests/batchsolving/test_timing_modes.py::test_periodic_summarise_length
-- tests/batchsolving/test_timing_modes.py::test_sample_summaries_every_recalculates_on_none
-- tests/batchsolving/test_timing_modes.py::test_warning_on_summarise_last_without_summarise_every
+- tests/batchsolving/test_timing_modes.py::TestTimingModeOutputLengths::test_save_last_only_output_length
+- tests/batchsolving/test_timing_modes.py::TestTimingModeOutputLengths::test_summarise_last_only_summaries_length
+- tests/batchsolving/test_timing_modes.py::TestTimingModeOutputLengths::test_periodic_save_output_length
+- tests/batchsolving/test_timing_modes.py::TestTimingModeOutputLengths::test_periodic_summarise_length
+- tests/batchsolving/test_timing_modes.py::TestParameterReset::test_sample_summaries_every_recalculates_on_none
+- tests/batchsolving/test_timing_modes.py::TestDurationDependencyWarning::test_warning_on_summarise_last_without_summarise_every
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Created:
+  * tests/batchsolving/test_timing_modes.py (200 lines)
+- Test Classes/Methods Added:
+  * TestTimingModeOutputLengths class with 4 test methods
+    - test_save_last_only_output_length: verifies output_length=2 when save_every=None
+    - test_summarise_last_only_summaries_length: verifies summaries_length=2 when summarise_every=None
+    - test_periodic_save_output_length: verifies floor(duration/save_every)+1 outputs
+    - test_periodic_summarise_length: verifies floor(duration/summarise_every) summaries
+  * TestParameterReset class with 1 test method
+    - test_sample_summaries_every_recalculates_on_none: verifies reset behavior between solves
+  * TestDurationDependencyWarning class with 1 test method
+    - test_warning_on_summarise_last_without_summarise_every: verifies warning emission
+- Implementation Summary:
+  Created comprehensive integration tests validating timing parameter behavior from solve_ivp
+  through to output array sizing. Tests use solver_mutable fixture with solver_settings_override
+  to configure timing parameters, and verify actual output array shapes match expected values
+  based on timing mode calculations. Tests cover all four timing parameter combinations
+  (save_last, summarise_last, periodic save, periodic summarise) plus parameter reset behavior
+  and duration dependency warning emission.
+- Issues Flagged: None
 
 ---
 

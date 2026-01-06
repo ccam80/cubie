@@ -5,6 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
+import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -534,6 +535,18 @@ class Solver:
                  "driver_del_t": self.driver_interpolator.driver_del_t}
             )
 
+        # Check for duration dependency condition
+        loop_config = self.kernel.single_integrator._loop.compile_settings
+        if (loop_config.summarise_last and
+                loop_config._summarise_every is None):
+            warnings.warn(
+                "sample_summaries_every has been calculated from duration. "
+                "Changing duration will trigger kernel recompilation. "
+                "Set summarise_every explicitly to avoid recompilation.",
+                UserWarning,
+                stacklevel=2
+            )
+
         self.kernel.run(
             inits=inits,
             params=params,
@@ -1023,18 +1036,18 @@ class Solver:
         return self.kernel.dt_max
 
     @property
-    def save_every(self):
-        """Return the interval between saved outputs."""
+    def save_every(self) -> Optional[float]:
+        """Return the interval between saved outputs, or None if save_last only."""
         return self.kernel.save_every
 
     @property
-    def summarise_every(self):
-        """Return the interval between summary computations."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the interval between summary computations, or None if summarise_last only."""
         return self.kernel.summarise_every
-    
+
     @property
-    def sample_summaries_every(self):
-        """Return the interval between summary metric samples."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the interval between summary metric samples, or None if not set."""
         return self.kernel.sample_summaries_every
 
     @property

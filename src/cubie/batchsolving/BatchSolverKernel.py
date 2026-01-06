@@ -340,6 +340,9 @@ class BatchSolverKernel(CUDAFactory):
             }
         )
 
+        # Propagate duration to single_integrator for loop config
+        self.single_integrator.update({"duration": duration}, silent=True)
+
         # Queue allocations
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
@@ -944,34 +947,52 @@ class BatchSolverKernel(CUDAFactory):
         
         Includes both initial state (at t=t0 or t=settling_time) and final
         state (at t=t_end) for complete trajectory coverage.
+        
+        When save_every is None (save_last mode), returns 2 for initial
+        and final state capture only.
         """
+        save_every = self.single_integrator.save_every
+        if save_every is None:
+            # save_last mode: initial + final = 2
+            return 2
         return (int(
                 np_floor(self.precision(self.duration) /
-                        self.precision(self.single_integrator.save_every)))
+                        self.precision(save_every)))
                 + 1)
 
     @property
     def summaries_length(self) -> int:
         """Number of complete summary intervals across the integration window.
         
-        Summaries count only complete summarise_every periods using floor
-        division. No summary is recorded for t=0 and partial intervals at
-        the tail of integration are excluded.
+        When summarise_every is None (summarise_last mode), returns 2 for
+        initial and final summary capture only.
+        
+        For periodic summaries, counts only complete summarise_every periods
+        using floor division. No summary is recorded for t=0 and partial
+        intervals at the tail of integration are excluded.
         """
+        summarise_every = self.single_integrator.summarise_every
+        if summarise_every is None:
+            # summarise_last mode: initial + final = 2
+            return 2
         precision = self.precision
-        return int(precision(self._duration) / precision(self.summarise_every))
+        return int(precision(self._duration) / precision(summarise_every))
 
     @property
     def warmup_length(self) -> int:
         """Number of warmup save intervals completed before capturing output.
+        
+        Returns 0 when save_every is None (save_last mode only).
         
         Note: Warmup uses ceil(warmup/save_every) WITHOUT the +1 because warmup
         saves are transient and discarded after settling. The final warmup
         state becomes the initial state of the main run, so there is no need
         to save both endpoints in the warmup phase.
         """
-
-        return int(np_ceil(self._warmup / self.single_integrator.save_every))
+        save_every = self.single_integrator.save_every
+        if save_every is None:
+            return 0
+        return int(np_ceil(self._warmup / save_every))
 
     @property
     def system(self) -> "BaseODE":
@@ -1010,14 +1031,14 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.rtol
 
     @property
-    def save_every(self) -> float:
-        """Interval between saved samples from the loop."""
+    def save_every(self) -> Optional[float]:
+        """Interval between saved samples from the loop, or None if save_last only."""
 
         return self.single_integrator.save_every
 
     @property
-    def summarise_every(self) -> float:
-        """Interval between summary reductions from the loop."""
+    def summarise_every(self) -> Optional[float]:
+        """Interval between summary reductions from the loop, or None if summarise_last only."""
 
         return self.single_integrator.summarise_every
     
