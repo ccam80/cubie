@@ -12,7 +12,8 @@ updates when numba-cuda versions change.
 """
 
 import hashlib
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 from attrs import fields, has
 from numba.cuda.core.caching import (
@@ -113,6 +114,8 @@ class CUBIECacheLocator(_CacheLocator):
         Hash representing the ODE system definition for freshness.
     compile_settings_hash
         Hash of compile settings for disambiguation.
+    custom_cache_dir
+        Optional custom cache directory. Overrides default location.
     """
 
     def __init__(
@@ -120,11 +123,15 @@ class CUBIECacheLocator(_CacheLocator):
         system_name: str,
         system_hash: str,
         compile_settings_hash: str,
+        custom_cache_dir: Optional[Path] = None,
     ) -> None:
         self._system_name = system_name
         self._system_hash = system_hash
         self._compile_settings_hash = compile_settings_hash
-        self._cache_path = GENERATED_DIR / system_name / "cache"
+        if custom_cache_dir is not None:
+            self._cache_path = Path(custom_cache_dir)
+        else:
+            self._cache_path = GENERATED_DIR / system_name / "cache"
 
     def get_cache_path(self) -> str:
         """Return the directory where cache files are stored.
@@ -184,6 +191,8 @@ class CUBIECacheImpl(CacheImpl):
         Hash representing the ODE system definition.
     compile_settings_hash
         Hash of compile settings for cache key.
+    custom_cache_dir
+        Optional custom cache directory.
     """
 
     # Override locator classes to use only CuBIE locator
@@ -194,10 +203,12 @@ class CUBIECacheImpl(CacheImpl):
         system_name: str,
         system_hash: str,
         compile_settings_hash: str,
+        custom_cache_dir: Optional[Path] = None,
     ) -> None:
         # Create CUBIECacheLocator directly (not via from_function)
         self._locator = CUBIECacheLocator(
-            system_name, system_hash, compile_settings_hash
+            system_name, system_hash, compile_settings_hash,
+            custom_cache_dir=custom_cache_dir,
         )
         disambiguator = self._locator.get_disambiguator()
         self._filename_base = f"{system_name}-{disambiguator}"
@@ -272,6 +283,14 @@ class CUBIECache(Cache):
         Hash representing the ODE system definition.
     compile_settings
         Attrs class instance of compile settings.
+    max_entries
+        Maximum number of cache entries before LRU eviction.
+        Set to 0 to disable eviction.
+    mode
+        Caching mode: 'hash' for content-addressed caching,
+        'flush_on_change' to clear cache when settings change.
+    custom_cache_dir
+        Optional custom cache directory. Overrides default location.
 
     Notes
     -----
@@ -286,16 +305,22 @@ class CUBIECache(Cache):
         system_name: str,
         system_hash: str,
         compile_settings: Any,
+        max_entries: int = 10,
+        mode: str = 'hash',
+        custom_cache_dir: Optional[Path] = None,
     ) -> None:
         self._system_name = system_name
         self._system_hash = system_hash
         self._compile_settings_hash = hash_compile_settings(compile_settings)
         self._name = f"CUBIECache({system_name})"
+        self._max_entries = max_entries
+        self._mode = mode
 
         self._impl = CUBIECacheImpl(
             system_name,
             system_hash,
             self._compile_settings_hash,
+            custom_cache_dir=custom_cache_dir,
         )
         self._cache_path = self._impl.locator.get_cache_path()
 
@@ -359,3 +384,71 @@ class CUBIECache(Cache):
         from numba.cuda import utils
         with utils.numba_target_override():
             return super().load_overload(sig, target_context)
+
+    def enforce_cache_limit(self) -> None:
+        """Evict oldest cache entries if count exceeds max_entries.
+
+        Uses filesystem mtime for LRU ordering. Evicts .nbi/.nbc
+        file pairs together.
+        """
+        if self._max_entries == 0:
+            return  # Eviction disabled
+
+        cache_path = Path(self._cache_path)
+        if not cache_path.exists():
+            return
+
+        # Find all .nbi files (index files)
+        nbi_files = list(cache_path.glob("*.nbi"))
+        if len(nbi_files) < self._max_entries:
+            return
+
+        # Sort by mtime (oldest first)
+        nbi_files.sort(key=lambda f: f.stat().st_mtime)
+
+        # Evict oldest until under limit (leave room for new entry)
+        files_to_remove = len(nbi_files) - self._max_entries + 1
+        for nbi_file in nbi_files[:files_to_remove]:
+            base = nbi_file.stem
+            # Remove .nbi file
+            try:
+                nbi_file.unlink()
+            except OSError:
+                pass
+            # Remove associated .nbc files (may be multiple)
+            for nbc_file in cache_path.glob(f"{base}.*.nbc"):
+                try:
+                    nbc_file.unlink()
+                except OSError:
+                    pass
+
+    def save_overload(self, sig, data):
+        """Save kernel to cache, enforcing entry limit first.
+
+        Parameters
+        ----------
+        sig
+            Function signature.
+        data
+            Kernel data to cache.
+        """
+        self.enforce_cache_limit()
+        super().save_overload(sig, data)
+
+    def flush_cache(self) -> None:
+        """Delete all cache files in the cache directory.
+
+        Removes all .nbi and .nbc files, then recreates an empty
+        cache directory.
+        """
+        import shutil
+        cache_path = Path(self._cache_path)
+        if cache_path.exists():
+            try:
+                shutil.rmtree(cache_path)
+            except OSError:
+                pass
+        try:
+            cache_path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass

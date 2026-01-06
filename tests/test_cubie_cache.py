@@ -318,11 +318,12 @@ def test_batch_solver_kernel_cache_disabled(
         loop_settings=loop_settings,
     )
 
-    # Disable caching via update_compile_settings
-    solver.update_compile_settings(caching_enabled=False)
+    # Disable caching via update on cache_config
+    solver.compile_settings.cache_config.enabled = False
 
     # Verify caching_enabled is False in compile_settings
     assert solver.compile_settings.caching_enabled is False
+    solver._invalidate_cache()
 
     # Build the kernel
     kernel = solver.kernel
