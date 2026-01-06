@@ -406,20 +406,26 @@ class CUBIECache(Cache):
         # Sort by mtime (oldest first)
         nbi_files.sort(key=lambda f: f.stat().st_mtime)
 
-        # Evict oldest until under limit (leave room for new entry)
+        # Evict oldest until at or under limit
         files_to_remove = len(nbi_files) - self._max_entries + 1
         for nbi_file in nbi_files[:files_to_remove]:
             base = nbi_file.stem
             # Remove .nbi file
             try:
                 nbi_file.unlink()
-            except OSError:
-                pass
+            except OSError as e:
+                # Log warning but continue - file may be locked or deleted
+                import warnings
+                warnings.warn(
+                    f"Failed to remove cache file {nbi_file}: {e}",
+                    RuntimeWarning,
+                )
             # Remove associated .nbc files (may be multiple)
             for nbc_file in cache_path.glob(f"{base}.*.nbc"):
                 try:
                     nbc_file.unlink()
                 except OSError:
+                    # Silently continue - .nbc cleanup is best-effort
                     pass
 
     def save_overload(self, sig, data):

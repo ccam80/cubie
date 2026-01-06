@@ -247,10 +247,13 @@ class BatchSolverKernel(CUDAFactory):
         """
         if isinstance(cache, bool):
             return CacheConfig(enabled=cache)
-        elif cache == 'flush_on_change':
-            return CacheConfig(enabled=True, mode='flush_on_change')
-        elif isinstance(cache, (str, Path)):
-            return CacheConfig(enabled=True, cache_dir=Path(cache))
+        elif isinstance(cache, Path):
+            return CacheConfig(enabled=True, cache_dir=cache)
+        elif isinstance(cache, str):
+            if cache == 'flush_on_change':
+                return CacheConfig(enabled=True, mode='flush_on_change')
+            else:
+                return CacheConfig(enabled=True, cache_dir=Path(cache))
         else:
             raise TypeError(
                 f"cache must be bool, 'flush_on_change', or Path, "
