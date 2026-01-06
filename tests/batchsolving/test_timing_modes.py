@@ -8,144 +8,154 @@ array sizing for each timing parameter combination:
 3. save_every=None, summarise_every=X (save_last, periodic summarise)
 4. save_every=X, summarise_every=Y (both periodic)
 5. Parameter reset between solves
+
+Note: These tests create solver instances locally to avoid session-scoped
+fixture duration issues when calling solver.solve(). Uses a system without
+drivers to avoid driver array configuration issues.
 """
 import warnings
 
 import numpy as np
 import pytest
 
+from cubie.batchsolving.solver import Solver
+from tests.system_fixtures import build_three_state_constant_deriv_system
+
+
+# Default test duration - short for fast tests
+TEST_DURATION = 0.2
+
+
+@pytest.fixture(scope="module")
+def no_driver_system():
+    """Create a system without drivers for local integration tests."""
+    return build_three_state_constant_deriv_system(np.float32)
+
 
 class TestTimingModeOutputLengths:
     """Test output array lengths for each timing mode."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": None}],
-        indirect=True,
-    )
-    def test_save_last_only_output_length(self, solver_mutable, system):
+    def test_save_last_only_output_length(self, no_driver_system):
         """save_every=None produces output_length=2."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=None,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
         result = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=1.0,
+            duration=TEST_DURATION,
         )
 
         # output_length=2 means state shape[0] (time dimension) should be 2
         assert result.state.shape[0] == 2
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": None}],
-        indirect=True,
-    )
-    def test_summarise_last_only_summaries_length(
-        self, solver_mutable, system
-    ):
+    def test_summarise_last_only_summaries_length(self, no_driver_system):
         """summarise_every=None produces summaries_length=2."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=None,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
         result = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=1.0,
+            duration=TEST_DURATION,
         )
 
         # summaries_length=2 means summaries shape[0] (time dimension) is 2
         assert result.state_summaries.shape[0] == 2
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": 0.2, "summarise_every": None, "duration": 1.0}],
-        indirect=True,
-    )
-    def test_periodic_save_output_length(self, solver_mutable, system):
+    def test_periodic_save_output_length(self, no_driver_system):
         """save_every=X produces floor(duration/X)+1 outputs."""
-        solver = solver_mutable
+        save_every = 0.05
+        solver = Solver(
+            no_driver_system,
+            save_every=save_every,
+            summarise_every=None,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
-
-        duration = 1.0
-        save_every = 0.2
 
         result = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=duration,
+            duration=TEST_DURATION,
         )
 
-        # Expected: floor(1.0 / 0.2) + 1 = 5 + 1 = 6
-        expected_length = int(np.floor(duration / save_every)) + 1
+        # Expected: floor(0.2 / 0.05) + 1 = 4 + 1 = 5
+        expected_length = int(np.floor(TEST_DURATION / save_every)) + 1
         assert result.state.shape[0] == expected_length
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": 0.25, "duration": 1.0}],
-        indirect=True,
-    )
-    def test_periodic_summarise_length(self, solver_mutable, system):
+    def test_periodic_summarise_length(self, no_driver_system):
         """summarise_every=X produces floor(duration/X) summaries."""
-        solver = solver_mutable
+        summarise_every = 0.05
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=summarise_every,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
-
-        duration = 1.0
-        summarise_every = 0.25
 
         result = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=duration,
+            duration=TEST_DURATION,
         )
 
-        # Expected: floor(1.0 / 0.25) = 4
-        expected_length = int(np.floor(duration / summarise_every))
+        # Expected: floor(0.2 / 0.05) = 4
+        expected_length = int(np.floor(TEST_DURATION / summarise_every))
         assert result.state_summaries.shape[0] == expected_length
 
 
 class TestParameterReset:
     """Test parameter reset behavior between solves."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": 0.01
-        }],
-        indirect=True,
-    )
-    def test_sample_summaries_every_recalculates_on_none(
-        self, solver_mutable, system
-    ):
+    def test_sample_summaries_every_recalculates_on_none(self, no_driver_system):
         """sample_summaries_every recalculates when reset to None."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=None,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
@@ -153,10 +163,10 @@ class TestParameterReset:
         result1 = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=1.0,
+            duration=TEST_DURATION,
         )
 
-        # Verify sample_summaries_every was set (from override)
+        # Verify sample_summaries_every was set (from init)
         loop_config = solver.kernel.single_integrator._loop.compile_settings
         initial_sample_summaries = loop_config.sample_summaries_every
 
@@ -167,7 +177,7 @@ class TestParameterReset:
         result2 = solver.solve(
             initial_values=inits,
             parameters=params,
-            duration=1.0,
+            duration=TEST_DURATION,
         )
 
         # Verify the behavior completed without error
@@ -179,20 +189,21 @@ class TestParameterReset:
 class TestDurationDependencyWarning:
     """Test duration dependency warning behavior."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": None}],
-        indirect=True,
-    )
     def test_warning_on_summarise_last_without_summarise_every(
-        self, solver_mutable, system
+        self, no_driver_system
     ):
         """Warning raised when duration affects samples_per_summary."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=None,
+            sample_summaries_every=None,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
@@ -202,7 +213,7 @@ class TestDurationDependencyWarning:
             solver.solve(
                 initial_values=inits,
                 parameters=params,
-                duration=1.0,
+                duration=TEST_DURATION,
             )
 
             # Filter for UserWarning about sample_summaries_every

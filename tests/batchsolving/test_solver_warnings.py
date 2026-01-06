@@ -3,30 +3,46 @@
 These tests verify that Solver.solve emits appropriate warnings when
 duration-dependent timing parameters are used without explicit
 summarise_every values.
+
+Note: These tests create solver instances locally to avoid session-scoped
+fixture duration issues when calling solver.solve(). Uses a system without
+drivers to avoid driver array configuration issues.
 """
 import warnings
 
 import numpy as np
 import pytest
 
+from cubie.batchsolving.solver import Solver
+from tests.system_fixtures import build_three_state_constant_deriv_system
+
+
+# Default test duration - short for fast tests
+TEST_DURATION = 0.2
+
+
+@pytest.fixture(scope="module")
+def no_driver_system():
+    """Create a system without drivers for local integration tests."""
+    return build_three_state_constant_deriv_system(np.float32)
+
 
 class TestDurationDependencyWarning:
     """Tests for duration dependency warning in Solver.solve."""
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": None}],
-        indirect=True,
-    )
-    def test_duration_dependency_warning_emitted(
-        self, solver_mutable, system
-    ):
+    def test_duration_dependency_warning_emitted(self, no_driver_system):
         """Verify warning is raised when summarise_last=True, no summarise_every."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=None,
+            sample_summaries_every=None,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
@@ -36,7 +52,7 @@ class TestDurationDependencyWarning:
             solver.solve(
                 initial_values=inits,
                 parameters=params,
-                duration=1.0,
+                duration=TEST_DURATION,
             )
 
             # Filter for UserWarning about sample_summaries_every
@@ -49,20 +65,19 @@ class TestDurationDependencyWarning:
             assert len(duration_warnings) == 1
             assert "kernel recompilation" in str(duration_warnings[0].message)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": None, "summarise_every": 0.1}],
-        indirect=True,
-    )
-    def test_no_warning_with_explicit_summarise_every(
-        self, solver_mutable, system
-    ):
+    def test_no_warning_with_explicit_summarise_every(self, no_driver_system):
         """Verify no warning when summarise_every is explicitly set."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=None,
+            summarise_every=0.05,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
@@ -72,7 +87,7 @@ class TestDurationDependencyWarning:
             solver.solve(
                 initial_values=inits,
                 parameters=params,
-                duration=1.0,
+                duration=TEST_DURATION,
             )
 
             # Filter for UserWarning about sample_summaries_every
@@ -84,20 +99,19 @@ class TestDurationDependencyWarning:
 
             assert len(duration_warnings) == 0
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"save_every": 0.05, "summarise_every": 0.05}],
-        indirect=True,
-    )
-    def test_no_warning_with_summarise_last_false(
-        self, solver_mutable, system
-    ):
+    def test_no_warning_with_summarise_last_false(self, no_driver_system):
         """Verify no warning when summarise_last=False (periodic mode)."""
-        solver = solver_mutable
+        solver = Solver(
+            no_driver_system,
+            save_every=0.05,
+            summarise_every=0.05,
+            sample_summaries_every=0.01,
+            dt=0.01,
+        )
 
         # Build minimal input arrays for a single run
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
+        n_states = no_driver_system.sizes.states
+        n_params = no_driver_system.sizes.parameters
         inits = np.ones((n_states, 1), dtype=np.float32)
         params = np.ones((n_params, 1), dtype=np.float32)
 
@@ -107,7 +121,7 @@ class TestDurationDependencyWarning:
             solver.solve(
                 initial_values=inits,
                 parameters=params,
-                duration=1.0,
+                duration=TEST_DURATION,
             )
 
             # Filter for UserWarning about sample_summaries_every
