@@ -944,55 +944,20 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def output_length(self) -> int:
         """Number of saved trajectory samples in the main run.
-        
-        Includes both initial state (at t=t0 or t=settling_time) and final
-        state (at t=t_end) for complete trajectory coverage.
-        
-        When save_every is None (save_last mode), returns 2 for initial
-        and final state capture only.
+
+        Delegates to SingleIntegratorRun.output_length() with the current
+        duration for centralized timing calculations.
         """
-        save_every = self.single_integrator.save_every
-        if save_every is None:
-            # save_last mode: initial + final = 2
-            return 2
-        return (int(
-                np_floor(self.precision(self.duration) /
-                        self.precision(save_every)))
-                + 1)
+        return self.single_integrator.output_length(self._duration)
 
     @property
     def summaries_length(self) -> int:
         """Number of complete summary intervals across the integration window.
-        
-        When summarise_every is None (summarise_last mode), returns 2 for
-        initial and final summary capture only.
-        
-        For periodic summaries, counts only complete summarise_every periods
-        using floor division. No summary is recorded for t=0 and partial
-        intervals at the tail of integration are excluded.
-        """
-        summarise_every = self.single_integrator.summarise_every
-        if summarise_every is None:
-            # summarise_last mode: initial + final = 2
-            return 2
-        precision = self.precision
-        return int(precision(self._duration) / precision(summarise_every))
 
-    @property
-    def warmup_length(self) -> int:
-        """Number of warmup save intervals completed before capturing output.
-        
-        Returns 0 when save_every is None (save_last mode only).
-        
-        Note: Warmup uses ceil(warmup/save_every) WITHOUT the +1 because warmup
-        saves are transient and discarded after settling. The final warmup
-        state becomes the initial state of the main run, so there is no need
-        to save both endpoints in the warmup phase.
+        Delegates to SingleIntegratorRun.summaries_length() with the current
+        duration for centralized timing calculations.
         """
-        save_every = self.single_integrator.save_every
-        if save_every is None:
-            return 0
-        return int(np_ceil(self._warmup / save_every))
+        return self.single_integrator.summaries_length(self._duration)
 
     @property
     def system(self) -> "BaseODE":

@@ -631,3 +631,72 @@ def test_warning_message_contains_algorithm_and_controller(system):
         assert "pid" in warn_msg
         assert "error estimate" in warn_msg.lower()
         assert "fixed" in warn_msg.lower()
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"output_types": ["state", "time", "observables"]},
+    ],
+    indirect=True,
+)
+class TestTimingProperties:
+    """Tests for SingleIntegratorRun timing calculation methods."""
+
+    def test_any_time_domain_outputs_true_with_state(
+        self, single_integrator_run
+    ):
+        """any_time_domain_outputs returns True when state is requested."""
+        assert single_integrator_run.any_time_domain_outputs is True
+
+    def test_save_last_property(self, single_integrator_run):
+        """save_last delegates to loop config."""
+        expected = single_integrator_run._loop.compile_settings.save_last
+        assert single_integrator_run.save_last == expected
+
+    def test_summarise_last_property(self, single_integrator_run):
+        """summarise_last delegates to loop config."""
+        expected = single_integrator_run._loop.compile_settings.summarise_last
+        assert single_integrator_run.summarise_last == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"save_every": 0.05, "duration": 0.2},
+    ],
+    indirect=True,
+)
+class TestOutputLengthMethod:
+    """Tests for SingleIntegratorRun.output_length() method."""
+
+    def test_output_length_periodic(
+        self, single_integrator_run, solver_settings
+    ):
+        """output_length calculates correctly for periodic saving."""
+        duration = float(solver_settings["duration"])
+        save_every = float(solver_settings["save_every"])
+        expected = int(duration / save_every) + 1
+        actual = single_integrator_run.output_length(duration)
+        assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"summarise_every": 0.1, "duration": 0.3, "sample_summaries_every": 0.05},
+    ],
+    indirect=True,
+)
+class TestSummariesLengthMethod:
+    """Tests for SingleIntegratorRun.summaries_length() method."""
+
+    def test_summaries_length_periodic(
+        self, single_integrator_run, solver_settings
+    ):
+        """summaries_length calculates correctly for periodic summaries."""
+        duration = float(solver_settings["duration"])
+        summarise_every = float(solver_settings["summarise_every"])
+        expected = int(duration / summarise_every)
+        actual = single_integrator_run.summaries_length(duration)
+        assert actual == expected

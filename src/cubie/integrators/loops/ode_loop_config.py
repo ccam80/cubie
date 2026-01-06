@@ -190,10 +190,6 @@ class ODELoopConfig:
         default=None,
         validator=opt_gttype_validator(float, 0)
     )
-    _duration: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0)
-    )
 
     # Flags for end-of-run-only behavior
     save_last: bool = field(
@@ -259,11 +255,10 @@ class ODELoopConfig:
     def __attrs_post_init__(self):
         """Validate timing parameters and set flags for None handling.
 
-        When all timing parameters are None, sets save_last and
-        summarise_last flags to True for end-of-run-only behavior.
-        Otherwise applies inference logic to fill missing values.
+        When save_every and summarise_every are both None, sets save_last
+        and summarise_last flags for end-of-run-only behavior.
         """
-        # Case 1: All three None - set flags for end-of-run-only behavior
+        # Case 1: All timing None - set flags for end-of-run-only behavior
         if (
             self._save_every is None
             and self._summarise_every is None
@@ -271,10 +266,10 @@ class ODELoopConfig:
         ):
             self.save_last = True
             self.summarise_last = True
-            return  # Skip validation when using save_last/summarise_last only
+            return
 
-        # Case 2: Only save_every specified
-        elif (
+        # Case 2: Only save_every specified - infer summarise_every
+        if (
             self._save_every is not None
             and self._summarise_every is None
             and self._sample_summaries_every is None
@@ -282,46 +277,25 @@ class ODELoopConfig:
             self.summarise_last = True
             self._summarise_every = 10.0 * self._save_every
             self._sample_summaries_every = self._save_every
+            return
 
-        # Case 3: Only summarise_every specified
-        elif (
-            self._save_every is None
-            and self._summarise_every is not None
-            and self._sample_summaries_every is None
-        ):
-            self._save_every = self._summarise_every / 10.0
-            self._sample_summaries_every = self._summarise_every / 10.0
+        # Case 3: summarise_every specified without sample_summaries_every
+        if self._summarise_every is not None and self._sample_summaries_every is None:
+            # Default sample_summaries_every to save_every if available
+            if self._save_every is not None:
+                self._sample_summaries_every = self._save_every
+            else:
+                self._sample_summaries_every = self._summarise_every / 10.0
 
-        # Case 4: save_every and summarise_every specified
-        elif (
-            self._save_every is not None
-            and self._summarise_every is not None
-            and self._sample_summaries_every is None
-        ):
-            self._sample_summaries_every = self._save_every
-
-        # Case 5: save_every and sample_summaries_every specified
-        elif (
-            self._save_every is not None
-            and self._summarise_every is None
-            and self._sample_summaries_every is not None
-        ):
-            self._summarise_every = 10.0 * self._save_every
-
-        # Case 6: summarise_every and sample_summaries_every specified
-        elif (self._save_every is None and self._summarise_every is not None and
-              self._sample_summaries_every is not None):
+        # Case 4: sample_summaries_every specified without save_every
+        if self._save_every is None and self._sample_summaries_every is not None:
             self._save_every = self._sample_summaries_every
-        
-        # Case 7: All three specified - no defaults needed
-        
-        # Validate that summarise_every is an integer multiple of
-        # sample_summaries_every.
-        if self._summarise_every is not None:
+
+        # Validate summarise_every/sample_summaries_every ratio
+        if self._summarise_every is not None and self._sample_summaries_every is not None:
             ratio = self._summarise_every / self._sample_summaries_every
             deviation = abs(ratio - round(ratio))
-
-            if deviation <= 0.01:  # Within 1% - auto-adjust with warning
+            if deviation <= 0.01:
                 rounded_ratio = round(ratio)
                 adjusted = rounded_ratio * self._sample_summaries_every
                 if adjusted != self._summarise_every:
@@ -331,7 +305,7 @@ class ODELoopConfig:
                         f"sample_summaries_every ({self._sample_summaries_every})"
                     )
                     self._summarise_every = adjusted
-            else:  # More than 1% off - incompatible values
+            else:
                 raise ValueError(
                     f"summarise_every ({self._summarise_every}) must be an "
                     f"integer multiple of sample_summaries_every "
@@ -339,30 +313,10 @@ class ODELoopConfig:
                     f"is not close to any integer."
                 )
 
-    def reset_timing_inference(self) -> None:
-        """Reset inferred timing values and re-run inference logic.
-
-        Call this method after updating timing parameters to None to
-        ensure derived values are recalculated rather than preserved.
-        This enables proper parameter reset on subsequent solves.
-        """
-        # Reset flags to defaults before re-inferring
-        self.save_last = False
-        self.summarise_last = False
-        # Re-run inference logic
-        self.__attrs_post_init__()
-
     @property
     def samples_per_summary(self) -> Optional[int]:
-        """Return the number of updates between summary outputs.
-
-        When summarise_every is None but summarise_last is True,
-        defaults to duration/100 samples if duration is available.
-        """
+        """Return the number of updates between summary outputs."""
         if self._summarise_every is None:
-            if self._duration is not None and self.summarise_last:
-                # Default to 100 samples when using summarise_last
-                return max(1, int(self._duration / 100))
             return None
         return round(self.summarise_every / self.sample_summaries_every)
 
@@ -396,13 +350,6 @@ class ODELoopConfig:
         if self._sample_summaries_every is None:
             return None
         return self.precision(self._sample_summaries_every)
-
-    @property
-    def duration(self) -> Optional[float]:
-        """Return the integration duration, or None if not configured."""
-        if self._duration is None:
-            return None
-        return self.precision(self._duration)
 
     @property
     def dt0(self) -> float:

@@ -5,7 +5,6 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -533,18 +532,6 @@ class Solver:
             self.update(
                 {"driver_function": self.driver_interpolator.evaluation_function,
                  "driver_del_t": self.driver_interpolator.driver_del_t}
-            )
-
-        # Check for duration dependency condition
-        loop_config = self.kernel.single_integrator._loop.compile_settings
-        if (loop_config.summarise_last and
-                loop_config._summarise_every is None):
-            warnings.warn(
-                "sample_summaries_every has been calculated from duration. "
-                "Changing duration will trigger kernel recompilation. "
-                "Set summarise_every explicitly to avoid recompilation.",
-                UserWarning,
-                stacklevel=2
             )
 
         self.kernel.run(
