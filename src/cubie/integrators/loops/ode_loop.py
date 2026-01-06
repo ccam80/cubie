@@ -358,22 +358,24 @@ class IVPLoop(CUDAFactory):
         alloc_algo_shared = getalloc('algorithm_shared', self, zero=True)
         alloc_algo_persistent = getalloc('algorithm_persistent', self, zero=True)
         alloc_controller_shared = getalloc('controller_shared', self, zero=True)
-        alloc_controller_persistent = getalloc('controller_persistent', self, zero=True)
-        alloc_dt = getalloc('dt', self, zero=True)
+        alloc_controller_persistent = getalloc(
+            "controller_persistent", self, zero=True
+        )
+        alloc_dt = getalloc("dt", self, zero=True)
         alloc_accept_step = getalloc('accept_step', self, zero=True)
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
         dt0 = precision(config.dt0)
-        # Flags for end-of-run-only behavior from config
+        save_every = config.save_every
+        sample_summaries_every = config.sample_summaries_every
+        samples_per_summary = config.samples_per_summary
+
+        # Boolean control-flow constants
         save_last = config.save_last
         summarise_last = config.summarise_last
         save_regularly = config.save_every is not None
         summarise_regularly = config.summarise_every is not None
-        samples_per_summary = config.samples_per_summary or 1
-        save_every = config.save_every
-        summarise_every = config.summarise_every
-        sample_summaries_every = config.sample_summaries_every
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -526,7 +528,7 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if driver_function is not None and n_drivers > int32(0):
+            if n_drivers > int32(0):
                 driver_function(
                     t_prec,
                     driver_coefficients,
