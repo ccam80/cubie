@@ -372,6 +372,13 @@ class IVPLoop(CUDAFactory):
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = config.samples_per_summary
 
+        # Guard against None values for loop arithmetic
+        if samples_per_summary is None:
+            samples_per_summary = 1  # Safe default: save every update
+        if sample_summaries_every is None and summarise:
+            # Use a small default when summarise_last mode is active
+            sample_summaries_every = precision(0.01)
+
         # Boolean control-flow constants
         save_last = config.save_last
         summarise_last = config.summarise_last

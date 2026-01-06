@@ -1,10 +1,10 @@
-# Test Results Summary
+# Test Results Summary (Post Buffer Sizing Fix Attempt)
 
 ## Overview
-- **Tests Run**: 54
-- **Passed**: 35
-- **Failed**: 2
-- **Errors**: 17
+- **Tests Run**: 43
+- **Passed**: 24
+- **Failed**: 4
+- **Errors**: 15
 - **Skipped**: 0
 
 ## Command Executed
@@ -15,82 +15,101 @@ NUMBA_ENABLE_CUDASIM=1 pytest -m "not nocudasim and not specific_algos" -v --tb=
   tests/batchsolving/test_duration_propagation.py \
   tests/batchsolving/test_solver_warnings.py \
   tests/batchsolving/test_solver_timing_properties.py \
-  tests/batchsolving/test_timing_modes.py \
-  tests/batchsolving/test_config_plumbing.py \
-  tests/integrators/loops/test_buffer_settings.py
+  tests/batchsolving/test_timing_modes.py
 ```
 
-## Errors (17)
+## Status: Test Run Has Regressed
 
-All errors are the same root cause: **ValueError: cannot convert float NaN to integer**
+The previous run had 33 passed with 10 failures. This run has 24 passed with 4 failures and 15 errors - indicating the fixes have introduced new problems.
 
-This occurs during fixture setup when creating solvers with timing parameters set to None. The error suggests that somewhere in the solver construction chain, a NaN value is being converted to an integer.
+---
 
-### Affected Tests:
-| Test File | Test Name |
-|-----------|-----------|
-| test_kernel_output_lengths.py | TestWarmupLengthNoneSafe::test_warmup_length_with_save_every_none |
-| test_kernel_output_lengths.py | TestTimingPropertyReturnTypes::test_save_every_returns_none |
-| test_kernel_output_lengths.py | TestTimingPropertyReturnTypes::test_summarise_every_returns_none |
-| test_kernel_output_lengths.py | TestOutputLengthNoneSafe::test_output_length_with_save_every_none |
-| test_kernel_output_lengths.py | TestSummariesLengthNoneSafe::test_summaries_length_with_summarise_every_none |
-| test_duration_propagation.py | TestDurationPropagation::test_samples_per_summary_uses_propagated_duration |
-| test_duration_propagation.py | TestDurationPropagation::test_duration_propagates_to_loop_config |
-| test_duration_propagation.py | TestDurationUpdateChain::test_duration_property_returns_value |
-| test_solver_warnings.py | TestDurationDependencyWarning::test_no_warning_with_explicit_summarise_every |
-| test_solver_warnings.py | TestDurationDependencyWarning::test_duration_dependency_warning_emitted |
-| test_solver_timing_properties.py | TestSolverTimingPropertyReturnTypes::test_solver_summarise_every_returns_none_in_summarise_last_mode |
-| test_solver_timing_properties.py | TestSolverTimingPropertyReturnTypes::test_solver_save_every_returns_none_in_save_last_mode |
-| test_timing_modes.py | TestTimingModeOutputLengths::test_save_last_only_output_length |
-| test_timing_modes.py | TestTimingModeOutputLengths::test_summarise_last_only_summaries_length |
-| test_timing_modes.py | TestTimingModeOutputLengths::test_periodic_summarise_length |
-| test_timing_modes.py | TestDurationDependencyWarning::test_warning_on_summarise_last_without_summarise_every |
-| test_timing_modes.py | TestParameterReset::test_sample_summaries_every_recalculates_on_none |
+## Errors (15)
 
-## Failures (2)
+All 15 errors share the same root cause:
 
-### test_timing_modes.py::TestTimingModeOutputLengths::test_periodic_save_output_length
+**Type**: ValueError
+**Message**: `cannot convert float NaN to integer`
+
+**Affected Tests**:
+1. test_kernel_output_lengths.py::TestOutputLengthNoneSafe::test_output_length_with_save_every_none
+2. test_kernel_output_lengths.py::TestSummariesLengthNoneSafe::test_summaries_length_with_summarise_every_none
+3. test_kernel_output_lengths.py::TestTimingPropertyReturnTypes::test_save_every_returns_none
+4. test_kernel_output_lengths.py::TestTimingPropertyReturnTypes::test_summarise_every_returns_none
+5. test_kernel_output_lengths.py::TestWarmupLengthNoneSafe::test_warmup_length_with_save_every_none
+6. test_duration_propagation.py::TestDurationPropagation::test_samples_per_summary_uses_propagated_duration
+7. test_duration_propagation.py::TestDurationUpdateChain::test_duration_property_returns_value
+8. test_duration_propagation.py::TestDurationPropagation::test_duration_propagates_to_loop_config
+9. test_solver_warnings.py::TestDurationDependencyWarning::test_duration_dependency_warning_emitted
+10. test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_save_every_returns_none_in_save_last_mode
+11. test_solver_timing_properties.py::TestSolverTimingPropertyReturnTypes::test_solver_summarise_every_returns_none_in_summarise_last_mode
+12. test_timing_modes.py::TestTimingModeOutputLengths::test_save_last_only_output_length
+13. test_timing_modes.py::TestTimingModeOutputLengths::test_summarise_last_only_summaries_length
+14. test_timing_modes.py::TestParameterReset::test_sample_summaries_every_recalculates_on_none
+15. test_timing_modes.py::TestDurationDependencyWarning::test_warning_on_summarise_last_without_summarise_every
+
+**Analysis**: The original NaN conversion error has reappeared. The fix for `summaries_length` to check `summarise_last` flag directly appears to have been reverted or is not properly in place.
+
+---
+
+## Failures (4)
+
+### 1. test_solver_warnings.py::TestDurationDependencyWarning::test_no_warning_with_summarise_last_false
+**Type**: IndexError
+**Message**: `tid=[0, 0, 0] ctaid=[0, 0, 0]: index 5 is out of bounds for axis 0 with size 5`
+
+### 2. test_timing_modes.py::TestTimingModeOutputLengths::test_periodic_save_output_length
 **Type**: IndexError
 **Message**: `tid=[0, 0, 0] ctaid=[0, 0, 0]: index 0 is out of bounds for axis 0 with size 0`
 
-This appears to be a CUDA kernel execution error where the output buffer has size 0, indicating the output_length calculation returned 0 or None when a positive value was expected.
-
-### test_solver_warnings.py::TestDurationDependencyWarning::test_no_warning_with_summarise_last_false
-**Type**: IndexError  
+### 3. test_solver_warnings.py::TestDurationDependencyWarning::test_no_warning_with_explicit_summarise_every
+**Type**: IndexError
 **Message**: `tid=[0, 0, 0] ctaid=[0, 0, 0]: index 5 is out of bounds for axis 0 with size 5`
 
-This appears to be an off-by-one error in buffer allocation or indexing during kernel execution.
+### 4. test_timing_modes.py::TestTimingModeOutputLengths::test_periodic_summarise_length
+**Type**: IndexError
+**Message**: `tid=[0, 0, 0] ctaid=[0, 0, 0]: index 5 is out of bounds for axis 0 with size 5`
+
+**Analysis**: These are buffer sizing issues unrelated to the NaN error. The buffer is being sized incorrectly.
+
+---
 
 ## Root Cause Analysis
 
-### Primary Issue: NaN-to-Integer Conversion
-The 17 errors all share the same root cause: when timing parameters (`save_every`, `summarise_every`) are set to `None`, somewhere in the initialization chain a `NaN` value is being used where an integer is expected.
+### Issue 1: NaN Conversion Errors Persist (15 errors)
+The `summaries_length` property is still encountering NaN values during integer conversion. The fix to check `summarise_last` directly appears to not be working. This suggests:
+- The fix may have been applied to the wrong property
+- The fix may not cover all code paths
+- There may be another location where NaN conversion occurs
 
-**Likely location**: The issue is probably in one of these areas:
-1. `ODELoopConfig` initialization or property calculations
-2. `BatchSolverKernel` output length calculations
-3. Buffer allocation code that uses timing parameters
+### Issue 2: Buffer Sizing Off-by-One (4 failures)
+Separate from the NaN issue, there are buffer sizing problems:
+- "index 5 is out of bounds for axis 0 with size 5" - trying to access index 5 when only 0-4 are valid
+- "index 0 is out of bounds for axis 0 with size 0" - buffer not allocated at all
 
-The None-safety changes may not have been applied consistently throughout the initialization chain, allowing NaN values to propagate to integer conversion operations.
-
-### Secondary Issue: Buffer Sizing
-The 2 failures indicate that even when tests run, buffer sizing calculations are producing incorrect values (either 0 or off-by-one errors).
+---
 
 ## Recommendations
 
-1. **Trace the NaN source**: Add debugging to identify where NaN values are introduced when timing parameters are None. Check:
-   - `ODELoopConfig.duration` property when duration is None
-   - `samples_per_summary` calculations
-   - Any `float('nan')` sentinel values
+1. **Verify `summaries_length` fix is in place**: Check that the property correctly returns 1 when `summarise_last=True` and duration is not set.
 
-2. **Review None-safety in initialization chain**: Ensure that when `save_every=None` or `summarise_every=None`:
-   - No calculations attempt to use these values before checking for None
-   - Buffer allocation code handles None properly
-   - Output length properties return None (not 0 or NaN)
+2. **Check all NaN-to-integer conversion paths**: There may be multiple locations where this conversion happens:
+   - `output_length` property
+   - `warmup_length` property
+   - `summaries_length` property
+   - Buffer allocation code in `output_sizes.py`
 
-3. **Fix buffer sizing**: Review the output_length and summaries_length calculations to ensure they:
-   - Return None when appropriate timing parameters are None
-   - Never return 0 for active output modes
-   - Correctly calculate buffer sizes for all timing modes
+3. **Investigate buffer sizing separately**: The IndexError failures indicate a separate issue in how buffers are sized for periodic save/summarise modes.
 
-4. **Check test fixtures**: Some test configurations may be incompatible (e.g., testing None timing parameters requires the solver to handle them gracefully during construction).
+4. **Test expectation for samples_per_summary**: The previous test expectation issue (expecting 1 vs None) needs to be verified.
+
+---
+
+## Summary
+
+**The test run shows regression from the previous state:**
+- 15 tests error with "ValueError: cannot convert float NaN to integer"
+- 4 tests fail with IndexError buffer sizing issues
+- Only 24 tests pass (down from 33)
+
+The taskmaster's fixes do not appear to have resolved the issues. The original NaN conversion errors are still occurring, and the buffer sizing issues persist.

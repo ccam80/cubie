@@ -70,9 +70,9 @@ class TestSamplesPerSummaryWithDuration:
         assert config.summarise_last is True
         assert config.samples_per_summary == 1
 
-    def test_samples_per_summary_without_duration_returns_none(self):
-        """Verify samples_per_summary returns None when summarise_last=True
-        but duration is not set.
+    def test_samples_per_summary_without_duration_returns_one(self):
+        """Verify samples_per_summary returns 1 as safe default when
+        summarise_last=True but duration is not set.
         """
         config = ODELoopConfig(
             save_every=None,
@@ -82,7 +82,7 @@ class TestSamplesPerSummaryWithDuration:
         )
         assert config.summarise_last is True
         assert config._duration is None
-        assert config.samples_per_summary is None
+        assert config.samples_per_summary == 1
 
     def test_samples_per_summary_with_periodic_summarise_every(self):
         """Verify samples_per_summary uses periodic calculation when

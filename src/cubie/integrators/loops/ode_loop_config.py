@@ -312,8 +312,17 @@ class ODELoopConfig:
         elif (self._save_every is None and self._summarise_every is not None and
               self._sample_summaries_every is not None):
             self._save_every = self._sample_summaries_every
+
+        # Case 7: Only sample_summaries_every specified
+        # (save_every=None, summarise_every=None, sample_summaries_every=value)
+        # Treat as save_last + summarise_last mode
+        elif (self._save_every is None and self._summarise_every is None and
+              self._sample_summaries_every is not None):
+            self.save_last = True
+            self.summarise_last = True
+            return  # Skip validation when using save_last/summarise_last only
         
-        # Case 7: All three specified - no defaults needed
+        # Case 8: All three specified - no defaults needed
         
         # Validate that summarise_every is an integer multiple of
         # sample_summaries_every.
@@ -357,12 +366,16 @@ class ODELoopConfig:
         """Return the number of updates between summary outputs.
 
         When summarise_every is None but summarise_last is True,
-        defaults to duration/100 samples if duration is available.
+        defaults to duration/100 samples if duration is available,
+        or 1 as a safe default when duration is not yet known.
         """
         if self._summarise_every is None:
-            if self._duration is not None and self.summarise_last:
-                # Default to 100 samples when using summarise_last
-                return max(1, int(self._duration / 100))
+            if self.summarise_last:
+                if self._duration is not None:
+                    # Default to 100 samples when using summarise_last
+                    return max(1, int(self._duration / 100))
+                # Safe default when duration unknown but summarise_last active
+                return 1
             return None
         return round(self.summarise_every / self.sample_summaries_every)
 

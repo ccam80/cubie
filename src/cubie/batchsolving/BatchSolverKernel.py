@@ -948,13 +948,20 @@ class BatchSolverKernel(CUDAFactory):
         Includes both initial state (at t=t0 or t=settling_time) and final
         state (at t=t_end) for complete trajectory coverage.
         
-        When save_every is None (save_last mode), returns 2 for initial
+        When save_last is True (save_every=None mode), returns 2 for initial
         and final state capture only.
+        
+        When save_every is None and save_last is False, state saving is
+        disabled; returns 0.
         """
+        loop_config = self.single_integrator._loop.compile_settings
         save_every = self.single_integrator.save_every
         if save_every is None:
-            # save_last mode: initial + final = 2
-            return 2
+            if loop_config.save_last:
+                # save_last mode: initial + final = 2
+                return 2
+            # State saving disabled
+            return 0
         return (int(
                 np_floor(self.precision(self.duration) /
                         self.precision(save_every)))
@@ -964,17 +971,24 @@ class BatchSolverKernel(CUDAFactory):
     def summaries_length(self) -> int:
         """Number of complete summary intervals across the integration window.
         
-        When summarise_every is None (summarise_last mode), returns 2 for
-        initial and final summary capture only.
+        When summarise_last is True, returns 2 for initial and final summary
+        capture only.
         
-        For periodic summaries, counts only complete summarise_every periods
+        When summarise_every is None (and summarise_last is False), summaries
+        are disabled; returns 0.
+        
+        For periodic summaries, counts complete summarise_every periods
         using floor division. No summary is recorded for t=0 and partial
         intervals at the tail of integration are excluded.
         """
-        summarise_every = self.single_integrator.summarise_every
-        if summarise_every is None:
+        loop_config = self.single_integrator._loop.compile_settings
+        if loop_config.summarise_last:
             # summarise_last mode: initial + final = 2
             return 2
+        summarise_every = self.single_integrator.summarise_every
+        if summarise_every is None:
+            # Summaries disabled when summarise_every is None and not last-only
+            return 0
         precision = self.precision
         return int(precision(self._duration) / precision(summarise_every))
 
@@ -1043,7 +1057,7 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.summarise_every
     
     @property
-    def sample_summaries_every(self) -> float:
+    def sample_summaries_every(self) -> Optional[float]:
         """Interval between summary metric samples from the loop."""
 
         return self.single_integrator.sample_summaries_every
