@@ -388,23 +388,6 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
 
         @cuda.jit(
-            # [
-            #     (
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[:, :, ::1],
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:,::1],
-            #         float64,
-            #         float64,
-            #         float64,
-            #     )
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
