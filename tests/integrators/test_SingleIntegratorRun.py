@@ -700,3 +700,96 @@ class TestSummariesLengthMethod:
         expected = int(duration / summarise_every)
         actual = single_integrator_run.summaries_length(duration)
         assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["state", "observables"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestTimingFlagAutoDetection:
+    """Tests for automatic timing flag detection based on output_types."""
+
+    def test_save_last_set_when_state_output_no_save_every(
+        self, single_integrator_run
+    ):
+        """save_last=True when time-domain output requested without save_every."""
+        assert single_integrator_run.save_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestSummariseFlagAutoDetection:
+    """Tests for summarise_last flag detection."""
+
+    def test_summarise_last_set_when_mean_output_no_timing(
+        self, single_integrator_run
+    ):
+        """summarise_last=True when summary output requested without timing."""
+        assert single_integrator_run.summarise_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestChunkDurationInterception:
+    """Tests for chunk_duration interception and sample_summaries_every."""
+
+    def test_sample_summaries_every_computed_from_chunk_duration(
+        self, single_integrator_run_mutable
+    ):
+        """sample_summaries_every computed as chunk_duration / 100."""
+        import warnings
+        run = single_integrator_run_mutable
+        chunk_duration = 1.0
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            run.update({"chunk_duration": chunk_duration})
+
+        expected = chunk_duration / 100.0
+        assert run.sample_summaries_every == pytest.approx(expected)
+
+    def test_warning_emitted_when_sample_summaries_every_computed(
+        self, single_integrator_run_mutable
+    ):
+        """UserWarning emitted when sample_summaries_every computed."""
+        import warnings
+        run = single_integrator_run_mutable
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            run.update({"chunk_duration": 1.0})
+
+        timing_warnings = [
+            x for x in w
+            if "sample_summaries_every" in str(x.message).lower()
+        ]
+        assert len(timing_warnings) >= 1
+        assert issubclass(timing_warnings[0].category, UserWarning)

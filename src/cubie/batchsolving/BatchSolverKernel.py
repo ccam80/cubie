@@ -340,9 +340,6 @@ class BatchSolverKernel(CUDAFactory):
             }
         )
 
-        # Propagate duration to single_integrator for loop config
-        self.single_integrator.update({"duration": duration}, silent=True)
-
         # Queue allocations
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
@@ -361,6 +358,11 @@ class BatchSolverKernel(CUDAFactory):
         )
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
+
+        # Propagate chunk_duration to single_integrator for loop config
+        self.single_integrator.update(
+            {"chunk_duration": chunk_params.duration}, silent=True
+        )
 
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.

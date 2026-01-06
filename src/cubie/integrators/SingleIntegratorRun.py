@@ -13,15 +13,15 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 from numpy import dtype as np_dtype, floor as np_floor
 
 from cubie._utils import PrecisionDType
-from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
+from cubie.integrators.SingleIntegratorRunCore import (
+    SingleIntegratorRunCore,
+    TIME_DOMAIN_OUTPUT_TYPES,
+)
 from cubie.odesystems.ODEData import SystemSizes
 
 
 if TYPE_CHECKING:  # pragma: no cover - type checking import only
     from cubie.odesystems.baseODE import BaseODE
-
-# Output types that represent time-domain samples (state, observables, time)
-TIME_DOMAIN_OUTPUT_TYPES = frozenset({"state", "observables", "time"})
 
 
 class SingleIntegratorRun(SingleIntegratorRunCore):

@@ -31,6 +31,10 @@ if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
 
 
+# Output types that represent time-domain samples
+TIME_DOMAIN_OUTPUT_TYPES = frozenset({"state", "observables", "time"})
+
+
 @define
 class SingleIntegratorRunCache(CUDAFunctionCache):
     """Cache for SingleIntegratorRunCore device function.
@@ -95,6 +99,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         step_control_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
+        self._timing_warning_emitted = False
 
         if step_control_settings is None:
             step_control_settings = {}
@@ -163,6 +168,27 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         self.setup_compile_settings(config)
 
+        # Detect output types to set timing flags
+        output_types = set(self._output_functions.output_types)
+        has_time_domain_outputs = bool(TIME_DOMAIN_OUTPUT_TYPES & output_types)
+        has_summary_outputs = bool(output_types - TIME_DOMAIN_OUTPUT_TYPES)
+
+        # Get timing parameters (may be None)
+        save_every = loop_settings.get("save_every", None)
+        summarise_every = loop_settings.get("summarise_every", None)
+        sample_summaries_every = loop_settings.get(
+            "sample_summaries_every", None
+        )
+
+        # Set save_last if time-domain outputs requested but no save_every
+        if save_every is None and has_time_domain_outputs:
+            loop_settings["save_last"] = True
+
+        # Set summarise_last if summary outputs but no summarise timing
+        if (summarise_every is None
+                and sample_summaries_every is None
+                and has_summary_outputs):
+            loop_settings["summarise_last"] = True
 
         self._loop = self.instantiate_loop(
             precision=precision,
@@ -393,6 +419,9 @@ class SingleIntegratorRunCore(CUDAFactory):
             updates_dict = {}
         updates_dict = updates_dict.copy()
 
+        # Intercept chunk_duration (not passed to lower layers)
+        chunk_duration = updates_dict.pop("chunk_duration", None)
+
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
@@ -416,6 +445,34 @@ class SingleIntegratorRunCore(CUDAFactory):
         out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
         if out_rcgnzd:
             updates_dict.update({**self._output_functions.buffer_sizes_dict})
+
+        # Compute sample_summaries_every from chunk_duration if needed
+        if chunk_duration is not None:
+            loop_config = self._loop.compile_settings
+            summarise_last = loop_config.summarise_last
+            current_sample_summaries_every = loop_config._sample_summaries_every
+
+            # If summarise_last mode with no explicit sample_summaries_every
+            if summarise_last and current_sample_summaries_every is None:
+                computed_sample_summaries_every = chunk_duration / 100.0
+                updates_dict["sample_summaries_every"] = (
+                    computed_sample_summaries_every
+                )
+
+                # Emit warning once
+                if not self._timing_warning_emitted:
+                    warnings.warn(
+                        "Summary metrics were requested with no "
+                        "summarise_every or sample_summaries_every timing. "
+                        "Sample_summaries_every was set to duration / 100 by "
+                        "default. If duration changes, the kernel will need "
+                        "to recompile, which will cause a slow integration "
+                        "(once). Set timing parameters explicitly to avoid "
+                        "this.",
+                        UserWarning,
+                        stacklevel=3
+                    )
+                    self._timing_warning_emitted = True
 
         # Capture algorithm-generated compile settings and pass on
         step_recognized = self._switch_algos(updates_dict)
