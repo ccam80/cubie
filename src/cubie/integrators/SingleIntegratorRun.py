@@ -6,8 +6,6 @@ that presents compiled loop artifacts, controllers, and algorithm steps as
 read-only properties for downstream consumers.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from numpy import dtype as np_dtype, floor as np_floor
@@ -131,7 +129,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._step_controller.is_adaptive
 
     @property
-    def system(self) -> BaseODE:
+    def system(self) -> "BaseODE":
         """Return the underlying ODE system."""
 
         return self._system
@@ -218,8 +216,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         In this case, sample_summaries_every is computed from chunk_duration.
         """
         loop_config = self._loop.compile_settings
+        # Duration-dependent when summarise_last and timing was not
+        # explicitly provided (auto-computed flag is False means it can
+        # still be computed from duration)
         return (loop_config.summarise_last
-                and loop_config._sample_summaries_every is None)
+                and loop_config._sample_summaries_every is None
+                and not self._sample_summaries_auto_computed)
 
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.

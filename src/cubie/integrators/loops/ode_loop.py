@@ -370,6 +370,10 @@ class IVPLoop(CUDAFactory):
         dt0 = precision(config.dt0)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
+        # For summarise_last mode without explicit sample_summaries_every,
+        # use a placeholder that will never trigger the update logic
+        if sample_summaries_every is None and config.summarise_last:
+            sample_summaries_every = precision(0.01)
         samples_per_summary = config.samples_per_summary
         # For summarise_last mode, use large value so modulo never triggers
         # regular summary saves; summary is saved at end instead

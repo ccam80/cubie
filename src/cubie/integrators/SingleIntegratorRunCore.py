@@ -100,6 +100,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     ) -> None:
         super().__init__()
         self._timing_warning_emitted = False
+        self._sample_summaries_auto_computed = False
 
         if step_control_settings is None:
             step_control_settings = {}
@@ -202,14 +203,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             loop_settings=loop_settings,
             driver_function=driver_function,
         )
-
-        # Provide sentinel sample_summaries_every to avoid NaN during initial
-        # build when summarise_last mode with no explicit timing
-        loop_config = self._loop.compile_settings
-        is_duration_dep = (loop_config.summarise_last
-                           and loop_config._sample_summaries_every is None)
-        if is_duration_dep:
-            self._loop.update({"sample_summaries_every": 0.01}, silent=True)
 
         # Register algorithm step and controller buffers with loop as parent
         buffer_registry.get_child_allocators(
@@ -466,6 +459,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 updates_dict["sample_summaries_every"] = (
                     computed_sample_summaries_every
                 )
+                self._sample_summaries_auto_computed = True
 
                 # Emit warning once
                 if not self._timing_warning_emitted:
