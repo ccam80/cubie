@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/file_caching_batchsolverkernel/agent_plan.md
 
 ## Task Group 1: Hash Compile Settings Utility
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -114,12 +114,25 @@
 - tests/test_cubie_cache.py::test_hash_compile_settings_changes_on_value_change
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/cubie_cache.py (81 lines - created new file)
+  * tests/test_cubie_cache.py (107 lines - created new test file)
+- Functions/Methods Added/Modified:
+  * hash_compile_settings() in cubie_cache.py - computes stable SHA256 hash
+  * _serialize_value() in cubie_cache.py - helper to serialize values
+- Implementation Summary:
+  Created cubie_cache.py module with hash_compile_settings function that
+  traverses attrs class fields, skips eq=False fields (callables), handles
+  None values, numpy arrays (via tobytes()), and nested attrs classes
+  recursively. Returns SHA256 hexdigest. Created comprehensive test suite
+  with 10 test functions covering basic usage, arrays, eq=False exclusion,
+  nested attrs, value changes, error handling, and edge cases.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: CUBIECacheLocator Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -253,13 +266,29 @@
 - tests/test_cubie_cache.py::test_cache_locator_get_disambiguator
 - tests/test_cubie_cache.py::test_cache_locator_from_function_raises
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/cubie_cache.py (71 lines added - imports and CUBIECacheLocator)
+  * tests/test_cubie_cache.py (42 lines added - 4 new test functions)
+- Functions/Methods Added/Modified:
+  * CUBIECacheLocator class in cubie_cache.py
+  * CUBIECacheLocator.__init__() - stores system info and computes cache path
+  * CUBIECacheLocator.get_cache_path() - returns cache directory path
+  * CUBIECacheLocator.get_source_stamp() - returns system_hash
+  * CUBIECacheLocator.get_disambiguator() - returns first 16 chars of settings hash
+  * CUBIECacheLocator.from_function() - raises NotImplementedError
+- Implementation Summary:
+  Added CUBIECacheLocator class that subclasses _CacheLocator from numba.cuda.
+  The locator directs cache files to generated/<system_name>/cache/ instead of
+  __pycache__. Uses system_hash for source freshness and compile_settings_hash
+  (truncated to 16 chars) for disambiguation. Added 4 tests covering all locator
+  methods.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: CUBIECacheImpl Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 2
 
 **Required Context**:
@@ -401,12 +430,30 @@
 - tests/test_cubie_cache.py::test_cache_impl_check_cachable
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/cubie_cache.py (87 lines added - import and CUBIECacheImpl class)
+  * tests/test_cubie_cache.py (31 lines added - 3 new test functions)
+- Functions/Methods Added/Modified:
+  * CUBIECacheImpl class in cubie_cache.py
+  * CUBIECacheImpl.__init__() - creates locator and builds filename_base
+  * CUBIECacheImpl.locator property - returns CUBIECacheLocator instance
+  * CUBIECacheImpl.filename_base property - returns system_name-disambiguator
+  * CUBIECacheImpl.reduce() - delegates to kernel._reduce_states()
+  * CUBIECacheImpl.rebuild() - delegates to _Kernel._rebuild(**payload)
+  * CUBIECacheImpl.check_cachable() - always returns True
+- Implementation Summary:
+  Added CUBIECacheImpl class that subclasses CacheImpl from numba.cuda. The
+  class overrides _locator_classes to disable default locators and creates
+  CUBIECacheLocator directly in __init__. Provides reduce/rebuild methods that
+  delegate to numba's _Kernel serialization, and check_cachable that always
+  returns True (CUDA kernels are always cachable). Added 3 tests covering
+  locator property, filename_base format, and check_cachable behavior.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: CUBIECache Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 3
 
 **Required Context**:
@@ -561,12 +608,30 @@
 - tests/test_cubie_cache.py::test_cubie_cache_path
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/cubie_cache.py (104 lines added - import updates and CUBIECache)
+  * tests/test_cubie_cache.py (53 lines added - 3 new test functions)
+- Functions/Methods Added/Modified:
+  * CUBIECache class in cubie_cache.py
+  * CUBIECache.__init__() - stores system info, computes settings hash, creates
+    impl, cache file, and enables caching
+  * CUBIECache.cache_path property - returns cache directory path
+  * CUBIECache._index_key() - returns tuple with sig, magic_tuple, system_hash,
+    and compile_settings_hash
+  * CUBIECache.load_overload() - loads with numba_target_override context
+- Implementation Summary:
+  Added CUBIECache class that subclasses Cache from numba.cuda. The class uses
+  CUBIECacheImpl and creates it directly without using py_func pattern. The
+  _index_key method includes system_hash and compile_settings_hash for unique
+  cache keys. The load_overload method uses numba_target_override context for
+  proper CUDA context handling. Added 3 tests covering initialization, index
+  key format, and cache_path property.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: BatchSolverKernel Integration
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 4
 
 **Required Context**:
@@ -681,13 +746,26 @@
 - tests/test_cubie_cache.py::test_batch_solver_kernel_no_cache_in_cudasim
 - tests/test_cubie_cache.py::test_batch_solver_kernel_cache_disabled
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverConfig.py (4 lines added - caching_enabled field)
+  * src/cubie/batchsolving/BatchSolverKernel.py (22 lines added - imports and cache attachment)
+- Functions/Methods Added/Modified:
+  * BatchSolverConfig.caching_enabled field added with default=True
+  * BatchSolverKernel.build_kernel() - cache attachment logic after kernel creation
+- Implementation Summary:
+  Added caching_enabled field to BatchSolverConfig with bool validator and default=True.
+  Added hashlib and CUBIECache imports to BatchSolverKernel. Added cache attachment
+  logic in build_kernel() method that checks caching_enabled and is_cudasim_enabled()
+  before creating CUBIECache. Uses system.name and system.system_hash if available,
+  with fallbacks to 'anonymous' and empty hash. Wrapped in try/except for graceful
+  fallback on errors.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Test Suite Implementation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 5
 
 **Required Context**:
@@ -906,8 +984,20 @@
 **Tests to Run**:
 - tests/test_cubie_cache.py (all tests)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/test_cubie_cache.py (88 lines added - BatchSolverKernel integration tests)
+- Functions/Methods Added/Modified:
+  * test_batch_solver_kernel_no_cache_in_cudasim() - verifies no cache in CUDASIM
+  * test_batch_solver_kernel_cache_disabled() - verifies no cache when disabled
+  * test_batch_solver_kernel_caching_enabled_default() - verifies default is True
+- Implementation Summary:
+  Added 3 BatchSolverKernel integration tests to the existing test file. Tests
+  verify that: (1) no cache is attached in CUDASIM mode, (2) no cache is attached
+  when caching_enabled=False, and (3) caching_enabled defaults to True in compile
+  settings. Tests use existing pytest fixtures (solverkernel, system, driver_array,
+  etc.) and follow project patterns. Tests are designed to work in CUDASIM mode.
+- Issues Flagged: None
 
 ---
 

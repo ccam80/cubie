@@ -134,6 +134,10 @@ class BatchSolverConfig:
         factory=OutputCompileFlags,
         validator=attrs.validators.instance_of(OutputCompileFlags),
     )
+    caching_enabled: bool = attrs.field(
+        default=True,
+        validator=val.instance_of(bool),
+    )
 
     @property
     def active_outputs(self) -> ActiveOutputs:

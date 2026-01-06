@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities."""
 
+import hashlib
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from warnings import warn
 
@@ -12,6 +13,7 @@ from attrs import define, field
 
 from cubie.cuda_simsafe import is_cudasim_enabled, \
     compile_kwargs
+from cubie.cubie_cache import CUBIECache
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -701,6 +703,28 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
         # no cover: end
+
+        # Attach file-based caching if enabled and not in simulator mode
+        if (self.compile_settings.caching_enabled
+                and not is_cudasim_enabled()):
+            try:
+                system = self.single_integrator.system
+                system_name = getattr(system, 'name', 'anonymous')
+                # Use system hash if available, else hash empty string
+                if hasattr(system, 'system_hash'):
+                    system_hash = system.system_hash
+                else:
+                    # Fallback for non-symbolic systems
+                    system_hash = hashlib.sha256(b'').hexdigest()
+                cache = CUBIECache(
+                    system_name=system_name,
+                    system_hash=system_hash,
+                    compile_settings=self.compile_settings,
+                )
+                integration_kernel._cache = cache
+            except (OSError, TypeError, ValueError, AttributeError):
+                # Caching is optional; fall back to no caching on errors
+                pass
 
         return integration_kernel
 
