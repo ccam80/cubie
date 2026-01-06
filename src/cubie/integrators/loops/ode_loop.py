@@ -368,27 +368,12 @@ class IVPLoop(CUDAFactory):
         # Flags for end-of-run-only behavior from config
         save_last = config.save_last
         summarise_last = config.summarise_last
-
-        # When save_last or summarise_last is True, timing params may be None.
-        # Use infinity as placeholder so timing events never trigger; the
-        # save_last/summarise_last logic handles the final save instead.
-        save_every_val = (
-            precision(config.save_every)
-            if config.save_every is not None
-            else precision(float('inf'))
-        )
-        sample_summaries_val = (
-            precision(config.sample_summaries_every)
-            if config.sample_summaries_every is not None
-            else precision(float('inf'))
-        )
-        # samples_per_summary is 1 when timing params are None (single update)
-        updates_per_summary = (
-            config.samples_per_summary
-            if (config.summarise_every is not None and
-                config.sample_summaries_every is not None)
-            else 1
-        )
+        save_regularly = config.save_every is not None
+        summarise_regularly = config.summarise_every is not None
+        samples_per_summary = config.samples_per_summary or 1
+        save_every = config.save_every
+        summarise_every = config.summarise_every
+        sample_summaries_every = config.sample_summaries_every
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -481,8 +466,7 @@ class IVPLoop(CUDAFactory):
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
 
-            stagnant_counts = int32(0)
-
+            # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
             shared_scratch[:] = precision(0.0)
             # ----------------------------------------------------------- #
@@ -519,14 +503,20 @@ class IVPLoop(CUDAFactory):
             )
             dt = alloc_dt(shared_scratch, persistent_local)
             accept_step = alloc_accept_step(shared_scratch, persistent_local)
-            # ----------------------------------------------------------- #
 
             proposed_counters = alloc_proposed_counters(
                 shared_scratch, persistent_local
             )
+            # --------------------------------------------------------------- #
+
             first_step_flag = True
             prev_step_accepted_flag = True
-
+            stagnant_counts = int32(0)
+            save_idx = int32(0)
+            summary_idx = int32(0)
+            update_idx = int32(0)
+            next_save = precision(settling_time + t0)
+            next_update_summary = precision(settling_time + t0)
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -551,18 +541,14 @@ class IVPLoop(CUDAFactory):
                     t_prec,
                 )
 
-            save_idx = int32(0)
-            summary_idx = int32(0)
-            update_idx = int32(0)
-
-            # Set next save for settling time, or save first value if
+            # Set next save for `settling_time`, or save first value if
             # starting at t0
-            next_save = precision(settling_time + t0)
-            next_update_summary = precision(settling_time + t0)
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
-                next_save += save_every_val
-                next_update_summary += sample_summaries_val
+                if save_regularly:
+                    next_save += save_every
+                if summarise:
+                    next_update_summary += sample_summaries_every
 
                 save_state(
                     state_buffer,
@@ -573,22 +559,18 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
+
+                # Call save_summaries only to reset buffer values
                 if summarise:
-                    update_summaries(
-                        state_buffer,
-                        observables_buffer,
-                        state_summary_buffer,
-                        observable_summary_buffer,
-                        update_idx
-                    )
-                    update_idx += int32(1)
                     statesumm_idx = summary_idx * summarise_state_bool
                     obsumm_idx = summary_idx * summarise_obs_bool
-                    save_summaries(state_summary_buffer,
-                                   observable_summary_buffer,
-                                   state_summaries_output[statesumm_idx, :],
-                                   observable_summaries_output[obsumm_idx, :],
-                                   updates_per_summary)
+                    save_summaries(
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        state_summaries_output[statesumm_idx, :],
+                        observable_summaries_output[obsumm_idx, :],
+                        samples_per_summary,
+                    )
                 save_idx += int32(1)
 
             status = int32(0)
@@ -604,56 +586,74 @@ class IVPLoop(CUDAFactory):
 
             mask = activemask()
             irrecoverable = False
+            at_end = False
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             while True:
-                # Exit as soon as we've saved the final step
-                finished = bool_(next_save > t_end)
-                at_last_save = False
-                at_last_summarise = False
+                # ----------------------------------------------------------- #
+                #               Events due - end, update, save                #
+                # ----------------------------------------------------------- #
+                end_of_step = t_prec + dt_raw
+                if save_regularly or summarise_regularly:
+                    # We're not finished if there's an output before t_end
+                    finished = True
+                    if save_regularly:
+                        finished &= bool_(next_save > t_end)
+                    if summarise_regularly:
+                        finished &= bool_(next_update_summary > t_end)
+                else:
+                    # Otherwise, we're finished if we've reached t_end
+                    finished = bool_(end_of_step > t_end)
 
-                if save_last:
-                    # If last save requested, force one more step to reach t_end
-                    at_last_save = finished and t_prec < t_end
-                    finished = selp(at_last_save, False, True)
-                    dt[0] = selp(at_last_save, precision(t_end - t),
-                                 dt_raw)
+                if save_last or summarise_last:
+                    # at_end will fire if we're in the last step before the
+                    # end; this should avoid loop termination by unsetting
+                    # finished. If save_last or summarise_last, and the step
+                    # is accepted, we'll start the next step at t_end and so
+                    # at_end = False.
+                    at_end = bool_(t_prec < t_end) & finished
+                    finished = finished &~ at_end
 
-                if summarise_last:
-                    # If last summary requested, track when we're on final step
-                    at_last_summarise = bool_(
-                        (next_update_summary > t_end) and (t_prec < t_end)
-                    )
-                    # Keep running to collect final summary
-                    finished = selp(at_last_summarise, False, finished)
-
-                # Exit loop if finished, or min_step exceeded, or time stagnant
                 finished = finished or irrecoverable
 
                 if all_sync(mask, finished):
                     return status
 
                 if not finished:
-                    do_save = bool_((t_prec + dt_raw) >= next_save)
-                    do_update_summary = bool_((t_prec + dt_raw) >= next_update_summary)
-                    # Force save/summary on final step when save_last/summarise_last
-                    do_save = bool_(do_save or at_last_save)
-                    do_update_summary = bool_(do_update_summary or at_last_summarise)
+                    # Do we need to run the update/save functions this step?
+                    if save_regularly:
+                        do_save = bool_(end_of_step >= next_save)
+                    else:
+                        do_save = False
 
-                    # Compute target time for next event; include t_end when on
-                    # final step to ensure we don't overshoot
-                    at_last = at_last_save or at_last_summarise
-                    next_event = min(next_save, next_update_summary)
-                    next_event = selp(at_last, min(next_event, t_end), next_event)
-                    dt_eff = selp(
-                        (do_save or do_update_summary),
-                        next_event - t_prec,
-                        dt_raw
-                    )
+                    if summarise_regularly:
+                        do_update_summary = bool_(
+                            end_of_step >= next_update_summary
+                        )
+                    else:
+                        do_update_summary = False
 
-                    # Fixed mode auto-accepts all steps; adaptive uses controller
+                    if save_last:
+                        do_save |= at_end
 
+                    if summarise_last:
+                        do_update_summary |= at_end
+
+                    # If we are saving/updating, when's the next one?
+                    # Look at branching here - can we convert it to an opt-in
+                    # computation instead?
+                    dt_eff = dt_raw
+                    next_event = t_end
+                    if do_save or do_update_summary:
+                        if do_save:
+                            next_event = min(next_event, next_save)
+                        if do_update_summary:
+                            next_event = min(next_event, next_update_summary)
+                        dt_eff = precision(next_event - t_prec)
+
+                # ----------------------------------------------------------- #
+                    # Take a step
                     step_status = int32(
                         step_function(
                             state_buffer,
@@ -676,7 +676,6 @@ class IVPLoop(CUDAFactory):
                     )
 
                     first_step_flag = False
-
                     niters = proposed_counters[0]
                     status = int32(status | step_status)
 
@@ -730,6 +729,7 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] += int32(1)
 
                     t_proposal = t + float64(dt_eff)
+
                     # test for stagnation - we might have one small step
                     # which doesn't nudge t if we're right up against a save
                     # boundary, so we call 2 stale t values in a row "stagnant"
@@ -771,11 +771,14 @@ class IVPLoop(CUDAFactory):
                     )
 
                     # Predicated update of next_save; update if save is accepted.
-                    do_save = bool_(accept and do_save)
-                    do_update_summary = bool_(accept and do_update_summary)
+                    do_save &= accept
+                    do_update_summary &= accept
                     
                     if do_save:
-                        next_save = selp(do_save, next_save + save_every_val, next_save)
+                        # Increment next_save if it's in use
+                        if save_regularly:
+                            next_save += save_every
+
                         save_state(
                             state_buffer,
                             observables_buffer,
@@ -795,11 +798,9 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] = int32(0)
                     
                     if do_update_summary:
-                        next_update_summary = selp(
-                            do_update_summary,
-                            next_update_summary + sample_summaries_val,
-                            next_update_summary
-                        )
+                        if summarise_regularly:
+                            next_update_summary += sample_summaries_every
+
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool
                             obssumm_idx = summary_idx * summarise_obs_bool
@@ -815,16 +816,17 @@ class IVPLoop(CUDAFactory):
                             # Save summary when enough updates collected, or when
                             # on final step (summarise_last forces save at end)
                             save_summary_now = (
-                                (update_idx % updates_per_summary == int32(0))
-                                or at_last_summarise
+                                (update_idx % samples_per_summary == int32(0))
+                                or (summarise_last and at_end)
                             )
+
                             if save_summary_now:
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
                                     state_summaries_output[statesumm_idx,:],
                                     observable_summaries_output[obssumm_idx,:],
-                                    updates_per_summary,
+                                    samples_per_summary,
                                 )
                                 summary_idx += int32(1)
 

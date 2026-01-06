@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba import from_dtype as numba_from_dtype
 from numpy import float32
+from warnings import warn
 
 from cubie._utils import (
     PrecisionDType,
@@ -311,9 +312,8 @@ class ODELoopConfig:
         # Case 7: All three specified - no defaults needed
         
         # Validate that summarise_every is an integer multiple of
-        # sample_summaries_every. Skip validation when summarise_last is True.
-        if not self.summarise_last:
-            from warnings import warn
+        # sample_summaries_every.
+        if self._summarise_every is not None:
             ratio = self._summarise_every / self._sample_summaries_every
             deviation = abs(ratio - round(ratio))
 
