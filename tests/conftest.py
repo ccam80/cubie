@@ -486,7 +486,12 @@ def driver_settings(
     if system.num_drivers == 0:
         return None
 
-    dt_sample = precision(solver_settings["save_every"]) / 2.0
+    # Handle None save_every by using a reasonable default
+    save_every_val = solver_settings["save_every"]
+    if save_every_val is None:
+        # Use duration/10 as default sample interval when save_every is None
+        save_every_val = precision(solver_settings["duration"]) / 10.0
+    dt_sample = precision(save_every_val) / 2.0
     total_span = precision(solver_settings["duration"])
     t0 = precision(solver_settings["warmup"])
 
@@ -553,7 +558,11 @@ def cpu_driver_evaluator(
     order = int(solver_settings["driverspline_order"])
     if driver_settings is None or width == 0 or driver_array is None:
         coeffs = np.zeros((1, width, order + 1), dtype=precision)
-        dt_value = precision(solver_settings["save_every"]) / 2.0
+        # Handle None save_every by using a reasonable default
+        save_every_val = solver_settings["save_every"]
+        if save_every_val is None:
+            save_every_val = precision(solver_settings["duration"]) / 10.0
+        dt_value = precision(save_every_val) / 2.0
         t0_value = 0.0
         wrap_value = bool(solver_settings["driverspline_wrap"])
     else:
