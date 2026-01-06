@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba import from_dtype as numba_from_dtype
 from numpy import float32
+from warnings import warn
 
 from cubie._utils import (
     PrecisionDType,
@@ -266,11 +267,7 @@ class ODELoopConfig:
         ):
             self.save_last = True
             self.summarise_last = True
-            # Set sentinel values for loop timing (will be overridden)
-            self._save_every = 0.1
-            self._summarise_every = 1.0
-            self._sample_summaries_every = 0.1
-            return  # Skip validation when using save_last/summarise_last
+            return  # Skip validation when using save_last/summarise_last only
 
         # Case 2: Only save_every specified
         elif (
@@ -314,21 +311,35 @@ class ODELoopConfig:
         
         # Case 7: All three specified - no defaults needed
         
-        # Validate that sample_summaries_every divides summarise_every evenly
-        # Skip validation when summarise_last is True
-        if not self.summarise_last:
-            tolerance = 1e-3 #0.1% timing tolerance (summary freq vs sampling)
+        # Validate that summarise_every is an integer multiple of
+        # sample_summaries_every.
+        if self._summarise_every is not None:
             ratio = self._summarise_every / self._sample_summaries_every
-            if abs(ratio - round(ratio)) > tolerance:
+            deviation = abs(ratio - round(ratio))
+
+            if deviation <= 0.01:  # Within 1% - auto-adjust with warning
+                rounded_ratio = round(ratio)
+                adjusted = rounded_ratio * self._sample_summaries_every
+                if adjusted != self._summarise_every:
+                    warn(
+                        f"summarise_every adjusted from {self._summarise_every}"
+                        f" to {adjusted}, the nearest integer multiple of "
+                        f"sample_summaries_every ({self._sample_summaries_every})"
+                    )
+                    self._summarise_every = adjusted
+            else:  # More than 1% off - incompatible values
                 raise ValueError(
-                    f"sample_summaries_every ({self._sample_summaries_every}) "
-                    f"must be an integer divisor of summarise_every "
-                    f"({self._summarise_every}). Ratio: {ratio}"
+                    f"summarise_every ({self._summarise_every}) must be an "
+                    f"integer multiple of sample_summaries_every "
+                    f"({self._sample_summaries_every}). The ratio {ratio:.4f} "
+                    f"is not close to any integer."
                 )
 
     @property
-    def samples_per_summary(self) -> int:
+    def samples_per_summary(self) -> Optional[int]:
         """Return the number of updates between summary outputs."""
+        if self._summarise_every is None:
+            return None
         return round(self.summarise_every / self.sample_summaries_every)
 
     @property
@@ -342,18 +353,24 @@ class ODELoopConfig:
         return simsafe_dtype(self.precision)
 
     @property
-    def save_every(self) -> float:
-        """Return the output save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the output save interval, or None if not configured."""
+        if self._save_every is None:
+            return None
         return self.precision(self._save_every)
-    
+
     @property
-    def summarise_every(self) -> float:
-        """Return the summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
+        if self._summarise_every is None:
+            return None
         return self.precision(self._summarise_every)
-    
+
     @property
-    def sample_summaries_every(self) -> float:
-        """Return the summary sampling interval."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
+        if self._sample_summaries_every is None:
+            return None
         return self.precision(self._sample_summaries_every)
 
     @property

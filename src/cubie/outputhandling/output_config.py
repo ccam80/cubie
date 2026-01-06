@@ -179,8 +179,8 @@ class OutputConfig:
     _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
     )
-    _save_every: float = attrs.field(
-        default=0.01,
+    _save_every: Optional[float] = attrs.field(
+        default=None,
         validator=opt_gttype_validator(float, 0.0)
     )
 

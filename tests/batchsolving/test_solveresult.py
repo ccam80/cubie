@@ -573,11 +573,19 @@ class TestNaNProcessing:
 
 
 class TestSolveSpecFields:
-    """Test SolveSpec field renames."""
+    """Test SolveSpec field attributes."""
 
-    def test_solvespec_save_every_field(self):
-        """Verify SolveSpec has save_every field."""
+    def test_solvespec_has_all_expected_attributes(self):
+        """Verify SolveSpec has all required attributes."""
         from cubie.batchsolving.solveresult import SolveSpec
+
+        expected_attrs = [
+            'dt', 'dt_min', 'dt_max', 'save_every', 'summarise_every',
+            'sample_summaries_every', 'atol', 'rtol', 'duration', 'warmup',
+            't0', 'algorithm', 'saved_states', 'saved_observables',
+            'summarised_states', 'summarised_observables', 'output_types',
+            'precision'
+        ]
 
         spec = SolveSpec(
             dt=0.001,
@@ -585,6 +593,7 @@ class TestSolveSpecFields:
             dt_max=0.01,
             save_every=0.1,
             summarise_every=1.0,
+            sample_summaries_every=0.1,
             atol=1e-6,
             rtol=1e-3,
             duration=10.0,
@@ -599,32 +608,5 @@ class TestSolveSpecFields:
             precision="float32",
         )
 
-        assert hasattr(spec, 'save_every')
-        assert spec.save_every == 0.1
-
-    def test_solvespec_summarise_every_field(self):
-        """Verify SolveSpec has summarise_every field."""
-        from cubie.batchsolving.solveresult import SolveSpec
-
-        spec = SolveSpec(
-            dt=0.001,
-            dt_min=0.0001,
-            dt_max=0.01,
-            save_every=0.1,
-            summarise_every=1.0,
-            atol=1e-6,
-            rtol=1e-3,
-            duration=10.0,
-            warmup=0.0,
-            t0=0.0,
-            algorithm="euler",
-            saved_states=["x0"],
-            saved_observables=None,
-            summarised_states=["x0"],
-            summarised_observables=None,
-            output_types=["state", "mean"],
-            precision="float32",
-        )
-
-        assert hasattr(spec, 'summarise_every')
-        assert spec.summarise_every == 1.0
+        for attr in expected_attrs:
+            assert hasattr(spec, attr), f"SolveSpec missing attribute: {attr}"

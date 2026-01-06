@@ -1093,6 +1093,7 @@ class Solver:
             dt_max=self.dt_max,
             save_every=self.save_every,
             summarise_every=self.summarise_every,
+            sample_summaries_every=self.sample_summaries_every,
             duration=self.duration,
             warmup=self.warmup,
             t0=self.t0,
