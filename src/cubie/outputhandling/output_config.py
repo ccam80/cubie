@@ -128,6 +128,8 @@ class OutputConfig:
         Requested output type names, including summary metric identifiers.
     save_every
         Time between saved samples. Defaults to 0.01 seconds.
+    sample_summaries_every
+        Time between summary metric samples. Defaults to save_every.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
 
@@ -183,7 +185,10 @@ class OutputConfig:
         default=None,
         validator=opt_gttype_validator(float, 0.0)
     )
-
+    _sample_summaries_every: Optional[float] = attrs.field(
+        default=None,
+        validator=opt_gttype_validator(float, 0.0)
+    )
 
     def __attrs_post_init__(self) -> None:
         """Perform post-initialisation validation and setup.
@@ -667,6 +672,17 @@ class OutputConfig:
         return self._save_every
 
     @property
+    def sample_summaries_every(self) -> float:
+        """Time interval between summary metric samples.
+
+        Returns the configured sample_summaries_every value, or defaults
+        to save_every if not explicitly set.
+        """
+        if self._sample_summaries_every is None:
+            return self._save_every
+        return self._sample_summaries_every
+
+    @property
     def precision(self) -> type[np.floating]:
         """Numerical precision for output calculations."""
         return self._precision
@@ -903,6 +919,7 @@ class OutputConfig:
         max_states: int = 0,
         max_observables: int = 0,
         save_every: Optional[float] = 0.01,
+        sample_summaries_every: Optional[float] = None,
     ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
@@ -927,7 +944,10 @@ class OutputConfig:
         max_observables
             Total number of observable variables in the system.
         save_every
-            Time interval between saved states. Defaults to ``0.01`` if
+            Time interval between saved states. Defaults to ``0.01``.
+        sample_summaries_every
+            Time interval between summary metric samples. Defaults to
+            save_every if not specified.
         precision
             Numerical precision for output calculations. Defaults to
             ``np.float32`` if not provided.
@@ -966,5 +986,6 @@ class OutputConfig:
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
             save_every=save_every,
+            sample_summaries_every=sample_summaries_every,
             precision=precision,
         )

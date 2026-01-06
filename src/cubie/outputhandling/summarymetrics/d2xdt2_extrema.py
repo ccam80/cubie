@@ -52,10 +52,10 @@ class D2xdt2Extrema(SummaryMetric):
         -----
         The update callback computes central finite differences and tracks
         both maximum and minimum unscaled second derivatives. The save
-        callback scales by dt_save² and resets the buffers.
+        callback scales by sample_summaries_every² and resets the buffers.
         """
 
-        dt_save = self.compile_settings.dt_save
+        sample_summaries_every = self.compile_settings.sample_summaries_every
         precision = self.compile_settings.precision
 
         # no cover: start
@@ -134,12 +134,14 @@ class D2xdt2Extrema(SummaryMetric):
 
             Notes
             -----
-            Scales the extrema by dt_save² and saves to output_array[0] (max)
-            and output_array[1] (min), then resets buffers to sentinel values.
+            Scales the extrema by sample_summaries_every² and saves to
+            output_array[0] (max) and output_array[1] (min), then resets
+            buffers to sentinel values.
             """
-            dt_save_sq = precision(dt_save) * precision(dt_save)
-            output_array[0] = buffer[2] / dt_save_sq
-            output_array[1] = buffer[3] / dt_save_sq
+            sample_interval_sq = (precision(sample_summaries_every)
+                                  * precision(sample_summaries_every))
+            output_array[0] = buffer[2] / sample_interval_sq
+            output_array[1] = buffer[3] / sample_interval_sq
             buffer[2] = precision(-1.0e30)
             buffer[3] = precision(1.0e30)
 

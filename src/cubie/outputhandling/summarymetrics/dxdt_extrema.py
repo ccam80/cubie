@@ -51,10 +51,10 @@ class DxdtExtrema(SummaryMetric):
         -----
         The update callback computes finite differences and tracks both
         maximum and minimum unscaled derivatives. The save callback scales
-        by dt_save and resets the buffers.
+        by sample_summaries_every and resets the buffers.
         """
 
-        dt_save = self.compile_settings.dt_save
+        sample_summaries_every = self.compile_settings.sample_summaries_every
         precision = self.compile_settings.precision
 
         # no cover: start
@@ -127,11 +127,12 @@ class DxdtExtrema(SummaryMetric):
 
             Notes
             -----
-            Scales the extrema by dt_save and saves to output_array[0] (max)
-            and output_array[1] (min), then resets buffers to sentinel values.
+            Scales the extrema by sample_summaries_every and saves to
+            output_array[0] (max) and output_array[1] (min), then resets
+            buffers to sentinel values.
             """
-            output_array[0] = buffer[1] / precision(dt_save)
-            output_array[1] = buffer[2] / precision(dt_save)
+            output_array[0] = buffer[1] / precision(sample_summaries_every)
+            output_array[1] = buffer[2] / precision(sample_summaries_every)
             buffer[1] = precision(-1.0e30)
             buffer[2] = precision(1.0e30)
 

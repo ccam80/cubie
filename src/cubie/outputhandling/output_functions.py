@@ -34,6 +34,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "summarised_state_indices",
     "summarised_observable_indices",
     "save_every",  # Time interval for derivative metric scaling
+    "sample_summaries_every",  # Sample interval for summary metrics
     "precision",  # Numerical precision for output calculations
 }
 
@@ -199,7 +200,10 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        summary_metrics.update(dt_save=config.save_every, precision=config.precision)
+        summary_metrics.update(
+            sample_summaries_every=config.sample_summaries_every,
+            precision=config.precision
+        )
 
         # Build functions using output sizes objects
         save_state_func = save_state_factory(
