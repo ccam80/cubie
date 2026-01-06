@@ -316,7 +316,7 @@ class ODELoopConfig:
     @property
     def samples_per_summary(self) -> Optional[int]:
         """Return the number of updates between summary outputs."""
-        if self._summarise_every is None:
+        if self._summarise_every is None or self._sample_summaries_every is None:
             return None
         return round(self.summarise_every / self.sample_summaries_every)
 

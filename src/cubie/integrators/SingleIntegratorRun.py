@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-from numpy import dtype as np_dtype
+from numpy import dtype as np_dtype, floor as np_floor
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
@@ -19,6 +19,9 @@ from cubie.odesystems.ODEData import SystemSizes
 
 if TYPE_CHECKING:  # pragma: no cover - type checking import only
     from cubie.odesystems.baseODE import BaseODE
+
+# Output types that represent time-domain samples (state, observables, time)
+TIME_DOMAIN_OUTPUT_TYPES = frozenset({"state", "observables", "time"})
 
 
 class SingleIntegratorRun(SingleIntegratorRunCore):
@@ -176,9 +179,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def any_time_domain_outputs(self) -> bool:
         """Return True if time-domain outputs are requested."""
-        time_domain_types = {"state", "observables", "time"}
         output_types = set(self._output_functions.output_types)
-        has_time_domain = bool(time_domain_types & output_types)
+        has_time_domain = bool(TIME_DOMAIN_OUTPUT_TYPES & output_types)
         has_save_timing = (
             self._loop.compile_settings._save_every is not None
             or self._loop.compile_settings.save_last
@@ -188,9 +190,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def any_summary_outputs(self) -> bool:
         """Return True if summary outputs are requested."""
-        time_domain_types = {"state", "observables", "time"}
         output_types = set(self._output_functions.output_types)
-        summary_types = output_types - time_domain_types
+        summary_types = output_types - TIME_DOMAIN_OUTPUT_TYPES
         has_summaries = bool(summary_types)
         has_summarise_timing = (
             self._loop.compile_settings._summarise_every is not None
@@ -225,7 +226,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         if save_every is None:
             # save_last mode: initial + final = 2
             return 2
-        from numpy import floor as np_floor
         precision = self.precision
         return int(np_floor(precision(duration) / precision(save_every))) + 1
 
