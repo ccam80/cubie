@@ -158,10 +158,18 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
    a. Invoke **taskmaster** for that specific task group
    b. Wait for taskmaster to complete
 5. **Invoke run_tests** for complete test verification (once after all taskmasters complete)
-6. **If tests fail**: invoke taskmaster to fix issues, then run_tests again
-7. **Invoke reviewer** to validate implementation
-8. **If reviewer suggests edits**: invoke taskmaster for review edits
-9. **Invoke run_tests** at pipeline exit for final verification
+6. **Invoke reviewer** to validate implementation
+7. **If reviewer suggests edits**: invoke taskmaster for review edits (taskmaster_2)
+8. **Invoke run_tests** at pipeline exit for final verification
+9. **Report results and terminate** - summarize changes and any remaining test failures
+
+**CRITICAL: Pipeline Termination Rules:**
+- The pipeline has a **maximum of 2 taskmaster invocations** after initial task group execution:
+  1. One optional taskmaster after first run_tests (step 5) if tests fail
+  2. One taskmaster_2 after reviewer (step 7) if reviewer suggests edits
+- **Do NOT loop** between run_tests and taskmaster. If tests still fail after taskmaster_2, report the failures to the user and terminate.
+- After step 8 (final run_tests), the pipeline MUST terminate regardless of test results.
+- Include any remaining test failures in the final summary for user review.
 
 **Default return_after level**: Use `taskmaster_2` for complete implementation
 **Default starting agent**: `plan_new_feature` unless specified otherwise
@@ -172,7 +180,8 @@ When the user says "run pipeline on issue #X" or similar commands, interpret thi
 3. `taskmaster` - Executes one task group at a time (called per group)
 4. `run_tests` - Runs tests once after all taskmaster invocations complete
 5. `reviewer` - Reviews implementation against user stories
-6. `taskmaster_2` - Applies review edits (additional taskmaster invocation)
+6. `taskmaster_2` - Applies review edits (final taskmaster invocation)
+7. `run_tests_final` - Final test verification (no further fixes attempted)
 
 **Example interpretation:**
 
@@ -191,12 +200,13 @@ Your action:
    a. Invoke taskmaster with: "Execute Task Group [i] from task_list.md"
    b. Wait for taskmaster to complete
 8. Invoke run_tests for full test suite verification
-9. If tests fail, invoke taskmaster to fix, then run_tests again
-10. Invoke reviewer with all outputs
-11. Wait for reviewer to complete
-12. If reviewer suggests edits, invoke taskmaster with review edits
-13. Invoke run_tests for final verification
-14. Summarize and return to user
+9. Invoke reviewer with all outputs
+10. Wait for reviewer to complete
+11. If reviewer suggests edits, invoke taskmaster with review edits
+12. Invoke run_tests for final verification
+13. Summarize changes and any remaining test failures, then return to user
+    - Do NOT invoke additional taskmaster or run_tests calls
+    - Report failures for user to examine
 ```
 
 **Note**: Reading task_list.md to identify task groups is the only file reading you should do during pipeline execution. Do NOT read source files or make edits yourself.

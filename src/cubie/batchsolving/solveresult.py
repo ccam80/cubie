@@ -205,42 +205,6 @@ class SolveResult:
     _stride_order: Union[tuple[str, ...], list[str]] = attrs.field(
         default=("time", "variable", "run")
     )
-    _state: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
-    )
-    _observables: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
-    )
-    _state_summaries: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
-    )
-    _observable_summaries: Optional[NDArray] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(np.ndarray)),
-    )
-
-    @property
-    def state(self) -> Optional[NDArray]:
-        """Return the state array from the solve result."""
-        return self._state
-
-    @property
-    def observables(self) -> Optional[NDArray]:
-        """Return the observables array from the solve result."""
-        return self._observables
-
-    @property
-    def state_summaries(self) -> Optional[NDArray]:
-        """Return the state summaries array from the solve result."""
-        return self._state_summaries
-
-    @property
-    def observable_summaries(self) -> Optional[NDArray]:
-        """Return the observable summaries array from the solve result."""
-        return self._observable_summaries
 
     @classmethod
     def from_solver(
@@ -357,10 +321,6 @@ class SolveResult:
             solve_settings=solve_settings,
             stride_order=solver.state_stride_order,
             singlevar_summary_legend=singlevar_summary_legend,
-            state=state_less_time,
-            observables=solver.observables,
-            state_summaries=solver.state_summaries,
-            observable_summaries=solver.observable_summaries,
         )
 
         if results_type == "full":
