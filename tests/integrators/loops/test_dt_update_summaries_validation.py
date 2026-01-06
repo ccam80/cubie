@@ -239,8 +239,9 @@ def test_tolerant_validation_auto_adjusts():
     
     When summarise_every is within 1% of an integer multiple of
     sample_summaries_every, it is auto-adjusted to the nearest multiple.
+    The 1% tolerance applies to the ratio deviation, not the value itself.
     """
-    # 1.005 is 0.5% away from 1.0 (ratio 10.05 from 10)
+    # 1.001 produces ratio 10.01, deviation 0.01 (exactly 1% of the ratio)
     config = ODELoopConfig(
         n_states=3,
         n_parameters=0,
@@ -251,7 +252,7 @@ def test_tolerant_validation_auto_adjusts():
         state_summaries_buffer_height=0,
         observable_summaries_buffer_height=0,
         save_every=0.1,
-        summarise_every=1.005,
+        summarise_every=1.001,
         sample_summaries_every=0.1,
     )
 
@@ -276,14 +277,14 @@ def test_tolerant_validation_warns_on_adjustment():
             state_summaries_buffer_height=0,
             observable_summaries_buffer_height=0,
             save_every=0.1,
-            summarise_every=1.008,  # 0.8% off from 1.0
+            summarise_every=1.0005,  # ratio 10.005, deviation 0.005 within 1%
             sample_summaries_every=0.1,
         )
 
         # A warning should have been raised
         assert len(w) == 1
         assert "summarise_every adjusted" in str(w[0].message)
-        assert "1.008" in str(w[0].message)
+        assert "1.0005" in str(w[0].message)
         assert "1.0" in str(w[0].message)
 
 

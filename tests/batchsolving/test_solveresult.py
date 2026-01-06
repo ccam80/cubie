@@ -581,9 +581,10 @@ class TestSolveSpecFields:
 
         expected_attrs = [
             'dt', 'dt_min', 'dt_max', 'save_every', 'summarise_every',
-            'atol', 'rtol', 'duration', 'warmup', 't0', 'algorithm',
-            'saved_states', 'saved_observables', 'summarised_states',
-            'summarised_observables', 'output_types', 'precision'
+            'sample_summaries_every', 'atol', 'rtol', 'duration', 'warmup',
+            't0', 'algorithm', 'saved_states', 'saved_observables',
+            'summarised_states', 'summarised_observables', 'output_types',
+            'precision'
         ]
 
         spec = SolveSpec(
@@ -592,6 +593,7 @@ class TestSolveSpecFields:
             dt_max=0.01,
             save_every=0.1,
             summarise_every=1.0,
+            sample_summaries_every=0.1,
             atol=1e-6,
             rtol=1e-3,
             duration=10.0,

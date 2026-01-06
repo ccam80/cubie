@@ -63,6 +63,8 @@ class SolveSpec:
         Interval at which state values are stored.
     summarise_every
         Interval for computing summary outputs.
+    sample_summaries_every
+        Interval for sampling summary metric updates.
     atol
         Absolute error tolerance when configured.
     rtol
@@ -94,6 +96,9 @@ class SolveSpec:
     dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
     save_every: float = attrs.field(validator=gttype_validator(float, 0.0))
     summarise_every: float = attrs.field(validator=getype_validator(float, 0.0))
+    sample_summaries_every: float = attrs.field(
+        validator=getype_validator(float, 0.0)
+    )
     atol: Optional[float] = attrs.field(
             validator=val.or_(opt_gttype_validator(float, 0.0),
                               val.instance_of(np.ndarray)),

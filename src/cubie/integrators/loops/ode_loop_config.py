@@ -336,8 +336,10 @@ class ODELoopConfig:
                 )
 
     @property
-    def samples_per_summary(self) -> int:
+    def samples_per_summary(self) -> Optional[int]:
         """Return the number of updates between summary outputs."""
+        if self._summarise_every is None or self._sample_summaries_every is None:
+            return None
         return round(self.summarise_every / self.sample_summaries_every)
 
     @property
@@ -351,18 +353,24 @@ class ODELoopConfig:
         return simsafe_dtype(self.precision)
 
     @property
-    def save_every(self) -> float:
-        """Return the output save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the output save interval, or None if not configured."""
+        if self._save_every is None:
+            return None
         return self.precision(self._save_every)
-    
+
     @property
-    def summarise_every(self) -> float:
-        """Return the summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
+        if self._summarise_every is None:
+            return None
         return self.precision(self._summarise_every)
-    
+
     @property
-    def sample_summaries_every(self) -> float:
-        """Return the summary sampling interval."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
+        if self._sample_summaries_every is None:
+            return None
         return self.precision(self._sample_summaries_every)
 
     @property
