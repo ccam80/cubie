@@ -276,7 +276,7 @@ class TestTimingParameterValidation:
 
         with pytest.raises(
             ValueError,
-            match=r"save_every.*>.*duration.*save_last is False.*no outputs"
+            match=r"save_every.*>.*duration.*no outputs"
         ):
             kernel.run(
                 inits=inits,

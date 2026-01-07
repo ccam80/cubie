@@ -41,10 +41,6 @@ DEFAULT_MEMORY_SETTINGS = {
     "mem_proportion": None,
 }
 
-# Relative tolerance for floating point comparisons in timing validation
-_TIMING_RTOL = 1e-6
-
-
 @define(frozen=True)
 class ChunkParams:
     """Chunked execution parameters calculated for a batch run.
@@ -276,31 +272,34 @@ class BatchSolverKernel(CUDAFactory):
         ------
         ValueError
             When timing parameters would result in no outputs or invalid
-            summary sampling.
+            sampling.
 
         Notes
         -----
-        Uses a small tolerance (_TIMING_RTOL = 1e-6 relative) when comparing
-        floating point timing parameters to avoid false positives from
-        precision conversion.
+        Uses dt_min as a tolerance when comparing floating point timing
+        parameters, as any overstep by <dt_min will be handled in-loop.
         """
         integrator = self.single_integrator
-
+        end_time = self.precision(duration) + self.dt_min
         # Check time-domain outputs
         if integrator.has_time_domain_outputs:
             save_every = integrator.save_every
             save_last = integrator.save_last
-            if save_every is not None and save_every > duration and not save_last:
+            if (
+                save_every is not None
+                and save_every > end_time
+                and not save_last
+            ):
                 raise ValueError(
                     f"save_every ({save_every}) > duration ({duration}) "
-                    f"and save_last is False, so this loop will produce "
-                    f"no outputs"
+                    f"so this loop will produce no outputs"
                 )
 
         # Check summary outputs
         if integrator.has_summary_outputs:
             sample_summaries_every = integrator.sample_summaries_every
             summarise_every = integrator.summarise_every
+            dt_min = integrator.dt_min
 
             if sample_summaries_every is None:
                 raise ValueError(
@@ -316,12 +315,12 @@ class BatchSolverKernel(CUDAFactory):
                 raise ValueError(
                     f"sample_summaries_every ({sample_summaries_every}) "
                     f">= summarise_every ({summarise_every}); "
-                    f"sample_summaries_every must be strictly less than "
-                    f"summarise_every"
+                    f"The saved summary will be based on 0 samples, so will "
+                    f"result in 0/inf/NaN values."
                 )
 
             # Use relative tolerance for duration check
-            if summarise_every > duration * (1 + _TIMING_RTOL):
+            if summarise_every > end_time:
                 raise ValueError(
                     f"summarise_every ({summarise_every}) > duration "
                     f"({duration}), so this loop will produce no summary "
