@@ -317,7 +317,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         multistage = stage_count > 1
         first_same_as_last = self.first_same_as_last
@@ -492,7 +492,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         proposed_drivers[idx] = drivers_buffer[idx]
 
                 else:
-                    if has_driver_function:
+                    if has_evaluate_driver_at_t:
                         evaluate_driver_at_t(
                             stage_time,
                             driver_coeffs,
@@ -606,7 +606,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
@@ -721,7 +721,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,

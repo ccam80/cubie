@@ -378,7 +378,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         n = int32(n)
         stage_count = int32(self.stage_count)
         stages_except_first = stage_count - int32(1)
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
@@ -492,7 +492,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Evaluate del_t term at t_n, y_n
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 driver_del_t(
                     current_time,
                     driver_coeffs,
@@ -608,7 +608,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_increment[idx] = stage_store[stage_offset + idx]
 
                 # Get t + c_i * dt parts
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
@@ -642,7 +642,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - int32(1):
-                    if has_driver_function:
+                    if has_evaluate_driver_at_t:
                         driver_del_t(
                             current_time,
                             driver_coeffs,
@@ -722,7 +722,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,

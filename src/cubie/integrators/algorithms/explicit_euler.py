@@ -99,7 +99,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             Compiled step function.
         """
 
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # no cover: start
@@ -196,7 +196,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,

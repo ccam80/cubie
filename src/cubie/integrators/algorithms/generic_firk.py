@@ -338,7 +338,7 @@ class FIRKStep(ODEImplicitStep):
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
 
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
 
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
@@ -437,7 +437,7 @@ class FIRKStep(ODEImplicitStep):
                     error[idx] = typed_zero
 
             # Fill stage_drivers_stack if driver arrays provided
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 for stage_idx in range(stage_count):
                     stage_time = (
                         current_time
@@ -465,7 +465,7 @@ class FIRKStep(ODEImplicitStep):
             status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     stage_base = stage_idx * n_drivers
                     for idx in range (n_drivers):
                         proposed_drivers[idx] = stage_driver_stack[stage_base + idx]
@@ -522,7 +522,7 @@ class FIRKStep(ODEImplicitStep):
                     error[idx] = error_acc
 
             if not ends_at_one:
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     evaluate_driver_at_t(
                         end_time,
                         driver_coeffs,

@@ -174,8 +174,8 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             Compiled step function and solver.
         """
         a_ij = numba_precision(1.0)
-        has_driver_function = evaluate_driver_at_t is not None
-        driver_function = evaluate_driver_at_t
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
+        evaluate_driver_at_t = evaluate_driver_at_t
         n = int32(n)
         
         # Get child allocators for Newton solver (already registered in register_buffers)
@@ -327,8 +327,8 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 stage_drivers[0, driver_idx] = typed_zero
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -429,10 +429,10 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         return 1
 
     @property
-    def dxdt_function(self) -> Optional[Callable]:
+    def evaluate_f(self) -> Optional[Callable]:
         """Return the derivative device function."""
 
-        return self.compile_settings.dxdt_function
+        return self.compile_settings.evaluate_f
 
     @property
     def identifier(self) -> str:

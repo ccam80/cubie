@@ -678,14 +678,14 @@ class BaseAlgorithmStep(CUDAFactory):
         return self.compile_settings.settings_dict
 
     @property
-    def dxdt_function(self) -> Optional[Callable]:
+    def evaluate_f(self) -> Optional[Callable]:
         """Return the compiled device derivative function."""
-        return self.compile_settings.dxdt_function
+        return self.compile_settings.evaluate_f
 
     @property
-    def observables_function(self) -> Optional[Callable]:
+    def evaluate_observables(self) -> Optional[Callable]:
         """Return the compiled device observables function."""
-        return self.compile_settings.observables_function
+        return self.compile_settings.evaluate_observables
 
 
     @property

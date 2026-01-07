@@ -38,7 +38,7 @@ class InstrumentedERKStep(ERKStep):
 
         accumulator_length = (tableau.stage_count - 1) * n
 
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
@@ -252,7 +252,7 @@ class InstrumentedERKStep(ERKStep):
 
                 # get rhs for next stage
                 stage_drivers = proposed_drivers
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
@@ -329,7 +329,7 @@ class InstrumentedERKStep(ERKStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,

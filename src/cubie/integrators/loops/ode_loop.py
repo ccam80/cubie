@@ -103,9 +103,9 @@ class IVPLoop(CUDAFactory):
         Device function that updates the timestep and accept flag.
     step_function
         Device function that advances the solution by one tentative step.
-    driver_function
+    evaluate_driver_at_t
         Device function that evaluates drivers for a given time.
-    observables_fn
+    evaluate_observables
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
@@ -138,8 +138,8 @@ class IVPLoop(CUDAFactory):
         save_summaries_func: Optional[Callable] = None,
         step_controller_fn: Optional[Callable] = None,
         step_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
-        observables_fn: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
         **kwargs,
     ) -> None:
         """Initialise the IVP loop configuration.
@@ -184,9 +184,9 @@ class IVPLoop(CUDAFactory):
             Device function that updates the timestep and accept flag.
         step_function
             Device function that advances the solution by one tentative step.
-        driver_function
+        evaluate_driver_at_t
             Device function that evaluates drivers for a given time.
-        observables_fn
+        evaluate_observables
             Device function that computes observables for proposed states.
         **kwargs
             Optional parameters passed to ODELoopConfig. See ODELoopConfig
@@ -218,8 +218,8 @@ class IVPLoop(CUDAFactory):
                 'save_summaries_fn': save_summaries_func,
                 'step_controller_fn': step_controller_fn,
                 'step_function': step_function,
-                'driver_function': driver_function,
-                'observables_fn': observables_fn,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
+                'evaluate_observables': evaluate_observables,
             },
             **kwargs
         )
@@ -330,8 +330,8 @@ class IVPLoop(CUDAFactory):
         save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
         step_function = config.step_function
-        driver_function = config.driver_function
-        observables_fn = config.observables_fn
+        evaluate_driver_at_t = config.evaluate_driver_at_t
+        evaluate_observables = config.evaluate_observables
 
         flags = config.compile_flags
         save_obs_bool = flags.save_observables
@@ -509,14 +509,14 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if driver_function is not None and n_drivers > int32(0):
-                driver_function(
+            if evaluate_driver_at_t is not None and n_drivers > int32(0):
+                evaluate_driver_at_t(
                     t_prec,
                     driver_coefficients,
                     drivers_buffer,
                 )
             if n_observables > int32(0):
-                observables_fn(
+                evaluate_observables(
                     state_buffer,
                     parameters_buffer,
                     drivers_buffer,
@@ -893,16 +893,16 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.step_function
 
     @property
-    def driver_function(self) -> Optional[Callable]:
+    def evaluate_driver_at_t(self) -> Optional[Callable]:
         """Return the driver evaluation device function used by the loop."""
 
-        return self.compile_settings.driver_function
+        return self.compile_settings.evaluate_driver_at_t
 
     @property
-    def observables_fn(self) -> Optional[Callable]:
+    def evaluate_observables(self) -> Optional[Callable]:
         """Return the observables device function used by the loop."""
 
-        return self.compile_settings.observables_fn
+        return self.compile_settings.evaluate_observables
 
     @property
     def dt0(self) -> Optional[float]:

@@ -116,7 +116,7 @@ def codegen_dir():
 # ========================================
 
 
-def _get_driver_function(
+def _get_evaluate_driver_at_t(
     driver_array: Optional[ArrayInterpolator],
 ) -> Optional[Callable[..., Any]]:
     """Return the evaluation callable for ``driver_array`` if it exists."""
@@ -143,8 +143,8 @@ def _build_solver_instance(
     """Instantiate :class:`Solver` configured with ``solver_settings``."""
 
     solver = Solver(system, **solver_settings)
-    driver_function = _get_driver_function(driver_array)
-    solver.update({"evaluate_driver_at_t": driver_function})
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
+    solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
     return solver
 
 
@@ -687,7 +687,7 @@ def solverkernel(
     as these are the two fundamental base CUDAFactory fixtures. All other
     dependencies are settings fixtures.
     """
-    driver_function = _get_driver_function(driver_array)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
     # Add system functions to algorithm_settings for BatchSolverKernel
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
@@ -695,7 +695,7 @@ def solverkernel(
     )
     return BatchSolverKernel(
         system,
-        evaluate_driver_at_t=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
@@ -723,7 +723,7 @@ def solverkernel_mutable(
     as these are the two fundamental base CUDAFactory fixtures. All other
     dependencies are settings fixtures.
     """
-    driver_function = _get_driver_function(driver_array)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
     # Add system functions to algorithm_settings for BatchSolverKernel
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
@@ -731,7 +731,7 @@ def solverkernel_mutable(
     )
     return BatchSolverKernel(
         system,
-        evaluate_driver_at_t=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
@@ -816,7 +816,7 @@ def single_integrator_run(
     as these are the two fundamental base CUDAFactory fixtures. All other
     dependencies are settings fixtures.
     """
-    driver_function = _get_driver_function(driver_array)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
     # Add system functions to algorithm_settings for SingleIntegratorRun
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
@@ -824,7 +824,7 @@ def single_integrator_run(
     )
     return SingleIntegratorRun(
         system=system,
-        evaluate_driver_at_t=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=enhanced_algorithm_settings,
@@ -849,7 +849,7 @@ def single_integrator_run_mutable(
     as these are the two fundamental base CUDAFactory fixtures. All other
     dependencies are settings fixtures.
     """
-    driver_function = _get_driver_function(driver_array)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
     # Add system functions to algorithm_settings for SingleIntegratorRun
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
@@ -858,7 +858,7 @@ def single_integrator_run_mutable(
     return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
-        evaluate_driver_at_t=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=enhanced_algorithm_settings,

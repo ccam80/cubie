@@ -71,9 +71,9 @@ class ODELoopConfig:
         Device function that updates the timestep and acceptance flag.
     step_function
         Device function that advances the solution by one tentative step.
-    driver_function
+    evaluate_driver_at_t
         Device function that evaluates driver signals for a given time.
-    observables_fn
+    evaluate_observables
         Device function that evaluates observables for the current state.
     _dt0
         Initial timestep prior to controller feedback.
@@ -230,12 +230,12 @@ class ODELoopConfig:
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    driver_function: Optional[Callable] = field(
+    evaluate_driver_at_t: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    observables_fn: Optional[Callable] = field(
+    evaluate_observables: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False

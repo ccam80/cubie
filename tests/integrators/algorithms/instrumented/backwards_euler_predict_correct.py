@@ -47,7 +47,7 @@ class InstrumentedBackwardsEulerPCStep(InstrumentedBackwardsEulerStep):
             Compiled predictor-corrector step function.
         """
         a_ij = numba_precision(1.0)
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # Get child allocators for Newton solver
@@ -204,7 +204,7 @@ class InstrumentedBackwardsEulerPCStep(InstrumentedBackwardsEulerStep):
                 stage_drivers[0, driver_idx] = typed_zero
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,

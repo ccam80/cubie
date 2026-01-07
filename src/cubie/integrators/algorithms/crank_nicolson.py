@@ -154,7 +154,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         """
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # Get child allocators for Newton solver
@@ -266,7 +266,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 base_state[i] = state[i] + half_dt * dxdt[i]
 
             # Solve Crank-Nicolson step (main solution)
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     end_time,
                     driver_coefficients,

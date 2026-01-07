@@ -186,7 +186,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
-        has_driver_function = evaluate_driver_at_t is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
         typed_zero = numba_precision(0.0)
 
@@ -314,7 +314,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                 base_state[idx] = state[idx] + half_dt * dxdt[idx]
 
             # Solve Crank-Nicolson step (main solution)
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 evaluate_driver_at_t(
                     end_time,
                     driver_coefficients,

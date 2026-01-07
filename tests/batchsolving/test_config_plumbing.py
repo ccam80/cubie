@@ -336,7 +336,7 @@ def assert_ivploop_config(loop, settings, tolerance):
     # - shared_buffer_indices, local_indices: computed from sizes
     # - loop_shared_elements, loop_local_elements: computed
     # - saves_per_summary: computed
-    # - driver_function, observables_fn: function references
+    # - evaluate_driver_at_t, evaluate_observables: function references
     # - precision, numba_precision, simsafe_precision: derived
 
 
@@ -378,7 +378,7 @@ def assert_symbolic_ode_config(system, settings, tolerance):
     # Not tested (system structure, not settings):
     # - equations, observables, states, parameters, etc: system definition
     # - num_*, sizes: computed from system
-    # - dxdt_function, observables_function: compiled functions
+    # - evaluate_f, evaluate_observables: compiled functions
 
 
 def assert_step_algorithm_config(step_algorithm, settings, tolerance):
@@ -417,7 +417,7 @@ def assert_step_algorithm_config(step_algorithm, settings, tolerance):
     # Not tested (algorithm-specific/computed):
     # - n: system parameter, not a setting
     # - stage_count, can_reuse_accepted_start, first_same_as_last: algorithm structure
-    # - driver_function: function reference
+    # - evaluate_driver_at_t: function reference
     # - n_drivers: system property
     # - simsafe_precision: derived
     # - settings_dict: internal storage
