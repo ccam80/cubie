@@ -119,11 +119,11 @@ def test_custom_precision(basic_model):
     """Verify custom precision can be specified."""
     assert basic_model.precision == np.float64
 
+
 @pytest.mark.parametrize("cellml_overrides", [{'name': "custom_model"}],
     indirect=True,
     ids=[""]
 )
-
 def test_custom_name(basic_model):
     """Verify custom name can be specified."""
     assert basic_model.name == "custom_model"

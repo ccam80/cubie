@@ -53,7 +53,6 @@ def solve_ivp(
     y0: Union[ndarray, Dict[str, ndarray]],
     parameters: Optional[Union[ndarray, Dict[str, ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
-    save_every: Optional[float] = None,
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
@@ -79,9 +78,6 @@ def solve_ivp(
         to arrays.
     drivers
         Driver configuration to interpolate during integration.
-    save_every
-        Interval at which solution values are stored. Defaults to None
-        (auto-configured).
     method
         Integration algorithm to use. Default is ``"euler"``.
     duration
@@ -126,7 +122,6 @@ def solve_ivp(
     # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
 
-    kwargs.setdefault("save_every", save_every)
     if save_variables is not None:
         kwargs.setdefault("save_variables", save_variables)
     if summarise_variables is not None:
@@ -522,11 +517,7 @@ class Solver:
             return set()
 
         # Only convert output labels if variable-related keys are present
-        variable_keys = {
-            "save_variables", "summarise_variables",
-            "saved_state_indices", "saved_observable_indices",
-            "summarised_state_indices", "summarised_observable_indices",
-        }
+        variable_keys = {"save_variables", "summarise_variables"}
         if any(key in updates_dict for key in variable_keys):
             self.convert_output_labels(updates_dict)
 

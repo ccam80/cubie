@@ -41,6 +41,8 @@ ALL_LOOP_SETTINGS = {
     "is_adaptive",
     "save_last",
     "summarise_last",
+    "save_regularly",
+    "summarise_regularly",
     # Loop buffer location parameters
     "state_location",
     "proposed_state_location",
@@ -365,9 +367,9 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         dt0 = precision(config.dt0)
-        save_every = config.save_every
-        sample_summaries_every = config.sample_summaries_every
-        samples_per_summary = config.samples_per_summary
+        save_every = precision(config.save_every)
+        sample_summaries_every = precision(config.sample_summaries_every)
+        samples_per_summary = int32(config.samples_per_summary)
 
         # Boolean control-flow constants
         save_last = config.save_last
@@ -529,9 +531,11 @@ class IVPLoop(CUDAFactory):
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 if save_regularly:
-                    next_save += save_every
-                if summarise:
-                    next_update_summary += sample_summaries_every
+                    next_save = precision(next_save + save_every)
+                if summarise_regularly:
+                    next_update_summary = precision(
+                            sample_summaries_every + next_update_summary
+                    )
 
                 save_state(
                     state_buffer,
@@ -579,15 +583,16 @@ class IVPLoop(CUDAFactory):
                 # ----------------------------------------------------------- #
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
-                    # We're not finished if there's an output before t_end
+                    # We're not finished if there's an output before or at
+                    # t_end
                     finished = True
                     if save_regularly:
-                        finished &= bool_(next_save >= t_end)
+                        finished &= bool_(next_save > t_end)
                     if summarise_regularly:
-                        finished &= bool_(next_update_summary >= t_end)
+                        finished &= bool_(next_update_summary > t_end)
                 else:
-                    # Otherwise, we're finished if we've reached t_end
-                    finished = bool_(end_of_step >= t_end)
+                    # Otherwise, we're finished if we've exceeded t_end
+                    finished = bool_(end_of_step > t_end)
 
                 if save_last or summarise_last:
                     # at_end will fire if we're in the last step before the
@@ -630,9 +635,10 @@ class IVPLoop(CUDAFactory):
                     next_event = t_end
                     if do_save or do_update_summary:
                         if do_save:
-                            next_event = min(next_event, next_save)
+                            next_event = precision(min(next_event, next_save))
                         if do_update_summary:
-                            next_event = min(next_event, next_update_summary)
+                            next_event = precision(min(next_event,
+                                                next_update_summary))
                         dt_eff = precision(next_event - t_prec)
 
                 # ----------------------------------------------------------- #
@@ -958,11 +964,11 @@ class IVPLoop(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        # Flatten nested dict values (e.g., loop_settings={'dt_save': 0.01})
+        # Flatten nested dict values (e.g., loop_settings={'save_every': 0.01})
         # into top-level parameters before distributing to compile settings.
         # This ensures all configuration options are recognized and updated.
-        # Example: {'loop_settings': {'dt_save': 0.01}, 'other': 5}
-        #       -> {'dt_save': 0.01, 'other': 5}
+        # Example: {'loop_settings': {'save_every': 0.01}, 'other': 5}
+        #       -> {'save_every': 0.01, 'other': 5}
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         recognised = self.update_compile_settings(updates_dict, silent=True)

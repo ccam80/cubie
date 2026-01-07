@@ -27,8 +27,6 @@ from cubie._utils import PrecisionDType
 # filter keyword arguments consistently before instantiating the factory.
 ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "output_types",
-    "save_variables",
-    "summarise_variables",
     "saved_state_indices",
     "saved_observable_indices",
     "summarised_state_indices",

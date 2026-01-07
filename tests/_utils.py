@@ -716,12 +716,11 @@ def run_device_loop(
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
     precision = system.precision
-    save_every = singleintegratorrun.save_every
     warmup = solver_config["warmup"]
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
-    save_samples = singleintegratorrun.output_length(duration)
-    summary_samples = singleintegratorrun.summaries_length(duration)
+    save_samples = max(singleintegratorrun.output_length(duration), 1)
+    summary_samples = max(singleintegratorrun.summaries_length(duration), 1)
     singleintegratorrun.set_summary_timing_from_duration(duration)
     heights = singleintegratorrun.output_array_heights
 

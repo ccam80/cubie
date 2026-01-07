@@ -83,8 +83,8 @@ duration = precision(1.0)
 warmup = precision(0.0)
 dt = precision(1e-3)  # TODO: should be able to set starting dt for adaptive
 # runs
-dt_save = precision(0.1)
-dt_summarise = precision(0.5)
+save_every = precision(0.1)
+summarise_every = precision(0.5)
 dt_max = precision(1e3)
 dt_min = precision(1e-12)  # TODO: when 1e-15, infinite loop
 
@@ -167,15 +167,15 @@ summarised_observable_indices = np.arange(n_observables, dtype=np.int_)
 save_last = False
 
 # Saves per summary (for summary metric aggregation)
-saves_per_summary = int(dt_summarise/dt_save)
+saves_per_summary = int(summarise_every/save_every)
 
 # Summary save cadence (typed for device code)
 #
 # This is used by summary metric save functions to scale accumulated values.
 # Keeping it as an `int32` and also precomputing the reciprocal avoids
 # accidentally triggering fp64 division in device code.
-summarise_every = int32(int(dt_summarise / dt_save))
-inv_summarise_every = precision(1.0 / int(dt_summarise / dt_save))
+summarise_every = int32(int(summarise_every / save_every))
+inv_summarise_every = precision(1.0 / int(summarise_every / save_every))
 
 loop_state_buffer_memory = 'local'  # 'local' or 'shared'
 loop_state_proposal_buffer_memory = 'local'  # 'local' or 'shared'
@@ -287,7 +287,7 @@ atol = np.full(n_states, atol_value, dtype=precision)
 rtol = np.full(n_states, rtol_value, dtype=precision)
 
 # Output dimensions
-n_output_samples = int(floor(float(duration) / float(dt_save))) + 1
+n_output_samples = int(floor(float(duration) / float(save_every))) + 1
 
 # Compile-time derived flags
 fixed_mode = controller_type == 'fixed'
@@ -3824,7 +3824,7 @@ def save_dxdt_max(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
+    output_array[0] = buffer[1] / precision(save_every)
     buffer[1] = precision(-1.0e30)
 
 @cuda.jit(
@@ -3863,7 +3863,7 @@ def save_dxdt_min(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
+    output_array[0] = buffer[1] / precision(save_every)
     buffer[1] = precision(1.0e30)
 
 @cuda.jit(
@@ -3904,8 +3904,8 @@ def save_dxdt_extrema(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[1] / precision(dt_save)
-    output_array[1] = buffer[2] / precision(dt_save)
+    output_array[0] = buffer[1] / precision(save_every)
+    output_array[1] = buffer[2] / precision(save_every)
     buffer[1] = precision(-1.0e30)
     buffer[2] = precision(1.0e30)
 
@@ -3946,7 +3946,7 @@ def save_d2xdt2_max(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    output_array[0] = buffer[2] / (precision(save_every) * precision(save_every))
     buffer[2] = precision(-1.0e30)
 
 @cuda.jit(
@@ -3986,7 +3986,7 @@ def save_d2xdt2_min(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
+    output_array[0] = buffer[2] / (precision(save_every) * precision(save_every))
     buffer[2] = precision(1.0e30)
 
 @cuda.jit(
@@ -4028,8 +4028,8 @@ def save_d2xdt2_extrema(
     output_array,
     customisable_variable,
 ):
-    output_array[0] = buffer[2] / (precision(dt_save) * precision(dt_save))
-    output_array[1] = buffer[3] / (precision(dt_save) * precision(dt_save))
+    output_array[0] = buffer[2] / (precision(save_every) * precision(save_every))
+    output_array[1] = buffer[3] / (precision(save_every) * precision(save_every))
     buffer[2] = precision(-1.0e30)
     buffer[3] = precision(1.0e30)
 
@@ -7114,7 +7114,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
     next_save = numba_precision(settling_time + t0)
     if settling_time == 0.0:
         # Save initial state at t0, then advance to first interval save
-        next_save += dt_save
+        next_save += save_every
 
         save_state_inline(
             state_buffer,
@@ -7276,7 +7276,7 @@ def loop_fn(initial_states, parameters, driver_coefficients, shared_scratch,
             # Predicated update of next_save; update if save is accepted.
             do_save = bool_(accept and do_save)
             if do_save:
-                next_save = selp(do_save, next_save + dt_save, next_save)
+                next_save = selp(do_save, next_save + save_every, next_save)
                 save_state_inline(
                     state_buffer,
                     observables_buffer,

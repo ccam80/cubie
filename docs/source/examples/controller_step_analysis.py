@@ -96,8 +96,8 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "dt": precision(0.001953125),
         "dt_min": precision(1e-9),
         "dt_max": precision(0.5),
-        "dt_save": precision(0.01),
-        "dt_summarise": precision(0.2),
+        "save_every": precision(0.01),
+        "summarise_every": precision(0.2),
         "atol": precision(1e-5),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1, 2],
@@ -257,7 +257,7 @@ def build_driver_settings(
     if system.num_drivers == 0:
         return None
 
-    dt_sample = precision(solver_settings["dt_save"]) / 2.0
+    dt_sample = precision(solver_settings["save_every"]) / 2.0
     total_span = precision(solver_settings["duration"])  # match test fixtures
     t0 = precision(solver_settings["warmup"])  # align with conftest driver t0
     order = int(solver_settings["driverspline_order"])
@@ -416,7 +416,7 @@ def create_driver_evaluator(
     order = int(solver_settings["driverspline_order"])
     if driver_array is None or width == 0:
         coeffs = np.zeros((1, width, order + 1), dtype=precision)
-        dt_value = precision(solver_settings["dt_save"]) / 2.0
+        dt_value = precision(solver_settings["save_every"]) / 2.0
         t0_value = precision(0.0)
         wrap_value = bool(solver_settings["driverspline_wrap"])
         boundary = None
@@ -538,7 +538,7 @@ def run_reference_loop_with_history(
 
     duration = precision(solver_settings["duration"])
     warmup = precision(solver_settings["warmup"])
-    dt_save = precision(solver_settings["dt_save"])
+    save_every = precision(solver_settings["save_every"])
     status_flags = 0
     zero = precision(0.0)
     step_records: List[StepRecord] = []
@@ -567,7 +567,7 @@ def run_reference_loop_with_history(
 
 
     save_time = output_functions.save_time
-    max_save_samples = int(np.floor(duration / dt_save)) + 1
+    max_save_samples = int(np.floor(duration / save_every)) + 1
 
     state = initial_state.copy()
     state_history = [state.copy()]
@@ -586,7 +586,7 @@ def run_reference_loop_with_history(
     if warmup > zero:
         next_save_time = warmup
     else:
-        next_save_time = dt_save
+        next_save_time = save_every
         observable_history.append(observables.copy())
         time_history.append(float(t))
 
@@ -649,7 +649,7 @@ def run_reference_loop_with_history(
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
                 time_history.append(float(next_save_time - warmup))
-            next_save_time += dt_save
+            next_save_time += save_every
 
     state_output = _collect_saved_outputs(
         state_history, max_save_samples, saved_state_indices, precision
@@ -732,7 +732,7 @@ def plot_step_histories(
                 times_arr = np.asarray(times, dtype=float)
                 states_arr = np.asarray(states, dtype=float)
 
-                # plot states if shape matches (saved per dt_save)
+                # plot states if shape matches (saved per save_every)
                 if states_arr.ndim == 2 and states_arr.shape[0] == times_arr.size:
                     n_states = states_arr.shape[1]
                     cmap = plt.get_cmap("tab10")

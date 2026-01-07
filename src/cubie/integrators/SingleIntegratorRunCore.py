@@ -52,7 +52,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     loop_settings
         Mapping of compile-critical loop configuration forwarded to the
         :class:`cubie.integrators.loops.ode_loop.IVPLoop`. Recognised keys
-        include ``"dt_save"`` and ``"dt_summarise"``. When ``None`` the loop
+        include ``"save_every"`` and ``"summarise_every"``. When ``None`` the loop
         falls back to built-in defaults.
     output_settings
         Mapping forwarded to :class:`cubie.outputhandling.output_functions.

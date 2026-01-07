@@ -205,7 +205,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         initial_sample = 1
         if save_every is not None:
             regular_samples = int(
-                    np_floor(precision(duration)
+                    np_floor((duration)
                              / precision(save_every))
             )
         return regular_samples + initial_sample + final_samples

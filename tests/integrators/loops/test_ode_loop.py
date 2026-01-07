@@ -167,7 +167,7 @@ def test_all_summary_metrics_numerical_check(
         cpu_loop_outputs,
         device_loop_outputs,
         output_functions,
-        rtol=tolerance.rel_loose * 5, # Added tolerance - x/dt_save**2 is
+        rtol=tolerance.rel_loose * 5, # Added tolerance - x/save_every**2 is
             # rough
         atol=tolerance.abs_loose* 5,
     )

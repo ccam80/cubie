@@ -277,20 +277,20 @@ class ODELoopConfig:
         # adjustment, raise if the arguments aren't even multiples.
         deviation = abs(raw_ratio - samples_per_summary)
         if deviation <= 0.01:
-            adjusted = samples_per_summary * self._sample_summaries_every
+            adjusted = samples_per_summary * self.sample_summaries_every
             if adjusted != self._summarise_every:
                 warn(
                         f"summarise_every adjusted from "
                         f"{self._summarise_every}to {adjusted}, the nearest "
                         f" integer multiple of sample_summaries_every "
-                        f"({self._sample_summaries_every})"
+                        f"({self.sample_summaries_every})"
                 )
             return samples_per_summary
         else:
             raise ValueError(
                     f"summarise_every ({self._summarise_every}) must be an "
                     f"integer multiple of sample_summaries_every "
-                    f"({self._sample_summaries_every}). Under these "
+                    f"({self.sample_summaries_every}). Under these "
                     f"settings, summaries are calculated every "
                     f"{raw_ratio:.2f} updates, and the calculation can't run "
                     f"between samples."
