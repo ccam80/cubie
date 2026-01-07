@@ -603,7 +603,7 @@ class IVPLoop(CUDAFactory):
                     # finished. If save_last or summarise_last, and the step
                     # is accepted, we'll start the next step at t_end and so
                     # at_end = False.
-                    at_end = bool_(t_prec <= t_end) & finished
+                    at_end = bool_(t_prec < t_end) & finished
                     finished = finished &~ at_end
 
                 finished = finished or irrecoverable
@@ -629,10 +629,16 @@ class IVPLoop(CUDAFactory):
                         do_update_summary = False
 
                     if save_last:
-                        do_save |= at_end
+                        # Suppress at_end if regular save already triggered
+                        at_end_contributes = at_end & ~(save_regularly & do_save)
+                        do_save |= at_end_contributes
 
                     if summarise_last:
-                        do_update_summary |= at_end
+                        # Suppress at_end if regular summary already triggered
+                        at_end_contributes = (
+                            at_end & ~(summarise_regularly & do_update_summary)
+                        )
+                        do_update_summary |= at_end_contributes
 
                     # If we are saving/updating, when's the next one?
                     # Look at branching here - can we convert it to an opt-in
@@ -640,9 +646,9 @@ class IVPLoop(CUDAFactory):
                     dt_eff = dt_raw
                     next_event = t_end
                     if do_save or do_update_summary:
-                        if do_save:
+                        if do_save and save_regularly:
                             next_event = precision(min(next_event, next_save))
-                        if do_update_summary:
+                        if do_update_summary and summarise_regularly:
                             next_event = precision(min(next_event,
                                                 next_update_summary))
                         dt_eff = precision(next_event - t_prec)
@@ -810,10 +816,13 @@ class IVPLoop(CUDAFactory):
 
                             # Save summary when enough updates collected, or when
                             # on final step (summarise_last forces save at end)
-                            save_summary_now = (
-                                (update_idx % samples_per_summary == int32(0))
-                                or (summarise_last and at_end)
+                            regular_save_due = (
+                                update_idx % samples_per_summary == int32(0)
                             )
+                            at_end_save = (
+                                summarise_last and at_end and not regular_save_due
+                            )
+                            save_summary_now = regular_save_due or at_end_save
 
                             if save_summary_now:
                                 save_summaries(

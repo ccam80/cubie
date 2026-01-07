@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/fix_extra_state_save/agent_plan.md
 
 ## Task Group 1: Prevent Duplicate Final Saves in IVPLoop
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -77,12 +77,23 @@
 - tests/integrators/loops/test_ode_loop.py::test_save_last_no_duplicate_at_aligned_end
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * src/cubie/integrators/loops/ode_loop.py (3 lines changed - lines 631-634)
+  * tests/integrators/loops/test_ode_loop.py (47 lines added)
+- Functions/Methods Added/Modified:
+  * Modified `do_save` flag logic in IVPLoop device function (ode_loop.py)
+  * Added test_save_last_no_duplicate_at_aligned_end() in test_ode_loop.py
+- Implementation Summary:
+  Modified the save_last logic to suppress the at_end contribution when
+  save_regularly has already triggered a save at the same step. The new
+  logic uses `at_end_contributes = at_end & ~(save_regularly & do_save)`
+  to prevent duplicate saves when t_end aligns with a regular save point.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Prevent Duplicate Final Summaries in IVPLoop
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -161,12 +172,26 @@
 - tests/integrators/loops/test_ode_loop.py::test_summarise_last_no_duplicate_at_aligned_end
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * src/cubie/integrators/loops/ode_loop.py (8 lines changed - lines 636-641, 817-825)
+  * tests/integrators/loops/test_ode_loop.py (52 lines added)
+- Functions/Methods Added/Modified:
+  * Modified `do_update_summary` flag logic in IVPLoop device function (ode_loop.py)
+  * Modified `save_summary_now` logic in IVPLoop device function (ode_loop.py)
+  * Added test_summarise_last_no_duplicate_at_aligned_end() in test_ode_loop.py
+- Implementation Summary:
+  Part A: Modified the summarise_last logic to suppress the at_end contribution
+  when summarise_regularly has already triggered a summary update at the same
+  step. Uses `at_end_contributes = at_end & ~(summarise_regularly & do_update_summary)`.
+  Part B: Modified save_summary_now to use explicit boolean variables that
+  prevent both regular_save_due and at_end_save from firing on the same step.
+  When regular summary save fires, at_end_save is suppressed with `not regular_save_due`.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Test Timing Isolation for Session-Scoped Fixtures
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 2
 
 **Required Context**:
@@ -265,12 +290,26 @@
 - tests/batchsolving/test_solver.py::test_solve_ivp_with_summarise_variables
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/conftest.py (32 lines changed - lines 818-849, 868-899)
+  * tests/integrators/loops/test_ode_loop.py (53 lines added)
+- Functions/Methods Added/Modified:
+  * single_integrator_run() fixture in conftest.py - added timing reset logic
+  * single_integrator_run_mutable() fixture in conftest.py - added timing reset logic
+  * test_timing_state_isolation() in test_ode_loop.py
+- Implementation Summary:
+  Modified both single_integrator_run and single_integrator_run_mutable fixtures
+  to check if timing parameters (save_every, summarise_every, sample_summaries_every)
+  were explicitly provided in loop_settings. When they are not explicitly set
+  (all are None or not present), the fixture resets _user_timing to default
+  None values. This prevents timing state from leaking between tests that use
+  session-scoped fixtures.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Integration Test for All Three Fixes
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1, Task Group 2, Task Group 3
 
 **Required Context**:
@@ -412,7 +451,19 @@
 - tests/batchsolving/test_solver.py::test_integration_with_solve_ivp (if exists)
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/integrators/loops/test_ode_loop.py (75 lines added)
+- Functions/Methods Added/Modified:
+  * test_save_last_only_produces_two_saves() in test_ode_loop.py
+  * test_save_and_summarise_last_no_duplicates() in test_ode_loop.py
+- Implementation Summary:
+  Added two integration tests that verify the core bug fixes from Task Groups 1-3.
+  test_save_last_only_produces_two_saves verifies that when no timing parameters
+  are specified and time-domain outputs are requested, exactly 2 saves occur
+  (t=0 and t=t_end). test_save_and_summarise_last_no_duplicates verifies that
+  when both save_last and summarise_last are true (no explicit timing), the
+  expected number of saves and summaries are produced without duplicates.
+- Issues Flagged: None
 
 ---
 

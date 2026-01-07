@@ -821,7 +821,7 @@ def single_integrator_run(
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
         algorithm_settings, system, driver_array
     )
-    return SingleIntegratorRun(
+    sir = SingleIntegratorRun(
         system=system,
         driver_function=driver_function,
         driver_del_t=driver_del_t,
@@ -830,6 +830,23 @@ def single_integrator_run(
         output_settings=output_settings,
         loop_settings=loop_settings
     )
+
+    # Reset _user_timing if timing wasn't explicitly overridden
+    # This ensures tests with default timing aren't affected by
+    # prior tests with explicit timing values
+    timing_keys = ('save_every', 'summarise_every', 'sample_summaries_every')
+    explicit_timing = any(
+        key in loop_settings and loop_settings[key] is not None
+        for key in timing_keys
+    )
+    if not explicit_timing:
+        sir._user_timing = {
+            'save_every': None,
+            'summarise_every': None,
+            'sample_summaries_every': None,
+        }
+
+    return sir
 
 
 @pytest.fixture(scope="function")
@@ -854,7 +871,7 @@ def single_integrator_run_mutable(
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
         algorithm_settings, system, driver_array
     )
-    return SingleIntegratorRun(
+    sir = SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
         driver_function=driver_function,
@@ -863,6 +880,23 @@ def single_integrator_run_mutable(
         algorithm_settings=enhanced_algorithm_settings,
         output_settings=output_settings,
     )
+
+    # Reset _user_timing if timing wasn't explicitly overridden
+    # This ensures tests with default timing aren't affected by
+    # prior tests with explicit timing values
+    timing_keys = ('save_every', 'summarise_every', 'sample_summaries_every')
+    explicit_timing = any(
+        key in loop_settings and loop_settings[key] is not None
+        for key in timing_keys
+    )
+    if not explicit_timing:
+        sir._user_timing = {
+            'save_every': None,
+            'summarise_every': None,
+            'sample_summaries_every': None,
+        }
+
+    return sir
 
 @pytest.fixture(scope="session")
 def cpu_system(system):
