@@ -41,6 +41,9 @@ DEFAULT_MEMORY_SETTINGS = {
     "mem_proportion": None,
 }
 
+# Relative tolerance for floating point comparisons in timing validation
+_TIMING_RTOL = 1e-6
+
 
 @define(frozen=True)
 class ChunkParams:
@@ -277,20 +280,19 @@ class BatchSolverKernel(CUDAFactory):
 
         Notes
         -----
-        Uses a small tolerance (1e-6 relative) when comparing floating point
-        timing parameters to avoid false positives from precision conversion.
+        Uses a small tolerance (_TIMING_RTOL = 1e-6 relative) when comparing
+        floating point timing parameters to avoid false positives from
+        precision conversion.
         """
         integrator = self.single_integrator
-        # Small relative tolerance for floating point comparisons
-        rtol = 1e-6
 
         # Check time-domain outputs
         if integrator.has_time_domain_outputs:
             save_every = integrator.save_every
             save_last = integrator.save_last
-            if save_every is not None and save_every >= duration and not save_last:
+            if save_every is not None and save_every > duration and not save_last:
                 raise ValueError(
-                    f"save_every ({save_every}) >= duration ({duration}) "
+                    f"save_every ({save_every}) > duration ({duration}) "
                     f"and save_last is False, so this loop will produce "
                     f"no outputs"
                 )
@@ -319,7 +321,7 @@ class BatchSolverKernel(CUDAFactory):
                 )
 
             # Use relative tolerance for duration check
-            if summarise_every > duration * (1 + rtol):
+            if summarise_every > duration * (1 + _TIMING_RTOL):
                 raise ValueError(
                     f"summarise_every ({summarise_every}) > duration "
                     f"({duration}), so this loop will produce no summary "

@@ -261,7 +261,7 @@ class TestTimingParameterValidation:
     def test_save_every_greater_than_duration_no_save_last_raises(
         self, system, precision, driver_array
     ):
-        """Test that save_every >= duration without save_last raises."""
+        """Test that save_every > duration without save_last raises."""
         kernel = BatchSolverKernel(
             system,
             loop_settings={"save_every": 1.0},
@@ -276,7 +276,7 @@ class TestTimingParameterValidation:
 
         with pytest.raises(
             ValueError,
-            match=r"save_every.*>=.*duration.*save_last is False.*no outputs"
+            match=r"save_every.*>.*duration.*save_last is False.*no outputs"
         ):
             kernel.run(
                 inits=inits,
