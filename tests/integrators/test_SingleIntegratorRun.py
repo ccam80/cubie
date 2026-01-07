@@ -756,7 +756,7 @@ class TestIsDurationDependentProperty:
 def test_is_duration_dependent_true_when_explicit_sampling(
     single_integrator_run
 ):
-    """is_duration_dependent True when sample_summaries_every is not set."""
+    """is_duration_dependent True when summarise_every is not set."""
     loop_config = single_integrator_run._loop.compile_settings
     assert loop_config._sample_summaries_every is not None
     assert single_integrator_run.is_duration_dependent is True

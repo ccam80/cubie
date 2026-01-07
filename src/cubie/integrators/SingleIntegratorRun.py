@@ -198,10 +198,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         final_samples = 1 if self.save_last else 0
         initial_sample = 1
         if save_every is not None:
-            regular_samples = int(
-                    np_floor((duration)
-                             / precision(save_every))
-            )
+            regular_samples = int(np_floor(duration / save_every))
         return regular_samples + initial_sample + final_samples
 
     def summaries_length(self, duration: float) -> int:
