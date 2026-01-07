@@ -244,10 +244,12 @@ class TestSolveResultFromSolver:
         # Check that state variables are included
         for i, state_name in enumerate(solver_with_arrays.saved_states):
             assert legend[i] == state_name
-        # Check that observables are included
-        assert any(
-            v.startswith("o") for v in legend.values() if isinstance(v, str)
-        )
+        # Check that observables are included when configured
+        if solver_with_arrays.saved_observables:
+            # Observables are configured - verify they're in the legend
+            num_states = len(solver_with_arrays.saved_states)
+            for i, obs_name in enumerate(solver_with_arrays.saved_observables):
+                assert legend[num_states + i] == obs_name
 
     def test_summary_legend_from_solver(self, solver_with_arrays):
         """Test summary legend creation from real solver."""
@@ -472,7 +474,7 @@ def solved_batch_solver_errorcode(system, precision):
     """Fixture providing a solver with multiple runs where some
     runs have error codes.
     """
-    solver = Solver(system, dt_save=0.01)
+    solver = Solver(system, save_every=0.01)
 
     # Run a single batch solve with multiple runs
     solver.solve(
@@ -569,3 +571,43 @@ class TestNaNProcessing:
             status_array[0] = original_values[0]
             status_array[1] = original_values[1]
             status_array[2] = original_values[2]
+
+
+class TestSolveSpecFields:
+    """Test SolveSpec field attributes."""
+
+    def test_solvespec_has_all_expected_attributes(self):
+        """Verify SolveSpec has all required attributes."""
+        from cubie.batchsolving.solveresult import SolveSpec
+
+        expected_attrs = [
+            'dt', 'dt_min', 'dt_max', 'save_every', 'summarise_every',
+            'sample_summaries_every', 'atol', 'rtol', 'duration', 'warmup',
+            't0', 'algorithm', 'saved_states', 'saved_observables',
+            'summarised_states', 'summarised_observables', 'output_types',
+            'precision'
+        ]
+
+        spec = SolveSpec(
+            dt=0.001,
+            dt_min=0.0001,
+            dt_max=0.01,
+            save_every=0.1,
+            summarise_every=1.0,
+            sample_summaries_every=0.1,
+            atol=1e-6,
+            rtol=1e-3,
+            duration=10.0,
+            warmup=0.0,
+            t0=0.0,
+            algorithm="euler",
+            saved_states=["x0"],
+            saved_observables=None,
+            summarised_states=["x0"],
+            summarised_observables=None,
+            output_types=["state", "mean"],
+            precision="float32",
+        )
+
+        for attr in expected_attrs:
+            assert hasattr(spec, attr), f"SolveSpec missing attribute: {attr}"

@@ -12,7 +12,7 @@ be rebuilt when any component is reconfigured.
 """
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
-import warnings
+from warnings import warn
 
 from attrs import define, field
 
@@ -29,7 +29,6 @@ from cubie.integrators.step_control import get_controller
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
-
 
 @define
 class SingleIntegratorRunCache(CUDAFunctionCache):
@@ -52,7 +51,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     loop_settings
         Mapping of compile-critical loop configuration forwarded to the
         :class:`cubie.integrators.loops.ode_loop.IVPLoop`. Recognised keys
-        include ``"dt_save"`` and ``"dt_summarise"``. When ``None`` the loop
+        include ``"save_every"`` and ``"summarise_every"``. When ``None`` the loop
         falls back to built-in defaults.
     output_settings
         Mapping forwarded to :class:`cubie.outputhandling.output_functions.
@@ -162,8 +161,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         self.setup_compile_settings(config)
-
-
         self._loop = self.instantiate_loop(
             precision=precision,
             n_states=system_sizes.states,
@@ -177,6 +174,17 @@ class SingleIntegratorRunCore(CUDAFactory):
             driver_function=driver_function,
         )
 
+        # Keep the timing parameters explicitly set by the user at run level
+        # Only pass the loop values to implement.
+        self._user_timing = {
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+        self.is_duration_dependent = False
+        self._process_loop_timing(loop_settings)
+
+
         # Register algorithm step and controller buffers with loop as parent
         buffer_registry.get_child_allocators(
             self._loop, self._algo_step, name="algorithm"
@@ -185,6 +193,108 @@ class SingleIntegratorRunCore(CUDAFactory):
                 self._loop, self._step_controller, name='controller'
         )
 
+    def _process_loop_timing(self, settings_dict: Dict[str, Any]):
+        """Derives timing parameters from a provided update dictionary.
+
+        Updates loop with parameters `save_every`, `summarise_every`
+        `sample_summaries_every`, `save_last`, `save_regularly`,
+        `summarise_regularly`. Updates output functions with summarise_every.
+
+        Parameters
+        ----------
+        settings_dict
+            Mapping of keys to configuration parameters, usually a
+            loop_settings init argument or a dict of updates.
+
+        Returns
+        -------
+            None, updates loop in-place.
+        """
+        timing_params = (
+            "save_every",
+            "summarise_every",
+            "sample_summaries_every",
+        )
+        # 1. Overwrite "user intent" with incoming values
+        for p in timing_params:
+            if p in settings_dict:
+                self._user_timing[p] = settings_dict[p]
+
+        has_time_domain_outputs = self.time_domain_outputs_requested
+        has_summary_outputs = self.summary_outputs_requested
+
+        # 2. Get provided values from user intent
+        save_every = self._user_timing["save_every"]
+        summarise_every = self._user_timing["summarise_every"]
+        sample_summaries_every = self._user_timing["sample_summaries_every"]
+
+        save_last = False
+        self.is_duration_dependent = False
+
+        # 3. Time-domain outputs
+        if has_time_domain_outputs and save_every is None:
+            save_last = True
+
+        # 4. Summary outputs
+        if has_summary_outputs:
+            if summarise_every is None:
+                # There is no `summarise_last`, we simulate
+                # summarise_regularly once we get a duration.
+                self.is_duration_dependent = True
+            else:
+                if sample_summaries_every is None:
+                    sample_summaries_every = summarise_every / 10.0
+        else:
+            summarise_every = None
+            sample_summaries_every = None
+
+        save_regularly = save_every is not None and has_time_domain_outputs
+        summarise_regularly = (summarise_every is not None and
+                               has_summary_outputs)
+        values = dict(
+            save_every=save_every,
+            summarise_every=summarise_every,
+            sample_summaries_every=sample_summaries_every,
+            save_last=save_last,
+            save_regularly=save_regularly,
+            summarise_regularly=summarise_regularly,
+        )
+
+        # Update loop and output functions with derived timing values.
+        self._warn_if_summary_timing_derived()
+        self._loop.update(values)
+        self._output_functions.update(values, silent=True)
+
+    def _warn_if_summary_timing_derived(self):
+        if self.is_duration_dependent:
+            warn(
+                "Summary metrics were requested with no "
+                "summarise_every or sample_summaries_every timing. "
+                "Sample_summaries_every was set to duration / 100 by "
+                "default. If duration changes, the kernel will need "
+                "to recompile, which will cause a slow integration "
+                "(once). Set timing parameters explicitly to avoid "
+                "this.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+    def set_summary_timing_from_duration(self,
+                                         duration: float):
+        """If loop compile is dependent on `duration`, calculate summary
+        timing and update loop and metrics with it."""
+
+        if self.is_duration_dependent:
+            samples_per_summary = 100
+            sample_summaries_every = duration / samples_per_summary
+
+            self._loop.update(
+                summarise_every=duration,
+                sample_summaries_every=sample_summaries_every,
+            )
+            self._output_functions.update(
+                sample_summaries_every=sample_summaries_every,
+            )
 
     @property
     def n_error(self) -> int:
@@ -260,7 +370,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             if precision is None:
                 precision = self._system.precision
             
-            warnings.warn(
+            warn(
                 f"Adaptive step controller '{controller_name}' cannot be "
                 f"used with fixed-step algorithm '{algorithm_name}'. "
                 f"The algorithm does not provide an error estimate "
@@ -392,7 +502,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         if updates_dict is None:
             updates_dict = {}
         updates_dict = updates_dict.copy()
-
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
@@ -446,9 +555,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         buffer_registry.get_child_allocators(
                 self._loop, self._step_controller, name='controller'
         )
-        loop_recognized = self._loop.update(updates_dict, silent=True)
-        recognized |= self.update_compile_settings(updates_dict, silent=True)
 
+        loop_recognized = self._loop.update(updates_dict, silent=True)
+        self._process_loop_timing(updates_dict)
+
+        recognized |= self.update_compile_settings(updates_dict, silent=True)
         recognized |= (out_rcgnzd | ctrl_rcgnzd | step_recognized |
                        system_recognized | loop_recognized)
 
@@ -553,3 +664,32 @@ class SingleIntegratorRunCore(CUDAFactory):
         loop_fn = self._loop.device_function
 
         return SingleIntegratorRunCache(single_integrator_function=loop_fn)
+
+    @property
+    def time_domain_outputs_requested(self) -> bool:
+        """Return True if time-domain outputs are requested in output_types."""
+        return self._output_functions.has_time_domain_outputs
+
+    @property
+    def summary_outputs_requested(self) -> bool:
+        """Return True if summary outputs are requested in output_types."""
+        return self._output_functions.has_summary_outputs
+
+    @property
+    def has_time_domain_outputs(self) -> bool:
+        """Return True if time-domain outputs will be produced by the loop"""
+        has_time_domain_types = self.time_domain_outputs_requested
+        has_save_timing = (
+            self._loop.compile_settings._save_every is not None
+            or self._loop.compile_settings.save_last
+        )
+        return has_time_domain_types and has_save_timing
+
+    @property
+    def has_summary_outputs(self) -> bool:
+        """Return True if summary outputs will be produced by the loop"""
+        has_summaries_types = self.summary_outputs_requested
+        has_summarise_timing = (
+            self._loop.compile_settings._summarise_every is not None
+        )
+        return has_summaries_types and has_summarise_timing

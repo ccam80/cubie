@@ -10,11 +10,11 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba import from_dtype as numba_from_dtype
 from numpy import float32
+from warnings import warn
 
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
-    gttype_validator,
     is_device_validator,
     precision_converter,
     precision_validator,
@@ -55,10 +55,12 @@ class ODELoopConfig:
         Precision used for all loop-managed computations.
     compile_flags
         Output configuration governing save and summary cadence.
-    _dt_save
+    _save_every
         Interval between accepted saves.
-    _dt_summarise
+    _summarise_every
         Interval between summary accumulations.
+    _sample_summaries_every
+        Interval between summary metric updates.
     save_state_fn
         Device function that records state and observable snapshots.
     update_summaries_fn
@@ -83,13 +85,15 @@ class ODELoopConfig:
         Whether the loop operates with an adaptive controller.
     """
 
-    # Size parameters (previously from buffer_settings)
+    # System size parameters
     n_states: int = field(default=0, validator=getype_validator(int, 0))
     n_parameters: int = field(default=0, validator=getype_validator(int, 0))
     n_drivers: int = field(default=0, validator=getype_validator(int, 0))
     n_observables: int = field(default=0, validator=getype_validator(int, 0))
     n_error: int = field(default=0, validator=getype_validator(int, 0))
     n_counters: int = field(default=0, validator=getype_validator(int, 0))
+
+    # Array sizes
     state_summaries_buffer_height: int = field(
         default=0, validator=getype_validator(int, 0)
     )
@@ -172,14 +176,35 @@ class ODELoopConfig:
         default=OutputCompileFlags(),
         validator=validators.instance_of(OutputCompileFlags),
     )
-    _dt_save: float = field(
-        default=0.1,
-        validator=gttype_validator(float, 0)
+
+    # Loop timing parameters
+    _save_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
     )
-    _dt_summarise: float = field(
-        default=1.0,
-        validator=gttype_validator(float, 0)
+    _summarise_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
     )
+    _sample_summaries_every: Optional[float] = field(
+        default=None,
+        validator=opt_gttype_validator(float, 0)
+    )
+
+    # Flags for end-of-run behavior
+    save_last: bool = field(
+        default=False,
+        validator=validators.instance_of(bool)
+    )
+    save_regularly: bool = field(
+        default=False,
+        validator=validators.instance_of(bool)
+    )
+    summarise_regularly: bool = field(
+        default=False,
+        validator=validators.instance_of(bool)
+    )
+
     save_state_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -231,11 +256,42 @@ class ODELoopConfig:
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
 
-
     @property
-    def saves_per_summary(self) -> int:
-        """Return the number of saves between summary outputs."""
-        return int(self.dt_summarise // self.dt_save)
+    def samples_per_summary(self):
+        """If summarise_every and sample_summaries_every are both set, calculate
+        samples_per_summary and warn/raise if it's not a clean integer."""
+        summarise_every = self.summarise_every
+        sample_summaries_every = self.sample_summaries_every
+
+        if summarise_every is None or sample_summaries_every is None:
+            return 0
+
+        raw_ratio = round(summarise_every / sample_summaries_every)
+        samples_per_summary = int(raw_ratio)
+
+        # How close is this to an integer multiple? Warn if it needs slight
+        # adjustment, raise if the arguments aren't even multiples.
+        deviation = abs(raw_ratio - samples_per_summary)
+        if deviation <= 0.01:
+            adjusted = samples_per_summary * self.sample_summaries_every
+            if adjusted != self._summarise_every:
+                warn(
+                        f"summarise_every adjusted from "
+                        f"{self._summarise_every} to {adjusted}, the nearest "
+                        f" integer multiple of sample_summaries_every "
+                        f"({self.sample_summaries_every})"
+                )
+            return samples_per_summary
+        else:
+            raise ValueError(
+                    f"summarise_every ({self._summarise_every}) must be an "
+                    f"integer multiple of sample_summaries_every "
+                    f"({self.sample_summaries_every}). Under these "
+                    f"settings, summaries are calculated every "
+                    f"{raw_ratio:.2f} updates, and the calculation can't run "
+                    f"between samples."
+            )
+
 
     @property
     def numba_precision(self) -> type:
@@ -248,14 +304,25 @@ class ODELoopConfig:
         return simsafe_dtype(self.precision)
 
     @property
-    def dt_save(self) -> float:
-        """Return the output save interval."""
-        return self.precision(self._dt_save)
+    def save_every(self) -> Optional[float]:
+        """Return the output save interval, or None if not configured."""
+        if self._save_every is None:
+            return None
+        return self.precision(self._save_every)
 
     @property
-    def dt_summarise(self) -> float:
-        """Return the summary interval."""
-        return self.precision(self._dt_summarise)
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
+        if self._summarise_every is None:
+            return None
+        return self.precision(self._summarise_every)
+
+    @property
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
+        if self._sample_summaries_every is None:
+            return None
+        return self.precision(self._sample_summaries_every)
 
     @property
     def dt0(self) -> float:

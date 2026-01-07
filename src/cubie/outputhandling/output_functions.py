@@ -27,13 +27,11 @@ from cubie._utils import PrecisionDType
 # filter keyword arguments consistently before instantiating the factory.
 ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "output_types",
-    "save_variables",
-    "summarise_variables",
     "saved_state_indices",
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
-    "dt_save",  # Time interval for derivative metric scaling
+    "sample_summaries_every",  # Sample interval for summary metrics
     "precision",  # Numerical precision for output calculations
 }
 
@@ -82,8 +80,9 @@ class OutputFunctions(CUDAFactory):
         Indices of state variables to include in summary calculations.
     summarised_observable_indices
         Indices of observable variables to include in summary calculations.
-    dt_save
-        Time interval for save operations. Defaults to None.
+    sample_summaries_every
+        Time interval between summary metric samples. Used by derivative
+        metrics to scale finite differences. Defaults to None.
     precision
         Numerical precision for output calculations. Defaults to np.float32.
 
@@ -105,7 +104,7 @@ class OutputFunctions(CUDAFactory):
         saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
         summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
-        dt_save: Optional[float] = None,
+        sample_summaries_every: Optional[float] = None,
     ):
         super().__init__()
 
@@ -121,7 +120,7 @@ class OutputFunctions(CUDAFactory):
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
-            dt_save=dt_save,
+            sample_summaries_every=sample_summaries_every,
             precision=precision,
         )
         self.setup_compile_settings(config)
@@ -199,7 +198,10 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        summary_metrics.update(dt_save=config.dt_save, precision=config.precision)
+        summary_metrics.update(
+            sample_summaries_every=config.sample_summaries_every,
+            precision=config.precision
+        )
 
         # Build functions using output sizes objects
         save_state_func = save_state_factory(
@@ -260,6 +262,21 @@ class OutputFunctions(CUDAFactory):
     def save_time(self) -> bool:
         """Whether time samples are saved alongside states."""
         return self.compile_settings.save_time
+
+    @property
+    def has_time_domain_outputs(self) -> bool:
+        """Whether any time-domain output is enabled."""
+        config = self.compile_settings
+        save_time = config.save_time
+        save_state = config.save_state
+        save_observables = config.save_observables
+        return save_time or save_state or save_observables
+
+    @property
+    def has_summary_outputs(self) -> bool:
+        """Whether any summary output is enabled."""
+        config = self.compile_settings
+        return config.summarise_state or config.summarise_observables
 
     @property
     def saved_state_indices(self) -> NDArray[int_]:

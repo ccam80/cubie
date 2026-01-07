@@ -54,7 +54,6 @@ def solve_ivp(
     y0: Union[ndarray, Dict[str, ndarray]],
     parameters: Optional[Union[ndarray, Dict[str, ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
-    dt_save: Optional[float] = None,
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
@@ -80,8 +79,6 @@ def solve_ivp(
         to arrays.
     drivers
         Driver configuration to interpolate during integration.
-    dt_save
-        Interval at which solution values are stored.
     method
         Integration algorithm to use. Default is ``"euler"``.
     duration
@@ -126,9 +123,6 @@ def solve_ivp(
     # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
 
-    # Place non-explicit params into kwargs
-    if dt_save is not None:
-        kwargs.setdefault("dt_save", dt_save)
     if save_variables is not None:
         kwargs.setdefault("save_variables", save_variables)
     if summarise_variables is not None:
@@ -188,8 +182,8 @@ class Solver:
         keyword arguments.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
-        ``dt_save`` and ``dt_summarise`` may also be supplied as loose keyword
-        arguments.
+        ``save_every`` and ``summarise_every`` may also be supplied as loose
+        keyword arguments.
     strict
         If ``True`` unknown keyword arguments raise ``KeyError``.
     time_logging_level : str or None, default='default'
@@ -526,11 +520,7 @@ class Solver:
             return set()
 
         # Only convert output labels if variable-related keys are present
-        variable_keys = {
-            "save_variables", "summarise_variables",
-            "saved_state_indices", "saved_observable_indices",
-            "summarised_state_indices", "summarised_observable_indices",
-        }
+        variable_keys = {"save_variables", "summarise_variables"}
         if any(key in updates_dict for key in variable_keys):
             self.convert_output_labels(updates_dict)
 
@@ -920,14 +910,19 @@ class Solver:
         return self.kernel.dt_max
 
     @property
-    def dt_save(self):
-        """Return the interval between saved outputs."""
-        return self.kernel.dt_save
+    def save_every(self) -> Optional[float]:
+        """Return the interval between saved time-domain outputs."""
+        return self.kernel.save_every
 
     @property
-    def dt_summarise(self):
+    def summarise_every(self) -> Optional[float]:
         """Return the interval between summary computations."""
-        return self.kernel.dt_summarise
+        return self.kernel.summarise_every
+
+    @property
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the interval between summary metric samples."""
+        return self.kernel.sample_summaries_every
 
     @property
     def duration(self):
@@ -1012,8 +1007,9 @@ class Solver:
             dt=self.dt,
             dt_min=self.dt_min,
             dt_max=self.dt_max,
-            dt_save=self.dt_save,
-            dt_summarise=self.dt_summarise,
+            save_every=self.save_every,
+            summarise_every=self.summarise_every,
+            sample_summaries_every=self.sample_summaries_every,
             duration=self.duration,
             warmup=self.warmup,
             t0=self.t0,
