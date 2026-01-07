@@ -123,14 +123,13 @@ def test_custom_precision(basic_model):
     indirect=True,
     ids=[""]
 )
+
 def test_custom_name(basic_model):
     """Verify custom name can be specified."""
     assert basic_model.name == "custom_model"
 
-
 def test_integration_with_solve_ivp(basic_model):
     """Test that loaded model builds and is ready for solve_ivp."""
-
     
     # Verify the model has the necessary components
     assert is_devfunc(basic_model.dxdt_function)

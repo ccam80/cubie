@@ -10,9 +10,18 @@ and automatic configuration from user-specified parameters.
 from typing import List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
-import attrs
-import numpy as np
-from numpy import array_equal
+from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
+from attrs.validators import instance_of as attrsval_instance_of
+from numpy import (
+    any as np_any,
+    arange as np_arange,
+    array_equal as np_array_equal,
+    asarray as np_asarray,
+    floating as np_floating,
+    int_ as np_int,
+    ndarray,
+    unique as np_unique,
+)
 from numpy.typing import NDArray
 
 from cubie._utils import (
@@ -25,7 +34,7 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 
 
 def _indices_validator(
-    array: Optional[NDArray[np.int_]], max_index: int
+    array: Optional[NDArray[np_int]], max_index: int
 ) -> None:
     """Validate index arrays and enforce bounds.
 
@@ -49,19 +58,19 @@ def _indices_validator(
         Raised when indices are out of bounds or duplicated.
     """
     if array is not None:
-        if not isinstance(array, np.ndarray) or array.dtype != np.int_:
+        if not isinstance(array, ndarray) or array.dtype != np_int:
             raise TypeError("Index array must be a numpy array of integers.")
 
-        if np.any((array < 0) | (array >= max_index)):
+        if np_any((array < 0) | (array >= max_index)):
             raise ValueError(f"Indices must be in the range [0, {max_index})")
 
-        unique_array, duplicate_count = np.unique(array, return_counts=True)
+        unique_array, duplicate_count = np_unique(array, return_counts=True)
         duplicates = unique_array[duplicate_count > 1]
         if len(duplicates) > 0:
             raise ValueError(f"Duplicate indices found: {duplicates.tolist()}")
 
 
-@attrs.define
+@define
 class OutputCompileFlags:
     """Boolean compile-time controls for CUDA output features.
 
@@ -82,27 +91,27 @@ class OutputCompileFlags:
         Whether to save iteration counters. Defaults to ``False``.
     """
 
-    save_state: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    save_state: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    save_observables: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    save_observables: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    summarise: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    summarise: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    summarise_observables: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    summarise_observables: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    summarise_state: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    summarise_state: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
-    save_counters: bool = attrs.field(
-        default=False, validator=attrs.validators.instance_of(bool)
+    save_counters: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
     )
 
 
-@attrs.define
+@define
 class OutputConfig:
     """Validated configuration for solver outputs and summaries.
 
@@ -139,48 +148,48 @@ class OutputConfig:
     post-initialisation hook applies default indices, validates bounds, and
     ensures at least one output path is active.
     """
-    _precision: PrecisionDType = attrs.field(
+    _precision: PrecisionDType = field(
         converter=precision_converter,
         validator=precision_validator,
     )
     # System dimensions, used to validate indices
-    _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
-    _max_observables: int = attrs.field(
-        validator=attrs.validators.instance_of(int)
+    _max_states: int = field(validator=attrsval_instance_of(int))
+    _max_observables: int = field(
+        validator=attrsval_instance_of(int)
     )
 
-    _saved_state_indices: Optional[Union[List[int], NDArray[np.int_]]] = attrs.field(
-        default=attrs.Factory(list),
-        eq=attrs.cmp_using(eq=array_equal),
+    _saved_state_indices: Optional[Union[List[int], NDArray[np_int]]] = field(
+        default=attrsFactory(list),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
     _saved_observable_indices: Optional[
-        Union[List[int], NDArray[np.int_]]
-    ] = attrs.field(
-        default=attrs.Factory(list),
-        eq=attrs.cmp_using(eq=array_equal),
+        Union[List[int], NDArray[np_int]]
+    ] = field(
+        default=attrsFactory(list),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
     _summarised_state_indices: Optional[
-        Union[List[int], NDArray[np.int_]]
-    ] = attrs.field(
-        default=attrs.Factory(list),
-        eq=attrs.cmp_using(eq=array_equal),
+        Union[List[int], NDArray[np_int]]
+    ] = field(
+        default=attrsFactory(list),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
     _summarised_observable_indices: Optional[
-        Union[List[int], NDArray[np.int_]]
-    ] = attrs.field(
-        default=attrs.Factory(list),
-        eq=attrs.cmp_using(eq=array_equal),
+        Union[List[int], NDArray[np_int]]
+    ] = field(
+        default=attrsFactory(list),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
 
-    _output_types: List[str] = attrs.field(default=attrs.Factory(list))
-    _save_state: bool = attrs.field(default=True, init=False)
-    _save_observables: bool = attrs.field(default=True, init=False)
-    _save_time: bool = attrs.field(default=False, init=False)
-    _save_counters: bool = attrs.field(default=False, init=False)
-    _summary_types: Tuple[str, ...] = attrs.field(
-        default=attrs.Factory(tuple), init=False
+    _output_types: List[str] = field(default=attrsFactory(list))
+    _save_state: bool = field(default=True, init=False)
+    _save_observables: bool = field(default=True, init=False)
+    _save_time: bool = field(default=False, init=False)
+    _save_counters: bool = field(default=False, init=False)
+    _summary_types: Tuple[str, ...] = field(
+        default=attrsFactory(tuple), init=False
     )
-    _sample_summaries_every: Optional[float] = attrs.field(
+    _sample_summaries_every: Optional[float] = field(
         default=None,
         validator=opt_gttype_validator(float, 0.0)
     )
@@ -259,7 +268,7 @@ class OutputConfig:
             )
 
     def _check_saved_indices(self) -> None:
-        """Convert saved indices to numpy arrays and provide defaults.
+        """Convert saved indices to numpy arrays.
 
         Returns
         -------
@@ -268,28 +277,17 @@ class OutputConfig:
 
         Notes
         -----
-        When no indices are provided the arrays are populated with the full
-        range for the corresponding variable type.
+        Converts index collections to numpy int arrays.
         """
-        if len(self._saved_state_indices) == 0:
-            self._saved_state_indices = np.arange(
-                self._max_states, dtype=np.int_
-            )
-        else:
-            self._saved_state_indices = np.asarray(
-                self._saved_state_indices, dtype=np.int_
-            )
-        if len(self._saved_observable_indices) == 0:
-            self._saved_observable_indices = np.arange(
-                self._max_observables, dtype=np.int_
-            )
-        else:
-            self._saved_observable_indices = np.asarray(
-                self._saved_observable_indices, dtype=np.int_
-            )
+        self._saved_state_indices = np_asarray(
+            self._saved_state_indices, dtype=np_int
+        )
+        self._saved_observable_indices = np_asarray(
+            self._saved_observable_indices, dtype=np_int
+        )
 
     def _check_summarised_indices(self) -> None:
-        """Default summarised indices to the saved selections when needed.
+        """Convert summarised indices to numpy arrays.
 
         Returns
         -------
@@ -298,23 +296,14 @@ class OutputConfig:
 
         Notes
         -----
-        Empty summary selections inherit the saved selections for the matching
-        variable type.
+        Converts index collections to numpy int arrays.
         """
-        if len(self._summarised_state_indices) == 0:
-            self._summarised_state_indices = self._saved_state_indices
-        else:
-            self._summarised_state_indices = np.asarray(
-                self._summarised_state_indices, dtype=np.int_
-            )
-        if len(self._summarised_observable_indices) == 0:
-            self._summarised_observable_indices = (
-                self._saved_observable_indices
-            )
-        else:
-            self._summarised_observable_indices = np.asarray(
-                self._summarised_observable_indices, dtype=np.int_
-            )
+        self._summarised_state_indices = np_asarray(
+            self._summarised_state_indices, dtype=np_int
+        )
+        self._summarised_observable_indices = np_asarray(
+            self._summarised_observable_indices, dtype=np_int
+        )
 
     @property
     def max_states(self) -> int:
@@ -340,11 +329,11 @@ class OutputConfig:
         When saved indices currently span the full range they are expanded to
         the new size before validation reruns.
         """
-        if np.array_equal(
+        if np_array_equal(
             self._saved_state_indices,
-            np.arange(self.max_states, dtype=np.int_),
+            np_arange(self.max_states, dtype=np_int),
         ):
-            self._saved_state_indices = np.arange(value, dtype=np.int_)
+            self._saved_state_indices = np_arange(value, dtype=np_int)
         self._max_states = value
         self.__attrs_post_init__()
 
@@ -372,11 +361,11 @@ class OutputConfig:
         When saved indices span the full observable range they expand to the
         new size before validation reruns.
         """
-        if np.array_equal(
+        if np_array_equal(
             self._saved_observable_indices,
-            np.arange(self.max_observables, dtype=np.int_),
+            np_arange(self.max_observables, dtype=np_int),
         ):
-            self._saved_observable_indices = np.arange(value, dtype=np.int_)
+            self._saved_observable_indices = np_arange(value, dtype=np_int)
         self._max_observables = value
         self.__attrs_post_init__()
 
@@ -437,15 +426,15 @@ class OutputConfig:
         )
 
     @property
-    def saved_state_indices(self) -> NDArray[np.int_]:
+    def saved_state_indices(self) -> NDArray[np_int]:
         """State indices to save, or an empty array when disabled."""
         if not self._save_state:
-            return np.asarray([], dtype=np.int_)
+            return np_asarray([], dtype=np_int)
         return self._saved_state_indices
 
     @saved_state_indices.setter
     def saved_state_indices(
-        self, value: Union[Sequence[int], NDArray[np.int_]]
+        self, value: Union[Sequence[int], NDArray[np_int]]
     ) -> None:
         """Set the state indices that will be saved.
 
@@ -459,20 +448,20 @@ class OutputConfig:
         None
             Returns ``None``.
         """
-        self._saved_state_indices = np.asarray(value, dtype=np.int_)
+        self._saved_state_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def saved_observable_indices(self) -> NDArray[np.int_]:
+    def saved_observable_indices(self) -> NDArray[np_int]:
         """Observable indices to save, or an empty array when disabled."""
         if not self._save_observables:
-            return np.asarray([], dtype=np.int_)
+            return np_asarray([], dtype=np_int)
         return self._saved_observable_indices
 
     @saved_observable_indices.setter
     def saved_observable_indices(
-        self, value: Union[Sequence[int], NDArray[np.int_]]
+        self, value: Union[Sequence[int], NDArray[np_int]]
     ) -> None:
         """Set the observable indices that will be saved.
 
@@ -486,20 +475,20 @@ class OutputConfig:
         None
             Returns ``None``.
         """
-        self._saved_observable_indices = np.asarray(value, dtype=np.int_)
+        self._saved_observable_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def summarised_state_indices(self) -> NDArray[np.int_]:
+    def summarised_state_indices(self) -> NDArray[np_int]:
         """State indices for summaries, or an empty array when disabled."""
         if not self.save_summaries:
-            return np.asarray([], dtype=np.int_)
+            return np_asarray([], dtype=np_int)
         return self._summarised_state_indices
 
     @summarised_state_indices.setter
     def summarised_state_indices(
-        self, value: Union[Sequence[int], NDArray[np.int_]]
+        self, value: Union[Sequence[int], NDArray[np_int]]
     ) -> None:
         """Set the state indices used for summary calculations.
 
@@ -513,20 +502,20 @@ class OutputConfig:
         None
             Returns ``None``.
         """
-        self._summarised_state_indices = np.asarray(value, dtype=np.int_)
+        self._summarised_state_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def summarised_observable_indices(self) -> NDArray[np.int_]:
+    def summarised_observable_indices(self) -> NDArray[np_int]:
         """Observable indices for summaries, or an empty array when disabled."""
         if not self.save_summaries:
-            return np.asarray([], dtype=np.int_)
+            return np_asarray([], dtype=np_int)
         return self._summarised_observable_indices
 
     @summarised_observable_indices.setter
     def summarised_observable_indices(
-        self, value: Union[Sequence[int], NDArray[np.int_]]
+        self, value: Union[Sequence[int], NDArray[np_int]]
     ) -> None:
         """Set the observable indices used for summary calculations.
 
@@ -540,7 +529,7 @@ class OutputConfig:
         None
             Returns ``None``.
         """
-        self._summarised_observable_indices = np.asarray(value, dtype=np.int_)
+        self._summarised_observable_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
@@ -667,7 +656,7 @@ class OutputConfig:
         return self._sample_summaries_every
 
     @property
-    def precision(self) -> type[np.floating]:
+    def precision(self) -> type[np_floating]:
         """Numerical precision for output calculations."""
         return self._precision
 
@@ -896,10 +885,10 @@ class OutputConfig:
         cls,
         output_types: List[str],
         precision: PrecisionDType,
-        saved_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
-        saved_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
-        summarised_state_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
-        summarised_observable_indices: Union[Sequence[int], NDArray[np.int_], None] = None,
+        saved_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
+        saved_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
+        summarised_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
+        summarised_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
         max_states: int = 0,
         max_observables: int = 0,
         sample_summaries_every: Optional[float] = 0.01,
@@ -950,13 +939,13 @@ class OutputConfig:
 
         # OutputConfig doesn't play as nicely with Nones as the rest of python does
         if saved_state_indices is None:
-            saved_state_indices = np.asarray([], dtype=np.int_)
+            saved_state_indices = np_asarray([], dtype=np_int)
         if saved_observable_indices is None:
-            saved_observable_indices = np.asarray([], dtype=np.int_)
+            saved_observable_indices = np_asarray([], dtype=np_int)
         if summarised_state_indices is None:
-            summarised_state_indices = np.asarray([], dtype=np.int_)
+            summarised_state_indices = np_asarray([], dtype=np_int)
         if summarised_observable_indices is None:
-            summarised_observable_indices = np.asarray([], dtype=np.int_)
+            summarised_observable_indices = np_asarray([], dtype=np_int)
 
         return cls(
             max_states=max_states,

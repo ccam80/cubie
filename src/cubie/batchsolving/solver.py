@@ -7,12 +7,12 @@ GPU.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
+from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
@@ -50,14 +50,16 @@ default_timelogger.register_event(
 
 def solve_ivp(
     system: BaseODE,
-    y0: Union[np.ndarray, Dict[str, np.ndarray]],
-    parameters: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
+    y0: Union[ndarray, Dict[str, ndarray]],
+    parameters: Optional[Union[ndarray, Dict[str, ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
     save_every: Optional[float] = None,
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
     t0: float = 0.0,
+    save_variables: Optional[List[str]] = None,
+    summarise_variables: Optional[List[str]] = None,
     grid_type: str = "combinatorial",
     time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
@@ -88,6 +90,20 @@ def solve_ivp(
         Warm-up period prior to storing outputs. Default is ``0.0``.
     t0
         Initial integration time supplied to the solver. Default is ``0.0``.
+    save_variables : list of str, optional
+        Variable names (states or observables) to save in time-domain output.
+        ``None`` (default) saves all states and observables. An empty list
+        ``[]`` explicitly saves no variables. When both ``save_variables``
+        and index parameters (``saved_state_indices``, ``saved_observable_indices``)
+        are provided, their union is used. For less overhead, you can provide
+        indices directly, which don't require the solver to look up variable
+        names.
+    summarise_variables : list of str, optional
+        Variable names (states or observables) to include in summary
+        calculations. ``None`` (default) summarises the same variables that
+        are saved. An empty list ``[]`` explicitly summarises no variables.
+        When both ``summarise_variables`` and index parameters are provided,
+        their union is used.
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
@@ -107,10 +123,14 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
 
-    if save_every is not None:
-        kwargs.setdefault("save_every", save_every)
+    kwargs.setdefault("save_every", save_every)
+    if save_variables is not None:
+        kwargs.setdefault("save_variables", save_variables)
+    if summarise_variables is not None:
+        kwargs.setdefault("summarise_variables", summarise_variables)
 
     solver = Solver(
         system,
@@ -158,8 +178,8 @@ class Solver:
         Explicit algorithm configuration overriding solver defaults.
     output_settings
         Explicit output configuration overriding solver defaults. Individual
-        selectors such as ``saved_states`` may also be supplied as keyword
-        arguments.
+        selectors such as ``save_variables`` or index-based parameters may also
+        be supplied as keyword arguments.
     memory_settings
         Explicit memory configuration overriding solver defaults. Keys like
         ``memory_manager`` or ``mem_proportion`` may likewise be provided as
@@ -174,13 +194,21 @@ class Solver:
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
     **kwargs
-        Additional keyword arguments forwarded to internal components.
+        Additional keyword arguments forwarded to internal components. See
+        "Optional Arguments" in the docs for the possibilities.
 
     Notes
     -----
     Instances coordinate batch grid construction, kernel configuration, and
     driver interpolation so that :meth:`solve` orchestrates a complete GPU
     integration run.
+
+    When specifying variables:
+
+    - ``None`` means "use all" (default behavior for both states and
+      observables)
+    - ``[]`` (empty list) means "explicitly no variables"
+    - When both labels and indices are provided, their union is used
     """
 
     def __init__(
@@ -218,12 +246,12 @@ class Solver:
         self.driver_interpolator = ArrayInterpolator(
             precision=precision,
             input_dict={
-                "placeholder": np.zeros(6, dtype=precision),
+                "placeholder": np_zeros(6, dtype=precision),
                 "dt": 0.1,
             },
         )
 
-        self.grid_builder = BatchGridBuilder(interface)
+        self.input_handler = BatchInputHandler(interface)
 
         recognized_kwargs: set[str] = set()
 
@@ -271,165 +299,33 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve output label settings in-place.
+        """Convert variable labels to indices.
 
         Parameters
         ----------
         output_settings
-            Mapping of output configuration keys recognised by the solver.
-            Entries describing saved or summarised selectors are replaced with
-            integer indices when provided.
+            Output configuration kwargs. Entries used are ``save_variables``,
+            ``summarise_variables``, ``saved_state_indices``,
+            ``saved_observable_indices``, ``summarised_state_indices``,
+            and ``summarised_observable_indices``.
 
         Returns
         -------
         None
-            This method mutates ``output_settings`` in-place.
+            Modifies ``output_settings`` in-place.
 
         Raises
         ------
         ValueError
-            If the settings dict contains duplicate entries, for example both
-            ``"saved_states"`` and ``"saved_state_indices"``.
-
-        Notes
-        -----
-        Users may supply selectors as labels or integers; this resolver ensures
-        that downstream components receive numeric indices and canonical keys.
+            If variable labels are not recognized by the system.
         """
+        self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
-        resolvers = {
-            "saved_states": self.system_interface.state_indices,
-            "saved_state_indices": self.system_interface.state_indices,
-            "summarised_states": self.system_interface.state_indices,
-            "summarised_state_indices": self.system_interface.state_indices,
-            "saved_observables": self.system_interface.observable_indices,
-            "saved_observable_indices": (
-                self.system_interface.observable_indices
-            ),
-            "summarised_observables": self.system_interface.observable_indices,
-            "summarised_observable_indices": (
-                self.system_interface.observable_indices
-            ),
-        }
-
-        labels2index_keys = {
-            "saved_states": "saved_state_indices",
-            "saved_observables": "saved_observable_indices",
-            "summarised_states": "summarised_state_indices",
-            "summarised_observable_indices": (
-                "summarised_observable_indices"
-            ),
-        }
-        # Replace any labels with integer indices
-        for key, resolver in resolvers.items():
-            values = output_settings.get(key)
-            if values is not None:
-                output_settings[key] = resolver(values)
-
-        # Replace names for a list of labels, e.g. saved_states, with the
-        # indices key that outputfunctions expects
-        for inkey, outkey in labels2index_keys.items():
-            indices = output_settings.pop(inkey, None)
-            if indices is not None:
-                if output_settings.get(outkey, None) is not None:
-                    raise ValueError(
-                        "Duplicate output settings provided: got "
-                        f"{inkey}={output_settings[inkey]} and "
-                        f"{outkey} = {output_settings[outkey]}"
-                    )
-                output_settings[outkey] = indices
-
-    def _classify_inputs(
-        self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-    ) -> str:
-        """Classify input types to determine optimal processing path.
-
-        Parameters
-        ----------
-        initial_values
-            Initial state values as dict or array.
-        parameters
-            Parameter values as dict or array.
-
-        Returns
-        -------
-        str
-            Classification: 'dict', 'array', or 'device'.
-
-        Notes
-        -----
-        Returns 'dict' when either input is a dictionary, triggering
-        full grid construction. Returns 'array' when both inputs are
-        numpy arrays with matching run counts in (n_vars, n_runs) format.
-        Returns 'device' when both have __cuda_array_interface__.
-        """
-        # If either input is a dict, use grid builder path
-        if isinstance(initial_values, dict) or isinstance(parameters, dict):
-            return 'dict'
-
-        # Check for device arrays (CUDA arrays with interface)
-        init_is_device = hasattr(initial_values, '__cuda_array_interface__')
-        param_is_device = hasattr(parameters, '__cuda_array_interface__')
-        if init_is_device and param_is_device:
-            return 'device'
-
-        # Check for numpy arrays with correct shapes
-        if isinstance(initial_values, np.ndarray) and isinstance(
-            parameters, np.ndarray
-        ):
-            # Must be 2D arrays in (n_vars, n_runs) format
-            if initial_values.ndim == 2 and parameters.ndim == 2:
-                n_states = self.system_sizes.states
-                n_params = self.system_sizes.parameters
-                # Verify variable counts match system expectations
-                if (initial_values.shape[0] == n_states and
-                        parameters.shape[0] == n_params):
-                    # Verify run counts match
-                    if initial_values.shape[1] == parameters.shape[1]:
-                        return 'array'
-
-        # Default to dict path (grid builder handles conversion)
-        return 'dict'
-
-    def _validate_arrays(
-        self,
-        initial_values: np.ndarray,
-        parameters: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Validate and prepare pre-built arrays for kernel execution.
-
-        Parameters
-        ----------
-        initial_values
-            Initial state array in (n_states, n_runs) format.
-        parameters
-            Parameter array in (n_params, n_runs) format.
-
-        Returns
-        -------
-        Tuple[np.ndarray, np.ndarray]
-            Validated arrays cast to system precision.
-
-        Notes
-        -----
-        Arrays are cast to the system precision dtype when needed.
-        """
-        precision = self.precision
-
-        # Cast to correct dtype if needed
-        if initial_values.dtype != precision:
-            initial_values = initial_values.astype(precision, copy=False)
-        if parameters.dtype != precision:
-            parameters = parameters.astype(precision, copy=False)
-
-        return initial_values, parameters
 
     def solve(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,
@@ -483,7 +379,8 @@ class Solver:
             and exclude from analysis. When ``False``, all trajectories are
             returned unchanged. Ignored when ``results_type`` is ``"raw"``.
         **kwargs
-            Additional options forwarded to :meth:`update`.
+            Additional options forwarded to :meth:`update`. See "Optional
+            Arguments" in the docs for possibilities.
 
         Returns
         -------
@@ -495,7 +392,7 @@ class Solver:
         Input type detection determines the processing path:
 
         - Dictionary inputs trigger grid construction via
-          :class:`BatchGridBuilder`
+          :class:`BatchInputHandler`
         - Pre-built numpy arrays with correct shapes skip grid
           construction for improved performance
         - Device arrays receive minimal processing before kernel
@@ -507,22 +404,11 @@ class Solver:
         # Start wall-clock timing for solve
         default_timelogger.start_event("solver_solve")
 
-        # Classify inputs to determine processing path
-        input_type = self._classify_inputs(initial_values, parameters)
+        inits, params = self.input_handler(
+            states=initial_values, params=parameters, kind=grid_type
+        )
 
-        if input_type == 'dict':
-            # Dictionary inputs: use grid builder (existing behavior)
-            inits, params = self.grid_builder(
-                states=initial_values, params=parameters, kind=grid_type
-            )
-        elif input_type == 'array':
-            # Pre-built arrays: validate and use directly (fast path)
-            inits, params = self._validate_arrays(initial_values, parameters)
-        else:
-            # Device arrays: use directly with minimal processing
-            inits, params = initial_values, parameters
-
-        fn_changed = False  # ensure defined if drivers is None
+        fn_changed = False
         if drivers is not None:
             ArrayInterpolator.check_against_system_drivers(
                 drivers, self.system
@@ -560,10 +446,10 @@ class Solver:
 
     def build_grid(
         self,
-        initial_values: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
-        parameters: Union[np.ndarray, Dict[str, Union[float, np.ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
         grid_type: str = "verbatim",
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
 
         Parameters
@@ -581,7 +467,7 @@ class Solver:
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray]
+        Tuple[ndarray, ndarray]
             Tuple of (initial_values, parameters) arrays in
             (n_vars, n_runs) format with system precision dtype.
             These arrays can be passed directly to :meth:`solve`
@@ -595,7 +481,7 @@ class Solver:
         ... )
         >>> result = solver.solve(inits, params)  # Uses fast path
         """
-        return self.grid_builder(
+        return self.input_handler(
             states=initial_values, params=parameters, kind=grid_type
         )
 
@@ -635,7 +521,14 @@ class Solver:
         if updates_dict == {}:
             return set()
 
-        self.convert_output_labels(updates_dict)
+        # Only convert output labels if variable-related keys are present
+        variable_keys = {
+            "save_variables", "summarise_variables",
+            "saved_state_indices", "saved_observable_indices",
+            "summarised_state_indices", "summarised_observable_indices",
+        }
+        if any(key in updates_dict for key in variable_keys):
+            self.convert_output_labels(updates_dict)
 
         driver_recognised = self.driver_interpolator.update(
             updates_dict, silent=True
@@ -767,7 +660,7 @@ class Solver:
         self.kernel.set_stride_order(order)
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Return indices for the specified state variables.
 
         Parameters
@@ -777,14 +670,14 @@ class Solver:
 
         Returns
         -------
-        np.ndarray
+        ndarray
             Integer indices corresponding to the requested states.
         """
         return self.system_interface.state_indices(state_labels)
 
     def get_observable_indices(
         self, observable_labels: Optional[List[str]] = None
-    ) -> np.ndarray:
+    ) -> ndarray:
         """Return indices for the specified observables.
 
         Parameters
@@ -795,7 +688,7 @@ class Solver:
 
         Returns
         -------
-        np.ndarray
+        ndarray
             Integer indices corresponding to the requested observables.
         """
         return self.system_interface.observable_indices(observable_labels)
