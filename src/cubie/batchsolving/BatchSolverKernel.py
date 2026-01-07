@@ -274,8 +274,15 @@ class BatchSolverKernel(CUDAFactory):
         ValueError
             When timing parameters would result in no outputs or invalid
             summary sampling.
+
+        Notes
+        -----
+        Uses a small tolerance (1e-6 relative) when comparing floating point
+        timing parameters to avoid false positives from precision conversion.
         """
         integrator = self.single_integrator
+        # Small relative tolerance for floating point comparisons
+        rtol = 1e-6
 
         # Check time-domain outputs
         if integrator.has_time_domain_outputs:
@@ -311,7 +318,8 @@ class BatchSolverKernel(CUDAFactory):
                     f"summarise_every"
                 )
 
-            if summarise_every > duration:
+            # Use relative tolerance for duration check
+            if summarise_every > duration * (1 + rtol):
                 raise ValueError(
                     f"summarise_every ({summarise_every}) > duration "
                     f"({duration}), so this loop will produce no summary "
