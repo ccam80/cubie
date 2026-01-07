@@ -40,7 +40,6 @@ ALL_LOOP_SETTINGS = {
     "dt_max",
     "is_adaptive",
     "save_last",
-    "summarise_last",
     "save_regularly",
     "summarise_regularly",
     # Loop buffer location parameters
@@ -373,7 +372,6 @@ class IVPLoop(CUDAFactory):
 
         # Boolean control-flow constants
         save_last = config.save_last
-        summarise_last = config.summarise_last
         save_regularly = config.save_regularly
         summarise_regularly = config.summarise_regularly
 
@@ -597,13 +595,13 @@ class IVPLoop(CUDAFactory):
                     # Otherwise, we're finished if we've exceeded t_end
                     finished = bool_(end_of_step > t_end)
 
-                if save_last or summarise_last:
+                if save_last:
                     # at_end will fire if we're in the last step before the
                     # end; this should avoid loop termination by unsetting
-                    # finished. If save_last or summarise_last, and the step
-                    # is accepted, we'll start the next step at t_end and so
-                    # at_end = False.
-                    at_end = bool_(t_prec <= t_end) & finished
+                    # finished. If save_last and the step is accepted,
+                    # we'll start the next step at t_end and so at_end
+                    # is False.
+                    at_end = bool_(t_prec < t_end) & finished
                     finished = finished &~ at_end
 
                 finished = finished or irrecoverable
@@ -631,18 +629,13 @@ class IVPLoop(CUDAFactory):
                     if save_last:
                         do_save |= at_end
 
-                    if summarise_last:
-                        do_update_summary |= at_end
-
                     # If we are saving/updating, when's the next one?
-                    # Look at branching here - can we convert it to an opt-in
-                    # computation instead?
                     dt_eff = dt_raw
-                    next_event = t_end
                     if do_save or do_update_summary:
-                        if do_save:
+                        next_event = t_end
+                        if do_save and save_regularly:
                             next_event = precision(min(next_event, next_save))
-                        if do_update_summary:
+                        if do_update_summary and summarise_regularly:
                             next_event = precision(min(next_event,
                                                 next_update_summary))
                         dt_eff = precision(next_event - t_prec)
@@ -808,14 +801,8 @@ class IVPLoop(CUDAFactory):
                             )
                             update_idx += int32(1)
 
-                            # Save summary when enough updates collected, or when
-                            # on final step (summarise_last forces save at end)
-                            save_summary_now = (
-                                (update_idx % samples_per_summary == int32(0))
-                                or (summarise_last and at_end)
-                            )
-
-                            if save_summary_now:
+                            # Save summary when enough updates collected
+                            if update_idx % samples_per_summary == int32(0):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,

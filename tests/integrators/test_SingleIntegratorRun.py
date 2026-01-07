@@ -195,8 +195,6 @@ class TestSingleIntegratorRun:
         algo_props: Dict[str, str] = {
             "threads_per_step": "threads_per_step",
             "uses_multiple_stages": "is_multistage",
-            "adapts_step": "is_adaptive",
-            "implicit_step": "is_implicit",
             "order": "order",
             "integration_step_function": "step_function",
             "state_count": "n",
@@ -654,11 +652,6 @@ class TestTimingProperties:
         expected = single_integrator_run._loop.compile_settings.save_last
         assert single_integrator_run.save_last == expected
 
-    def test_summarise_last_property(self, single_integrator_run):
-        """summarise_last delegates to loop config."""
-        expected = single_integrator_run._loop.compile_settings.summarise_last
-        assert single_integrator_run.summarise_last == expected
-
 
 @pytest.mark.parametrize(
     "solver_settings_override",
@@ -736,36 +729,13 @@ class TestTimingFlagAutoDetection:
     ],
     indirect=True,
 )
-class TestSummariseFlagAutoDetection:
-    """Tests for summarise_last flag detection."""
-
-    def test_summarise_last_set_when_mean_output_no_timing(
-        self, single_integrator_run
-    ):
-        """summarise_last=True when summary output requested without timing."""
-        assert single_integrator_run.summarise_last is True
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        },
-    ],
-    indirect=True,
-)
 class TestIsDurationDependentProperty:
     """Tests for is_duration_dependent property."""
 
-    def test_is_duration_dependent_true_when_summarise_last_and_no_timing(
+    def test_is_duration_dependent_true_when_no_timing(
         self, single_integrator_run
     ):
-        """is_duration_dependent True when summarise_last with no timing."""
-        assert single_integrator_run.summarise_last is True
+        """is_duration_dependent True with no timing."""
         loop_config = single_integrator_run._loop.compile_settings
         assert loop_config._sample_summaries_every is None
         assert single_integrator_run.is_duration_dependent is True
@@ -787,33 +757,9 @@ def test_is_duration_dependent_true_when_explicit_sampling(
     single_integrator_run
 ):
     """is_duration_dependent False when sample_summaries_every is set."""
-    assert single_integrator_run.summarise_last is True
     loop_config = single_integrator_run._loop.compile_settings
     assert loop_config._sample_summaries_every is not None
     assert single_integrator_run.is_duration_dependent is True
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": 0.1,
-            "sample_summaries_every": None,
-        },
-    ],
-    indirect=True,
-)
-class TestIsDurationDependentFalseNotSummariseLast:
-    """Tests for is_duration_dependent when not summarise_last."""
-
-    def test_is_duration_dependent_false_when_not_summarise_last(
-        self, single_integrator_run
-    ):
-        """is_duration_dependent False when summarise_last is False."""
-        assert single_integrator_run.summarise_last is False
-        assert single_integrator_run.is_duration_dependent is False
 
 @pytest.mark.parametrize(
     "solver_settings_override",

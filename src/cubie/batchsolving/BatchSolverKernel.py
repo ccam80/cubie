@@ -1009,7 +1009,7 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def summarise_every(self) -> Optional[float]:
-        """Interval between summary reductions from the loop, or None if summarise_last only."""
+        """Interval between summary reductions from the loop"""
 
         return self.single_integrator.summarise_every
     

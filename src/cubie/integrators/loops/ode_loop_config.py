@@ -196,10 +196,6 @@ class ODELoopConfig:
         default=False,
         validator=validators.instance_of(bool)
     )
-    summarise_last: bool = field(
-        default=False,
-        validator=validators.instance_of(bool)
-    )
     save_regularly: bool = field(
         default=False,
         validator=validators.instance_of(bool)

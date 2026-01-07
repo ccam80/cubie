@@ -198,8 +198,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         """Derives timing parameters from a provided update dictionary.
 
         Updates loop with parameters `save_every`, `summarise_every`
-        `sample_summaries_every`, `save_last`, `summarise_last`. Updates
-        output functions with summarise_every.
+        `sample_summaries_every`, `save_last`, `save_regularly`,
+        `summarise_regularly`. Updates output functions with summarise_every.
 
         Parameters
         ----------
@@ -209,9 +209,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         Returns
         -------
-            Tuple(float, float, float, bool, bool)
-                save_every, summarise_every, sample_summaries_every,
-                save_last, summarise_last.
+            None, updates loop in-place.
         """
         timing_params = (
             "save_every",
@@ -232,7 +230,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         sample_summaries_every = self._user_timing["sample_summaries_every"]
 
         save_last = False
-        summarise_last = False
         self.is_duration_dependent = False
 
         # 3. Time-domain outputs
@@ -242,7 +239,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             # 4. Summary outputs
         if has_summary_outputs:
             if summarise_every is None:
-                summarise_last = True
+                # There is no `summarise_last`, we simulate
+                # summarise_regularly once we get a duration.
                 self.is_duration_dependent = True
             else:
                 if sample_summaries_every is None:
@@ -259,7 +257,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             summarise_every=summarise_every,
             sample_summaries_every=sample_summaries_every,
             save_last=save_last,
-            summarise_last=summarise_last,
             save_regularly=save_regularly,
             summarise_regularly=summarise_regularly,
         )
@@ -295,11 +292,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                 summarise_every=duration,
                 sample_summaries_every=sample_summaries_every,
             )
-            #TODO: Switch output functions to sample_summaries_every.
             self._output_functions.update(
-                summarise_every=duration,
                 sample_summaries_every=sample_summaries_every,
-                silent=True
             )
 
     @property
@@ -697,6 +691,5 @@ class SingleIntegratorRunCore(CUDAFactory):
         has_summaries_types = self.summary_outputs_requested
         has_summarise_timing = (
             self._loop.compile_settings._summarise_every is not None
-            or self._loop.compile_settings.summarise_last
         )
         return has_summaries_types and has_summarise_timing

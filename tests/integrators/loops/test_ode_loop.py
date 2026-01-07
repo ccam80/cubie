@@ -294,7 +294,6 @@ def test_save_last_flag_from_config(loop_mutable):
     config = loop_mutable.compile_settings
     assert config.save_last is True
 
-
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
@@ -311,43 +310,17 @@ def test_save_last_flag_from_config(loop_mutable):
     ],
     indirect=True,
 )
-def test_summarise_last_flag_from_config(loop_mutable):
-    """Verify IVPLoop reads summarise_last flag from ODELoopConfig.
-
-    When all timing parameters are None, ODELoopConfig sets summarise_last=True.
-    IVPLoop.build() should read this from config.summarise_last.
-    """
-    config = loop_mutable.compile_settings
-    assert config.summarise_last is True
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "precision": np.float32,
-            "duration": 0.1,
-            "output_types": ["state", "time", "mean"],
-            "algorithm": "euler",
-            "dt": 0.01,
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        }
-    ],
-    indirect=True,
-)
-def test_summarise_last_collects_final_summary(
+def test_final_summary(
     device_loop_outputs,
     precision,
 ):
-    """Verify summaries collected at end of run with summarise_last=True.
+    """Verify summaries collected at end of run with summaries unset.
 
     When all timing parameters are None, the loop should collect a summary
     at the end of the integration run. The summary buffer should contain
     valid data.
     """
-    # With summarise_last=True and no periodic summaries, we should get
+    # With no periodic summaries, we should get
     # exactly one summary collected at the end
     state_summaries = device_loop_outputs.state_summaries
 
@@ -372,16 +345,15 @@ def test_summarise_last_collects_final_summary(
             "save_every": 0.05,
             "summarise_every": 0.05,
             "sample_summaries_every": 0.05,
-            "summarise_last": True,
         }
     ],
     indirect=True,
 )
-def test_summarise_last_with_summarise_every(
+def test_summarise_every(
     device_loop_outputs,
     precision,
 ):
-    """Verify summarise_last and summarise_every work together without 
+    """Verify  and summarise_every work together without
     double-write.
 
     When both periodic summaries and summarise_last are enabled, the loop
@@ -448,47 +420,4 @@ def test_save_last_with_save_every(
         precision(0.15), rel=1e-5
     ), "Final save should be at t_end"
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "precision": np.float32,
-            "duration": 0.12,
-            "output_types": ["state", "time", "mean"],
-            "algorithm": "euler",
-            "dt": 0.01,
-            "save_every": 0.04,
-            "summarise_every": 0.04,
-            "sample_summaries_every": 0.04,
-            "summarise_last": True,
-        }
-    ],
-    indirect=True,
-)
-def test_summarise_last_with_summarise_every_combined(
-    device_loop_outputs,
-    precision,
-):
-    """Verify summarise_last and summarise_every can be used together.
-
-    When both periodic summaries (summarise_every) and summarise_last are
-    enabled, the loop should collect summaries at regular intervals and also
-    ensure the final summary is captured. This tests that no double-write
-    occurs when the end time doesn't align perfectly with a periodic summary.
-    """
-    state_summaries = device_loop_outputs.state_summaries
-
-    # With duration=0.12 and summarise_every=0.04, we expect:
-    # - t=0.0: initial summary
-    # - t=0.04: periodic summary
-    # - t=0.08: periodic summary
-    # - t=0.12: final summary (from summarise_last or coincides with periodic)
-    assert state_summaries is not None, "State summaries should be collected"
-    assert state_summaries.shape[0] >= 3, "At least 3 summaries expected"
-
-    # Check that all summaries are valid (no NaN values)
-    for i in range(min(4, state_summaries.shape[0])):
-        assert not np.isnan(state_summaries[i]).any(), \
-            f"Summary {i} should not contain NaN"
 

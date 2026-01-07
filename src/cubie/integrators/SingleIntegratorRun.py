@@ -178,12 +178,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return True if end-of-run-only state saving is configured."""
         return self._loop.compile_settings.save_last
 
-    @property
-    def summarise_last(self) -> bool:
-        """Return True if end-of-run-only summary saving is configured."""
-        return self._loop.compile_settings.summarise_last
-
-
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.
 
@@ -221,19 +215,18 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         Returns
         -------
         int
-            Number of summary intervals, or 2 for summarise_last mode.
+            Number of summary intervals.
         """
         summarise_every = self.summarise_every
         precision = self.precision
 
         regular_summaries = 0
-        final_summary = 1 if self.summarise_last else 0
         if summarise_every is not None:
             regular_summaries = int(
                     precision(duration)
                     / precision(summarise_every)
             )
-        return regular_summaries + final_summary
+        return regular_summaries
 
     @property
     def shared_memory_elements_loop(self) -> int:
