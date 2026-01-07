@@ -290,7 +290,7 @@ def test_batch_solver_kernel_cache_disabled(
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     from tests._utils import _build_enhanced_algorithm_settings
 
-    def _get_driver_function(driver_arr):
+    def _get_evaluate_driver_at_t(driver_arr):
         if driver_arr is None:
             return None
         return driver_arr.evaluation_function
@@ -300,7 +300,7 @@ def test_batch_solver_kernel_cache_disabled(
             return None
         return driver_arr.driver_del_t
 
-    driver_function = _get_driver_function(driver_array)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     driver_del_t = _get_driver_del_t(driver_array)
     enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
         algorithm_settings, system, driver_array
@@ -309,7 +309,7 @@ def test_batch_solver_kernel_cache_disabled(
     # Create solver
     solver = BatchSolverKernel(
         system,
-        driver_function=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=enhanced_algorithm_settings,
