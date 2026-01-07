@@ -1,6 +1,5 @@
 """Utility helpers for symbolic ODE construction."""
 
-import warnings
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
@@ -189,7 +188,7 @@ def hash_system_definition(
         else:
             dxdt_str = "".join(dxdt)
     elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
-        dxdt_pairs = [f"{str(symbol)}{str(expr)}" for symbol, expr in dxdt]
+        dxdt_pairs = [f"{str(symbol)}={str(expr)}" for symbol, expr in dxdt]
         dxdt_str = "".join(dxdt_pairs)
     else:
         dxdt_str = dxdt

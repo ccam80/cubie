@@ -255,6 +255,150 @@ def test_bogus_update_fails(solverkernel_mutable):
         solverkernel.update(obviously_bogus_key="this should not work")
 
 
+class TestTimingParameterValidation:
+    """Tests for timing parameter validation in BatchSolverKernel.run()."""
+
+    def test_save_every_greater_than_duration_no_save_last_raises(
+        self, system, precision, driver_array
+    ):
+        """Test that save_every > duration without save_last raises."""
+        kernel = BatchSolverKernel(
+            system,
+            loop_settings={"save_every": 1.0},
+            output_settings={
+                "output_types": ["state"],
+                "saved_state_indices": np.array([0, 1, 2]),
+            },
+            algorithm_settings={"algorithm": "euler"},
+        )
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        with pytest.raises(
+            ValueError,
+            match=r"save_every.*>.*duration.*no outputs"
+        ):
+            kernel.run(
+                inits=inits,
+                params=params,
+                driver_coefficients=driver_array.coefficients,
+                duration=0.5,
+            )
+
+    def test_save_every_greater_than_duration_with_save_last_succeeds(
+        self, system, precision, driver_array
+    ):
+        """Test that save_every >= duration with save_last=True is valid."""
+        kernel = BatchSolverKernel(
+            system,
+            loop_settings={"save_every": None},
+            output_settings={
+                "output_types": ["state"],
+                "saved_state_indices": np.array([0, 1, 2]),
+            },
+            algorithm_settings={"algorithm": "euler"},
+        )
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        # Should not raise when save_last is True (default when save_every=None)
+        kernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_array.coefficients,
+            duration=0.5,
+        )
+
+    def test_summarise_every_greater_than_duration_raises(
+        self, system, precision, driver_array
+    ):
+        """Test that summarise_every > duration raises."""
+        kernel = BatchSolverKernel(
+            system,
+            loop_settings={
+                "summarise_every": 1.0,
+                "sample_summaries_every": 0.1
+            },
+            output_settings={
+                "output_types": ["mean"],
+                "summarised_state_indices": np.array([0, 1, 2]),
+            },
+            algorithm_settings={"algorithm": "euler"},
+        )
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        with pytest.raises(
+            ValueError,
+            match=r"summarise_every.*>.*duration.*no summary outputs"
+        ):
+            kernel.run(
+                inits=inits,
+                params=params,
+                driver_coefficients=driver_array.coefficients,
+                duration=0.5,
+            )
+
+    def test_sample_summaries_every_gte_summarise_every_raises(
+        self, system, precision, driver_array
+    ):
+        """Test that sample_summaries_every >= summarise_every raises."""
+        kernel = BatchSolverKernel(
+            system,
+            loop_settings={
+                "summarise_every": 0.1,
+                "sample_summaries_every": 0.2
+            },
+            output_settings={
+                "output_types": ["mean"],
+                "summarised_state_indices": np.array([0, 1, 2]),
+            },
+            algorithm_settings={"algorithm": "euler"},
+        )
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        with pytest.raises(
+            ValueError,
+            match=r"sample_summaries_every.*>=.*summarise_every"
+        ):
+            kernel.run(
+                inits=inits,
+                params=params,
+                driver_coefficients=driver_array.coefficients,
+                duration=1.0,
+            )
+
+    def test_valid_timing_parameters_succeeds(
+        self, system, precision, driver_array
+    ):
+        """Test that valid timing parameters allow run to proceed."""
+        kernel = BatchSolverKernel(
+            system,
+            loop_settings={
+                "save_every": 0.1,
+                "summarise_every": 0.5,
+                "sample_summaries_every": 0.05
+            },
+            output_settings={
+                "output_types": ["state", "mean"],
+                "saved_state_indices": np.array([0, 1, 2]),
+                "summarised_state_indices": np.array([0, 1, 2]),
+            },
+            algorithm_settings={"algorithm": "euler"},
+        )
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        # Should not raise with valid parameters
+        kernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_array.coefficients,
+            duration=1.0,
+        )
+
+
 class TestActiveOutputsFromCompileFlags:
     """Tests for ActiveOutputs.from_compile_flags factory method."""
 
