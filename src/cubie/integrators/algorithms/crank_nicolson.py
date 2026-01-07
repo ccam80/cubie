@@ -49,9 +49,9 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         **kwargs,
     ) -> None:
@@ -63,11 +63,11 @@ class CrankNicolsonStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
@@ -89,9 +89,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 'beta': beta,
                 'gamma': gamma,
                 'M': M,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
             },
             **kwargs
         )
@@ -120,9 +120,9 @@ class CrankNicolsonStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -132,12 +132,12 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
-            Device observable computation helper.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         solver_function
             Device function for the Newton-Krylov nonlinear solver.
         numba_precision
@@ -154,7 +154,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         """
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # Get child allocators for Newton solver
@@ -249,7 +249,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             base_state = error
 
             # Evaluate f(state)
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -266,8 +266,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 base_state[i] = state[i] + half_dt * dxdt[i]
 
             # Solve Crank-Nicolson step (main solution)
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -308,7 +308,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 error[i] = proposed_state[i] - (state[i] + base_state[i])
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

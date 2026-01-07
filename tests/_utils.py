@@ -979,16 +979,16 @@ def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array)
     in algorithm_settings dict.
     """
     enhanced = algorithm_settings.copy()
-    enhanced['dxdt_function'] = system.dxdt_function
-    enhanced['observables_function'] = system.observables_function
+    enhanced['evaluate_f'] = system.evaluate_f
+    enhanced['evaluate_observables'] = system.evaluate_observables
     enhanced['get_solver_helper_fn'] = system.get_solver_helper
     enhanced['n_drivers'] = system.num_drivers
 
     if driver_array is not None:
-        enhanced['driver_function'] = driver_array.evaluation_function
+        enhanced['evaluate_driver_at_t'] = driver_array.evaluation_function
         enhanced['driver_del_t'] = driver_array.driver_del_t
     else:
-        enhanced['driver_function'] = None
+        enhanced['evaluate_driver_at_t'] = None
         enhanced['driver_del_t'] = None
 
     return enhanced

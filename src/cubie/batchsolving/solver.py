@@ -411,7 +411,7 @@ class Solver:
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update(
-                {"driver_function": self.driver_interpolator.evaluation_function,
+                {"evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
                  "driver_del_t": self.driver_interpolator.driver_del_t}
             )
 
@@ -525,7 +525,7 @@ class Solver:
             updates_dict, silent=True
         )
         if driver_recognised:
-            updates_dict["driver_function"] = (
+            updates_dict["evaluate_driver_at_t"] = (
                 self.driver_interpolator.evaluation_function
             )
             updates_dict["driver_del_t"] = (

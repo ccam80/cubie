@@ -80,7 +80,7 @@ class BatchSolverKernel(CUDAFactory):
         Mapping of loop configuration forwarded to
         :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
         ``"save_every"`` and ``"summarise_every"``.
-    driver_function
+    evaluate_driver_at_t
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
         Flag enabling CUDA profiling hooks.
@@ -111,7 +111,7 @@ class BatchSolverKernel(CUDAFactory):
         self,
         system: "BaseODE",
         loop_settings: Optional[Dict[str, Any]] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         profileCUDA: bool = False,
         step_control_settings: Optional[Dict[str, Any]] = None,
@@ -148,7 +148,7 @@ class BatchSolverKernel(CUDAFactory):
         self.single_integrator = SingleIntegratorRun(
             system,
             loop_settings=loop_settings,
-            driver_function=driver_function,
+            evaluate_driver_at_t=evaluate_driver_at_t,
             driver_del_t=driver_del_t,
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
