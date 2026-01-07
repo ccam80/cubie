@@ -237,18 +237,7 @@ class TestSolveResultFromSolver:
 
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
         """Test time domain legend creation from real solver."""
-        # Debug prints
-        print(f"\n=== DEBUG INFO ===")
-        print(f"solver.output_types: {solver_with_arrays.output_types}")
-        print(f"solver.active_outputs: {solver_with_arrays.active_outputs}")
-        print(f"solver.saved_states: {solver_with_arrays.saved_states}")
-        print(f"solver.saved_observables: {solver_with_arrays.saved_observables}")
-        print(f"solver.saved_observable_indices: {solver_with_arrays.saved_observable_indices}")
-        
         legend = SolveResult.time_domain_legend_from_solver(solver_with_arrays)
-        print(f"legend: {legend}")
-        print(f"legend values: {list(legend.values())}")
-        print(f"=== END DEBUG ===\n")
 
         assert isinstance(legend, dict)
         assert len(legend) > 0
