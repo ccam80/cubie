@@ -40,8 +40,8 @@ RESIDUAL_TEMPLATE = (
     "    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).\n"
     "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -68,8 +68,8 @@ N_STAGE_RESIDUAL_TEMPLATE = (
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "{metadata_lines}"
     "    @cuda.jit(\n"
@@ -101,8 +101,10 @@ def _build_residual_lines(
 
     n = len(index_map.states.index_map)
 
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined
+    # variables named beta or gamma (issue #373)
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     h_sym = sp.Symbol("h")
     aij_sym = sp.Symbol("a_ij")
     u = sp.IndexedBase("u", shape=(n,))
@@ -141,8 +143,8 @@ def _build_residual_lines(
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(
         {
-            "beta": beta_sym,
-            "gamma": gamma_sym,
+            "_cubie_codegen_beta": beta_sym,
+            "_cubie_codegen_gamma": gamma_sym,
             "h": h_sym,
             "a_ij": aij_sym,
             "u": u,
@@ -198,8 +200,8 @@ def _build_n_stage_residual_lines(
     state_count = len(state_symbols)
     stage_count = stage_coefficients.rows
 
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     h_sym = sp.Symbol("h")
     time_arg = sp.Symbol("t")
     total_states = sp.Integer(stage_count * state_count)
@@ -286,8 +288,8 @@ def _build_n_stage_residual_lines(
             "u": u,
             "base_state": base_state,
             "out": out,
-            "beta": beta_sym,
-            "gamma": gamma_sym,
+            "_cubie_codegen_beta": beta_sym,
+            "_cubie_codegen_gamma": gamma_sym,
             "h": h_sym,
             "t": time_arg,
         }
