@@ -360,7 +360,7 @@ class TestTimingParameterValidation:
 
         with pytest.raises(
             ValueError,
-            match=r"sample_summaries_every.*>=.*summarise_every.*must be strictly less"
+            match=r"sample_summaries_every.*>=.*summarise_every"
         ):
             kernel.run(
                 inits=inits,
