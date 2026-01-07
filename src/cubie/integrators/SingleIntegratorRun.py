@@ -6,14 +6,14 @@ that presents compiled loop artifacts, controllers, and algorithm steps as
 read-only properties for downstream consumers.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-from numpy import dtype as np_dtype
+from numpy import dtype as np_dtype, floor as np_floor
 
 from cubie._utils import PrecisionDType
-from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
+from cubie.integrators.SingleIntegratorRunCore import (
+    SingleIntegratorRunCore,
+)
 from cubie.odesystems.ODEData import SystemSizes
 
 
@@ -128,7 +128,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._step_controller.is_adaptive
 
     @property
-    def system(self) -> BaseODE:
+    def system(self) -> "BaseODE":
         """Return the underlying ODE system."""
 
         return self._system
@@ -156,16 +156,74 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Loop properties
     # ------------------------------------------------------------------
     @property
-    def dt_save(self) -> float:
-        """Return the loop save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the loop save interval, or None if not configured."""
 
-        return self._loop.dt_save
+        return self._loop.save_every
 
     @property
-    def dt_summarise(self) -> float:
-        """Return the loop summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the loop summary interval, or None if not configured."""
 
-        return self._loop.dt_summarise
+        return self._loop.summarise_every
+
+    @property
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the loop sample summaries interval, or None if not configured."""
+
+        return self._loop.sample_summaries_every
+
+    @property
+    def save_last(self) -> bool:
+        """Return True if end-of-run-only state saving is configured."""
+        return self._loop.compile_settings.save_last
+
+    def output_length(self, duration: float) -> int:
+        """Calculate number of time-domain output samples for a duration.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+
+        Returns
+        -------
+        int
+            Number of output samples including initial and optionally final.
+        """
+        save_every = self.save_every
+        precision = self.precision
+
+        regular_samples = 0
+        final_samples = 1 if self.save_last else 0
+        initial_sample = 1
+        if save_every is not None:
+            regular_samples = int(np_floor(duration / save_every))
+        return regular_samples + initial_sample + final_samples
+
+    def summaries_length(self, duration: float) -> int:
+        """Calculate number of summary output samples for a duration.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+
+        Returns
+        -------
+        int
+            Number of summary intervals.
+        """
+        summarise_every = self.summarise_every
+        precision = self.precision
+
+        regular_summaries = 0
+        if summarise_every is not None:
+            regular_summaries = int(
+                    precision(duration)
+                    / precision(summarise_every)
+            )
+        return regular_summaries
 
     @property
     def shared_memory_elements_loop(self) -> int:
@@ -331,36 +389,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return whether the algorithm uses multiple stages."""
 
         return self._algo_step.is_multistage
-
-    @property
-    def adapts_step(self) -> bool:
-        """Return whether the algorithm inherently adapts its step."""
-
-        return self._algo_step.is_adaptive
-
-    @property
-    def shared_memory_elements_step(self) -> int:
-        """Return algorithm shared-memory requirements."""
-
-        return self._algo_step.shared_memory_elements
-
-    @property
-    def local_scratch_elements_step(self) -> int:
-        """Return scratch local-memory requirements for the algorithm."""
-
-        return self._algo_step.local_scratch_elements
-
-    @property
-    def local_memory_required_step(self) -> int:
-        """Return persistent local-memory requirements for the algorithm."""
-
-        return self._algo_step.persistent_local_elements
-
-    @property
-    def implicit_step(self) -> bool:
-        """Return whether the algorithm is implicit."""
-
-        return self._algo_step.is_implicit
 
     @property
     def order(self) -> int:

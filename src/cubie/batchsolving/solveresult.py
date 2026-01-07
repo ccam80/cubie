@@ -35,6 +35,7 @@ from cubie._utils import (
     PrecisionDType,
     slice_variable_dimension,
     opt_gttype_validator,
+    opt_getype_validator,
     getype_validator,
     gttype_validator,
     precision_converter,
@@ -72,10 +73,12 @@ class SolveSpec:
         Minimum time step size.
     dt_max
         Maximum time step size.
-    dt_save
+    save_every
         Interval at which state values are stored.
-    dt_summarise
+    summarise_every
         Interval for computing summary outputs.
+    sample_summaries_every
+        Interval for sampling summary metric updates.
     atol
         Absolute error tolerance when configured.
     rtol
@@ -101,14 +104,22 @@ class SolveSpec:
     precision
         Floating-point precision factory used for host conversions.
     """
-    dt: Optional[float] = field(validator=opt_gttype_validator(float, 0.0))
+    dt: Optional[float] = field(validator=opt_gttype_validator(float,
+                                                                    0.0))
     dt_min: float = field(validator=gttype_validator(float, 0.0))
     dt_max: float = field(validator=gttype_validator(float, 0.0))
-    dt_save: float = field(validator=gttype_validator(float, 0.0))
-    dt_summarise: float = field(validator=getype_validator(float, 0.0))
+    save_every: Optional[float] = field(
+        validator=opt_gttype_validator(float, 0.0)
+    )
+    summarise_every: Optional[float] = field(
+        validator=opt_getype_validator(float, 0.0)
+    )
+    sample_summaries_every: Optional[float] = field(
+        validator=opt_getype_validator(float, 0.0)
+    )
     atol: Optional[float] = field(
             validator=attrsval_or(opt_gttype_validator(float, 0.0),
-                             attrsval_instance_of(ndarray)),
+                              attrsval_instance_of(ndarray)),
     )
     rtol: Optional[float] = field(
             validator=attrsval_or(opt_gttype_validator(float, 0.0),
@@ -714,9 +725,8 @@ class SolveResult:
         for i, label in enumerate(state_labels):
             unit = state_units.get(label, "dimensionless")
             time_domain_legend[i] = _format_time_domain_label(label, unit)
-            offset = i
 
-        offset += 1
+        offset = len(state_labels)
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
             time_domain_legend[offset + i] = _format_time_domain_label(label, unit)

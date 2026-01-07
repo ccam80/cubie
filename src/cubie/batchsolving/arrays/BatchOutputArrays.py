@@ -303,26 +303,26 @@ class OutputArrays(BaseArrayManager):
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)
             slot.shape = newshape
-            slot_dtype = slot.dtype
-            if np_issubdtype(slot_dtype, np_floating):
+            dtype = slot.dtype
+            if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
-                slot_dtype = self._precision
+                dtype = slot.dtype
             # Fast path: skip allocation if existing array matches
             current = slot.array
             if (
                 current is not None
                 and current.shape == newshape
-                and current.dtype == slot_dtype
+                and current.dtype == dtype
             ):
                 new_arrays[name] = current
             else:
                 new_arrays[name] = self._memory_manager.create_host_array(
-                    newshape, slot_dtype, slot.stride_order, slot.memory_type
+                    newshape, dtype, slot.stride_order, slot.memory_type
                 )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
-            slot_dtype = slot.dtype
-            if np_issubdtype(slot_dtype, np_floating):
+            dtype = slot.dtype
+            if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
         return new_arrays
 

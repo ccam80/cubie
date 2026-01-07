@@ -335,7 +335,8 @@ def system(request, solver_settings_override, solver_settings_override2,
         # system will be the cardiovascular symbolic model here
     """
     model_type = 'nonlinear'
-    for override in [solver_settings_override2, solver_settings_override]:
+    for override in [
+        solver_settings_override2, solver_settings_override]:
         if override and 'system_type' in override:
             model_type = override['system_type']
             break
@@ -384,8 +385,9 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
-        "dt_save": precision(0.05),
-        "dt_summarise": precision(0.05),
+        "save_every": precision(0.02),
+        "summarise_every": precision(0.04),
+        "sample_summaries_every": precision(0.02),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
@@ -429,8 +431,9 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "dt",
         "dt_min",
         "dt_max",
-        "dt_save",
-        "dt_summarise",
+        "save_every",
+        "summarise_every",
+        "sample_summaries_every",
         "atol",
         "rtol",
         "krylov_tolerance",
@@ -447,7 +450,11 @@ def solver_settings(solver_settings_override, solver_settings_override2,
             # Update defaults with any overrides provided
             for key, value in override.items():
                 if key in float_keys:
-                    defaults[key] = precision(value)
+                    # Handle None values for optional float parameters
+                    if value is None:
+                        defaults[key] = None
+                    else:
+                        defaults[key] = precision(value)
                 else:
                     defaults[key] = value
 
@@ -480,7 +487,10 @@ def driver_settings(
     if system.num_drivers == 0:
         return None
 
-    dt_sample = precision(solver_settings["dt_save"]) / 2.0
+    if solver_settings["save_every"] is None:
+        dt_sample = solver_settings["duration"] / 10.0
+    else:
+        dt_sample = precision(solver_settings["save_every"]) / 2.0
     total_span = precision(solver_settings["duration"])
     t0 = precision(solver_settings["warmup"])
 
@@ -547,7 +557,7 @@ def cpu_driver_evaluator(
     order = int(solver_settings["driverspline_order"])
     if driver_settings is None or width == 0 or driver_array is None:
         coeffs = np.zeros((1, width, order + 1), dtype=precision)
-        dt_value = precision(solver_settings["dt_save"]) / 2.0
+        dt_value = precision(solver_settings["save_every"]) / 2.0
         t0_value = 0.0
         wrap_value = bool(solver_settings["driverspline_wrap"])
     else:

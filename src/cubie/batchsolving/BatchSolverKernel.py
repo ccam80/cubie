@@ -4,7 +4,7 @@
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from warnings import warn
 
-from numpy import ceil as np_ceil, float64 as np_float64, floor as np_floor, floating
+from numpy import ceil as np_ceil, float64 as np_float64, floating
 from numba import cuda, float64
 from numba import int32
 
@@ -80,7 +80,7 @@ class BatchSolverKernel(CUDAFactory):
     loop_settings
         Mapping of loop configuration forwarded to
         :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
-        ``"dt_save"`` and ``"dt_summarise"``.
+        ``"save_every"`` and ``"summarise_every"``.
     driver_function
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
@@ -326,6 +326,9 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
+        # Update the single integrator with requested duration if required
+        self.single_integrator.set_summary_timing_from_duration(duration)
+
         # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
@@ -358,6 +361,12 @@ class BatchSolverKernel(CUDAFactory):
         )
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
+
+        # Propagate chunk_duration to single_integrator if required
+        if self.chunks != 1:
+            self.single_integrator.set_summary_timing_from_duration(
+                    chunk_params.duration
+            )
 
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.
@@ -941,37 +950,20 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def output_length(self) -> int:
         """Number of saved trajectory samples in the main run.
-        
-        Includes both initial state (at t=t0 or t=settling_time) and final
-        state (at t=t_end) for complete trajectory coverage.
+
+        Delegates to SingleIntegratorRun.output_length() with the current
+        duration.
         """
-        return (int(
-                np_floor(self.precision(self.duration) /
-                        self.precision(self.single_integrator.dt_save)))
-                + 1)
+        return self.single_integrator.output_length(self._duration)
 
     @property
     def summaries_length(self) -> int:
         """Number of complete summary intervals across the integration window.
-        
-        Summaries count only complete dt_summarise periods using floor
-        division. No summary is recorded for t=0 and partial intervals at
-        the tail of integration are excluded.
-        """
-        precision = self.precision
-        return int(precision(self._duration) /precision(self.dt_summarise))
 
-    @property
-    def warmup_length(self) -> int:
-        """Number of warmup save intervals completed before capturing output.
-        
-        Note: Warmup uses ceil(warmup/dt_save) WITHOUT the +1 because warmup
-        saves are transient and discarded after settling. The final warmup
-        state becomes the initial state of the main run, so there is no need
-        to save both endpoints in the warmup phase.
+        Delegates to SingleIntegratorRun.summaries_length() with the current
+        duration.
         """
-
-        return int(np_ceil(self._warmup / self.single_integrator.dt_save))
+        return self.single_integrator.summaries_length(self._duration)
 
     @property
     def system(self) -> "BaseODE":
@@ -1010,16 +1002,22 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.rtol
 
     @property
-    def dt_save(self) -> float:
-        """Interval between saved samples from the loop."""
+    def save_every(self) -> Optional[float]:
+        """Interval between saved samples from the loop, or None if save_last only."""
 
-        return self.single_integrator.dt_save
+        return self.single_integrator.save_every
 
     @property
-    def dt_summarise(self) -> float:
-        """Interval between summary reductions from the loop."""
+    def summarise_every(self) -> Optional[float]:
+        """Interval between summary reductions from the loop"""
 
-        return self.single_integrator.dt_summarise
+        return self.single_integrator.summarise_every
+    
+    @property
+    def sample_summaries_every(self) -> float:
+        """Interval between summary metric samples from the loop."""
+
+        return self.single_integrator.sample_summaries_every
 
     @property
     def system_sizes(self) -> Any:

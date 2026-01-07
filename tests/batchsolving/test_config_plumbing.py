@@ -111,12 +111,12 @@ def assert_solver_config(solver, settings, tolerance):
         expected_dt_max, rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
-    assert solver.dt_save == pytest.approx(
-        settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert solver.save_every == pytest.approx(
+        settings["save_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
-    assert solver.dt_summarise == pytest.approx(
-        settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert solver.summarise_every == pytest.approx(
+        settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     
     # Always check duration, warmup, t0
@@ -175,11 +175,11 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     )
     
     assert kernel.algorithm == settings["algorithm"]
-    assert kernel.dt_save == pytest.approx(
-        settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert kernel.save_every == pytest.approx(
+        settings["save_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
-    assert kernel.dt_summarise == pytest.approx(
-        settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert kernel.summarise_every == pytest.approx(
+        settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     assert kernel.output_types == settings["output_types"]
     
@@ -275,11 +275,16 @@ def assert_ivploop_config(loop, settings, tolerance):
     
     ALL properties and compile_settings attributes are checked.
     """
-    assert loop.dt_save == pytest.approx(
-        settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert loop.save_every == pytest.approx(
+        settings["save_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
-    assert loop.dt_summarise == pytest.approx(
-        settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert loop.summarise_every == pytest.approx(
+        settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert loop.sample_summaries_every == pytest.approx(
+        settings["sample_summaries_every"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight
     )
     
     # Check precision
@@ -295,11 +300,16 @@ def assert_ivploop_config(loop, settings, tolerance):
         assert cs.dt0 == pytest.approx(
             settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
         )
-    assert cs.dt_save == pytest.approx(
-        settings["dt_save"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert cs.save_every == pytest.approx(
+        settings["save_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
-    assert cs.dt_summarise == pytest.approx(
-        settings["dt_summarise"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert cs.summarise_every == pytest.approx(
+        settings["summarise_every"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
+    assert cs.sample_summaries_every == pytest.approx(
+        settings["sample_summaries_every"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight
     )
     
     expected_dt_min = settings["dt_min"] if is_adaptive else settings["dt"]
@@ -598,8 +608,9 @@ def test_comprehensive_config_plumbing(
         "dt": precision(0.005),
         "dt_min": precision(5e-8),
         "dt_max": precision(0.5),
-        "dt_save": precision(0.05),
-        "dt_summarise": precision(0.15),
+        "save_every": precision(0.05),
+        "summarise_every": precision(0.15),
+        "sample_summaries_every": precision(0.05),
         
         # Tolerances
         "atol": precision(5e-7),

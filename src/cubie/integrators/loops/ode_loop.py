@@ -30,16 +30,18 @@ class IVPLoopCache(CUDAFunctionCache):
     """
     loop_function: Callable = field()
 
-# Recognised compile-critical loop configuration parameters. These keys mirror
-# the solver API so helper utilities can consistently merge keyword arguments
-# into loop-specific settings dictionaries.
+# Recognised compile-critical loop configuration parameters.
 ALL_LOOP_SETTINGS = {
-    "dt_save",
-    "dt_summarise",
+    "save_every",
+    "summarise_every",
+    "sample_summaries_every",
     "dt0",
     "dt_min",
     "dt_max",
     "is_adaptive",
+    "save_last",
+    "save_regularly",
+    "summarise_regularly",
     # Loop buffer location parameters
     "state_location",
     "proposed_state_location",
@@ -83,10 +85,14 @@ class IVPLoop(CUDAFactory):
         Height of state summary buffer.
     observable_summaries_buffer_height
         Height of observable summary buffer.
-    dt_save
-        Interval between accepted saves. Defaults to ``0.1``.
-    dt_summarise
-        Interval between summary accumulations. Defaults to ``1.0``.
+    save_every
+        Interval between accepted saves. Defaults to None (auto-configured).
+    summarise_every
+        Interval between summary accumulations. Defaults to None
+        (auto-configured).
+    sample_summaries_every
+        Interval between summary metric updates. Must be an integer divisor
+        of ``summarise_every``. Defaults to None (auto-configured).
     save_state_func
         Device function that writes state and observable snapshots.
     update_summaries_func
@@ -124,8 +130,9 @@ class IVPLoop(CUDAFactory):
         n_counters: int = 0,
         state_summaries_buffer_height: int = 0,
         observable_summaries_buffer_height: int = 0,
-        dt_save: float = 0.1,
-        dt_summarise: float = 1.0,
+        save_every: Optional[float] = None,
+        summarise_every: Optional[float] = None,
+        sample_summaries_every: Optional[float] = None,
         save_state_func: Optional[Callable] = None,
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
@@ -159,10 +166,14 @@ class IVPLoop(CUDAFactory):
             Height of state summary buffer.
         observable_summary_buffer_height
             Height of observable summary buffer.
-        dt_save
-            Interval between accepted saves.
-        dt_summarise
-            Interval between summary accumulations.
+        save_every
+            Interval between accepted saves. Defaults to None (auto-configured).
+        summarise_every
+            Interval between summary accumulations. Defaults to None
+            (auto-configured).
+        sample_summaries_every
+            Interval between summary metric updates. Must be an integer divisor
+            of ``summarise_every``. Defaults to None (auto-configured).
         save_state_func
             Device function that writes state and observable snapshots.
         update_summaries_func
@@ -199,8 +210,9 @@ class IVPLoop(CUDAFactory):
                     observable_summaries_buffer_height,
                 'precision': precision,
                 'compile_flags': compile_flags,
-                'dt_save': dt_save,
-                'dt_summarise': dt_summarise,
+                'save_every': save_every,
+                'summarise_every': summarise_every,
+                'sample_summaries_every': sample_summaries_every,
                 'save_state_fn': save_state_func,
                 'update_summaries_fn': update_summaries_func,
                 'save_summaries_fn': save_summaries_func,
@@ -345,18 +357,23 @@ class IVPLoop(CUDAFactory):
         alloc_algo_shared = getalloc('algorithm_shared', self, zero=True)
         alloc_algo_persistent = getalloc('algorithm_persistent', self, zero=True)
         alloc_controller_shared = getalloc('controller_shared', self, zero=True)
-        alloc_controller_persistent = getalloc('controller_persistent', self, zero=True)
-        alloc_dt = getalloc('dt', self, zero=True)
+        alloc_controller_persistent = getalloc(
+            "controller_persistent", self, zero=True
+        )
+        alloc_dt = getalloc("dt", self, zero=True)
         alloc_accept_step = getalloc('accept_step', self, zero=True)
         alloc_proposed_counters = getalloc('proposed_counters', self)
 
         # Timing values
-        saves_per_summary = config.saves_per_summary
-        dt_save = precision(config.dt_save)
         dt0 = precision(config.dt0)
-        # save_last is not yet piped up from this level, but is intended and
-        # included in loop logic
-        save_last = False
+        save_every = config.save_every
+        sample_summaries_every = config.sample_summaries_every
+        samples_per_summary = int32(config.samples_per_summary)
+
+        # Boolean control-flow constants
+        save_last = config.save_last
+        save_regularly = config.save_regularly
+        summarise_regularly = config.summarise_regularly
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -369,23 +386,6 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
 
         @cuda.jit(
-            # [
-            #     (
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[:, :, ::1],
-            #         precision[::1],
-            #         precision[::1],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:, :],
-            #         precision[:,::1],
-            #         float64,
-            #         float64,
-            #         float64,
-            #     )
-            # ],
             device=True,
             inline=True,
             **compile_kwargs,
@@ -449,8 +449,7 @@ class IVPLoop(CUDAFactory):
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
 
-            stagnant_counts = int32(0)
-
+            # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
             shared_scratch[:] = precision(0.0)
             # ----------------------------------------------------------- #
@@ -487,14 +486,20 @@ class IVPLoop(CUDAFactory):
             )
             dt = alloc_dt(shared_scratch, persistent_local)
             accept_step = alloc_accept_step(shared_scratch, persistent_local)
-            # ----------------------------------------------------------- #
 
             proposed_counters = alloc_proposed_counters(
                 shared_scratch, persistent_local
             )
+            # --------------------------------------------------------------- #
+
             first_step_flag = True
             prev_step_accepted_flag = True
-
+            stagnant_counts = int32(0)
+            save_idx = int32(0)
+            summary_idx = int32(0)
+            update_idx = int32(0)
+            next_save = precision(settling_time + t0)
+            next_update_summary = precision(settling_time + t0)
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -519,15 +524,16 @@ class IVPLoop(CUDAFactory):
                     t_prec,
                 )
 
-            save_idx = int32(0)
-            summary_idx = int32(0)
-
-            # Set next save for settling time, or save first value if
+            # Set next save for `settling_time`, or save first value if
             # starting at t0
-            next_save = precision(settling_time + t0)
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
-                next_save += dt_save
+                if save_regularly:
+                    next_save = precision(next_save + save_every)
+                if summarise_regularly:
+                    next_update_summary = precision(
+                            sample_summaries_every + next_update_summary
+                    )
 
                 save_state(
                     state_buffer,
@@ -538,16 +544,19 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
+                save_idx += int32(1)
+
+                # Call save_summaries only to reset buffer values
                 if summarise:
-                    #reset temp buffers to starting state
                     statesumm_idx = summary_idx * summarise_state_bool
                     obsumm_idx = summary_idx * summarise_obs_bool
-                    save_summaries(state_summary_buffer,
-                                   observable_summary_buffer,
-                                   state_summaries_output[statesumm_idx, :],
-                                   observable_summaries_output[obsumm_idx, :],
-                                   saves_per_summary)
-                save_idx += int32(1)
+                    save_summaries(
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        state_summaries_output[statesumm_idx, :],
+                        observable_summaries_output[obsumm_idx, :],
+                        samples_per_summary,
+                    )
 
             status = int32(0)
             dt[0] = dt0
@@ -562,32 +571,77 @@ class IVPLoop(CUDAFactory):
 
             mask = activemask()
             irrecoverable = False
+            at_end = False
+            save_finished = False
+            summary_finished = False
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
             while True:
-                # Exit as soon as we've saved the final step
-                finished = bool_(next_save > t_end)
-                if save_last:
-                    # If last save requested, predicated commit dt, finished,
-                    # do_save
-                    at_last_save = finished and t_prec < t_end
-                    finished = selp(at_last_save, False, True)
-                    dt[0] = selp(at_last_save, precision(t_end - t),
-                                 dt_raw)
+                # ----------------------------------------------------------- #
+                #               Events due - end, update, save                #
+                # ----------------------------------------------------------- #
+                # Compile-time branching: save_regularly and summarise_regularly
+                # are constants, allowing Numba to eliminate dead branches
+                end_of_step = t_prec + dt_raw
+                if save_regularly or summarise_regularly:
+                    # Loop continues until all scheduled outputs are complete
+                    finished = True
+                    if save_regularly:
+                        save_finished = bool_(next_save > t_end)
+                        finished &= save_finished
+                    if summarise_regularly:
+                        summary_finished = bool_(next_update_summary > t_end)
+                        finished &= summary_finished
+                else:
+                    # No scheduled outputs; finish when time exceeds t_end
+                    finished = bool_(end_of_step > t_end)
 
-                # Exit loop if finished, or min_step exceeded, or time stagnant
+                if save_last:
+                    # Save final state even if not aligned with save_every
+                    # at_end triggers when we're in the last step before t_end
+                    at_end = bool_(t_prec < t_end) & finished
+                    finished = finished &~ at_end
+
                 finished = finished or irrecoverable
 
                 if all_sync(mask, finished):
                     return status
 
                 if not finished:
-                    do_save = bool_((t_prec + dt_raw) >= next_save)
-                    dt_eff = selp(do_save, next_save - t_prec, dt_raw)
+                    # Determine output actions for this step
+                    # Compile-time constants enable branch elimination
+                    if save_regularly:
+                        do_save = (
+                            bool_(end_of_step >= next_save) & ~save_finished
+                        )
+                    else:
+                        do_save = False
 
-                    # Fixed mode auto-accepts all steps; adaptive uses controller
+                    if summarise_regularly:
+                        do_update_summary = (
+                            bool_(end_of_step >= next_update_summary)
+                            & ~summary_finished
+                        )
+                    else:
+                        do_update_summary = False
 
+                    if save_last:
+                        do_save |= at_end
+
+                    # Adjust step size to hit output boundaries exactly
+                    dt_eff = dt_raw
+                    if do_save or do_update_summary:
+                        next_event = t_end
+                        if do_save and save_regularly:
+                            next_event = precision(min(next_event, next_save))
+                        if do_update_summary and summarise_regularly:
+                            next_event = precision(min(next_event,
+                                                next_update_summary))
+                        dt_eff = precision(next_event - t_prec)
+
+                    # ----------------------------------------------------------- #
+                    # Take a step
                     step_status = int32(
                         step_function(
                             state_buffer,
@@ -610,7 +664,6 @@ class IVPLoop(CUDAFactory):
                     )
 
                     first_step_flag = False
-
                     niters = proposed_counters[0]
                     status = int32(status | step_status)
 
@@ -664,6 +717,7 @@ class IVPLoop(CUDAFactory):
                                 counters_since_save[i] += int32(1)
 
                     t_proposal = t + float64(dt_eff)
+
                     # test for stagnation - we might have one small step
                     # which doesn't nudge t if we're right up against a save
                     # boundary, so we call 2 stale t values in a row "stagnant"
@@ -704,10 +758,16 @@ class IVPLoop(CUDAFactory):
                         int32(0),
                     )
 
-                    # Predicated update of next_save; update if save is accepted.
-                    do_save = bool_(accept and do_save)
+                    # Predicated output execution: only perform outputs
+                    # if step was accepted (avoids warp divergence)
+                    do_save &= accept
+                    do_update_summary &= accept
+                    
                     if do_save:
-                        next_save = selp(do_save, next_save + dt_save, next_save)
+                        # Increment next_save if it's in use
+                        if save_regularly:
+                            next_save += save_every
+
                         save_state(
                             state_buffer,
                             observables_buffer,
@@ -719,6 +779,17 @@ class IVPLoop(CUDAFactory):
                                 save_idx * save_counters_bool, :
                             ],
                         )
+                        save_idx += int32(1)
+                        
+                        # Reset iteration counters after save
+                        if save_counters_bool:
+                            for i in range(n_counters):
+                                counters_since_save[i] = int32(0)
+                    
+                    if do_update_summary:
+                        if summarise_regularly:
+                            next_update_summary += sample_summaries_every
+
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool
                             obssumm_idx = summary_idx * summarise_obs_bool
@@ -727,37 +798,37 @@ class IVPLoop(CUDAFactory):
                                 observables_buffer,
                                 state_summary_buffer,
                                 observable_summary_buffer,
-                                save_idx)
+                                update_idx
+                            )
+                            update_idx += int32(1)
 
-                            if (save_idx % saves_per_summary == int32(0)):
+                            # Save summary when enough updates collected
+                            if update_idx % samples_per_summary == int32(0):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
                                     state_summaries_output[statesumm_idx,:],
                                     observable_summaries_output[obssumm_idx,:],
-                                    saves_per_summary,
+                                    samples_per_summary,
                                 )
                                 summary_idx += int32(1)
-                        save_idx += int32(1)
-
-                        # Reset iteration counters after save
-                        if save_counters_bool:
-                            for i in range(n_counters):
-                                counters_since_save[i] = int32(0)
 
         return IVPLoopCache(loop_function=loop_fn)
 
     @property
-    def dt_save(self) -> float:
-        """Return the save interval."""
-
-        return self.compile_settings.dt_save
-
+    def save_every(self) -> Optional[float]:
+        """Return the save interval, or None if not configured."""
+        return self.compile_settings.save_every
+    
     @property
-    def dt_summarise(self) -> float:
-        """Return the summary interval."""
-
-        return self.compile_settings.dt_summarise
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
+        return self.compile_settings.summarise_every
+    
+    @property
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
+        return self.compile_settings.sample_summaries_every
 
     @property
     def shared_memory_elements(self) -> int:
@@ -887,11 +958,11 @@ class IVPLoop(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        # Flatten nested dict values (e.g., loop_settings={'dt_save': 0.01})
+        # Flatten nested dict values (e.g., loop_settings={'save_every': 0.01})
         # into top-level parameters before distributing to compile settings.
         # This ensures all configuration options are recognized and updated.
-        # Example: {'loop_settings': {'dt_save': 0.01}, 'other': 5}
-        #       -> {'dt_save': 0.01, 'other': 5}
+        # Example: {'loop_settings': {'save_every': 0.01}, 'other': 5}
+        #       -> {'save_every': 0.01, 'other': 5}
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         recognised = self.update_compile_settings(updates_dict, silent=True)

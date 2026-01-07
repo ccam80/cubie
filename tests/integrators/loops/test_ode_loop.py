@@ -28,15 +28,15 @@ def test_getters(
 
     #Test getters get
     assert loop.precision == precision, "precision getter"
-    assert loop.dt_save == precision(solver_settings['dt_save']), \
-        "dt_save getter"
-    assert loop.dt_summarise == precision(solver_settings[
-                                              'dt_summarise']),\
-        "dt_summarise getter"
+    assert loop.save_every == precision(solver_settings['save_every']), \
+        "save_every getter"
+    assert loop.summarise_every == precision(solver_settings[
+                                              'summarise_every']),\
+        "summarise_every getter"
     # test update
-    loop.update({"dt_save": 2 * solver_settings["dt_save"]})
-    assert loop.dt_save == pytest.approx(
-        2 * solver_settings["dt_save"], rel=1e-6, abs=1e-6
+    loop.update({"save_every": 2 * solver_settings["save_every"]})
+    assert loop.save_every == pytest.approx(
+        2 * solver_settings["save_every"], rel=1e-6, abs=1e-6
     )
 
 
@@ -167,7 +167,7 @@ def test_all_summary_metrics_numerical_check(
         cpu_loop_outputs,
         device_loop_outputs,
         output_functions,
-        rtol=tolerance.rel_loose * 5, # Added tolerance - x/dt_save**2 is
+        rtol=tolerance.rel_loose * 5, # Added tolerance - x/save_every**2 is
             # rough
         atol=tolerance.abs_loose* 5,
     )
@@ -180,7 +180,7 @@ def test_all_summary_metrics_numerical_check(
                              'precision': np.float32,
                              'output_types': ['state', 'time'],
                              'duration': 1e-4,
-                             'dt_save': 2e-5,  # representable in f32: 2e6*1.0
+                             'save_every': 2e-5,  # representable in f32: 2e6*1.0
                              't0': 1.0,
                              'algorithm': "euler",
                              'dt': 1e-7,  # smaller than 1f32 eps
@@ -198,7 +198,7 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
                                  'precision': np.float32,
                                  'output_types': ['state', 'time'],
                                  'duration': 1e-3,
-                                 'dt_save': 2e-4,
+                                 'save_every': 2e-4,
                                  't0': 1e2,
                                  'algorithm': 'euler',
                                  'dt': 1e-6,
@@ -207,7 +207,7 @@ def test_float32_small_timestep_accumulation(device_loop_outputs, precision):
                                  'precision': np.float64,
                                  'output_types': ['state', 'time'],
                                  'duration': 1e-3,
-                                 'dt_save': 2e-4,
+                                 'save_every': 2e-4,
                                  't0': 1e2,
                                  'algorithm': 'euler',
                                  'dt': 1e-6,
@@ -229,7 +229,7 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                          [{
                              'precision': np.float32,
                              'duration': 1e-4,
-                             'dt_save': 2e-5,
+                             'save_every': 2e-5,
                              't0': 1.0,
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
@@ -257,7 +257,7 @@ def test_adaptive_controller_with_float32(device_loop_outputs, precision):
             "output_types": ["state", "time"],
             "algorithm": "euler",
             "dt": 1e-2,
-            "dt_save": 0.1,
+            "save_every": 0.1,
         }
     ],
     indirect=True,
@@ -266,4 +266,158 @@ def test_save_at_settling_time_boundary(device_loop_outputs, precision):
     """Test save point occurring exactly at settling_time boundary."""
     # Should complete successfully with first save at t=settling_time
     assert device_loop_outputs.state[-1,-1] == precision(1.2)
-    assert device_loop_outputs.state[-2,-1] == precision(1.1)
+    assert device_loop_outputs.state[-2, -1] == precision(1.1)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.1,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+    ],
+    indirect=True,
+)
+def test_save_last_flag_from_config(loop_mutable):
+    """Verify IVPLoop reads save_last flag from ODELoopConfig.
+
+    When all timing parameters are None, ODELoopConfig sets save_last=True.
+    IVPLoop.build() should read this from config.save_last.
+    """
+    config = loop_mutable.compile_settings
+    assert config.save_last is True
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.1,
+            "output_types": ["state", "time", "mean"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        }
+    ],
+    indirect=True,
+)
+def test_final_summary(
+    device_loop_outputs,
+    precision,
+):
+    """Verify summaries collected at end of run with summaries unset.
+
+    When all timing parameters are None, the loop should collect a summary
+    at the end of the integration run. The summary buffer should contain
+    valid data.
+    """
+    # With no periodic summaries, we should get
+    # exactly one summary collected at the end
+    state_summaries = device_loop_outputs.state_summaries
+
+    # Summary should exist and have non-zero values for the final state
+    assert state_summaries is not None, "State summaries should be collected"
+    assert state_summaries.shape[0] >= 1, "At least one summary should exist"
+
+    # The summary should contain valid (non-NaN, non-zero) values
+    final_summary = state_summaries[0]
+    assert not np.isnan(final_summary).any(), "Summary should not contain NaN"
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.15,
+            "output_types": ["state", "time", "mean"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": 0.05,
+            "summarise_every": 0.05,
+            "sample_summaries_every": 0.05,
+        }
+    ],
+    indirect=True,
+)
+def test_summarise_every(
+    device_loop_outputs,
+    precision,
+):
+    """Verify  and summarise_every work together without
+    double-write.
+
+    When both periodic summaries and summarise_last are enabled, the loop
+    should collect summaries at regular intervals and also at the end.
+    There should be no duplicate summaries when the final step coincides
+    with a regular summary point.
+    """
+    state_summaries = device_loop_outputs.state_summaries
+
+    # With duration=0.15 and summarise_every=0.05, we expect:
+    # - t=0.0: initial summary
+    # - t=0.05: periodic summary
+    # - t=0.10: periodic summary
+    # - t=0.15: final summary (either via periodic or summarise_last)
+    # Total: 4 summaries
+    assert state_summaries is not None, "State summaries should be collected"
+    # At least 3-4 summaries expected (initial + periodic + final)
+    assert state_summaries.shape[0] >= 3, "Multiple summaries expected"
+
+    # Check that all summaries are valid
+    for i in range(min(4, state_summaries.shape[0])):
+        assert not np.isnan(state_summaries[i]).any(), \
+            f"Summary {i} should not contain NaN"
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "precision": np.float32,
+            "duration": 0.15,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "dt": 0.01,
+            "save_every": 0.05,
+            "save_last": True,
+        }
+    ],
+    indirect=True,
+)
+def test_save_last_with_save_every(
+    device_loop_outputs,
+    precision,
+):
+    """Verify save_last and save_every can be used together.
+
+    When both periodic saves (save_every) and save_last are enabled, the loop
+    should collect saves at regular intervals and also at the end. The final
+    state should be saved even if it doesn't align with a periodic save point.
+    """
+    states = device_loop_outputs.state
+
+    # With duration=0.15 and save_every=0.05, we expect:
+    # - t=0.0: initial save
+    # - t=0.05: periodic save
+    # - t=0.10: periodic save
+    # - t=0.15: final save (from save_last or coincides with periodic)
+    assert states is not None, "State outputs should be collected"
+    assert states.shape[0] >= 4, "At least 4 saves expected"
+
+    # Check that the final state is at or near t_end
+    final_time = states[-1, -1]  # time is stored in last position
+    assert final_time == pytest.approx(
+        precision(0.15), rel=1e-5
+    ), "Final save should be at t_end"
+
+

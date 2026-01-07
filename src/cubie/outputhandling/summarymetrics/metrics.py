@@ -43,9 +43,10 @@ class MetricConfig:
     
     Attributes
     ----------
-    dt_save
-        Time interval between saved states. Used by derivative
-        metrics to scale finite differences. Defaults to 0.01.
+    sample_summaries_every
+        Time interval between summary metric samples. Used by
+        derivative metrics to scale finite differences. Defaults
+        to 0.01.
     precision
         Numerical precision for metric calculations. Defaults to
         np.float32.
@@ -54,16 +55,16 @@ class MetricConfig:
         converter=precision_converter,
         validator=precision_validator,
     )
-    _dt_save: float = field(
+    _sample_summaries_every: float = field(
         default=0.01,
         validator=val_optional(gttype_validator(float, 0.0))
     )
 
     
     @property
-    def dt_save(self) -> float:
-        """Time interval between saved states."""
-        return self._dt_save
+    def sample_summaries_every(self) -> float:
+        """Time interval between summary metric samples."""
+        return self._sample_summaries_every
     
     @property
     def precision(self) -> type[floating]:
@@ -116,8 +117,8 @@ class SummaryMetric(CUDAFactory):
         Callable. Compiled CUDA device update function for the metric.
     save_device_func
         Callable. Compiled CUDA device save function for the metric.
-    dt_save
-        save interval. Defaults to 0.01.
+    sample_summaries_every
+        Time interval between summary metric samples. Defaults to 0.01.
     precision
         Numerical precision for metric calculations. Defaults to np.float32.
 
@@ -137,7 +138,7 @@ class SummaryMetric(CUDAFactory):
         name: str,
         precision: PrecisionDType,
         unit_modification: str = "[unit]",
-        dt_save: float = 0.01,
+        sample_summaries_every: float = 0.01,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -154,8 +155,9 @@ class SummaryMetric(CUDAFactory):
         unit_modification
             str. Format string for unit modification in legends.
             Use "[unit]" as placeholder. Defaults to "[unit]".
-        dt_save
-            float. Time interval for save operations. Defaults to 0.01.
+        sample_summaries_every
+            float. Time interval between summary metric samples. Defaults
+            to 0.01.
         precision
             PrecisionDType. Numerical precision for metric calculations.
             Defaults to np.float32.
@@ -169,7 +171,8 @@ class SummaryMetric(CUDAFactory):
 
         # Instantiate empty settings object for CUDAFactory compatibility
         self.setup_compile_settings(
-            MetricConfig(dt_save=dt_save, precision=precision)
+            MetricConfig(sample_summaries_every=sample_summaries_every,
+                         precision=precision)
         )
 
 
@@ -217,7 +220,7 @@ class SummaryMetric(CUDAFactory):
         Parameters
         ----------
         **kwargs
-            Compile settings to update (e.g., dt_save=0.02).
+            Compile settings to update (e.g., sample_summaries_every=0.02).
             
         Returns
         -------
@@ -305,7 +308,8 @@ class SummaryMetrics:
         Parameters
         ----------
         **kwargs
-            Compile settings to update (e.g., dt_save=0.02, precision=np.float64).
+            Compile settings to update (e.g., sample_summaries_every=0.02,
+            precision=np.float64).
             
         Returns
         -------
