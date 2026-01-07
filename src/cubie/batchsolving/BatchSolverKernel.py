@@ -447,6 +447,7 @@ class BatchSolverKernel(CUDAFactory):
                     f"Adjust timing parameters OR set chunk_axis='run' to "
                     f"avoid this. Time-check exception: {e}"
                 ) from e
+
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.
         if chunk_axis == "run":
