@@ -366,8 +366,8 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         dt0 = precision(config.dt0)
-        save_every = precision(config.save_every)
-        sample_summaries_every = precision(config.sample_summaries_every)
+        save_every = config.save_every
+        sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
 
         # Boolean control-flow constants
