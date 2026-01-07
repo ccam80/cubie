@@ -380,8 +380,8 @@ class TestObservablesDeviceParity:
 
         system = observables_kernel_system
         system.build()
-        dxdt_dev = system.dxdt_function
-        observables_fn = system.observables_function
+        dxdt_dev = system.evaluate_f
+        observables_fn = system.evaluate_observables
 
         state = np.array(state_values, dtype=precision)
         parameters = np.array(param_values, dtype=precision)

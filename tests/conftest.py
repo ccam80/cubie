@@ -144,7 +144,7 @@ def _build_solver_instance(
 
     solver = Solver(system, **solver_settings)
     driver_function = _get_driver_function(driver_array)
-    solver.update({"driver_function": driver_function})
+    solver.update({"evaluate_driver_at_t": driver_function})
     return solver
 
 
@@ -587,8 +587,8 @@ def cpu_driver_evaluator(
 def algorithm_settings(solver_settings):
     """Filter algorithm configuration from solver_settings dict.
     
-    Note: Functions (dxdt_function, observables_function, 
-    get_solver_helper_fn, driver_function, driver_del_t) are NOT 
+    Note: Functions (evaluate_f, evaluate_observables, 
+    get_solver_helper_fn, evaluate_driver_at_t, driver_del_t) are NOT 
     included in settings. These are passed directly when building 
     step objects, not stored in settings dict.
     """
@@ -695,7 +695,7 @@ def solverkernel(
     )
     return BatchSolverKernel(
         system,
-        driver_function=driver_function,
+        evaluate_driver_at_t=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
@@ -731,7 +731,7 @@ def solverkernel_mutable(
     )
     return BatchSolverKernel(
         system,
-        driver_function=driver_function,
+        evaluate_driver_at_t=driver_function,
         driver_del_t=driver_del_t,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
@@ -824,7 +824,7 @@ def single_integrator_run(
     )
     return SingleIntegratorRun(
         system=system,
-        driver_function=driver_function,
+        evaluate_driver_at_t=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=enhanced_algorithm_settings,
@@ -858,7 +858,7 @@ def single_integrator_run_mutable(
     return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
-        driver_function=driver_function,
+        evaluate_driver_at_t=driver_function,
         driver_del_t=driver_del_t,
         step_control_settings=step_controller_settings,
         algorithm_settings=enhanced_algorithm_settings,

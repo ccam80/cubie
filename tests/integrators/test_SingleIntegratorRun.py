@@ -394,11 +394,11 @@ def test_default_step_controller_settings_applied(
 ):
     """When no overrides are supplied algorithm defaults are applied."""
 
-    driver_fn = driver_array.evaluation_function if driver_array else None
+    evaluate_driver_at_t = driver_array.evaluation_function if driver_array else None
     run = SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
-        driver_function=driver_fn,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         step_control_settings=None,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
@@ -449,7 +449,7 @@ def test_step_controller_overrides_take_precedence(
     """User supplied settings override algorithm defaults."""
     algorithm_settings["algorithm"] = algorithm
     precision = system.precision
-    driver_fn = driver_array.evaluation_function if driver_array else None
+    evaluate_driver_at_t = driver_array.evaluation_function if driver_array else None
     override_settings = {
         key: precision(value) if isinstance(value, float) else value
         for key, value in overrides.items()
@@ -458,7 +458,7 @@ def test_step_controller_overrides_take_precedence(
         system=system,
         loop_settings=loop_settings,
         output_settings=output_settings,
-        driver_function=driver_fn,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         step_control_settings=dict(override_settings),
         algorithm_settings=algorithm_settings,
     )

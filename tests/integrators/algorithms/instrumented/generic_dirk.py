@@ -31,9 +31,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
         krylov_tolerance: Optional[float] = None,
@@ -65,13 +65,12 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         preconditioner_order
@@ -136,9 +135,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "precision": precision,
             "n": n,
             "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
+            "evaluate_f": evaluate_f,
+            "evaluate_observables": evaluate_observables,
+            "evaluate_driver_at_t": evaluate_driver_at_t,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
             "tableau": tableau,
@@ -298,9 +297,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -318,7 +317,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
-        has_driver_function = driver_function is not None
+        has_driver_function = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         multistage = stage_count > 1
         first_same_as_last = self.first_same_as_last
@@ -494,7 +493,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
 
                 else:
                     if has_driver_function:
-                        driver_function(
+                        evaluate_driver_at_t(
                             stage_time,
                             driver_coeffs,
                             proposed_drivers,
@@ -532,7 +531,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         )
 
                 # Get obs->dxdt from stage_base
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -540,7 +539,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -608,7 +607,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                 )
 
                 if has_driver_function:
-                    driver_function(
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
@@ -667,7 +666,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     stage_increments[stage_idx, idx] = scaled_increment
                     jacobian_updates[stage_idx, idx] = typed_zero
 
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -681,7 +680,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         proposed_observables[obs_idx]
                     )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -723,13 +722,13 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         error[idx] = proposed_state[idx] - error[idx]
 
             if has_driver_function:
-                driver_function(
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

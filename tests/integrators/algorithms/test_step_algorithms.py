@@ -628,7 +628,7 @@ def device_step_results(
     d_counters = cuda.to_device(counters)
 
     driver_function = driver_array.evaluation_function
-    observables_function = system.observables_function
+    evaluate_observables = system.evaluate_observables
 
     @cuda.jit
     def kernel(
@@ -652,7 +652,7 @@ def device_step_results(
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
         driver_function(precision(0.0), driver_coefficients, drivers_vec)
-        observables_function(state, params_vec, drivers_vec, observables_vec,
+        evaluate_observables(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
         persistent[:] = precision(0.0)
@@ -721,7 +721,7 @@ def _execute_step_twice(
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
-    observables_function = system.observables_function
+    evaluate_observables = system.evaluate_observables
 
     params = step_inputs["parameters"]
     state = np.asarray(step_inputs["state"], dtype=precision)
@@ -815,7 +815,7 @@ def _execute_step_twice(
 
         if driver_function is not None:
             driver_function(zero, driver_coeffs_vec, drivers_current_vec)
-        observables_function(
+        evaluate_observables(
             state_vec,
             params_vec,
             drivers_current_vec,
@@ -1155,8 +1155,8 @@ def test_against_euler(
         "algorithm": "euler",
         "n": system.sizes.states,
         "dt": euler_settings["dt"],
-        "dxdt_function": system.dxdt_function,
-        "observables_function": system.observables_function,
+        "evaluate_f": system.evaluate_f,
+        "evaluate_observables": system.evaluate_observables,
     }
     euler_step_obj = get_algorithm_step(precision, euler_algorithm_settings)
 
