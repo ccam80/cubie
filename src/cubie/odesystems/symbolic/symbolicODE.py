@@ -143,7 +143,7 @@ class SymbolicODE(BaseODE):
         precision: PrecisionDType,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        fn_hash: Optional[int] = None,
+        fn_hash: Optional[str] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
     ):
@@ -178,10 +178,8 @@ class SymbolicODE(BaseODE):
         self.all_symbols = all_symbols
 
         if fn_hash is None:
-            dxdt_str = [f"{lhs}={str(rhs)}" for lhs, rhs
-                        in equations]
             constants = all_indexed_bases.constants.default_values
-            fn_hash = hash_system_definition(dxdt_str, constants)
+            fn_hash = hash_system_definition(equations, constants)
         if name is None:
             name = fn_hash
 
@@ -306,7 +304,7 @@ class SymbolicODE(BaseODE):
                            all_indexed_bases=index_map,
                            all_symbols=all_symbols,
                            name=name,
-                           fn_hash=int(fn_hash),
+                           fn_hash=fn_hash,
                            user_functions = functions,
                            precision=precision)
         default_timelogger.stop_event("symbolic_ode_parsing")

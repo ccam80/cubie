@@ -1374,8 +1374,6 @@ def parse_input(
         raw_lines = list(lines)
         lines = _normalise_indexed_tokens(lines)
         
-        constants = index_map.constants.default_values
-        fn_hash = hash_system_definition(dxdt, constants)
         anon_aux = _lhs_pass(lines, index_map, strict=strict)
         all_symbols = index_map.all_symbols.copy()
         all_symbols.setdefault("t", TIME_SYMBOL)
@@ -1415,9 +1413,6 @@ def parse_input(
             new_lhs = lhs.subs(symbol_substitutions, simultaneous=True) if lhs in symbol_substitutions else lhs
             new_rhs = rhs.subs(symbol_substitutions, simultaneous=True)
             substituted_eqs.append((new_lhs, new_rhs))
-        
-        constants = index_map.constants.default_values
-        fn_hash = hash_system_definition(substituted_eqs, constants)
         
         anon_aux = _lhs_pass_sympy(
             substituted_eqs, index_map, strict=strict
@@ -1484,5 +1479,10 @@ def parse_input(
                 all_symbols['__function_aliases__'] = alias_map
 
     parsed_equations = ParsedEquations.from_equations(equation_map, index_map)
+
+    # Compute hash from canonical ParsedEquations form
+    fn_hash = hash_system_definition(
+        parsed_equations, index_map.constants.default_values
+    )
 
     return index_map, all_symbols, funcs, parsed_equations, fn_hash

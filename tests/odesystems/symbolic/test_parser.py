@@ -503,40 +503,52 @@ class TestRhsPass:
 class TestHashSystemDefinition:
     """Test system definition hashing function."""
 
-    def test_hash_system_definition_string(self):
-        """Test hashing string input."""
-        dxdt = "dx = x + y\ndy = x - y"
+    def test_hash_system_definition_tuple_input(self):
+        """Test hashing (Symbol, Expr) tuple input."""
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        dxdt = [(dx, x + y), (dy, x - y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
     def test_hash_system_definition_list(self):
-        """Test hashing list input."""
-        dxdt = ["dx = x + y", "dy = x - y"]
+        """Test hashing list of (Symbol, Expr) tuples."""
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        dxdt = [(dx, x + y), (dy, x - y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
-    def test_hash_system_definition_tuple(self):
-        """Test hashing tuple input."""
-        dxdt = ("dx = x + y", "dy = x - y")
+    def test_hash_system_definition_single_equation(self):
+        """Test hashing single equation tuple."""
+        x, y = sp.symbols('x y', real=True)
+        dx = sp.Symbol('dx', real=True)
+        dxdt = [(dx, x + y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
     def test_hash_system_definition_consistency(self):
         """Test that equivalent inputs produce same hash."""
-        dxdt1 = "dx = x + y\ndy = x - y"
-        dxdt2 = ["dx = x + y", "dy = x - y"]
-        dxdt3 = "dx=x+y\ndy=x-y"  # Different whitespace
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+
+        # Same equations in different order
+        dxdt1 = [(dx, x + y), (dy, x - y)]
+        dxdt2 = [(dy, x - y), (dx, x + y)]
 
         hash1 = hash_system_definition(dxdt1, {})
         hash2 = hash_system_definition(dxdt2, {})
-        hash3 = hash_system_definition(dxdt3, {})
 
-        assert hash1 == hash2 == hash3
+        # Hashes should be identical due to sorting by LHS
+        assert hash1 == hash2
 
     def test_hash_system_definition_different_content(self):
         """Test that different content produces different hashes."""
-        dxdt1 = "dx = x + y"
-        dxdt2 = "dx = x - y"
+        x, y = sp.symbols('x y', real=True)
+        dx = sp.Symbol('dx', real=True)
+
+        dxdt1 = [(dx, x + y)]
+        dxdt2 = [(dx, x - y)]
 
         hash1 = hash_system_definition(dxdt1, {})
         hash2 = hash_system_definition(dxdt2, {})
@@ -545,7 +557,10 @@ class TestHashSystemDefinition:
 
     def test_hash_system_definition_with_constants(self):
         """Test that different constants produce different hashes."""
-        dxdt = "dx = c * x + y"
+        x, y, c = sp.symbols('x y c', real=True)
+        dx = sp.Symbol('dx', real=True)
+        dxdt = [(dx, c * x + y)]
+
         constants1 = {"c": 1.0}
         constants2 = {"c": 2.0}
 
@@ -1165,3 +1180,72 @@ class TestSympyInputPathway:
         obs_lhs, obs_rhs = parsed_eqs.observables[0]
         assert str(obs_lhs) == 'z'
         assert str(obs_rhs) == 'x + y'
+
+
+class TestHashConsistency:
+    """Test hash consistency across input pathways."""
+
+    def test_hash_consistency_string_vs_sympy_order(self):
+        """Verify string and SymPy inputs with different order produce same hash.
+
+        The hash should be computed from the canonical ParsedEquations form,
+        which sorts equations alphabetically by LHS symbol name. This test
+        verifies that reordering equations does not affect the hash.
+        """
+        # String input: dx first, then dy
+        result_string = parse_input(
+            dxdt=["dx = -k*x", "dy = k*x"],
+            states=['x', 'y'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # SymPy input with REVERSED order: dy first, then dx
+        x, y, k = sp.symbols('x y k', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        result_sympy = parse_input(
+            dxdt=[sp.Eq(dy, k*x), sp.Eq(dx, -k*x)],
+            states=['x', 'y'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Hash should be identical regardless of input order
+        _, _, _, _, fn_hash_string = result_string
+        _, _, _, _, fn_hash_sympy = result_sympy
+        assert fn_hash_string == fn_hash_sympy
+
+    def test_hash_computed_after_parsing(self):
+        """Verify hash correctly reflects parsed structure, not raw input.
+
+        The hash is computed from ParsedEquations, ensuring identical systems
+        produce identical hashes even with different input ordering.
+        """
+        # Order A: dx first
+        result_a = parse_input(
+            dxdt=["dx = -x", "dy = x"],
+            states=['x', 'y'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Order B: dy first (reversed)
+        result_b = parse_input(
+            dxdt=["dy = x", "dx = -x"],
+            states=['x', 'y'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Hash should be identical since equations define the same system
+        _, _, _, _, fn_hash_a = result_a
+        _, _, _, _, fn_hash_b = result_b
+        assert fn_hash_a == fn_hash_b

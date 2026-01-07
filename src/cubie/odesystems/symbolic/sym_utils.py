@@ -139,73 +139,62 @@ def cse_and_stack(
     return sorted_expressions
 
 def hash_system_definition(
-    dxdt: Union[str, Iterable[str]],
-    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    equations: Union[
+        "ParsedEquations",
+        Iterable[Tuple[sp.Symbol, sp.Expr]],
+    ],
+    constants: Optional[Dict[str, float]] = None,
 ) -> str:
-    """Generate a hash that captures equations and constant definitions.
+    """Generate deterministic hash for symbolic ODE definitions.
+
+    Produces identical hashes for identical equation sets regardless
+    of input order by sorting equations alphabetically by LHS symbol
+    name before building the hash string.
 
     Parameters
     ----------
-    dxdt
-        Representation of the system right-hand sides. Accepts either a single
-        string or an iterable of equation strings.
+    equations
+        Parsed equations object or iterable of (symbol, expression)
+        tuples representing the system.
     constants
-        Mapping or iterable describing constant names and values. Iterables are
-        interpreted as constant names using their default values.
+        Optional mapping of constant names to values.
 
     Returns
     -------
     str
-        Deterministic hash string that reflects both equations and constants.
+        Deterministic hash string reflecting equations and constants.
 
     Notes
     -----
-    The hash concatenates normalised differential equations with the sorted
-    constant name-value pairs. Any change to either component produces a new
-    hash so cached artifacts can be refreshed.
+    Sorting by LHS symbol name ensures order-independence so that
+    cache hits occur for identical systems regardless of input
+    pathway (string vs SymPy).
     """
-    if isinstance(dxdt, (list, tuple)) and len(dxdt) > 0:
-        first_elem = dxdt[0]
-        if isinstance(first_elem, sp.Equality) or \
-           (isinstance(first_elem, tuple) and 
-            len(first_elem) == 2 and 
-            isinstance(first_elem[0], sp.Symbol)):
-            hash_strings = []
-            for eq in dxdt:
-                if isinstance(eq, sp.Equality):
-                    lhs_str = str(eq.lhs)
-                    rhs_str = str(eq.rhs)
-                elif isinstance(eq, tuple):
-                    lhs_str = str(eq[0])
-                    rhs_str = str(eq[1])
-                else:
-                    lhs_str = str(eq)
-                    rhs_str = ""
-                hash_strings.append(f"{lhs_str} = {rhs_str}")
-            dxdt_str = "\n".join(hash_strings)
-        elif isinstance(first_elem, (list, tuple)):
-            dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
-            dxdt_str = "".join(dxdt)
-        else:
-            dxdt_str = "".join(dxdt)
-    elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
-        dxdt_pairs = [f"{str(symbol)}{str(expr)}" for symbol, expr in dxdt]
-        dxdt_str = "".join(dxdt_pairs)
+    # Extract equations from ParsedEquations if needed
+    if hasattr(equations, 'ordered'):
+        eq_list = list(equations.ordered)
     else:
-        dxdt_str = dxdt
+        eq_list = list(equations)
 
-    # Normalize dxdt by removing whitespace
+    # Sort equations alphabetically by LHS symbol name
+    sorted_eqs = sorted(eq_list, key=lambda eq: str(eq[0]))
+
+    # Build canonical equation string
+    eq_strings = [f"{str(lhs)}={str(rhs)}" for lhs, rhs in sorted_eqs]
+    dxdt_str = "|".join(eq_strings)
+
+    # Normalize by removing whitespace
     normalized_dxdt = "".join(dxdt_str.split())
 
-    # Process constants
+    # Process constants (sorted by key for determinism)
     constants_str = ""
     if constants is not None:
-        constants_str = "|".join(f"{k}:{v}" for k, v in constants.items())
+        # str() conversion required: SymPy Symbol keys lack direct comparison
+        sorted_constants = sorted(constants.items(), key=lambda x: str(x[0]))
+        constants_str = "|".join(f"{k}:{v}" for k, v in sorted_constants)
 
-    # Combine components with separator
+    # Combine and hash
     combined = f"dxdt:{normalized_dxdt}|constants:{constants_str}"
-
-    # Generate hash
     return str(hash(combined))
 
 
