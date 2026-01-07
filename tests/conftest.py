@@ -324,8 +324,7 @@ def tolerance(tolerance_override, precision):
 
 
 @pytest.fixture(scope="session")
-def system(request, solver_settings, solver_settings_override,
-           solver_settings_override2,
+def system(request, solver_settings_override, solver_settings_override2,
            precision):
     """Return the appropriate symbolic system, defaulting to nonlinear.
 
@@ -335,7 +334,7 @@ def system(request, solver_settings, solver_settings_override,
     def test_something(system):
         # system will be the cardiovascular symbolic model here
     """
-    model_type = solver_settings['system_type']
+    model_type = 'nonlinear'
     for override in [
         solver_settings_override2, solver_settings_override]:
         if override and 'system_type' in override:
