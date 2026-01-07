@@ -1024,17 +1024,17 @@ class Solver:
 
     @property
     def save_every(self) -> Optional[float]:
-        """Return the interval between saved outputs, or None if save_last only."""
+        """Return the interval between saved time-domain outputs."""
         return self.kernel.save_every
 
     @property
     def summarise_every(self) -> Optional[float]:
-        """Return the interval between summary computations, or None if summarise_last only."""
+        """Return the interval between summary computations."""
         return self.kernel.summarise_every
 
     @property
     def sample_summaries_every(self) -> Optional[float]:
-        """Return the interval between summary metric samples, or None if not set."""
+        """Return the interval between summary metric samplest."""
         return self.kernel.sample_summaries_every
 
     @property

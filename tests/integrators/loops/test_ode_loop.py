@@ -301,7 +301,7 @@ def test_save_last_flag_from_config(loop_mutable):
         {
             "precision": np.float32,
             "duration": 0.1,
-            "output_types": ["state", "time"],
+            "output_types": ["state", "time", "mean"],
             "algorithm": "euler",
             "dt": 0.01,
             "save_every": None,
@@ -492,31 +492,3 @@ def test_summarise_last_with_summarise_every_combined(
         assert not np.isnan(state_summaries[i]).any(), \
             f"Summary {i} should not contain NaN"
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "precision": np.float32,
-            "duration": 0.1,
-            "output_types": ["state", "time", "mean"],
-            "algorithm": "euler",
-            "dt": 0.01,
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        }
-    ],
-    indirect=True,
-)
-def test_samples_per_summary_returns_none_in_summarise_last_mode(loop_mutable):
-    """Verify samples_per_summary property returns None in summarise_last mode.
-
-    When all timing parameters are None, ODELoopConfig sets summarise_last=True
-    and samples_per_summary should return None (not a sentinel value). The
-    sentinel is applied in the loop build() method instead.
-    """
-    config = loop_mutable.compile_settings
-    assert config.summarise_last is True, "summarise_last should be True"
-    assert config.samples_per_summary is None, \
-        "samples_per_summary should return None, not a sentinel value"

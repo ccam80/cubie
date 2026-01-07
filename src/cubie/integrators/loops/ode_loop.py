@@ -30,14 +30,11 @@ class IVPLoopCache(CUDAFunctionCache):
     """
     loop_function: Callable = field()
 
-# Recognised compile-critical loop configuration parameters. These keys mirror
-# the solver API so helper utilities can consistently merge keyword arguments
-# into loop-specific settings dictionaries.
+# Recognised compile-critical loop configuration parameters.
 ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
     "sample_summaries_every",
-    "duration",
     "dt0",
     "dt_min",
     "dt_max",
@@ -370,21 +367,13 @@ class IVPLoop(CUDAFactory):
         dt0 = precision(config.dt0)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
-        # For summarise_last mode without explicit sample_summaries_every,
-        # use a placeholder that will never trigger the update logic
-        if sample_summaries_every is None and config.summarise_last:
-            sample_summaries_every = precision(0.01)
         samples_per_summary = config.samples_per_summary
-        # For summarise_last mode, use large value so modulo never triggers
-        # regular summary saves; summary is saved at end instead
-        if samples_per_summary is None and config.summarise_last:
-            samples_per_summary = 2**30
 
         # Boolean control-flow constants
         save_last = config.save_last
         summarise_last = config.summarise_last
-        save_regularly = config.save_every is not None
-        summarise_regularly = config.summarise_every is not None
+        save_regularly = config.save_regularly
+        summarise_regularly = config.summarise_regularly
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -553,6 +542,7 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
+                save_idx += int32(1)
 
                 # Call save_summaries only to reset buffer values
                 if summarise:
@@ -565,7 +555,6 @@ class IVPLoop(CUDAFactory):
                         observable_summaries_output[obsumm_idx, :],
                         samples_per_summary,
                     )
-                save_idx += int32(1)
 
             status = int32(0)
             dt[0] = dt0
@@ -593,12 +582,12 @@ class IVPLoop(CUDAFactory):
                     # We're not finished if there's an output before t_end
                     finished = True
                     if save_regularly:
-                        finished &= bool_(next_save > t_end)
+                        finished &= bool_(next_save >= t_end)
                     if summarise_regularly:
-                        finished &= bool_(next_update_summary > t_end)
+                        finished &= bool_(next_update_summary >= t_end)
                 else:
                     # Otherwise, we're finished if we've reached t_end
-                    finished = bool_(end_of_step > t_end)
+                    finished = bool_(end_of_step >= t_end)
 
                 if save_last or summarise_last:
                     # at_end will fire if we're in the last step before the
@@ -976,20 +965,7 @@ class IVPLoop(CUDAFactory):
         #       -> {'dt_save': 0.01, 'other': 5}
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
-        # Check if any timing parameter was explicitly set to None
-        timing_params = {'save_every', 'summarise_every', 'sample_summaries_every'}
-        timing_reset_needed = any(
-            key in updates_dict and updates_dict[key] is None
-            for key in timing_params
-        )
-
         recognised = self.update_compile_settings(updates_dict, silent=True)
-
-        # If timing params were reset to None, re-run inference
-        if timing_reset_needed:
-            self.compile_settings.reset_timing_inference()
-            # Cache invalidated by timing changes
-            self._invalidate_cache()
 
         # Update buffer locations in registry
         recognised |= buffer_registry.update(self, updates_dict, silent=True)

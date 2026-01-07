@@ -25,6 +25,7 @@ MID_RUN_PARAMS = {
     'dt': 0.001,
     'save_every': 0.02,
     'summarise_every': 0.1,
+    'sample_summaries_every': 0.02,
     'dt_max': 0.5,
     'output_types': ['state', 'time', 'observables', 'mean'],
 }
@@ -32,8 +33,9 @@ MID_RUN_PARAMS = {
 LONG_RUN_PARAMS = {
     'duration': 0.3,
     'dt': 0.0005,
-    'save_every': 0.05,
+    'save_every': 0.1,
     'summarise_every': 0.15,
+    'sample_summaries_every': 0.05,
     'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
 }
 
@@ -66,7 +68,7 @@ STEP_CASES = [
     pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
                  id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),\
+    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "fixed"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
     pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
     # Specific FIRK tableaus
@@ -710,7 +712,6 @@ def run_device_loop(
     initial_state: Array,
     solver_config: Mapping[str, float],
     driver_array: Optional[ArrayInterpolator] = None,
-
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
@@ -719,8 +720,9 @@ def run_device_loop(
     warmup = solver_config["warmup"]
     duration = solver_config["duration"]
     t0 = solver_config["t0"]
-    save_samples = int(np.floor(precision(duration) / precision(save_every))) + 1
-
+    save_samples = singleintegratorrun.output_length(duration)
+    summary_samples = singleintegratorrun.summaries_length(duration)
+    singleintegratorrun.set_summary_timing_from_duration(duration)
     heights = singleintegratorrun.output_array_heights
 
     state_width = max(heights.state, 1)
@@ -732,10 +734,6 @@ def run_device_loop(
     observables_output = np.zeros(
         (save_samples, observable_width), dtype=precision
     )
-
-    summarise_every = singleintegratorrun.summarise_every
-    summary_samples = int(np.floor(precision(duration) /
-                                   precision(summarise_every)))
 
     state_summary_output = np.zeros(
         (summary_samples, state_summary_width), dtype=precision

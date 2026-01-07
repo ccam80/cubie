@@ -27,6 +27,7 @@ def time_driver_solver_settings(precision):
         "dt_max": precision(0.05),
         "save_every": precision(0.05),
         "summarise_every": precision(0.1),
+        "sample_summaries_every": precision(0.05),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0],
@@ -99,83 +100,6 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
         input_dict=input_dict,
     )
     return driver_array
-#
-# def _build_loop(
-#     system,
-#     solver_settings,
-#     output_functions,
-#     precision,
-#     driver_array=None,
-# ):
-#     driver_function = (
-#         driver_array.evaluation_function if driver_array is not None else None
-#     )
-#     algorithm_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-#                                                        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
-#     algorithm_settings["algorithm"] = solver_settings["algorithm"]
-#     algorithm_settings["dt"] = float(solver_settings["dt_min"])
-#     algorithm_settings["n"] = system.sizes.states
-#     algorithm_settings["dxdt_function"] = system.dxdt_function
-#     algorithm_settings["observables_function"] = system.observables_function
-#     algorithm_settings["get_solver_helper_fn"] = (
-#         system.get_solver_helper
-#     )
-#     if driver_function is not None:
-#         algorithm_settings["driver_function"] = driver_function
-#
-#     step_object = get_algorithm_step(
-#         precision=precision,
-#         settings=algorithm_settings,
-#     )
-#
-#     controller_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-#                                                         valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
-#     controller_settings["step_controller"] = solver_settings[
-#         "step_controller"
-#     ]
-#     controller_settings.setdefault("dt", float(solver_settings["dt_min"]))
-#     controller_settings["n"] = system.sizes.states
-#
-#     step_controller = get_controller(
-#         precision=precision,
-#         settings=controller_settings,
-#     )
-#
-#     # Build buffer settings for this specific system
-#     n_error = system.sizes.states if step_object.is_adaptive else 0
-#     buffer_settings = LoopBufferSettings(
-#         n_states=system.sizes.states,
-#         n_parameters=system.sizes.parameters,
-#         n_drivers=system.sizes.drivers,
-#         n_observables=system.sizes.observables,
-#         state_summaries_buffer_height=output_functions.state_summaries_buffer_height,
-#         observable_summaries_buffer_height=output_functions.observable_summaries_buffer_height,
-#         n_error=n_error,
-#         n_counters=0,
-#     )
-#
-#     loop = IVPLoop(
-#         precision=precision,
-#         buffer_settings=buffer_settings,
-#         compile_flags=output_functions.compile_flags,
-#         controller_local_len=step_controller.local_memory_elements,
-#         algorithm_local_len=step_object.persistent_local_elements,
-#         save_state_func=output_functions.save_state_func,
-#         update_summaries_func=output_functions.update_summaries_func,
-#         save_summaries_func=output_functions.save_summary_metrics_func,
-#         step_controller_fn=step_controller.device_function,
-#         step_function=step_object.step_function,
-#         driver_function=driver_function,
-#         observables_fn=system.observables_function,
-#         dt_save=float(solver_settings["dt_save"]),
-#         dt_summarise=float(solver_settings["dt_summarise"]),
-#         dt0=step_controller.dt0,
-#         dt_min=step_controller.dt_min,
-#         dt_max=step_controller.dt_max,
-#         is_adaptive=step_controller.is_adaptive,
-#     )
-#     return loop
-
 
 def build_single_integrator(
     system,
@@ -212,7 +136,7 @@ def build_single_integrator(
     
     # Build output settings from solver_settings
     output_settings = {
-        "save_every": solver_settings["save_every"],
+        "sample_summaries_every": solver_settings["sample_summaries_every"],
         "output_types": solver_settings["output_types"],
         "saved_state_indices": solver_settings["saved_state_indices"],
         "saved_observable_indices": solver_settings["saved_observable_indices"],

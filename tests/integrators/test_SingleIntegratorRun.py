@@ -646,8 +646,8 @@ class TestTimingProperties:
     def test_any_time_domain_outputs_true_with_state(
         self, single_integrator_run
     ):
-        """any_time_domain_outputs returns True when state is requested."""
-        assert single_integrator_run.any_time_domain_outputs is True
+        """has_time_domain_outputs returns True when state is requested."""
+        assert single_integrator_run.has_time_domain_outputs is True
 
     def test_save_last_property(self, single_integrator_run):
         """save_last delegates to loop config."""
@@ -783,17 +783,14 @@ class TestIsDurationDependentProperty:
     ],
     indirect=True,
 )
-class TestIsDurationDependentFalseExplicitTiming:
-    """Tests for is_duration_dependent with explicit timing."""
-
-    def test_is_duration_dependent_false_when_explicit_timing(
-        self, single_integrator_run
-    ):
-        """is_duration_dependent False when sample_summaries_every is set."""
-        assert single_integrator_run.summarise_last is True
-        loop_config = single_integrator_run._loop.compile_settings
-        assert loop_config._sample_summaries_every is not None
-        assert single_integrator_run.is_duration_dependent is False
+def test_is_duration_dependent_true_when_explicit_sampling(
+    single_integrator_run
+):
+    """is_duration_dependent False when sample_summaries_every is set."""
+    assert single_integrator_run.summarise_last is True
+    loop_config = single_integrator_run._loop.compile_settings
+    assert loop_config._sample_summaries_every is not None
+    assert single_integrator_run.is_duration_dependent is True
 
 
 @pytest.mark.parametrize(
@@ -818,92 +815,13 @@ class TestIsDurationDependentFalseNotSummariseLast:
         assert single_integrator_run.summarise_last is False
         assert single_integrator_run.is_duration_dependent is False
 
-
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
         {
             "output_types": ["mean"],
             "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        },
-    ],
-    indirect=True,
-)
-class TestChunkDurationInterception:
-    """Tests for chunk_duration interception and sample_summaries_every."""
-
-    def test_sample_summaries_every_computed_from_chunk_duration(
-        self, single_integrator_run_mutable
-    ):
-        """sample_summaries_every computed as chunk_duration / 100."""
-        import warnings
-        run = single_integrator_run_mutable
-        chunk_duration = 1.0
-
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            run.update({"chunk_duration": chunk_duration})
-
-        expected = chunk_duration / 100.0
-        assert run.sample_summaries_every == pytest.approx(expected)
-
-    def test_warning_emitted_when_sample_summaries_every_computed(
-        self, single_integrator_run_mutable
-    ):
-        """UserWarning emitted when sample_summaries_every computed."""
-        import warnings
-        run = single_integrator_run_mutable
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            run.update({"chunk_duration": 1.0})
-
-        timing_warnings = [
-            x for x in w
-            if "sample_summaries_every" in str(x.message).lower()
-        ]
-        assert len(timing_warnings) >= 1
-        assert issubclass(timing_warnings[0].category, UserWarning)
-
-    def test_timing_warning_emitted_once(
-        self, single_integrator_run_mutable
-    ):
-        """Warning is only emitted once across multiple updates."""
-        import warnings
-        run = single_integrator_run_mutable
-
-        # First update should emit warning
-        with warnings.catch_warnings(record=True) as w1:
-            warnings.simplefilter("always")
-            run.update({"chunk_duration": 1.0})
-
-        timing_warnings_1 = [
-            x for x in w1
-            if "sample_summaries_every" in str(x.message).lower()
-        ]
-        assert len(timing_warnings_1) == 1
-
-        # Second update should NOT emit warning (already emitted)
-        with warnings.catch_warnings(record=True) as w2:
-            warnings.simplefilter("always")
-            run.update({"chunk_duration": 2.0})
-
-        timing_warnings_2 = [
-            x for x in w2
-            if "sample_summaries_every" in str(x.message).lower()
-        ]
-        assert len(timing_warnings_2) == 0
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": None,
+            "summarise_every": 0.1,
             "sample_summaries_every": 0.05,
         },
     ],
@@ -916,7 +834,6 @@ class TestChunkDurationSkipped:
         self, single_integrator_run_mutable
     ):
         """chunk_duration does not override explicit sample_summaries_every."""
-        import warnings
         run = single_integrator_run_mutable
 
         # Verify initial explicit value is set
@@ -924,17 +841,8 @@ class TestChunkDurationSkipped:
         assert initial_value == pytest.approx(0.05)
 
         # Update with chunk_duration should NOT change sample_summaries_every
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            run.update({"chunk_duration": 1.0})
+        run.set_summary_timing_from_duration(duration=1.0)
 
         # Should still have original value, not chunk_duration / 100
         assert run.sample_summaries_every == pytest.approx(0.05)
         assert run.sample_summaries_every != pytest.approx(0.01)
-
-        # No timing warning should be emitted
-        timing_warnings = [
-            x for x in w
-            if "sample_summaries_every" in str(x.message).lower()
-        ]
-        assert len(timing_warnings) == 0

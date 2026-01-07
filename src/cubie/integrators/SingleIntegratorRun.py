@@ -13,7 +13,6 @@ from numpy import dtype as np_dtype, floor as np_floor
 from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import (
     SingleIntegratorRunCore,
-    TIME_DOMAIN_OUTPUT_TYPES,
 )
 from cubie.odesystems.ODEData import SystemSizes
 
@@ -175,29 +174,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.sample_summaries_every
 
     @property
-    def any_time_domain_outputs(self) -> bool:
-        """Return True if time-domain outputs are requested."""
-        output_types = set(self._output_functions.output_types)
-        has_time_domain = bool(TIME_DOMAIN_OUTPUT_TYPES & output_types)
-        has_save_timing = (
-            self._loop.compile_settings._save_every is not None
-            or self._loop.compile_settings.save_last
-        )
-        return has_time_domain and has_save_timing
-
-    @property
-    def any_summary_outputs(self) -> bool:
-        """Return True if summary outputs are requested."""
-        output_types = set(self._output_functions.output_types)
-        summary_types = output_types - TIME_DOMAIN_OUTPUT_TYPES
-        has_summaries = bool(summary_types)
-        has_summarise_timing = (
-            self._loop.compile_settings._summarise_every is not None
-            or self._loop.compile_settings.summarise_last
-        )
-        return has_summaries and has_summarise_timing
-
-    @property
     def save_last(self) -> bool:
         """Return True if end-of-run-only state saving is configured."""
         return self._loop.compile_settings.save_last
@@ -207,21 +183,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return True if end-of-run-only summary saving is configured."""
         return self._loop.compile_settings.summarise_last
 
-    @property
-    def is_duration_dependent(self) -> bool:
-        """Return True when the loop is compile-dependent on duration.
-
-        The loop function is duration-dependent when summarise_last mode
-        is active but no explicit sample_summaries_every was provided.
-        In this case, sample_summaries_every is computed from chunk_duration.
-        """
-        loop_config = self._loop.compile_settings
-        # Duration-dependent when summarise_last and timing was not
-        # explicitly provided (auto-computed flag is False means it can
-        # still be computed from duration)
-        return (loop_config.summarise_last
-                and loop_config._sample_summaries_every is None
-                and not self._sample_summaries_auto_computed)
 
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.
@@ -237,11 +198,17 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
             Number of output samples including initial and optionally final.
         """
         save_every = self.save_every
-        if save_every is None:
-            # save_last mode: initial + final = 2
-            return 2
         precision = self.precision
-        return int(np_floor(precision(duration) / precision(save_every))) + 1
+
+        regular_samples = 0
+        final_samples = 1 if self.save_last else 0
+        initial_sample = 1
+        if save_every is not None:
+            regular_samples = int(
+                    np_floor(precision(duration)
+                             / precision(save_every))
+            )
+        return regular_samples + initial_sample + final_samples
 
     def summaries_length(self, duration: float) -> int:
         """Calculate number of summary output samples for a duration.
@@ -257,11 +224,16 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
             Number of summary intervals, or 2 for summarise_last mode.
         """
         summarise_every = self.summarise_every
-        if summarise_every is None:
-            # summarise_last mode: initial + final = 2
-            return 2
         precision = self.precision
-        return int(precision(duration) / precision(summarise_every))
+
+        regular_summaries = 0
+        final_summary = 1 if self.summarise_last else 0
+        if summarise_every is not None:
+            regular_summaries = int(
+                    precision(duration)
+                    / precision(summarise_every)
+            )
+        return regular_summaries + final_summary
 
     @property
     def shared_memory_elements_loop(self) -> int:

@@ -4,7 +4,7 @@
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from warnings import warn
 
-from numpy import ceil as np_ceil, float64 as np_float64, floor as np_floor, floating
+from numpy import ceil as np_ceil, float64 as np_float64, floating
 from numba import cuda, float64
 from numba import int32
 
@@ -326,6 +326,9 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
+        # Update the single integrator with requested duration if required
+        self.single_integrator.set_summary_timing_from_duration(duration)
+
         # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
@@ -359,10 +362,11 @@ class BatchSolverKernel(CUDAFactory):
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
 
-        # Propagate chunk_duration to single_integrator for loop config
-        self.single_integrator.update(
-            {"chunk_duration": chunk_params.duration}, silent=True
-        )
+        # Propagate chunk_duration to single_integrator if required
+        if self.chunks != 1:
+            self.single_integrator.set_summary_timing_from_duration(
+                    chunk_params.duration
+            )
 
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.
@@ -948,7 +952,7 @@ class BatchSolverKernel(CUDAFactory):
         """Number of saved trajectory samples in the main run.
 
         Delegates to SingleIntegratorRun.output_length() with the current
-        duration for centralized timing calculations.
+        duration.
         """
         return self.single_integrator.output_length(self._duration)
 
@@ -957,7 +961,7 @@ class BatchSolverKernel(CUDAFactory):
         """Number of complete summary intervals across the integration window.
 
         Delegates to SingleIntegratorRun.summaries_length() with the current
-        duration for centralized timing calculations.
+        duration.
         """
         return self.single_integrator.summaries_length(self._duration)
 

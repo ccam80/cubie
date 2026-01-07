@@ -156,6 +156,7 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         "dt_max": 0.01,
         "save_every": 0.01,
         "summarise_every": 0.1,
+        "sample_summaries_every": 0.05,
         "atol": 1e-2,
         "rtol": 1e-1,
         "saved_state_indices": [0, 1, 2],
@@ -198,7 +199,8 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         step_control_settings=updated_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
-        loop_settings={"save_every": 0.01, "summarise_every": 0.1},
+        loop_settings={"save_every": 0.01, "summarise_every": 0.1,
+                       'sample_summaries_every': 0.05},
     )
     inits = np.ones((3,1), dtype=precision)
     params = np.ones((3,1), dtype=precision)
