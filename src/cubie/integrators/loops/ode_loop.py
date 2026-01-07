@@ -574,6 +574,8 @@ class IVPLoop(CUDAFactory):
             mask = activemask()
             irrecoverable = False
             at_end = False
+            save_finished = False
+            summary_finished = False
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
@@ -583,13 +585,14 @@ class IVPLoop(CUDAFactory):
                 # ----------------------------------------------------------- #
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
-                    # We're not finished if there's an output before or at
-                    # t_end
+                    # We're not finished if there's an output before/at t_end
                     finished = True
                     if save_regularly:
-                        finished &= bool_(next_save > t_end)
+                        save_finished = bool_(next_save > t_end)
+                        finished &= save_finished
                     if summarise_regularly:
-                        finished &= bool_(next_update_summary > t_end)
+                        summary_finished = bool_(next_update_summary > t_end)
+                        finished &= summary_finished
                 else:
                     # Otherwise, we're finished if we've exceeded t_end
                     finished = bool_(end_of_step > t_end)
@@ -600,7 +603,7 @@ class IVPLoop(CUDAFactory):
                     # finished. If save_last or summarise_last, and the step
                     # is accepted, we'll start the next step at t_end and so
                     # at_end = False.
-                    at_end = bool_(t_prec < t_end) & finished
+                    at_end = bool_(t_prec <= t_end) & finished
                     finished = finished &~ at_end
 
                 finished = finished or irrecoverable
@@ -611,13 +614,16 @@ class IVPLoop(CUDAFactory):
                 if not finished:
                     # Do we need to run the update/save functions this step?
                     if save_regularly:
-                        do_save = bool_(end_of_step >= next_save)
+                        do_save = (
+                            bool_(end_of_step >= next_save) & ~save_finished
+                        )
                     else:
                         do_save = False
 
                     if summarise_regularly:
-                        do_update_summary = bool_(
-                            end_of_step >= next_update_summary
+                        do_update_summary = (
+                            bool_(end_of_step >= next_update_summary)
+                            & ~summary_finished
                         )
                     else:
                         do_update_summary = False

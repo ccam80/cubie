@@ -401,36 +401,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._algo_step.is_multistage
 
     @property
-    def adapts_step(self) -> bool:
-        """Return whether the algorithm inherently adapts its step."""
-
-        return self._algo_step.is_adaptive
-
-    @property
-    def shared_memory_elements_step(self) -> int:
-        """Return algorithm shared-memory requirements."""
-
-        return self._algo_step.shared_memory_elements
-
-    @property
-    def local_scratch_elements_step(self) -> int:
-        """Return scratch local-memory requirements for the algorithm."""
-
-        return self._algo_step.local_scratch_elements
-
-    @property
-    def local_memory_required_step(self) -> int:
-        """Return persistent local-memory requirements for the algorithm."""
-
-        return self._algo_step.persistent_local_elements
-
-    @property
-    def implicit_step(self) -> bool:
-        """Return whether the algorithm is implicit."""
-
-        return self._algo_step.is_implicit
-
-    @property
     def order(self) -> int:
         """Return the algorithm order."""
 

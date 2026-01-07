@@ -222,6 +222,18 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         == solverkernel.single_integrator.compile_settings
     ), "IntegratorRunSettings mismatch"
     assert (
+        freshsolver.single_integrator._step_controller.compile_settings ==
+        solverkernel.single_integrator._step_controller.compile_settings
+    )
+    assert (
+        freshsolver.single_integrator._algo_step.compile_settings ==
+        solverkernel.single_integrator._algo_step.compile_settings
+    )
+    assert (
+        freshsolver.single_integrator._loop.compile_settings ==
+        solverkernel.single_integrator._loop.compile_settings
+    )
+    assert (
         freshsolver.single_integrator._output_functions.compile_settings
         == solverkernel.single_integrator._output_functions.compile_settings
     ), "OutputFunctions mismatch"
