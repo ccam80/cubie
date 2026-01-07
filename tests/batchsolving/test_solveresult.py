@@ -244,10 +244,12 @@ class TestSolveResultFromSolver:
         # Check that state variables are included
         for i, state_name in enumerate(solver_with_arrays.saved_states):
             assert legend[i] == state_name
-        # Check that observables are included
-        assert any(
-            v.startswith("o") for v in legend.values() if isinstance(v, str)
-        )
+        # Check that observables are included when configured
+        if solver_with_arrays.saved_observables:
+            # Observables are configured - verify they're in the legend
+            num_states = len(solver_with_arrays.saved_states)
+            for i, obs_name in enumerate(solver_with_arrays.saved_observables):
+                assert legend[num_states + i] == obs_name
 
     def test_summary_legend_from_solver(self, solver_with_arrays):
         """Test summary legend creation from real solver."""
