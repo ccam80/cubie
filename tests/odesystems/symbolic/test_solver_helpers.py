@@ -1161,3 +1161,44 @@ def test_stage_residual(
         atol=tolerance.abs_tight,
         rtol=tolerance.rel_tight,
     )
+
+
+def test_user_beta_gamma_variables():
+    """Validate that users can define beta and gamma as state variables.
+    
+    This test addresses issue #373 by confirming that the internal code
+    generation variables (now prefixed with _cubie_codegen_) do not
+    conflict with user-defined variables named beta and gamma.
+    """
+    from cubie import solve_ivp, SolveResult
+    
+    dxdt = [
+        "dbeta = -alpha * beta + gamma",
+        "dgamma = alpha * beta - gamma",
+    ]
+    
+    system = create_ODE_system(
+        dxdt,
+        states=["beta", "gamma"],
+        parameters=["alpha"],
+        precision=np.float64,
+    )
+    
+    initial_conditions = np.array([[1.0, 0.5]], dtype=np.float64)
+    parameter_values = np.array([[0.5]], dtype=np.float64)
+    
+    result = solve_ivp(
+        system,
+        initial_conditions,
+        parameter_values,
+        max_steps=100,
+    )
+    
+    assert isinstance(result, SolveResult), "Result should be a SolveResult"
+    assert result.status_codes is not None, "Status codes should be present"
+    assert np.all(result.status_codes == 0), (
+        f"Solver failed with beta/gamma as state variables: "
+        f"status_codes={result.status_codes}"
+    )
+    assert result.time_domain_array is not None, "Time domain array should be present"
+    assert len(result.time_domain_array) > 0, "Time domain array should not be empty"
