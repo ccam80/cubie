@@ -12,7 +12,6 @@ be rebuilt when any component is reconfigured.
 """
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
-import warnings
 from warnings import warn
 
 from attrs import define, field
@@ -280,7 +279,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                 stacklevel=3,
             )
 
-    def set_summary_timing_from_duration(self, duration):
+    def set_summary_timing_from_duration(self,
+                                         duration: float):
         """If loop compile is dependent on `duration`, calculate summary
         timing and update loop and metrics with it."""
 
@@ -370,7 +370,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             if precision is None:
                 precision = self._system.precision
             
-            warnings.warn(
+            warn(
                 f"Adaptive step controller '{controller_name}' cannot be "
                 f"used with fixed-step algorithm '{algorithm_name}'. "
                 f"The algorithm does not provide an error estimate "
