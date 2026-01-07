@@ -6,9 +6,6 @@ from cubie import solve_ivp, SolveResult
 from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 from cubie._utils import is_devfunc
 
-# Note: cellmlmanip import removed - tests should fail if dependency missing
-# This ensures critical information about missing dependencies is visible
-
 
 @pytest.fixture(scope="session")
 def cellml_fixtures_dir():

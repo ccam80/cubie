@@ -1,46 +1,38 @@
-name: "Copilot Setup Steps"
-
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+name: Copilot Setup Steps
+"on":
   pull_request:
     paths:
-      - .github/workflows/copilot-setup-steps.yml
-
+    - .github/workflows/copilot-setup-steps.yml
+  push:
+    paths:
+    - .github/workflows/copilot-setup-steps.yml
+  workflow_dispatch: null
 jobs:
-  # The job MUST be called `copilot-setup-steps`
-  # otherwise it will not be picked up by Copilot.
   copilot-setup-steps:
-    env:
-      NUMBA_ENABLE_CUDASIM: "1"
     runs-on: ubuntu-latest
     permissions:
-      # To allow us to clone the repo for setup
       contents: read
-
-    # The setup steps - install Python and our dependencies
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip uv
-          python -m uv pip install --system -r ci/requirements.ci.txt
-          python -m uv pip install --system -e .[dev]
-
-      - name: Replace numba-cuda with forked branch
-        run: |
-          python -m pip uninstall -y numba-cuda || true
-          git clone --branch cubie_patch https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda
-          cd /tmp/numba-cuda
-          python -m uv pip install -e .
-          cd "$GITHUB_WORKSPACE"
+    - name: Install gh-aw extension
+      run: curl -fsSL https://raw.githubusercontent.com/githubnext/gh-aw/refs/heads/main/install-gh-aw.sh | bash
+    - name: Verify gh-aw installation
+      run: gh aw version
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        cache: pip
+        python-version: "3.12"
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip uv
+        python -m uv pip install --system -r ci/requirements.ci.txt
+        python -m uv pip install --system -e .[dev]
+    - name: Replace numba-cuda with forked branch
+      run: |
+        python -m pip uninstall -y numba-cuda || true
+        git clone --branch cubie_patch https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda
+        cd /tmp/numba-cuda
+        python -m uv pip install -e .
+        cd "$GITHUB_WORKSPACE"
