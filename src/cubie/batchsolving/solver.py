@@ -1023,18 +1023,18 @@ class Solver:
         return self.kernel.dt_max
 
     @property
-    def save_every(self):
-        """Return the interval between saved outputs."""
+    def save_every(self) -> Optional[float]:
+        """Return the interval between saved time-domain outputs."""
         return self.kernel.save_every
 
     @property
-    def summarise_every(self):
+    def summarise_every(self) -> Optional[float]:
         """Return the interval between summary computations."""
         return self.kernel.summarise_every
-    
+
     @property
-    def sample_summaries_every(self):
-        """Return the interval between summary metric samples."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the interval between summary metric samplest."""
         return self.kernel.sample_summaries_every
 
     @property

@@ -30,9 +30,7 @@ class IVPLoopCache(CUDAFunctionCache):
     """
     loop_function: Callable = field()
 
-# Recognised compile-critical loop configuration parameters. These keys mirror
-# the solver API so helper utilities can consistently merge keyword arguments
-# into loop-specific settings dictionaries.
+# Recognised compile-critical loop configuration parameters.
 ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
@@ -374,8 +372,8 @@ class IVPLoop(CUDAFactory):
         # Boolean control-flow constants
         save_last = config.save_last
         summarise_last = config.summarise_last
-        save_regularly = config.save_every is not None
-        summarise_regularly = config.summarise_every is not None
+        save_regularly = config.save_regularly
+        summarise_regularly = config.summarise_regularly
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -511,7 +509,7 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if n_drivers > int32(0):
+            if driver_function is not None and n_drivers > int32(0):
                 driver_function(
                     t_prec,
                     driver_coefficients,
@@ -544,6 +542,7 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     iteration_counters_output[save_idx * save_counters_bool, :],
                 )
+                save_idx += int32(1)
 
                 # Call save_summaries only to reset buffer values
                 if summarise:
@@ -556,7 +555,6 @@ class IVPLoop(CUDAFactory):
                         observable_summaries_output[obsumm_idx, :],
                         samples_per_summary,
                     )
-                save_idx += int32(1)
 
             status = int32(0)
             dt[0] = dt0
@@ -584,12 +582,12 @@ class IVPLoop(CUDAFactory):
                     # We're not finished if there's an output before t_end
                     finished = True
                     if save_regularly:
-                        finished &= bool_(next_save > t_end)
+                        finished &= bool_(next_save >= t_end)
                     if summarise_regularly:
-                        finished &= bool_(next_update_summary > t_end)
+                        finished &= bool_(next_update_summary >= t_end)
                 else:
                     # Otherwise, we're finished if we've reached t_end
-                    finished = bool_(end_of_step > t_end)
+                    finished = bool_(end_of_step >= t_end)
 
                 if save_last or summarise_last:
                     # at_end will fire if we're in the last step before the
@@ -818,18 +816,18 @@ class IVPLoop(CUDAFactory):
         return IVPLoopCache(loop_function=loop_fn)
 
     @property
-    def save_every(self) -> float:
-        """Return the save interval."""
+    def save_every(self) -> Optional[float]:
+        """Return the save interval, or None if not configured."""
         return self.compile_settings.save_every
     
     @property
-    def summarise_every(self) -> float:
-        """Return the summary interval."""
+    def summarise_every(self) -> Optional[float]:
+        """Return the summary interval, or None if not configured."""
         return self.compile_settings.summarise_every
     
     @property
-    def sample_summaries_every(self) -> float:
-        """Return the summary sampling interval."""
+    def sample_summaries_every(self) -> Optional[float]:
+        """Return the summary sampling interval, or None if not configured."""
         return self.compile_settings.sample_summaries_every
 
     @property

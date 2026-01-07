@@ -384,9 +384,9 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "dt": precision(0.01),
         "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
-        "save_every": precision(0.05),
-        "summarise_every": precision(0.05),
-        "sample_summaries_every": precision(0.05),
+        "save_every": precision(0.02),
+        "summarise_every": precision(0.04),
+        "sample_summaries_every": precision(0.02),
         "atol": precision(1e-6),
         "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
@@ -449,7 +449,11 @@ def solver_settings(solver_settings_override, solver_settings_override2,
             # Update defaults with any overrides provided
             for key, value in override.items():
                 if key in float_keys:
-                    defaults[key] = precision(value)
+                    # Handle None values for optional float parameters
+                    if value is None:
+                        defaults[key] = None
+                    else:
+                        defaults[key] = precision(value)
                 else:
                     defaults[key] = value
 
@@ -482,7 +486,10 @@ def driver_settings(
     if system.num_drivers == 0:
         return None
 
-    dt_sample = precision(solver_settings["save_every"]) / 2.0
+    if solver_settings["save_every"] is None:
+        dt_sample = solver_settings["duration"] / 10.0
+    else:
+        dt_sample = precision(solver_settings["save_every"]) / 2.0
     total_span = precision(solver_settings["duration"])
     t0 = precision(solver_settings["warmup"])
 

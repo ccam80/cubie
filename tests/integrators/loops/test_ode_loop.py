@@ -301,7 +301,7 @@ def test_save_last_flag_from_config(loop_mutable):
         {
             "precision": np.float32,
             "duration": 0.1,
-            "output_types": ["state", "time"],
+            "output_types": ["state", "time", "mean"],
             "algorithm": "euler",
             "dt": 0.01,
             "save_every": None,
@@ -491,3 +491,4 @@ def test_summarise_last_with_summarise_every_combined(
     for i in range(min(4, state_summaries.shape[0])):
         assert not np.isnan(state_summaries[i]).any(), \
             f"Summary {i} should not contain NaN"
+

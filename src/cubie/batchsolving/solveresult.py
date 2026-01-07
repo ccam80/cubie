@@ -22,6 +22,7 @@ from cubie._utils import (
     PrecisionDType,
     slice_variable_dimension,
     opt_gttype_validator,
+    opt_getype_validator,
     getype_validator,
     gttype_validator,
     precision_converter,
@@ -94,10 +95,14 @@ class SolveSpec:
                                                                     0.0))
     dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
-    save_every: float = attrs.field(validator=gttype_validator(float, 0.0))
-    summarise_every: float = attrs.field(validator=getype_validator(float, 0.0))
-    sample_summaries_every: float = attrs.field(
-        validator=getype_validator(float, 0.0)
+    save_every: Optional[float] = attrs.field(
+        validator=opt_gttype_validator(float, 0.0)
+    )
+    summarise_every: Optional[float] = attrs.field(
+        validator=opt_getype_validator(float, 0.0)
+    )
+    sample_summaries_every: Optional[float] = attrs.field(
+        validator=opt_getype_validator(float, 0.0)
     )
     atol: Optional[float] = attrs.field(
             validator=val.or_(opt_gttype_validator(float, 0.0),

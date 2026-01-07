@@ -162,8 +162,6 @@ def run_reference_loop(
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
-        summary_state_history = [state.copy()]
-        summary_observable_history = [observables.copy()]
         save_idx = 1
 
     end_time = precision(warmup + t0 + duration)
@@ -270,7 +268,6 @@ def run_reference_loop(
         output_functions.summaries_output_height_per_var,
         precision,
         sample_summaries_every=sample_summaries_every,
-        exclude_first=True,  # Match IVP loop behavior: skip t=0 in summaries
     )
     final_status = status_flags & STATUS_MASK
 

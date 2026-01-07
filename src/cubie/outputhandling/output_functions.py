@@ -266,6 +266,21 @@ class OutputFunctions(CUDAFactory):
         return self.compile_settings.save_time
 
     @property
+    def has_time_domain_outputs(self) -> bool:
+        """Whether any time-domain output is enabled."""
+        config = self.compile_settings
+        save_time = config.save_time
+        save_state = config.save_state
+        save_observables = config.save_observables
+        return save_time or save_state or save_observables
+
+    @property
+    def has_summary_outputs(self) -> bool:
+        """Whether any summary output is enabled."""
+        config = self.compile_settings
+        return config.summarise_state or config.summarise_observables
+
+    @property
     def saved_state_indices(self) -> NDArray[int_]:
         """Indices of states saved in time-domain output."""
         return self.compile_settings.saved_state_indices

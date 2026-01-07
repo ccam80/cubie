@@ -191,12 +191,20 @@ class ODELoopConfig:
         validator=opt_gttype_validator(float, 0)
     )
 
-    # Flags for end-of-run-only behavior
+    # Flags for end-of-run behavior
     save_last: bool = field(
         default=False,
         validator=validators.instance_of(bool)
     )
     summarise_last: bool = field(
+        default=False,
+        validator=validators.instance_of(bool)
+    )
+    save_regularly: bool = field(
+        default=False,
+        validator=validators.instance_of(bool)
+    )
+    summarise_regularly: bool = field(
         default=False,
         validator=validators.instance_of(bool)
     )
@@ -252,95 +260,42 @@ class ODELoopConfig:
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
 
-    def __attrs_post_init__(self):
-        """Validate timing parameters and set flags for None handling.
+    @property
+    def samples_per_summary(self):
+        """If summarise_every and sample_summaries_every are both set, calculate
+        samples_per_summary and warn/raise if it's not a clean integer."""
+        summarise_every = self.summarise_every
+        sample_summaries_every = self.sample_summaries_every
 
-        When all timing parameters are None, sets save_last and
-        summarise_last flags to True for end-of-run-only behavior.
-        Otherwise applies inference logic to fill missing values.
-        """
-        # Case 1: All three None - set flags for end-of-run-only behavior
-        if (
-            self._save_every is None
-            and self._summarise_every is None
-            and self._sample_summaries_every is None
-        ):
-            self.save_last = True
-            self.summarise_last = True
-            return  # Skip validation when using save_last/summarise_last only
+        if summarise_every is None or sample_summaries_every is None:
+            return 0
 
-        # Case 2: Only save_every specified
-        elif (
-            self._save_every is not None
-            and self._summarise_every is None
-            and self._sample_summaries_every is None
-        ):
-            self.summarise_last = True
-            self._summarise_every = 10.0 * self._save_every
-            self._sample_summaries_every = self._save_every
+        raw_ratio = round(summarise_every / sample_summaries_every)
+        samples_per_summary = int(round(raw_ratio))
 
-        # Case 3: Only summarise_every specified
-        elif (
-            self._save_every is None
-            and self._summarise_every is not None
-            and self._sample_summaries_every is None
-        ):
-            self._save_every = self._summarise_every / 10.0
-            self._sample_summaries_every = self._summarise_every / 10.0
-
-        # Case 4: save_every and summarise_every specified
-        elif (
-            self._save_every is not None
-            and self._summarise_every is not None
-            and self._sample_summaries_every is None
-        ):
-            self._sample_summaries_every = self._save_every
-
-        # Case 5: save_every and sample_summaries_every specified
-        elif (
-            self._save_every is not None
-            and self._summarise_every is None
-            and self._sample_summaries_every is not None
-        ):
-            self._summarise_every = 10.0 * self._save_every
-
-        # Case 6: summarise_every and sample_summaries_every specified
-        elif (self._save_every is None and self._summarise_every is not None and
-              self._sample_summaries_every is not None):
-            self._save_every = self._sample_summaries_every
-        
-        # Case 7: All three specified - no defaults needed
-        
-        # Validate that summarise_every is an integer multiple of
-        # sample_summaries_every.
-        if self._summarise_every is not None:
-            ratio = self._summarise_every / self._sample_summaries_every
-            deviation = abs(ratio - round(ratio))
-
-            if deviation <= 0.01:  # Within 1% - auto-adjust with warning
-                rounded_ratio = round(ratio)
-                adjusted = rounded_ratio * self._sample_summaries_every
-                if adjusted != self._summarise_every:
-                    warn(
-                        f"summarise_every adjusted from {self._summarise_every}"
-                        f" to {adjusted}, the nearest integer multiple of "
-                        f"sample_summaries_every ({self._sample_summaries_every})"
-                    )
-                    self._summarise_every = adjusted
-            else:  # More than 1% off - incompatible values
-                raise ValueError(
+        # How close is this to an integer multiple? Warn if it needs slight
+        # adjustment, raise if the arguments aren't even multiples.
+        deviation = abs(raw_ratio - samples_per_summary)
+        if deviation <= 0.01:
+            adjusted = samples_per_summary * self._sample_summaries_every
+            if adjusted != self._summarise_every:
+                warn(
+                        f"summarise_every adjusted from "
+                        f"{self._summarise_every}to {adjusted}, the nearest "
+                        f" integer multiple of sample_summaries_every "
+                        f"({self._sample_summaries_every})"
+                )
+            return samples_per_summary
+        else:
+            raise ValueError(
                     f"summarise_every ({self._summarise_every}) must be an "
                     f"integer multiple of sample_summaries_every "
-                    f"({self._sample_summaries_every}). The ratio {ratio:.4f} "
-                    f"is not close to any integer."
-                )
+                    f"({self._sample_summaries_every}). Under these "
+                    f"settings, summaries are calculated every "
+                    f"{raw_ratio:.2f} updates, and the calculation can't run "
+                    f"between samples."
+            )
 
-    @property
-    def samples_per_summary(self) -> Optional[int]:
-        """Return the number of updates between summary outputs."""
-        if self._summarise_every is None:
-            return None
-        return round(self.summarise_every / self.sample_summaries_every)
 
     @property
     def numba_precision(self) -> type:

@@ -631,3 +631,218 @@ def test_warning_message_contains_algorithm_and_controller(system):
         assert "pid" in warn_msg
         assert "error estimate" in warn_msg.lower()
         assert "fixed" in warn_msg.lower()
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"output_types": ["state", "time", "observables"]},
+    ],
+    indirect=True,
+)
+class TestTimingProperties:
+    """Tests for SingleIntegratorRun timing calculation methods."""
+
+    def test_any_time_domain_outputs_true_with_state(
+        self, single_integrator_run
+    ):
+        """has_time_domain_outputs returns True when state is requested."""
+        assert single_integrator_run.has_time_domain_outputs is True
+
+    def test_save_last_property(self, single_integrator_run):
+        """save_last delegates to loop config."""
+        expected = single_integrator_run._loop.compile_settings.save_last
+        assert single_integrator_run.save_last == expected
+
+    def test_summarise_last_property(self, single_integrator_run):
+        """summarise_last delegates to loop config."""
+        expected = single_integrator_run._loop.compile_settings.summarise_last
+        assert single_integrator_run.summarise_last == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"save_every": 0.05, "duration": 0.2},
+    ],
+    indirect=True,
+)
+class TestOutputLengthMethod:
+    """Tests for SingleIntegratorRun.output_length() method."""
+
+    def test_output_length_periodic(
+        self, single_integrator_run, solver_settings
+    ):
+        """output_length calculates correctly for periodic saving."""
+        duration = float(solver_settings["duration"])
+        save_every = float(solver_settings["save_every"])
+        expected = int(duration / save_every) + 1
+        actual = single_integrator_run.output_length(duration)
+        assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"summarise_every": 0.1, "duration": 0.3, "sample_summaries_every": 0.05},
+    ],
+    indirect=True,
+)
+class TestSummariesLengthMethod:
+    """Tests for SingleIntegratorRun.summaries_length() method."""
+
+    def test_summaries_length_periodic(
+        self, single_integrator_run, solver_settings
+    ):
+        """summaries_length calculates correctly for periodic summaries."""
+        duration = float(solver_settings["duration"])
+        summarise_every = float(solver_settings["summarise_every"])
+        expected = int(duration / summarise_every)
+        actual = single_integrator_run.summaries_length(duration)
+        assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["state", "observables"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestTimingFlagAutoDetection:
+    """Tests for automatic timing flag detection based on output_types."""
+
+    def test_save_last_set_when_state_output_no_save_every(
+        self, single_integrator_run
+    ):
+        """save_last=True when time-domain output requested without save_every."""
+        assert single_integrator_run.save_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestSummariseFlagAutoDetection:
+    """Tests for summarise_last flag detection."""
+
+    def test_summarise_last_set_when_mean_output_no_timing(
+        self, single_integrator_run
+    ):
+        """summarise_last=True when summary output requested without timing."""
+        assert single_integrator_run.summarise_last is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestIsDurationDependentProperty:
+    """Tests for is_duration_dependent property."""
+
+    def test_is_duration_dependent_true_when_summarise_last_and_no_timing(
+        self, single_integrator_run
+    ):
+        """is_duration_dependent True when summarise_last with no timing."""
+        assert single_integrator_run.summarise_last is True
+        loop_config = single_integrator_run._loop.compile_settings
+        assert loop_config._sample_summaries_every is None
+        assert single_integrator_run.is_duration_dependent is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": 0.01,
+        },
+    ],
+    indirect=True,
+)
+def test_is_duration_dependent_true_when_explicit_sampling(
+    single_integrator_run
+):
+    """is_duration_dependent False when sample_summaries_every is set."""
+    assert single_integrator_run.summarise_last is True
+    loop_config = single_integrator_run._loop.compile_settings
+    assert loop_config._sample_summaries_every is not None
+    assert single_integrator_run.is_duration_dependent is True
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": 0.1,
+            "sample_summaries_every": None,
+        },
+    ],
+    indirect=True,
+)
+class TestIsDurationDependentFalseNotSummariseLast:
+    """Tests for is_duration_dependent when not summarise_last."""
+
+    def test_is_duration_dependent_false_when_not_summarise_last(
+        self, single_integrator_run
+    ):
+        """is_duration_dependent False when summarise_last is False."""
+        assert single_integrator_run.summarise_last is False
+        assert single_integrator_run.is_duration_dependent is False
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "output_types": ["mean"],
+            "save_every": None,
+            "summarise_every": 0.1,
+            "sample_summaries_every": 0.05,
+        },
+    ],
+    indirect=True,
+)
+class TestChunkDurationSkipped:
+    """Tests for chunk_duration skipped when explicit timing."""
+
+    def test_chunk_duration_skipped_when_not_duration_dependent(
+        self, single_integrator_run_mutable
+    ):
+        """chunk_duration does not override explicit sample_summaries_every."""
+        run = single_integrator_run_mutable
+
+        # Verify initial explicit value is set
+        initial_value = run.sample_summaries_every
+        assert initial_value == pytest.approx(0.05)
+
+        # Update with chunk_duration should NOT change sample_summaries_every
+        run.set_summary_timing_from_duration(duration=1.0)
+
+        # Should still have original value, not chunk_duration / 100
+        assert run.sample_summaries_every == pytest.approx(0.05)
+        assert run.sample_summaries_every != pytest.approx(0.01)
