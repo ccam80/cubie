@@ -10,6 +10,8 @@ name: Copilot Setup Steps
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
+    env:
+      NUMBA_ENABLE_CUDASIM: "1"
     permissions:
       contents: read
     steps:
