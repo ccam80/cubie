@@ -276,12 +276,15 @@ class BatchSolverKernel(CUDAFactory):
 
         Notes
         -----
-        Uses dt_min as a tolerance when comparing floating point timing
-        parameters, as any overstep by <dt_min will be handled in-loop.
+        Uses dt_min as an absolute tolerance when comparing floating
+        point timing parameters by adding dt_min to the requested
+        duration. Small in-loop timing oversteps smaller than dt_min
+        are treated as valid and do not trigger validation errors.
         """
         integrator = self.single_integrator
         end_time = self.precision(duration) + self.dt_min
-        # Check time-domain outputs
+        
+        # Validate time-domain output timing parameters
         if integrator.has_time_domain_outputs:
             save_every = integrator.save_every
             save_last = integrator.save_last
@@ -295,11 +298,10 @@ class BatchSolverKernel(CUDAFactory):
                     f"so this loop will produce no outputs"
                 )
 
-        # Check summary outputs
+        # Validate summary timing parameters
         if integrator.has_summary_outputs:
             sample_summaries_every = integrator.sample_summaries_every
             summarise_every = integrator.summarise_every
-            dt_min = integrator.dt_min
 
             if sample_summaries_every is None:
                 raise ValueError(
@@ -319,7 +321,6 @@ class BatchSolverKernel(CUDAFactory):
                     f"result in 0/inf/NaN values."
                 )
 
-            # Use relative tolerance for duration check
             if summarise_every > end_time:
                 raise ValueError(
                     f"summarise_every ({summarise_every}) > duration "
@@ -431,12 +432,21 @@ class BatchSolverKernel(CUDAFactory):
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
 
-        # Propagate chunk_duration to single_integrator if required
-        if self.chunks != 1:
+        # Update internal time parameters if duration has been chunked
+        if self.chunks != 1 and chunk_axis == "time":
             self.single_integrator.set_summary_timing_from_duration(
                     chunk_params.duration
             )
-
+            try:
+                self._validate_timing_parameters(chunk_params.duration)
+            except ValueError as e:
+                raise ValueError(
+                    f"Your timing parameters were OK for the full duration, "
+                    f"but the run was divided into multiple time-chunks due "
+                    f"to GPU memory constraints so they're now invalid. "
+                    f"Adjust timing parameters OR set chunk_axis='run' to "
+                    f"avoid this. Time-check exception: {e}"
+                ) from e
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.
         if chunk_axis == "run":
