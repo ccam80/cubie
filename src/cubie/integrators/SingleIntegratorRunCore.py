@@ -236,7 +236,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         if has_time_domain_outputs and save_every is None:
             save_last = True
 
-            # 4. Summary outputs
+        # 4. Summary outputs
         if has_summary_outputs:
             if summarise_every is None:
                 # There is no `summarise_last`, we simulate

@@ -277,7 +277,7 @@ class ODELoopConfig:
             if adjusted != self._summarise_every:
                 warn(
                         f"summarise_every adjusted from "
-                        f"{self._summarise_every}to {adjusted}, the nearest "
+                        f"{self._summarise_every} to {adjusted}, the nearest "
                         f" integer multiple of sample_summaries_every "
                         f"({self.sample_summaries_every})"
                 )

@@ -581,9 +581,11 @@ class IVPLoop(CUDAFactory):
                 # ----------------------------------------------------------- #
                 #               Events due - end, update, save                #
                 # ----------------------------------------------------------- #
+                # Compile-time branching: save_regularly and summarise_regularly
+                # are constants, allowing Numba to eliminate dead branches
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
-                    # We're not finished if there's an output before/at t_end
+                    # Loop continues until all scheduled outputs are complete
                     finished = True
                     if save_regularly:
                         save_finished = bool_(next_save > t_end)
@@ -592,15 +594,12 @@ class IVPLoop(CUDAFactory):
                         summary_finished = bool_(next_update_summary > t_end)
                         finished &= summary_finished
                 else:
-                    # Otherwise, we're finished if we've exceeded t_end
+                    # No scheduled outputs; finish when time exceeds t_end
                     finished = bool_(end_of_step > t_end)
 
                 if save_last:
-                    # at_end will fire if we're in the last step before the
-                    # end; this should avoid loop termination by unsetting
-                    # finished. If save_last and the step is accepted,
-                    # we'll start the next step at t_end and so at_end
-                    # is False.
+                    # Save final state even if not aligned with save_every
+                    # at_end triggers when we're in the last step before t_end
                     at_end = bool_(t_prec < t_end) & finished
                     finished = finished &~ at_end
 
@@ -610,7 +609,8 @@ class IVPLoop(CUDAFactory):
                     return status
 
                 if not finished:
-                    # Do we need to run the update/save functions this step?
+                    # Determine output actions for this step
+                    # Compile-time constants enable branch elimination
                     if save_regularly:
                         do_save = (
                             bool_(end_of_step >= next_save) & ~save_finished
@@ -629,7 +629,7 @@ class IVPLoop(CUDAFactory):
                     if save_last:
                         do_save |= at_end
 
-                    # If we are saving/updating, when's the next one?
+                    # Adjust step size to hit output boundaries exactly
                     dt_eff = dt_raw
                     if do_save or do_update_summary:
                         next_event = t_end
@@ -640,7 +640,7 @@ class IVPLoop(CUDAFactory):
                                                 next_update_summary))
                         dt_eff = precision(next_event - t_prec)
 
-                # ----------------------------------------------------------- #
+                    # ----------------------------------------------------------- #
                     # Take a step
                     step_status = int32(
                         step_function(
@@ -758,7 +758,8 @@ class IVPLoop(CUDAFactory):
                         int32(0),
                     )
 
-                    # Predicated update of next_save; update if save is accepted.
+                    # Predicated output execution: only perform outputs
+                    # if step was accepted (avoids warp divergence)
                     do_save &= accept
                     do_update_summary &= accept
                     

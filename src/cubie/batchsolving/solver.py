@@ -918,7 +918,7 @@ class Solver:
 
     @property
     def sample_summaries_every(self) -> Optional[float]:
-        """Return the interval between summary metric samplest."""
+        """Return the interval between summary metric samples."""
         return self.kernel.sample_summaries_every
 
     @property

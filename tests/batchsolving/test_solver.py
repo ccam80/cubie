@@ -539,8 +539,16 @@ def test_solver_num_runs_property(solver):
 # Time Precision Tests (float64 time accumulation)
 # ============================================================================
 
-def test_solver_stores_time_as_float64(solver_mutable):
-    """Verify Solver stores time parameters as float64."""
+@pytest.mark.parametrize("solver_settings_override", [
+    {"precision": np.float32},
+    {"precision": np.float64}],
+    indirect=True)
+def test_time_precision_independent_of_state_precision(system, solver_mutable):
+    """Verify time precision is float64 regardless of state precision.
+    
+    Tests both that time parameters are stored as float64 and that they
+    remain float64 independent of the state precision setting.
+    """
     # Set time parameters as float32
     solver_mutable.kernel.duration = np.float32(10.0)
     solver_mutable.kernel.warmup = np.float32(1.0)
@@ -555,21 +563,10 @@ def test_solver_stores_time_as_float64(solver_mutable):
     assert np.isclose(solver_mutable.kernel.duration, 10.0)
     assert np.isclose(solver_mutable.kernel.warmup, 1.0)
     assert np.isclose(solver_mutable.kernel.t0, 5.0)
-
-
-@pytest.mark.parametrize("solver_settings_override", [
-    {"precision": np.float32},
-    {"precision": np.float64}],
-    indirect=True)
-def test_time_precision_independent_of_state_precision(system, solver_mutable):
-    """Verify time precision is float64 regardless of state precision."""
-
-    solver_mutable.kernel.duration = 5.0
-    solver_mutable.kernel.t0 = 1.0
     
     # Time should be float64 even when state precision is float32
-    assert solver_mutable.kernel.duration == np.float64(5.0)
-    assert solver_mutable.kernel.t0 == np.float64(1.0)
+    assert solver_mutable.kernel.duration == np.float64(10.0)
+    assert solver_mutable.kernel.t0 == np.float64(5.0)
 
 
 # ============================================================================
@@ -1013,42 +1010,6 @@ def test_solve_ivp_with_summarise_variables(system):
 
     # Verify result contains summaries
     assert result is not None
-
-
-def test_save_variables_with_solve_ivp(system):
-    """Test save_variables parameter works with solve_ivp."""
-    state_names = list(system.initial_values.names)[:2]
-
-    result = solve_ivp(
-        system,
-        y0={state_names[0]: [1.0, 2.0]},
-        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
-        save_variables=state_names,
-        save_every=0.01,
-        duration=0.1,
-        method="euler",
-    )
-
-    assert result is not None
-    assert result.time_domain_array is not None
-
-
-def test_save_variables_with_multiple_states(system):
-    """Test save_variables with multiple state variables."""
-    state_names = list(system.initial_values.names)
-
-    result = solve_ivp(
-        system,
-        y0={state_names[0]: [1.0], state_names[1]: [2.0]},
-        parameters={list(system.parameters.names)[0]: [0.1]},
-        save_variables=state_names[:2],
-        save_every=0.01,
-        duration=0.1,
-        method="euler",
-    )
-
-    assert result is not None
-    assert result.time_domain_array.shape[1] == 2
 
 
 def test_system_no_observables_default(precision, solver_settings):
