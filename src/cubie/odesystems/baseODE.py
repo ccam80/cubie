@@ -362,19 +362,19 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.simsafe_precision
 
     @property
-    def dxdt_function(self):
-        """Compiled CUDA device function for ``dxdt``."""
+    def evaluate_f(self):
+        """Compiled CUDA device function for evaluating f(t, y)."""
         return self.get_cached_output("dxdt")
 
     @property
-    def observables_function(self) -> Callable:
+    def evaluate_observables(self) -> Callable:
         """Return the compiled observables device function.
 
         Returns
         -------
         Callable
-            CUDA device function that computes observables without updating
-            the derivative buffer.
+            CUDA device function that computes observables without
+            updating the derivative buffer.
         """
         return self.get_cached_output("observables")
 

@@ -250,9 +250,9 @@ def instrumented_step_results(
     shared_elems = instrumented_step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
     persistent_len = max(1, instrumented_step_object.persistent_local_elements)
-    driver_function = None if driver_array is None else driver_array.evaluation_function
+    evaluate_driver_at_t = None if driver_array is None else driver_array.evaluation_function
     # use system-provided observables function
-    observables_function = system.observables_function
+    evaluate_observables = system.evaluate_observables
 
     n_states = system.sizes.states
     n_observables = system.sizes.observables
@@ -322,9 +322,9 @@ def instrumented_step_results(
             shared[cache_idx] = zero
         current_time = time_scalar
         # Call driver/evaluator and observables similarly to device fixture
-        if driver_function is not None:
-            driver_function(current_time, driver_coeffs_vec, drivers_vec)
-        observables_function(
+        if evaluate_driver_at_t is not None:
+            evaluate_driver_at_t(current_time, driver_coeffs_vec, drivers_vec)
+        evaluate_observables(
             state_vec,
             params_vec,
             drivers_vec,

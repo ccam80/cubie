@@ -155,9 +155,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
@@ -177,13 +177,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         driver_del_t
             Optional compiled CUDA device function computing time derivatives
             of drivers (required for some Rosenbrock formulations).
@@ -222,9 +221,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             required={
                 'precision': precision,
                 'n': n,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'driver_del_t': driver_del_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau_value,
@@ -357,9 +356,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -379,7 +378,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         n = int32(n)
         stage_count = int32(self.stage_count)
         stages_except_first = stage_count - int32(1)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
@@ -493,7 +492,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Evaluate del_t term at t_n, y_n
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 driver_del_t(
                     current_time,
                     driver_coeffs,
@@ -526,7 +525,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #            Stage 0: uses starting values                        #
             # --------------------------------------------------------------- #
 
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -609,14 +608,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_increment[idx] = stage_store[stage_offset + idx]
 
                 # Get t + c_i * dt parts
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-                observables_function(
+                evaluate_observables(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -624,7 +623,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -643,7 +642,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - int32(1):
-                    if has_driver_function:
+                    if has_evaluate_driver_at_t:
                         driver_del_t(
                             current_time,
                             driver_coeffs,
@@ -723,14 +722,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

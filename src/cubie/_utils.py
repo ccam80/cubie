@@ -684,7 +684,7 @@ def build_config(
         Attrs class to instantiate (e.g., DIRKStepConfig).
     required : dict
         Required parameters that must be provided. These are typically
-        function parameters like precision, n, dxdt_function.
+        function parameters like precision, n, evaluate_f.
     **optional
         Optional parameter overrides passed to the config constructor.
         Extra keys not in the config class signature are ignored.

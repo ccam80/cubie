@@ -146,10 +146,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.save_summary_metrics_func
 
     @property
-    def dxdt_function(self) -> Callable:
+    def evaluate_f(self) -> Callable:
         """Return the derivative function used by the integration step."""
 
-        return self._algo_step.dxdt_function
+        return self._algo_step.evaluate_f
 
 
     # ------------------------------------------------------------------

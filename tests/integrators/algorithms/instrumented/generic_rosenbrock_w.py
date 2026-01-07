@@ -28,9 +28,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
@@ -57,11 +57,11 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
+        evaluate_f
             Compiled CUDA device function computing state derivatives.
-        observables_function
+        evaluate_observables
             Optional compiled CUDA device function computing observables.
-        driver_function
+        evaluate_driver_at_t
             Optional compiled CUDA device function computing time-varying
             drivers.
         driver_del_t
@@ -119,9 +119,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         config_kwargs = {
             "precision": precision,
             "n": n,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
+            "evaluate_f": evaluate_f,
+            "evaluate_observables": evaluate_observables,
+            "evaluate_driver_at_t": evaluate_driver_at_t,
             "driver_del_t": driver_del_t,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
@@ -273,9 +273,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -295,7 +295,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         n = int32(n)
         stage_count = int32(self.stage_count)
         stages_except_first = stage_count - int32(1)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
 
@@ -412,7 +412,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             )
 
             # Evaluate del_t term at t_n, y_n
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 driver_del_t(
                     current_time,
                     driver_coeffs,
@@ -454,7 +454,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             #            Stage 0: uses starting values                        #
             # --------------------------------------------------------------- #
 
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -553,14 +553,14 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                     stage_increment[idx] = stage_store[stage_offset + idx]
 
                 # Get t + c_i * dt parts
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-                observables_function(
+                evaluate_observables(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -568,7 +568,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -591,7 +591,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - int32(1):
-                    if has_driver_function:
+                    if has_evaluate_driver_at_t:
                         driver_del_t(
                             current_time,
                             driver_coeffs,
@@ -698,14 +698,14 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                 for idx in range(n):
                     error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

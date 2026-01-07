@@ -56,9 +56,9 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
         krylov_tolerance: Optional[float] = None,
@@ -89,11 +89,11 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
+        evaluate_f
             Compiled CUDA device function computing state derivatives.
-        observables_function
+        evaluate_observables
             Optional compiled CUDA device function computing observables.
-        driver_function
+        evaluate_driver_at_t
             Optional compiled CUDA device function computing time-varying
             drivers.
         get_solver_helper_fn
@@ -161,9 +161,9 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             "precision": precision,
             "n": n,
             "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
+            "evaluate_f": evaluate_f,
+            "evaluate_observables": evaluate_observables,
+            "evaluate_driver_at_t": evaluate_driver_at_t,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
             "tableau": tableau,
@@ -313,9 +313,9 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -332,7 +332,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
 
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
 
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
@@ -465,7 +465,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                     error[idx] = typed_zero
 
             # Fill stage_drivers_stack if driver arrays provided
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 for stage_idx in range(stage_count):
                     stage_time = (
                         current_time
@@ -475,7 +475,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                     driver_slice = stage_driver_stack[
                         driver_offset : driver_offset + n_drivers
                     ]
-                    driver_function(stage_time, driver_coeffs, driver_slice)
+                    evaluate_driver_at_t(stage_time, driver_coeffs, driver_slice)
 
             # Solve n-stage nonlinear problem for all stages
             solver_status = nonlinear_solver(
@@ -504,7 +504,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     stage_base = stage_idx * n_drivers
                     for idx in range(n_drivers):
                         proposed_drivers[idx] = stage_driver_stack[stage_base + idx]
@@ -567,14 +567,14 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                     error[idx] = error_acc
 
             if not ends_at_one:
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         end_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

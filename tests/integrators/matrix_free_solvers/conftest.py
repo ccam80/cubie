@@ -67,7 +67,7 @@ def system_setup(request, precision):
                                    states=[f"x{i}" for i in range(3)],
                                    precision=precision)
     sym_system.build()
-    dxdt_func = sym_system.dxdt_function
+    dxdt_func = sym_system.evaluate_f
     operator = sym_system.get_solver_helper("linear_operator")
     # Use helper interface for residual and preconditioner generation
     residual_func = sym_system.get_solver_helper("stage_residual")
