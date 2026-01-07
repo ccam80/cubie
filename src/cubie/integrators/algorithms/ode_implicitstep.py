@@ -215,18 +215,18 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config = self.compile_settings
         self.build_implicit_helpers()
 
-        dxdt_fn = config.dxdt_function
+        evaluate_f = config.evaluate_f
         numba_precision = config.numba_precision
         n = config.n
-        observables_function = config.observables_function
-        driver_function = config.driver_function
+        evaluate_observables = config.evaluate_observables
+        evaluate_driver_at_t = config.evaluate_driver_at_t
         n_drivers = config.n_drivers
         solver_function = config.solver_function
 
         return self.build_step(
-            dxdt_fn,
-            observables_function,
-            driver_function,
+            evaluate_f,
+            evaluate_observables,
+            evaluate_driver_at_t,
             solver_function,
             numba_precision,
             n,
@@ -236,9 +236,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -248,14 +248,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
+        evaluate_f
+            Device function for evaluating the ODE right-hand side f(t, y).
+        evaluate_observables
             Device function for evaluating observables.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         solver_function
-            Device function for running internal solver
+            Device function for running internal solver.
         numba_precision
             Numba precision for compiled device buffers.
         n

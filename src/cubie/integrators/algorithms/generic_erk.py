@@ -130,9 +130,9 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
@@ -153,13 +153,13 @@ class ERKStep(ODEExplicitStep):
             np.float64).
         n
             Number of state variables in the ODE system.
-        dxdt_function
+        evaluate_f
             Compiled CUDA device function computing state derivatives. Should
             match signature expected by the integration kernel.
-        observables_function
+        evaluate_observables
             Optional compiled CUDA device function computing observable
             quantities from the state.
-        driver_function
+        evaluate_driver_at_t
             Optional compiled CUDA device function computing time-varying
             driver inputs.
         get_solver_helper_fn
@@ -215,9 +215,9 @@ class ERKStep(ODEExplicitStep):
                 'precision': precision,
                 'n': n,
                 'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau,
             },
@@ -261,9 +261,9 @@ class ERKStep(ODEExplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -280,7 +280,7 @@ class ERKStep(ODEExplicitStep):
 
         accumulator_length = (tableau.stage_count - 1) * n
 
-        has_driver_function = driver_function is not None
+        has_driver_function = evaluate_driver_at_t is not None
         first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
@@ -382,7 +382,7 @@ class ERKStep(ODEExplicitStep):
 
             # Keep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
-                dxdt_fn(
+                evaluate_f(
                     state,
                     parameters,
                     drivers_buffer,
@@ -435,13 +435,13 @@ class ERKStep(ODEExplicitStep):
                 # get rhs for next stage
                 stage_drivers = proposed_drivers
                 if has_driver_function:
-                    driver_function(
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         stage_drivers,
                     )
 
-                observables_function(
+                evaluate_observables(
                     stage_accumulator[stage_offset : stage_offset + n],
                     parameters,
                     stage_drivers,
@@ -449,7 +449,7 @@ class ERKStep(ODEExplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_accumulator[stage_offset : stage_offset + n],
                     parameters,
                     stage_drivers,
@@ -495,13 +495,13 @@ class ERKStep(ODEExplicitStep):
                         error[idx] = proposed_state[idx] - error[idx]
 
             if has_driver_function:
-                driver_function(
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                     proposed_state,
                     parameters,
                     proposed_drivers,

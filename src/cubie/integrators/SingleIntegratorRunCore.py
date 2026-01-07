@@ -60,7 +60,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``"saved_state_indices"``, ``"saved_observable_indices"``,
         ``"summarised_state_indices"``, and
         ``"summarised_observable_indices"``.
-    driver_function
+    evaluate_driver_at_t
         Optional device function which interpolates arbitrary driver inputs
         for use by step algorithms.
     algorithm_settings
@@ -88,7 +88,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         system: "BaseODE",
         loop_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
@@ -124,7 +124,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm_settings["n"] = n
         if dt is not None:
             algorithm_settings["dt"] = dt
-        algorithm_settings["driver_function"] = driver_function
+        algorithm_settings["evaluate_driver_at_t"] = evaluate_driver_at_t
         # Thread the driver time-derivative through to algorithm factories
         algorithm_settings["driver_del_t"] = driver_del_t
         self._algo_step = get_algorithm_step(
@@ -171,7 +171,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             state_summaries_buffer_height=self._output_functions.state_summaries_buffer_height,
             observable_summaries_buffer_height=self._output_functions.observable_summaries_buffer_height,
             loop_settings=loop_settings,
-            driver_function=driver_function,
+            evaluate_driver_at_t=evaluate_driver_at_t,
         )
 
         # Keep the timing parameters explicitly set by the user at run level
@@ -407,7 +407,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         observable_summaries_buffer_height: int,
         compile_flags: OutputCompileFlags,
         loop_settings: Dict[str, Any],
-        driver_function: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
     ) -> IVPLoop:
         """Instantiate the integrator loop.
 
@@ -433,7 +433,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         loop_settings
             Mapping of loop configuration overrides forwarded directly to the
             :class:`~cubie.integrators.loops.ode_loop.IVPLoop` constructor.
-        driver_function
+        evaluate_driver_at_t
             Optional device function that evaluates drivers for proposed times.
 
         Returns
@@ -458,8 +458,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             state_summaries_buffer_height=state_summaries_buffer_height,
             observable_summaries_buffer_height=observable_summaries_buffer_height,
         )
-        if "driver_function" not in loop_kwargs:
-            loop_kwargs["driver_function"] = driver_function
+        if "evaluate_driver_at_t" not in loop_kwargs:
+            loop_kwargs["evaluate_driver_at_t"] = evaluate_driver_at_t
 
         loop = IVPLoop(**loop_kwargs)
         return loop
@@ -630,15 +630,15 @@ class SingleIntegratorRunCore(CUDAFactory):
             Compiled CUDA loop callable ready for execution on device.
         """
 
-        # Lowest level - check for changes in dxdt_fn, get_solver_helper_fn
-        dxdt_fn = self._system.dxdt_function
-        observables_fn = self._system.observables_function
+        # Lowest level - check for changes in evaluate_f, get_solver_helper_fn
+        evaluate_f = self._system.evaluate_f
+        evaluate_observables = self._system.evaluate_observables
         get_solver_helper_fn = self._system.get_solver_helper
         compiled_fns_dict = {}
-        if dxdt_fn != self._algo_step.dxdt_function:
-            compiled_fns_dict["dxdt_function"] = dxdt_fn
-        if observables_fn != self._algo_step.observables_function:
-            compiled_fns_dict["observables_function"] = observables_fn
+        if evaluate_f != self._algo_step.evaluate_f:
+            compiled_fns_dict["evaluate_f"] = evaluate_f
+        if evaluate_observables != self._algo_step.evaluate_observables:
+            compiled_fns_dict["evaluate_observables"] = evaluate_observables
         if get_solver_helper_fn != self._algo_step.get_solver_helper_fn:
             compiled_fns_dict['get_solver_helper_fn'] = get_solver_helper_fn
 
@@ -658,7 +658,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
             'step_function': self._algo_step.step_function,
-            'observables_fn': observables_fn}
+            'observables_fn': evaluate_observables}
 
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function

@@ -142,9 +142,9 @@ class FIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
@@ -164,13 +164,12 @@ class FIRKStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         tableau
@@ -207,9 +206,9 @@ class FIRKStep(ODEImplicitStep):
                 'precision': precision,
                 'n': n,
                 'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau,
                 'beta': 1.0,
@@ -320,9 +319,9 @@ class FIRKStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -339,7 +338,7 @@ class FIRKStep(ODEImplicitStep):
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
 
-        has_driver_function = driver_function is not None
+        has_driver_function = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
 
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
@@ -448,7 +447,7 @@ class FIRKStep(ODEImplicitStep):
                     driver_slice = stage_driver_stack[
                         driver_offset:driver_offset + n_drivers
                     ]
-                    driver_function(stage_time, driver_coeffs, driver_slice)
+                    evaluate_driver_at_t(stage_time, driver_coeffs, driver_slice)
 
             # Solve n-stage nonlinear problem for all stages
             solver_status = nonlinear_solver(
@@ -524,13 +523,13 @@ class FIRKStep(ODEImplicitStep):
 
             if not ends_at_one:
                 if has_driver_function:
-                    driver_function(
+                    evaluate_driver_at_t(
                         end_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
