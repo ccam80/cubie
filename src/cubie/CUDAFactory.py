@@ -186,9 +186,9 @@ class CUDAFactoryConfig:
             if fld.name in ("_values_tuple", "_values_hash"):
                 continue
             value = getattr(self, fld.name)
-            if has(type(value)) and hasattr(value, 'values_tuple'):
-                # Nested CUDAFactoryConfig: include its values_tuple
-                values.append(value.values_tuple)
+            if has(type(value)) and hasattr(value, 'values_hash'):
+                # Nested CUDAFactoryConfig: use its hash for consistency
+                values.append(f"config:{value.values_hash}")
             else:
                 values.append(_serialize_value(value))
 
@@ -198,14 +198,15 @@ class CUDAFactoryConfig:
 
     @property
     def values_tuple(self) -> Tuple:
-        """Tuple of values for all eq=True fields.
+        """Tuple of serialized values for all eq=True fields.
 
         Returns
         -------
         tuple
-            Ordered values of configuration fields used for equality
-            comparison. For nested CUDAFactoryConfig instances, includes
-            their values_tuple recursively.
+            Ordered serialized values of configuration fields. For nested
+            CUDAFactoryConfig instances, includes their hash representation
+            (as "config:<hash>") for consistency with the serialization
+            used elsewhere.
         """
         if self._values_tuple is None:
             self._regenerate_hash()
