@@ -1,4 +1,5 @@
 """Utility helpers for symbolic ODE construction."""
+from hashlib import sha256
 
 from typing import TYPE_CHECKING
 from collections import defaultdict, deque
@@ -222,7 +223,7 @@ def hash_system_definition(
         f"dxdt:{normalized_dxdt}|constants:{constants_str}"
         f"|observables:{observables_str}|parameters:{parameters_str}"
     )
-    return str(hash(combined))
+    return sha256(combined.encode("utf-8")).hexdigest()
 
 
 def render_constant_assignments(
