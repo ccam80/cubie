@@ -17,7 +17,6 @@ from cubie._utils import (
     build_config,
     float_array_validator,
     getype_validator,
-    gttype_validator,
     inrangetype_validator,
     is_device_validator,
     precision_converter,
