@@ -402,17 +402,14 @@ def test_cuda_factory_config_nested_hash():
         outer_value: int = 10
         nested: InnerConfig = attrs.Factory(InnerConfig)
 
+    # Two configs with identical nested settings should have same hash
     config1 = OuterConfig()
     config2 = OuterConfig()
-
     assert config1.values_hash == config2.values_hash
 
-    # Change nested value
-    config2.nested.inner_value = 999
-    config2.nested._regenerate_hash()
-    config2._regenerate_hash()
-
-    assert config1.values_hash != config2.values_hash
+    # A config with a different nested value should have a different hash
+    config3 = OuterConfig(nested=InnerConfig(inner_value=999))
+    assert config1.values_hash != config3.values_hash
 
 
 def test_cuda_factory_config_hash_property():

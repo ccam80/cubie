@@ -93,6 +93,15 @@ class CUDAFactoryConfig:
     stable hashes for cache key generation. Subclasses should be defined
     with @attrs.define decorator.
 
+    .. warning::
+
+        **All field modifications MUST be done via the :meth:`update` method.**
+
+        Direct attribute assignment (e.g., ``config.field = value``) will
+        break cache invalidation and hashing logic. The ``update()`` method
+        ensures ``values_tuple`` and ``values_hash`` are regenerated after
+        any change, which is required for correct cache key generation.
+
     Notes
     -----
     The values_tuple and values_hash properties enable efficient cache
@@ -113,7 +122,9 @@ class CUDAFactoryConfig:
         Parameters
         ----------
         updates_dict
-            Mapping of setting names to new values.
+            Mapping of setting names to new values. Keys should be
+            non-underscored field names (e.g., ``"precision"`` not
+            ``"_precision"``).
         **kwargs
             Additional settings to update.
 
@@ -125,10 +136,11 @@ class CUDAFactoryConfig:
 
         Notes
         -----
-        Checks both field names and aliases in a single pass. For fields
-        with underscore-prefixed names, the alias (without underscore) is
-        also checked. After updates, values_tuple and values_hash are
-        regenerated.
+        Checks field names and field aliases in a single pass. For fields
+        with underscore-prefixed names (e.g., ``_precision``), the key in
+        updates_dict should be the non-underscored form (``precision``),
+        which matches the field's alias. After updates, values_tuple and
+        values_hash are regenerated.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -142,28 +154,46 @@ class CUDAFactoryConfig:
         changed = set()
 
         # Build a map of field names and aliases to field objects
+        # Non-underscored keys map through: key -> field.alias -> field
+        # or key -> field.name -> field
         field_map = {}
         for fld in fields(type(self)):
             field_map[fld.name] = fld
             if fld.alias is not None:
                 field_map[fld.alias] = fld
+            # Also map non-underscored name for underscore-prefixed fields
+            if fld.name.startswith("_"):
+                field_map[fld.name[1:]] = fld
 
         for key, value in updates_dict.items():
-            # Check the key directly, then with underscore prefix
-            fld = field_map.get(key) or field_map.get(f"_{key}")
+            fld = field_map.get(key)
             if fld is None:
                 continue
 
             recognized.add(key)
             old_value = getattr(self, fld.name)
-            try:
-                value_changed = old_value != value
-            except ValueError:
-                # Array comparison may raise ValueError
+
+            # Determine if value changed, handling arrays
+            if isinstance(old_value, ndarray) or isinstance(value, ndarray):
                 value_changed = not array_equal(
                     asarray(old_value), asarray(value)
                 )
-            if np_any(value_changed):
+            else:
+                try:
+                    value_changed = old_value != value
+                except ValueError:
+                    # Fallback for array-like comparisons
+                    value_changed = not array_equal(
+                        asarray(old_value), asarray(value)
+                    )
+
+            # Handle boolean or array result from comparison
+            if isinstance(value_changed, ndarray):
+                changed_flag = bool(np_any(value_changed))
+            else:
+                changed_flag = bool(value_changed)
+
+            if changed_flag:
                 setattr(self, fld.name, value)
                 changed.add(key)
 
@@ -239,6 +269,17 @@ class CUDAFactory(ABC):
     or other cached outputs. Compile settings are stored as attrs classes and
     any change invalidates the cache to ensure functions are rebuilt when
     needed.
+
+    .. warning::
+
+        **All compile settings modifications MUST be done via
+        :meth:`update_compile_settings`.**
+
+        Direct attribute assignment on compile_settings (e.g.,
+        ``factory.compile_settings.field = value``) will break cache
+        invalidation and hashing logic. The ``update_compile_settings()``
+        method ensures the cache is properly invalidated and hash values
+        are regenerated.
 
     Attributes
     ----------
