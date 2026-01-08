@@ -6,9 +6,9 @@ that presents compiled loop artifacts, controllers, and algorithm steps as
 read-only properties for downstream consumers.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
-from numpy import dtype as np_dtype, floor as np_floor
+from numpy import dtype as np_dtype, floor as np_floor, ndarray
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import (
@@ -448,7 +448,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def linear_solver_tolerance(self) -> Optional[float]:
+    def linear_solver_tolerance(self) -> Optional[Union[float, ndarray]]:
         """Return the linear solve tolerance."""
 
         step = self._algo_step
@@ -477,7 +477,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def newton_tolerance(self) -> Optional[float]:
+    def newton_tolerance(self) -> Optional[Union[float, ndarray]]:
         """Return the nonlinear solve tolerance."""
 
         step = self._algo_step

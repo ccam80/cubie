@@ -95,7 +95,9 @@ class InstrumentedLinearSolver(LinearSolver):
         max_iters_val = int32(max_linear_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
-        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
+        typed_one = precision_numba(1.0)
+        inv_n = precision_numba(1.0 / n)
+        krylov_tolerance_arr = krylov_tolerance
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent LinearSolver.register_buffers)
@@ -149,9 +151,11 @@ class InstrumentedLinearSolver(LinearSolver):
                 for i in range(n_val):
                     residual_value = rhs[i] - temp[i]
                     rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    ratio = residual_value / krylov_tolerance_arr[i]
+                    acc += ratio * ratio
+                acc = acc * inv_n
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
                 
                 # Log initial guess
                 log_slot = int32(slot_index)
@@ -218,13 +222,16 @@ class InstrumentedLinearSolver(LinearSolver):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ratio = residual_value / krylov_tolerance_arr[i]
+                            acc += ratio * ratio
                     else:
                         for i in range(n_val):
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ratio = residual_value / krylov_tolerance_arr[i]
+                            acc += ratio * ratio
 
-                    converged = converged or (acc <= tol_squared)
+                    acc = acc * inv_n
+                    converged = converged or (acc <= typed_one)
                     
                     # Log iteration state (uses 0-based indexing)
                     log_iter = iteration - int32(1)
@@ -289,9 +296,11 @@ class InstrumentedLinearSolver(LinearSolver):
                 for i in range(n_val):
                     residual_value = rhs[i] - temp[i]
                     rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    ratio = residual_value / krylov_tolerance_arr[i]
+                    acc += ratio * ratio
+                acc = acc * inv_n
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
                 
                 # Log initial guess
                 log_slot = int32(slot_index)
@@ -359,8 +368,10 @@ class InstrumentedLinearSolver(LinearSolver):
                         x[i] += alpha_effective * preconditioned_vec[i]
                         rhs[i] -= alpha_effective * temp[i]
                         residual_value = rhs[i]
-                        acc += residual_value * residual_value
-                    converged = converged or (acc <= tol_squared)
+                        ratio = residual_value / krylov_tolerance_arr[i]
+                        acc += ratio * ratio
+                    acc = acc * inv_n
+                    converged = converged or (acc <= typed_one)
                     
                     # Log iteration state (uses 0-based indexing)
                     log_iter = iteration - int32(1)
@@ -466,13 +477,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         # Convert types for device function
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
-        tol_squared = numba_precision(tolerance * tolerance)
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
+        inv_n = numba_precision(1.0 / n)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
         max_backtracks_val = int32(max_backtracks + 1)
+        newton_tolerance_arr = tolerance
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent NewtonKrylov.register_buffers)
@@ -552,12 +564,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
             for i in range(n_val):
                 residual_value = residual[i]
-                norm2_prev += residual_value * residual_value
+                ratio = residual_value / newton_tolerance_arr[i]
+                norm2_prev += ratio * ratio
                 delta[i] = typed_zero
                 residual[i] = -residual_value
                 residual_copy[i] = residual_value
                 newton_initial_guesses[stage_index, i] = stage_increment[i]
             
+            norm2_prev = norm2_prev * inv_n
             # Log first iteration (initial state)
             for i in range(n_val):
                 newton_iteration_guesses[stage_index, log_index, i] = (
@@ -567,7 +581,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            converged = norm2_prev <= tol_squared
+            converged = norm2_prev <= typed_one
             has_error = False
             final_status = int32(0)
             
@@ -657,12 +671,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                         norm2_new = typed_zero
                         for i in range(n_val):
                             residual_value = residual_temp[i]
-                            norm2_new += residual_value * residual_value
+                            ratio = residual_value / newton_tolerance_arr[i]
+                            norm2_new += ratio * ratio
                             stage_increment_snapshot[i] = stage_increment[i]
                             residual_snapshot[i] = residual_value
                         snapshot_ready = True
                         
-                        if norm2_new <= tol_squared:
+                        norm2_new = norm2_new * inv_n
+                        if norm2_new <= typed_one:
                             converged = True
                             found_step = True
                         
