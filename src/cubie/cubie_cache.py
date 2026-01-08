@@ -107,7 +107,10 @@ def _serialize_value(value: Any) -> str:
         array_hash = hashlib.sha256(value.tobytes()).hexdigest()
         return f"ndarray:{array_hash}"
     elif has(type(value)):
-        # Recursively hash nested attrs classes
+        # Use values_hash for CUDAFactoryConfig instances
+        if hasattr(value, 'values_hash'):
+            return f"config:{value.values_hash}"
+        # Fallback to hash_compile_settings for legacy attrs classes
         return f"attrs:{hash_compile_settings(value)}"
     else:
         return str(value)
