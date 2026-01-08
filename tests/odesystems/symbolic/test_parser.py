@@ -503,40 +503,52 @@ class TestRhsPass:
 class TestHashSystemDefinition:
     """Test system definition hashing function."""
 
-    def test_hash_system_definition_string(self):
-        """Test hashing string input."""
-        dxdt = "dx = x + y\ndy = x - y"
+    def test_hash_system_definition_tuple_input(self):
+        """Test hashing (Symbol, Expr) tuple input."""
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        dxdt = [(dx, x + y), (dy, x - y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
     def test_hash_system_definition_list(self):
-        """Test hashing list input."""
-        dxdt = ["dx = x + y", "dy = x - y"]
+        """Test hashing list of (Symbol, Expr) tuples."""
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        dxdt = [(dx, x + y), (dy, x - y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
-    def test_hash_system_definition_tuple(self):
-        """Test hashing tuple input."""
-        dxdt = ("dx = x + y", "dy = x - y")
+    def test_hash_system_definition_single_equation(self):
+        """Test hashing single equation tuple."""
+        x, y = sp.symbols('x y', real=True)
+        dx = sp.Symbol('dx', real=True)
+        dxdt = [(dx, x + y)]
         result = hash_system_definition(dxdt, {})
         assert isinstance(result, str)
 
     def test_hash_system_definition_consistency(self):
         """Test that equivalent inputs produce same hash."""
-        dxdt1 = "dx = x + y\ndy = x - y"
-        dxdt2 = ["dx = x + y", "dy = x - y"]
-        dxdt3 = "dx=x+y\ndy=x-y"  # Different whitespace
+        x, y = sp.symbols('x y', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+
+        # Same equations in different order
+        dxdt1 = [(dx, x + y), (dy, x - y)]
+        dxdt2 = [(dy, x - y), (dx, x + y)]
 
         hash1 = hash_system_definition(dxdt1, {})
         hash2 = hash_system_definition(dxdt2, {})
-        hash3 = hash_system_definition(dxdt3, {})
 
-        assert hash1 == hash2 == hash3
+        # Hashes should be identical due to sorting by LHS
+        assert hash1 == hash2
 
     def test_hash_system_definition_different_content(self):
         """Test that different content produces different hashes."""
-        dxdt1 = "dx = x + y"
-        dxdt2 = "dx = x - y"
+        x, y = sp.symbols('x y', real=True)
+        dx = sp.Symbol('dx', real=True)
+
+        dxdt1 = [(dx, x + y)]
+        dxdt2 = [(dx, x - y)]
 
         hash1 = hash_system_definition(dxdt1, {})
         hash2 = hash_system_definition(dxdt2, {})
@@ -545,7 +557,10 @@ class TestHashSystemDefinition:
 
     def test_hash_system_definition_with_constants(self):
         """Test that different constants produce different hashes."""
-        dxdt = "dx = c * x + y"
+        x, y, c = sp.symbols('x y c', real=True)
+        dx = sp.Symbol('dx', real=True)
+        dxdt = [(dx, c * x + y)]
+
         constants1 = {"c": 1.0}
         constants2 = {"c": 2.0}
 
@@ -754,6 +769,38 @@ class TestParseInput:
         )
 
         assert indexed_equations.ordered == scalar_equations.ordered
+
+    def test_parse_input_mixed_derivatives_and_auxiliaries(self):
+        """Test system with derivatives and d-prefixed auxiliaries."""
+        states = ["x", "y"]
+        parameters = ["k"]
+        constants = {}
+        observables = []
+        drivers = []
+        dxdt = [
+            "dx = -k * x",
+            "dy = k * x",
+            "delta = x + y",  # auxiliary, not derivative of elta
+            "damping = delta * k"  # auxiliary referencing delta
+        ]
+
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            drivers=drivers,
+            dxdt=dxdt,
+            strict=True
+        )
+
+        # Verify correct categorization
+        assert "x" in index_map.state_names
+        assert "y" in index_map.state_names
+        assert "elta" not in index_map.state_names  # NOT a state
+        assert "delta" in all_symbols  # auxiliary
+        assert "damping" in all_symbols  # auxiliary
+        assert len(parsed_eqs.state_derivatives) == 2
 
 
 class TestIntegrationWithFixtures:
@@ -1165,3 +1212,239 @@ class TestSympyInputPathway:
         obs_lhs, obs_rhs = parsed_eqs.observables[0]
         assert str(obs_lhs) == 'z'
         assert str(obs_rhs) == 'x + y'
+
+
+class TestHashConsistency:
+    """Test hash consistency across input pathways."""
+
+    def test_hash_consistency_string_vs_sympy_order(self):
+        """Verify string and SymPy inputs with different order produce same hash.
+
+        The hash should be computed from the canonical ParsedEquations form,
+        which sorts equations alphabetically by LHS symbol name. This test
+        verifies that reordering equations does not affect the hash.
+        """
+        # String input: dx first, then dy
+        result_string = parse_input(
+            dxdt=["dx = -k*x", "dy = k*x"],
+            states=['x', 'y'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # SymPy input with REVERSED order: dy first, then dx
+        x, y, k = sp.symbols('x y k', real=True)
+        dx, dy = sp.symbols('dx dy', real=True)
+        result_sympy = parse_input(
+            dxdt=[sp.Eq(dy, k*x), sp.Eq(dx, -k*x)],
+            states=['x', 'y'],
+            parameters=['k'],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Hash should be identical regardless of input order
+        _, _, _, _, fn_hash_string = result_string
+        _, _, _, _, fn_hash_sympy = result_sympy
+        assert fn_hash_string == fn_hash_sympy
+
+    def test_hash_computed_after_parsing(self):
+        """Verify hash correctly reflects parsed structure, not raw input.
+
+        The hash is computed from ParsedEquations, ensuring identical systems
+        produce identical hashes even with different input ordering.
+        """
+        # Order A: dx first
+        result_a = parse_input(
+            dxdt=["dx = -x", "dy = x"],
+            states=['x', 'y'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Order B: dy first (reversed)
+        result_b = parse_input(
+            dxdt=["dy = x", "dx = -x"],
+            states=['x', 'y'],
+            parameters=[],
+            constants={},
+            observables=[],
+            drivers=[],
+        )
+
+        # Hash should be identical since equations define the same system
+        _, _, _, _, fn_hash_a = result_a
+        _, _, _, _, fn_hash_b = result_b
+        assert fn_hash_a == fn_hash_b
+
+    def test_sympy_ambiguous_prefix_not_state_is_auxiliary(self):
+        """SymPy: delta_i symbol without state elta_i is auxiliary."""
+        x, k = sp.symbols('x k')
+        dx = sp.Symbol('dx')
+        delta_i = sp.Symbol('delta_i')
+
+        dxdt = [
+            sp.Eq(dx, -k * x),
+            sp.Eq(delta_i, x + 1)
+        ]
+
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['x'],
+            parameters=['k'],
+            strict=True
+        )
+
+        # delta_i should NOT create state elta_i
+        assert 'elta_i' not in index_map.state_names
+        # delta_i should be in auxiliaries
+        assert 'delta_i' in all_symbols
+
+    def test_sympy_ambiguous_prefix_is_state_is_derivative(self):
+        """SymPy: delta symbol with state elta is derivative."""
+        elta, k = sp.symbols('elta k')
+        delta = sp.Symbol('delta')
+
+        dxdt = [sp.Eq(delta, -k * elta)]
+
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
+            dxdt=dxdt,
+            states=['elta'],
+            parameters=['k'],
+            strict=True
+        )
+
+        assert len(parsed_eqs.state_derivatives) == 1
+        assert 'delta' not in all_symbols or \
+               str(parsed_eqs.state_derivatives[0][0]) == 'delta'
+
+
+class TestDerivativeNotation:
+    """Test state-aware derivative detection and function notation."""
+
+    def test_basic_derivative_with_declared_state(self):
+        """dx = ... with state x declared is treated as derivative."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["dx = -k * x"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert len(anon_aux) == 0
+        assert "dx" not in anon_aux
+        # dx should be tracked as a derivative, not auxiliary
+
+    def test_ambiguous_prefix_not_a_state_treated_as_auxiliary(self):
+        """delta_i = ... with no state elta_i is auxiliary."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["dx = -k * x", "delta_i = x + 1"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert "delta_i" in anon_aux
+        assert isinstance(anon_aux["delta_i"], sp.Symbol)
+        # elta_i should NOT be added as a state
+        assert "elta_i" not in ib.state_names
+
+    def test_ambiguous_prefix_is_a_state_treated_as_derivative(self):
+        """delta = ... with state elta declared is derivative of elta."""
+        ib = IndexedBases.from_user_inputs(
+            ["elta"], ["k"], [], [], []
+        )
+        lines = ["delta = -k * elta"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert len(anon_aux) == 0
+        assert "delta" not in anon_aux
+        # delta should be the derivative of elta
+        assert "delta" in ib.dxdt_names or "delta" not in anon_aux
+
+    def test_function_notation_with_declared_state(self):
+        """d(x, t) = ... with state x declared is derivative."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["d(x, t) = -k * x"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert len(anon_aux) == 0
+        # Should be treated as derivative of x
+
+    def test_function_notation_undeclared_state_strict_raises(self):
+        """d(x, t) = ... with no state x in strict mode raises."""
+        ib = IndexedBases.from_user_inputs(
+            [], ["k"], [], [], []
+        )
+        lines = ["d(x, t) = -k * x"]
+
+        with pytest.raises(ValueError, match="No state called x"):
+            _lhs_pass(lines, ib, strict=True)
+
+    def test_function_notation_undeclared_state_non_strict_infers(self):
+        """d(x, t) = ... with no state x in non-strict infers x."""
+        ib = IndexedBases.from_user_inputs(
+            [], ["k"], [], [], []
+        )
+        lines = ["d(x, t) = -k * x"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=False)
+
+        assert "x" in ib.state_names
+        assert len(anon_aux) == 0
+
+    def test_non_strict_state_inference_from_d_prefix(self):
+        """dx = ... with no state x in non-strict infers x as state."""
+        ib = IndexedBases.from_user_inputs(
+            [], ["k"], [], [], []
+        )
+        lines = ["dx = -k * x"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=False)
+
+        assert "x" in ib.state_names
+        assert len(anon_aux) == 0
+
+    def test_non_strict_auxiliary_not_inferred_as_state(self):
+        """delta = ... with no state elta in non-strict is auxiliary."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["dx = -k * x", "delta = x + 1"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=False)
+
+        # delta should be auxiliary, NOT inferring elta as state
+        assert "delta" in anon_aux
+        assert "elta" not in ib.state_names
+
+    def test_function_notation_with_whitespace(self):
+        """d( x , t ) = ... with extra whitespace works."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["d( x , t ) = -k * x"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert len(anon_aux) == 0
+
+    def test_single_letter_d_treated_as_auxiliary(self):
+        """d = ... alone is treated as auxiliary, not derivative."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["k"], [], [], []
+        )
+        lines = ["dx = -k * x", "d = x + 1"]
+
+        anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert "d" in anon_aux
