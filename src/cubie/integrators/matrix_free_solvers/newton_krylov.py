@@ -5,15 +5,18 @@ The helpers in this module wrap the linear solver provided by
 Newton iterations suitable for CUDA device execution.
 """
 
-from typing import Callable, Optional, Set, Dict, Any
+from typing import Callable, Optional, Set, Dict, Any, Union
 
-from attrs import define, field, validators
+from attrs import Converter, define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import dtype as np_dtype, int32 as np_int32
+from numpy import asarray, dtype as np_dtype, full, int32 as np_int32
+from numpy import isscalar, ndarray
+from numpy.typing import ArrayLike
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
+    float_array_validator,
     getype_validator,
     gttype_validator,
     inrangetype_validator,
@@ -27,6 +30,40 @@ from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, compile_kwa
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
+
+
+def tol_converter(
+    value: Union[float, ArrayLike],
+    self_: "NewtonKrylovConfig",
+) -> ndarray:
+    """Convert tolerance input into an array with solver precision.
+
+    Parameters
+    ----------
+    value
+        Scalar or array-like tolerance specification.
+    self_
+        Configuration instance providing precision and dimension info.
+
+    Returns
+    -------
+    numpy.ndarray
+        Tolerance array with one value per state variable.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``value`` cannot be broadcast to the expected shape.
+    """
+    if isscalar(value):
+        tol = full(self_.n, value, dtype=self_.precision)
+    else:
+        tol = asarray(value, dtype=self_.precision)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = full(self_.n, tol[0], dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
+            raise ValueError("tol must have shape (n,).")
+    return tol
 
 
 @define
@@ -79,6 +116,16 @@ class NewtonKrylovConfig:
     _newton_tolerance: float = field(
         default=1e-3,
         validator=gttype_validator(float, 0)
+    )
+    newton_atol: ndarray = field(
+        default=asarray([1e-3]),
+        validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
+    )
+    newton_rtol: ndarray = field(
+        default=asarray([1e-3]),
+        validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
     )
     max_newton_iters: int = field(
         default=100,
@@ -142,6 +189,8 @@ class NewtonKrylovConfig:
         dict
             Configuration dictionary containing:
             - newton_tolerance: Residual norm threshold for convergence
+            - newton_atol: Absolute tolerance array for scaled norm
+            - newton_rtol: Relative tolerance array for scaled norm
             - max_newton_iters: Maximum Newton iterations permitted
             - newton_damping: Step shrink factor for backtracking
             - newton_max_backtracks: Maximum damping attempts per Newton step
@@ -152,6 +201,8 @@ class NewtonKrylovConfig:
         """
         return {
             'newton_tolerance': self.newton_tolerance,
+            'newton_atol': self.newton_atol,
+            'newton_rtol': self.newton_rtol,
             'max_newton_iters': self.max_newton_iters,
             'newton_damping': self.newton_damping,
             'newton_max_backtracks': self.newton_max_backtracks,
@@ -292,9 +343,12 @@ class NewtonKrylov(CUDAFactory):
         newton_max_backtracks = config.newton_max_backtracks
 
         numba_precision = config.numba_precision
-        tol_squared = numba_precision(newton_tolerance * newton_tolerance)
+        newton_atol = config.newton_atol
+        newton_rtol = config.newton_rtol
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
+        inv_n = numba_precision(1.0 / n)
+        tol_floor = numba_precision(1e-16)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
         max_iters_val = int32(max_newton_iters)
@@ -385,9 +439,17 @@ class NewtonKrylov(CUDAFactory):
                 residual_value = residual[i]
                 residual[i] = -residual_value
                 delta[i] = typed_zero
-                norm2_prev += residual_value * residual_value
+                ref_val = stage_increment[i]
+                abs_ref = ref_val if ref_val >= typed_zero else -ref_val
+                tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
+                tol_i = tol_i if tol_i > tol_floor else tol_floor
+                abs_res = residual_value if residual_value >= typed_zero \
+                    else -residual_value
+                ratio = abs_res / tol_i
+                norm2_prev += ratio * ratio
+            norm2_prev = norm2_prev * inv_n
 
-            converged = norm2_prev <= tol_squared
+            converged = norm2_prev <= typed_one
             final_status = int32(0)
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -456,9 +518,18 @@ class NewtonKrylov(CUDAFactory):
                         norm2_new = typed_zero
                         for i in range(n_val):
                             residual_value = residual_temp[i]
-                            norm2_new += residual_value * residual_value
+                            ref_val = stage_increment[i]
+                            abs_ref = ref_val if ref_val >= typed_zero \
+                                else -ref_val
+                            tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
+                            tol_i = tol_i if tol_i > tol_floor else tol_floor
+                            abs_res = residual_value if residual_value >= \
+                                typed_zero else -residual_value
+                            ratio = abs_res / tol_i
+                            norm2_new += ratio * ratio
+                        norm2_new = norm2_new * inv_n
 
-                        if norm2_new <= tol_squared:
+                        if norm2_new <= typed_one:
                             converged = True
                             found_step = True
 
@@ -566,6 +637,16 @@ class NewtonKrylov(CUDAFactory):
     def newton_tolerance(self) -> float:
         """Return convergence tolerance."""
         return self.compile_settings.newton_tolerance
+
+    @property
+    def newton_atol(self) -> ndarray:
+        """Return absolute tolerance array."""
+        return self.compile_settings.newton_atol
+
+    @property
+    def newton_rtol(self) -> ndarray:
+        """Return relative tolerance array."""
+        return self.compile_settings.newton_rtol
 
     @property
     def max_newton_iters(self) -> int:

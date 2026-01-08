@@ -196,3 +196,123 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     code = flag.copy_to_host()[0] & 0xFF
     assert code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+
+
+def test_linear_solver_config_scalar_tolerance_broadcast(precision):
+    """Verify scalar krylov_atol/rtol broadcasts to array of length n."""
+    n = 5
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+    assert solver.krylov_atol.shape == (n,)
+    assert solver.krylov_rtol.shape == (n,)
+    assert np.all(solver.krylov_atol == precision(1e-6))
+    assert np.all(solver.krylov_rtol == precision(1e-4))
+
+
+def test_linear_solver_config_array_tolerance_accepted(precision):
+    """Verify array tolerances of correct length are accepted."""
+    n = 3
+    atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=atol,
+        krylov_rtol=rtol,
+    )
+    assert np.allclose(solver.krylov_atol, atol)
+    assert np.allclose(solver.krylov_rtol, rtol)
+
+
+def test_linear_solver_config_wrong_length_raises(precision):
+    """Verify wrong-length tolerance array raises ValueError."""
+    n = 3
+    wrong_atol = np.array([1e-6, 1e-8], dtype=precision)  # length 2
+    with pytest.raises(ValueError, match="tol must have shape"):
+        LinearSolver(
+            precision=precision,
+            n=n,
+            krylov_atol=wrong_atol,
+        )
+
+
+@pytest.mark.parametrize(
+    "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
+)
+def test_linear_solver_scaled_tolerance_converges(
+    solver_device,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """Verify linear solver converges with per-element tolerances on mixed-scale.
+
+    Creates a system with variables at different scales and sets per-element
+    tolerances matching the expected solution magnitudes.
+    """
+    rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
+    matrix = np.array(
+        [[4.0, 1.0, 0.0], [1.0, 3.0, 0.0], [0.0, 0.0, 2.0]],
+        dtype=precision,
+    )
+    expected = np.linalg.solve(matrix, rhs)
+    h = precision(0.01)
+    kernel = solver_kernel(solver_device, 3, h, precision)
+    base_state = np.array([1.0, -1.0, 0.5], dtype=precision)
+    state = cuda.to_device(
+        base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision)
+    )
+    rhs_dev = cuda.to_device(rhs)
+    x_dev = cuda.to_device(np.zeros(3, dtype=precision))
+    flag = cuda.to_device(np.array([0], dtype=np.int32))
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
+    code = flag.copy_to_host()[0] & 0xFF
+    assert code == SolverRetCodes.SUCCESS
+    assert np.allclose(
+        x_dev.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+
+
+@pytest.mark.parametrize(
+    "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
+)
+def test_linear_solver_scalar_tolerance_backward_compatible(
+    solver_device,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """Verify scalar tolerance produces convergent behavior."""
+    rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
+    matrix = np.array(
+        [[4.0, 1.0, 0.0], [1.0, 3.0, 0.0], [0.0, 0.0, 2.0]],
+        dtype=precision,
+    )
+    expected = np.linalg.solve(matrix, rhs)
+    h = precision(0.01)
+    kernel = solver_kernel(solver_device, 3, h, precision)
+    base_state = np.array([1.0, -1.0, 0.5], dtype=precision)
+    state = cuda.to_device(
+        base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision)
+    )
+    rhs_dev = cuda.to_device(rhs)
+    x_dev = cuda.to_device(np.zeros(3, dtype=precision))
+    flag = cuda.to_device(np.array([0], dtype=np.int32))
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
+    code = flag.copy_to_host()[0] & 0xFF
+    assert code == SolverRetCodes.SUCCESS
+    assert np.allclose(
+        x_dev.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )

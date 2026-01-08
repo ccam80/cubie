@@ -411,3 +411,197 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             | SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
         )
     )
+
+
+def test_newton_krylov_config_scalar_tolerance_broadcast(precision):
+    """Verify scalar newton_atol/rtol broadcasts to array of length n."""
+    n = 5
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=1e-6,
+        newton_rtol=1e-4,
+    )
+    assert newton.newton_atol.shape == (n,)
+    assert newton.newton_rtol.shape == (n,)
+    assert np.all(newton.newton_atol == precision(1e-6))
+    assert np.all(newton.newton_rtol == precision(1e-4))
+
+
+def test_newton_krylov_config_array_tolerance_accepted(precision):
+    """Verify array tolerances of correct length are accepted."""
+    n = 3
+    atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=atol,
+        newton_rtol=rtol,
+    )
+    assert np.allclose(newton.newton_atol, atol)
+    assert np.allclose(newton.newton_rtol, rtol)
+
+
+def test_newton_krylov_config_wrong_length_raises(precision):
+    """Verify wrong-length tolerance array raises ValueError."""
+    n = 3
+    wrong_atol = np.array([1e-6, 1e-8], dtype=precision)  # length 2
+    linear_solver = LinearSolver(precision=precision, n=n)
+    with pytest.raises(ValueError, match="tol must have shape"):
+        NewtonKrylov(
+            precision=precision,
+            n=n,
+            linear_solver=linear_solver,
+            newton_atol=wrong_atol,
+        )
+
+
+def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
+    """Verify Newton solver converges with per-element tolerances."""
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        # Simple implicit Euler residual: state - h * base_state
+        out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
+
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+        out[0] = (precision(1.0) - h * a_ij) * vec[0]
+
+    n = 1
+    linear_solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_tolerance=1e-8,
+        krylov_atol=1e-8,
+        krylov_rtol=1e-8,
+        max_linear_iters=32,
+    )
+    linear_solver.update(operator_apply=operator)
+
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=1e-6,
+        newton_rtol=1e-6,
+        max_newton_iters=16,
+    )
+    newton.update(residual_function=residual)
+    solver = newton.device_function
+
+    scratch_len = 2 * n
+    base = cuda.to_device(np.array([1.0], dtype=precision))
+
+    @cuda.jit
+    def kernel(state, base_dev, flag, h):
+        params = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
+        a_ij = precision(1.0)
+        shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base_dev,
+            shared,
+            persistent_local,
+            counters,
+        )
+
+    h = precision(0.01)
+    base_val = base.copy_to_host()[0]
+    expected_final = precision(base_val / (1.0 - h))
+    expected_increment = np.array([expected_final - base_val], dtype=precision)
+    x0 = expected_increment * precision(0.99)
+    x = cuda.to_device(x0)
+    out_flag = cuda.to_device(np.array([0], dtype=np.int32))
+    kernel[1, 1](x, base, out_flag, h)
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+
+    assert status_code == SolverRetCodes.SUCCESS
+    assert np.allclose(
+        x.copy_to_host(),
+        expected_increment,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+
+
+def test_newton_krylov_scalar_tolerance_backward_compatible(
+    placeholder_system, precision, tolerance
+):
+    """Verify scalar tolerance input produces same behavior as before."""
+    residual, operator, base_state = placeholder_system
+    n = 1
+
+    linear_solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_tolerance=1e-8,
+        max_linear_iters=32,
+    )
+    linear_solver.update(operator_apply=operator)
+
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_tolerance=1e-6,
+        max_newton_iters=16,
+    )
+    newton.update(residual_function=residual)
+    solver = newton.device_function
+
+    scratch_len = 2 * n
+
+    @cuda.jit
+    def kernel(state, base, flag, h):
+        params = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
+        a_ij = precision(1.0)
+        shared = cuda.shared.array(scratch_len, precision)
+        persistent_local = cuda.local.array(scratch_len, precision)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+            persistent_local,
+            counters,
+        )
+
+    h = precision(0.01)
+    base_val = base_state.copy_to_host()[0]
+    expected_final = precision(base_val / (1.0 - h))
+    expected_increment = np.array([expected_final - base_val], dtype=precision)
+    x0 = expected_increment * precision(0.99)
+    x = cuda.to_device(x0)
+    out_flag = cuda.to_device(np.array([0], dtype=np.int32))
+    kernel[1, 1](x, base_state, out_flag, h)
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+
+    assert status_code == SolverRetCodes.SUCCESS
+    assert np.allclose(
+        x.copy_to_host(),
+        expected_increment,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )

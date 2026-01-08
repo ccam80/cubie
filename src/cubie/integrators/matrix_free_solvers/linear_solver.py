@@ -6,15 +6,17 @@ The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
 """
 
-from typing import Callable, Optional, Set, Dict, Any
+from typing import Callable, Optional, Set, Dict, Any, Union
 
-from attrs import define, field, validators
+from attrs import Converter, define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import dtype as np_dtype
+from numpy import asarray, dtype as np_dtype, full, isscalar, ndarray
+from numpy.typing import ArrayLike
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
+    float_array_validator,
     getype_validator,
     gttype_validator,
     inrangetype_validator,
@@ -26,6 +28,40 @@ from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+
+
+def tol_converter(
+    value: Union[float, ArrayLike],
+    self_: "LinearSolverConfig",
+) -> ndarray:
+    """Convert tolerance input into an array with solver precision.
+
+    Parameters
+    ----------
+    value
+        Scalar or array-like tolerance specification.
+    self_
+        Configuration instance providing precision and dimension info.
+
+    Returns
+    -------
+    numpy.ndarray
+        Tolerance array with one value per state variable.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``value`` cannot be broadcast to the expected shape.
+    """
+    if isscalar(value):
+        tol = full(self_.n, value, dtype=self_.precision)
+    else:
+        tol = asarray(value, dtype=self_.precision)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = full(self_.n, tol[0], dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
+            raise ValueError("tol must have shape (n,).")
+    return tol
 
 
 @define
@@ -79,6 +115,16 @@ class LinearSolverConfig:
         default=1e-6,
         validator=gttype_validator(float, 0)
     )
+    krylov_atol: ndarray = field(
+        default=asarray([1e-6]),
+        validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
+    )
+    krylov_rtol: ndarray = field(
+        default=asarray([1e-6]),
+        validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
+    )
     max_linear_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767)
@@ -117,6 +163,8 @@ class LinearSolverConfig:
         dict
             Configuration dictionary containing:
             - krylov_tolerance: Convergence tolerance for linear solver
+            - krylov_atol: Absolute tolerance array for scaled norm
+            - krylov_rtol: Relative tolerance array for scaled norm
             - max_linear_iters: Maximum iterations permitted
             - linear_correction_type: Line-search strategy
             - preconditioned_vec_location: Buffer location for preconditioned vector
@@ -124,6 +172,8 @@ class LinearSolverConfig:
         """
         return {
             'krylov_tolerance': self.krylov_tolerance,
+            'krylov_atol': self.krylov_atol,
+            'krylov_rtol': self.krylov_rtol,
             'max_linear_iters': self.max_linear_iters,
             'linear_correction_type': self.linear_correction_type,
             'preconditioned_vec_location': self.preconditioned_vec_location,
@@ -234,12 +284,18 @@ class LinearSolver(CUDAFactory):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
+        # Extract tolerance arrays
+        krylov_atol = config.krylov_atol
+        krylov_rtol = config.krylov_rtol
+
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_linear_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
-        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
+        typed_one = precision_numba(1.0)
+        inv_n = precision_numba(1.0 / n)
+        tol_floor = precision_numba(1e-16)
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -283,9 +339,17 @@ class LinearSolver(CUDAFactory):
                 for i in range(n_val):
                     residual_value = rhs[i] - temp[i]
                     rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    ref_val = x[i]
+                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
+                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                    tol_i = tol_i if tol_i > tol_floor else tol_floor
+                    abs_res = residual_value if residual_value >= typed_zero \
+                        else -residual_value
+                    ratio = abs_res / tol_i
+                    acc += ratio * ratio
+                acc = acc * inv_n
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
 
                 iter_count = int32(0)
                 for _ in range(max_iters_val):
@@ -347,13 +411,31 @@ class LinearSolver(CUDAFactory):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ref_val = x[i]
+                            abs_ref = ref_val if ref_val >= typed_zero \
+                                else -ref_val
+                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                            tol_i = tol_i if tol_i > tol_floor else tol_floor
+                            abs_res = residual_value if residual_value >= \
+                                typed_zero else -residual_value
+                            ratio = abs_res / tol_i
+                            acc += ratio * ratio
+                        acc = acc * inv_n
                     else:
                         for i in range(n_val):
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ref_val = x[i]
+                            abs_ref = ref_val if ref_val >= typed_zero \
+                                else -ref_val
+                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                            tol_i = tol_i if tol_i > tol_floor else tol_floor
+                            abs_res = residual_value if residual_value >= \
+                                typed_zero else -residual_value
+                            ratio = abs_res / tol_i
+                            acc += ratio * ratio
+                        acc = acc * inv_n
 
-                    converged = converged or (acc <= tol_squared)
+                    converged = converged or (acc <= typed_one)
 
                 # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
@@ -443,9 +525,17 @@ class LinearSolver(CUDAFactory):
                 for i in range(n_val):
                     residual_value = rhs[i] - temp[i]
                     rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    ref_val = x[i]
+                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
+                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                    tol_i = tol_i if tol_i > tol_floor else tol_floor
+                    abs_res = residual_value if residual_value >= typed_zero \
+                        else -residual_value
+                    ratio = abs_res / tol_i
+                    acc += ratio * ratio
+                acc = acc * inv_n
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
 
                 iter_count = int32(0)
                 for _ in range(max_iters_val):
@@ -505,13 +595,31 @@ class LinearSolver(CUDAFactory):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ref_val = x[i]
+                            abs_ref = ref_val if ref_val >= typed_zero \
+                                else -ref_val
+                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                            tol_i = tol_i if tol_i > tol_floor else tol_floor
+                            abs_res = residual_value if residual_value >= \
+                                typed_zero else -residual_value
+                            ratio = abs_res / tol_i
+                            acc += ratio * ratio
+                        acc = acc * inv_n
                     else:
                         for i in range(n_val):
                             residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                            ref_val = x[i]
+                            abs_ref = ref_val if ref_val >= typed_zero \
+                                else -ref_val
+                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
+                            tol_i = tol_i if tol_i > tol_floor else tol_floor
+                            abs_res = residual_value if residual_value >= \
+                                typed_zero else -residual_value
+                            ratio = abs_res / tol_i
+                            acc += ratio * ratio
+                        acc = acc * inv_n
 
-                    converged = converged or (acc <= tol_squared)
+                    converged = converged or (acc <= typed_one)
 
                 # Log "exceeded linear iters" status if still not converged
                 final_status = selp(converged, int32(0), int32(4))
@@ -585,6 +693,16 @@ class LinearSolver(CUDAFactory):
     def krylov_tolerance(self) -> float:
         """Return convergence tolerance."""
         return self.compile_settings.krylov_tolerance
+
+    @property
+    def krylov_atol(self) -> ndarray:
+        """Return absolute tolerance array."""
+        return self.compile_settings.krylov_atol
+
+    @property
+    def krylov_rtol(self) -> ndarray:
+        """Return relative tolerance array."""
+        return self.compile_settings.krylov_rtol
 
     @property
     def max_linear_iters(self) -> int:

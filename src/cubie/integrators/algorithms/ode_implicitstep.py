@@ -88,6 +88,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
     _LINEAR_SOLVER_PARAMS = frozenset({
         'linear_correction_type',
         'krylov_tolerance',
+        'krylov_atol',
+        'krylov_rtol',
         'max_linear_iters',
         'preconditioned_vec_location',
         'temp_location',
@@ -96,6 +98,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
     # Parameters accepted by NewtonKrylov
     _NEWTON_KRYLOV_PARAMS = frozenset({
         'newton_tolerance',
+        'newton_atol',
+        'newton_rtol',
         'max_newton_iters',
         'newton_damping',
         'newton_max_backtracks',
@@ -357,6 +361,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return self.solver.krylov_tolerance
 
     @property
+    def krylov_atol(self) -> ndarray:
+        """Return the absolute tolerance array for linear solve."""
+        return self.solver.krylov_atol
+
+    @property
+    def krylov_rtol(self) -> ndarray:
+        """Return the relative tolerance array for linear solve."""
+        return self.solver.krylov_rtol
+
+    @property
     def max_linear_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
         return int(self.solver.max_linear_iters)
@@ -370,6 +384,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def newton_tolerance(self) -> Optional[float]:
         """Return the Newton solve tolerance."""
         return getattr(self.solver, 'newton_tolerance', None)
+
+    @property
+    def newton_atol(self) -> Optional[ndarray]:
+        """Return the Newton absolute tolerance array."""
+        return getattr(self.solver, 'newton_atol', None)
+
+    @property
+    def newton_rtol(self) -> Optional[ndarray]:
+        """Return the Newton relative tolerance array."""
+        return getattr(self.solver, 'newton_rtol', None)
 
     @property
     def max_newton_iters(self) -> Optional[int]:
