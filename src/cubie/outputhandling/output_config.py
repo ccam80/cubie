@@ -30,6 +30,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -71,7 +72,7 @@ def _indices_validator(
 
 
 @define
-class OutputCompileFlags:
+class OutputCompileFlags(CUDAFactoryConfig):
     """Boolean compile-time controls for CUDA output features.
 
     Attributes

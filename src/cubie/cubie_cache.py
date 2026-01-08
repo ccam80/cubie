@@ -8,7 +8,8 @@ the configured GENERATED_DIR.
 Notes
 -----
 This module depends on numba-cuda internal classes and may require
-updates when numba-cuda versions change.
+updates when numba-cuda versions change. When running under CUDA
+simulator mode, caching is disabled and stub classes are provided.
 """
 
 import hashlib
@@ -16,15 +17,28 @@ from pathlib import Path
 from typing import Any, Optional
 
 from attrs import fields, has
-from numba.cuda.core.caching import (
-    _CacheLocator,
-    CacheImpl,
-    IndexDataCacheFile,
-)
-from numba.cuda.dispatcher import CUDACache
 from numpy import ndarray
 
+from cubie.cuda_simsafe import is_cudasim_enabled
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
+
+# Conditional imports for CUDA caching classes
+# These are not available in CUDA simulator mode
+if not is_cudasim_enabled():
+    from numba.cuda.core.caching import (
+        _CacheLocator,
+        CacheImpl,
+        IndexDataCacheFile,
+    )
+    from numba.cuda.dispatcher import CUDACache
+    _CACHING_AVAILABLE = True
+else:
+    # Stub classes for simulator mode
+    _CacheLocator = object
+    CacheImpl = object
+    IndexDataCacheFile = None
+    CUDACache = object
+    _CACHING_AVAILABLE = False
 
 
 def hash_compile_settings(obj: Any) -> str:
@@ -128,9 +142,9 @@ class CUBIECacheLocator(_CacheLocator):
         self._system_hash = system_hash
         self._compile_settings_hash = compile_settings_hash
         if custom_cache_dir is not None:
-            path = Path(custom_cache_dir)
+            self._cache_path = Path(custom_cache_dir)
         else:
-            path = GENERATED_DIR / system_name / "CUDA_cache"
+            self._cache_path = GENERATED_DIR / system_name / "CUDA_cache"
 
     def get_cache_path(self) -> str:
         """Return the directory where cache files are stored.
@@ -284,7 +298,12 @@ class CUBIECache(CUDACache):
     system_hash
         Hash representing the ODE system definition.
     compile_settings
-        Attrs class instance of compile settings.
+        Attrs class instance of compile settings, or None if config_hash
+        is provided directly.
+    config_hash
+        Pre-computed hash of the compile settings. When provided,
+        compile_settings is ignored. This is the preferred approach
+        for CUDAFactoryConfig-based settings.
     max_entries
         Maximum number of cache entries before LRU eviction.
         Set to 0 to disable eviction.
@@ -306,14 +325,39 @@ class CUBIECache(CUDACache):
         self,
         system_name: str,
         system_hash: str,
-        compile_settings: Any,
+        compile_settings: Any = None,
+        config_hash: Optional[str] = None,
         max_entries: int = 10,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
+        # Caching not available in CUDA simulator mode
+        if not _CACHING_AVAILABLE:
+            raise RuntimeError(
+                "CUBIECache is not available in CUDA simulator mode. "
+                "File-based caching requires a real CUDA environment."
+            )
+
         self._system_name = system_name
         self._system_hash = system_hash
-        self._compile_settings_hash = hash_compile_settings(compile_settings)
+
+        # Use config_hash directly if provided, otherwise compute from
+        # compile_settings
+        if config_hash is not None:
+            self._compile_settings_hash = config_hash
+        elif compile_settings is not None:
+            # Check if it's a CUDAFactoryConfig with values_hash
+            if hasattr(compile_settings, 'values_hash'):
+                self._compile_settings_hash = compile_settings.values_hash
+            else:
+                self._compile_settings_hash = hash_compile_settings(
+                    compile_settings
+                )
+        else:
+            raise ValueError(
+                "Either compile_settings or config_hash must be provided"
+            )
+
         self._name = f"CUBIECache({system_name})"
         self._max_entries = max_entries
         self._mode = mode

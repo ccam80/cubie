@@ -197,6 +197,7 @@ def test_cache_impl_check_cachable():
 
 # --- CUBIECache tests ---
 
+@pytest.mark.nocudasim
 def test_cubie_cache_init():
     """Verify CUBIECache initializes with system info."""
     settings = MockCompileSettings()
@@ -211,6 +212,7 @@ def test_cubie_cache_init():
     assert cache._name == "CUBIECache(test_system)"
 
 
+@pytest.mark.nocudasim
 def test_cubie_cache_index_key():
     """Verify _index_key includes system and settings hashes."""
     settings = MockCompileSettings()
@@ -238,6 +240,7 @@ def test_cubie_cache_index_key():
     assert key[3] == hash_compile_settings(settings)
 
 
+@pytest.mark.nocudasim
 def test_cubie_cache_path():
     """Verify cache_path property returns expected path."""
     settings = MockCompileSettings()

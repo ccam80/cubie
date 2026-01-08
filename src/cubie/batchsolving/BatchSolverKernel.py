@@ -838,7 +838,7 @@ class BatchSolverKernel(CUDAFactory):
 
         # Attach file-based caching if enabled and not in simulator mode
         cache_config = self.compile_settings.cache_config
-        if cache_config.enabled:
+        if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
             system_name = getattr(system, 'name', 'anonymous')
             system_hash = system.fn_hash
@@ -846,7 +846,7 @@ class BatchSolverKernel(CUDAFactory):
             cache = CUBIECache(
                 system_name=system_name,
                 system_hash=system_hash,
-                compile_settings=self.compile_settings,
+                config_hash=self.config_hash,
                 max_entries=cache_config.max_entries,
                 mode=cache_config.mode,
                 custom_cache_dir=cache_config.cache_dir,
@@ -1033,7 +1033,7 @@ class BatchSolverKernel(CUDAFactory):
                 cache = CUBIECache(
                     system_name=system_name,
                     system_hash=system_hash,
-                    compile_settings=self.compile_settings,
+                    config_hash=self.config_hash,
                     max_entries=cache_config.max_entries,
                     mode=cache_config.mode,
                     custom_cache_dir=cache_config.cache_dir,
@@ -1044,7 +1044,7 @@ class BatchSolverKernel(CUDAFactory):
 
     def instantiate_cache(self):
         cache_config = self.compile_settings.cache_config
-        if cache_config.enabled:
+        if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
             system_name = getattr(system, 'name', 'anonymous')
             system_hash = system.fn_hash
@@ -1052,7 +1052,7 @@ class BatchSolverKernel(CUDAFactory):
             cache = CUBIECache(
                     system_name=system_name,
                     system_hash=system_hash,
-                    compile_settings=self.compile_settings,
+                    config_hash=self.config_hash,
                     max_entries=cache_config.max_entries,
                     mode=cache_config.mode,
                     custom_cache_dir=cache_config.cache_dir,

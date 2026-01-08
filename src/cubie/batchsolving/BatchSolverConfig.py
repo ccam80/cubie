@@ -15,12 +15,13 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
+from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define
-class CacheConfig:
+class CacheConfig(CUDAFactoryConfig):
     """Configuration for file-based kernel caching.
 
     Parameters
@@ -132,8 +133,9 @@ class ActiveOutputs:
             iteration_counters=flags.save_counters,
         )
 
+
 @attrs.define
-class BatchSolverConfig:
+class BatchSolverConfig(CUDAFactoryConfig):
     """Compile-critical settings for the batch solver kernel.
 
     Attributes
@@ -198,4 +200,3 @@ class BatchSolverConfig:
         """Simulator-safe precision compatible with CUDA kernels."""
 
         return simsafe_dtype(self.precision)
-

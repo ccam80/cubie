@@ -1,9 +1,10 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
+import hashlib
 from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple
 
-from attrs import define, fields, has
+from attrs import define, field, fields, has
 from numpy import (
     any as np_any,
     array,
@@ -16,6 +17,7 @@ from numpy import (
     ones,
     array_equal,
     asarray,
+    ndarray,
 )
 from numba import cuda
 from numba import types as numba_types
@@ -26,6 +28,201 @@ from numba import int32 as numba_int32
 
 from cubie._utils import in_attr
 from cubie.time_logger import default_timelogger
+
+
+def _serialize_value(value: Any) -> str:
+    """Serialize a value to a string for hashing.
+
+    Parameters
+    ----------
+    value
+        Value to serialize.
+
+    Returns
+    -------
+    str
+        String representation suitable for hashing.
+    """
+    if value is None:
+        return "None"
+    elif isinstance(value, ndarray):
+        # Hash array bytes for deterministic result
+        array_hash = hashlib.sha256(value.tobytes()).hexdigest()
+        return f"ndarray:{array_hash}"
+    elif has(type(value)):
+        # Recursively hash nested attrs classes
+        if hasattr(value, 'values_hash'):
+            return f"config:{value.values_hash}"
+        else:
+            # Fallback for non-CUDAFactoryConfig attrs classes
+            return f"attrs:{_hash_attrs_object(value)}"
+    else:
+        return str(value)
+
+
+def _hash_attrs_object(obj: Any) -> str:
+    """Compute a hash for an attrs object without values_hash method.
+
+    Parameters
+    ----------
+    obj
+        An attrs class instance.
+
+    Returns
+    -------
+    str
+        SHA256 hash string of the serialized fields.
+    """
+    parts = []
+    for fld in fields(type(obj)):
+        if fld.eq is False:
+            continue
+        value = getattr(obj, fld.name)
+        serialized = _serialize_value(value)
+        parts.append(f"{fld.name}={serialized}")
+
+    combined = "|".join(parts)
+    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
+
+@define
+class CUDAFactoryConfig:
+    """Base class for CUDAFactory compile settings containers.
+
+    Provides infrastructure for tracking configuration values and computing
+    stable hashes for cache key generation. Subclasses should be defined
+    with @attrs.define decorator.
+
+    Notes
+    -----
+    The values_tuple and values_hash properties enable efficient cache
+    invalidation by comparing configuration states. Fields with eq=False
+    are excluded from hashing (typically callables or device functions).
+    """
+
+    _values_tuple: Tuple = field(
+        default=None, init=False, repr=False, eq=False
+    )
+    _values_hash: str = field(default="", init=False, repr=False, eq=False)
+
+    def update(
+        self, updates_dict: dict = None, **kwargs
+    ) -> Tuple[Set[str], Set[str]]:
+        """Update configuration fields with new values.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of setting names to new values.
+        **kwargs
+            Additional settings to update.
+
+        Returns
+        -------
+        tuple[set[str], set[str]]
+            recognized: Names of settings that matched known fields.
+            changed: Names of settings whose values were updated.
+
+        Notes
+        -----
+        Checks both field names and aliases in a single pass. For fields
+        with underscore-prefixed names, the alias (without underscore) is
+        also checked. After updates, values_tuple and values_hash are
+        regenerated.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = updates_dict.copy()
+        if kwargs:
+            updates_dict.update(kwargs)
+        if not updates_dict:
+            return set(), set()
+
+        recognized = set()
+        changed = set()
+
+        # Build a map of field names and aliases to field objects
+        field_map = {}
+        for fld in fields(type(self)):
+            field_map[fld.name] = fld
+            if fld.alias is not None:
+                field_map[fld.alias] = fld
+
+        for key, value in updates_dict.items():
+            # Check the key directly, then with underscore prefix
+            fld = field_map.get(key) or field_map.get(f"_{key}")
+            if fld is None:
+                continue
+
+            recognized.add(key)
+            old_value = getattr(self, fld.name)
+            try:
+                value_changed = old_value != value
+            except ValueError:
+                # Array comparison may raise ValueError
+                value_changed = not array_equal(
+                    asarray(old_value), asarray(value)
+                )
+            if np_any(value_changed):
+                setattr(self, fld.name, value)
+                changed.add(key)
+
+        # Regenerate hash after updates
+        if changed:
+            self._regenerate_hash()
+
+        return recognized, changed
+
+    def _regenerate_hash(self) -> None:
+        """Regenerate values_tuple and values_hash from current field values.
+
+        Called automatically after update() modifies any field values.
+        """
+        values = []
+        for fld in fields(type(self)):
+            if fld.eq is False:
+                continue
+            # Skip internal tracking fields
+            if fld.name in ("_values_tuple", "_values_hash"):
+                continue
+            value = getattr(self, fld.name)
+            if has(type(value)) and hasattr(value, 'values_tuple'):
+                # Nested CUDAFactoryConfig: include its values_tuple
+                values.append(value.values_tuple)
+            else:
+                values.append(_serialize_value(value))
+
+        self._values_tuple = tuple(values)
+        combined = "|".join(str(v) for v in self._values_tuple)
+        self._values_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
+    @property
+    def values_tuple(self) -> Tuple:
+        """Tuple of values for all eq=True fields.
+
+        Returns
+        -------
+        tuple
+            Ordered values of configuration fields used for equality
+            comparison. For nested CUDAFactoryConfig instances, includes
+            their values_tuple recursively.
+        """
+        if self._values_tuple is None:
+            self._regenerate_hash()
+        return self._values_tuple
+
+    @property
+    def values_hash(self) -> str:
+        """SHA256 hexdigest of the values_tuple.
+
+        Returns
+        -------
+        str
+            64-character hex string representing the configuration state.
+        """
+        if not self._values_hash:
+            self._regenerate_hash()
+        return self._values_hash
 
 
 @define
@@ -88,7 +285,7 @@ class CUDAFactory(ABC):
 
     def __init__(self):
         """Initialize the CUDA factory.
-        
+
         Notes
         -----
         Uses the global default time logger from cubie.time_logger.
@@ -98,7 +295,7 @@ class CUDAFactory(ABC):
         self._compile_settings = None
         self._cache_valid = True
         self._cache = None
-        
+
         # Use global default logger callbacks
         self._timing_start = default_timelogger.start_event
         self._timing_stop = default_timelogger.stop_event
@@ -158,6 +355,30 @@ class CUDAFactory(ABC):
         """Return the current compile settings object."""
         return self._compile_settings
 
+    @property
+    def config_hash(self) -> str:
+        """Return the hash of the current compile settings.
+
+        Returns
+        -------
+        str
+            SHA256 hexdigest of the compile settings. Returns empty string
+            if compile_settings is None.
+
+        Notes
+        -----
+        For CUDAFactoryConfig-based settings, uses values_hash directly.
+        For legacy attrs classes, falls back to _hash_attrs_object.
+        Subclasses with child CUDAFactory objects should override this
+        to combine their hashes.
+        """
+        if self._compile_settings is None:
+            return ""
+        if hasattr(self._compile_settings, 'values_hash'):
+            return self._compile_settings.values_hash
+        # Fallback for legacy attrs classes
+        return _hash_attrs_object(self._compile_settings)
+
     def update_compile_settings(
         self, updates_dict=None, silent=False, **kwargs
     ) -> Set[str]:
@@ -194,31 +415,49 @@ class CUDAFactory(ABC):
 
         if self._compile_settings is None:
             raise ValueError(
-                "Compile settings must be set up using self.setup_compile_settings before updating."
+                "Compile settings must be set up using "
+                "self.setup_compile_settings before updating."
             )
 
-        recognized_params = []
-        updated_params = []
+        recognized_params = set()
+        updated_params = set()
 
-        for key, value in updates_dict.items():
-            recognized, updated = self._check_and_update(f"_{key}", value)
-            # Only check for a non-underscored name if there's no private attr
-            if not recognized:
-                r, u = self._check_and_update(key, value)
-                recognized |= r
-                updated |= u
+        # Use CUDAFactoryConfig.update() if available
+        if hasattr(self._compile_settings, 'update'):
+            recognized, changed = self._compile_settings.update(updates_dict)
+            recognized_params.update(recognized)
+            updated_params.update(changed)
+            # Remove recognized keys from updates_dict for nested checking
+            remaining_dict = {
+                k: v for k, v in updates_dict.items()
+                if k not in recognized_params
+            }
+        else:
+            # Legacy path: check individual fields
+            remaining_dict = updates_dict.copy()
+            for key, value in updates_dict.items():
+                recognized, updated = self._check_and_update(f"_{key}", value)
+                # Check for non-underscored name if no private attr found
+                if not recognized:
+                    r, u = self._check_and_update(key, value)
+                    recognized |= r
+                    updated |= u
 
-            # Check nested attrs classes and dicts if not found at top level
+                if recognized:
+                    recognized_params.add(key)
+                    remaining_dict.pop(key, None)
+                if updated:
+                    updated_params.add(key)
+
+        # Check nested attrs classes and dicts for remaining keys
+        for key, value in remaining_dict.items():
             r, u = self._check_nested_update(key, value)
-            recognized |= r
-            updated |= u
+            if r:
+                recognized_params.add(key)
+            if u:
+                updated_params.add(key)
 
-            if recognized:
-                recognized_params.append(key)
-            if updated:
-                updated_params.append(key)
-
-        unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
+        unrecognised_params = set(updates_dict.keys()) - recognized_params
         if unrecognised_params and not silent:
             invalid = ", ".join(sorted(unrecognised_params))
             raise KeyError(
@@ -228,7 +467,7 @@ class CUDAFactory(ABC):
         if updated_params:
             self._invalidate_cache()
 
-        return set(recognized_params)
+        return recognized_params
 
     def _check_and_update(self,
                           key: str,
@@ -264,7 +503,7 @@ class CUDAFactory(ABC):
                 value_changed = not array_equal(
                     asarray(old_value), asarray(value)
                 )
-            if np_any(value_changed): # Arrays will return an array of bools
+            if np_any(value_changed):  # Arrays will return an array of bools
                 setattr(self._compile_settings, key, value)
                 updated = True
             recognized = True
@@ -276,8 +515,9 @@ class CUDAFactory(ABC):
 
         Searches one level of nesting within compile_settings attributes.
         If an attribute is an attrs class or dict, checks whether the key
-        exists as a field/key within it. Uses the same comparison logic
-        as _check_and_update.
+        exists as a field/key within it. Uses CUDAFactoryConfig.update()
+        for nested CUDAFactoryConfig instances, or falls back to direct
+        attribute comparison.
 
         Parameters
         ----------
@@ -298,22 +538,28 @@ class CUDAFactory(ABC):
         existing attribute. This prevents accidental type mismatches when
         a key name collides across different nested structures.
         """
-        for field in fields(type(self._compile_settings)):
-            nested_obj = getattr(self._compile_settings, field.name)
+        for fld in fields(type(self._compile_settings)):
+            nested_obj = getattr(self._compile_settings, fld.name)
 
             # Check if nested object is an attrs class
             if has(type(nested_obj)):
-                # Check with underscore prefix first, then without
-                for attr_key in (f"_{key}", key):
-                    if in_attr(attr_key, nested_obj):
-                        old_value = getattr(nested_obj, attr_key)
-                        value_changed = old_value != value
+                # Use CUDAFactoryConfig.update() if available
+                if hasattr(nested_obj, 'update'):
+                    recognized, changed = nested_obj.update({key: value})
+                    if recognized:
+                        return True, bool(changed)
+                else:
+                    # Legacy path: check with underscore prefix first
+                    for attr_key in (f"_{key}", key):
+                        if in_attr(attr_key, nested_obj):
+                            old_value = getattr(nested_obj, attr_key)
+                            value_changed = old_value != value
 
-                        updated = False
-                        if np_any(value_changed):
-                            setattr(nested_obj, attr_key, value)
-                            updated = True
-                        return True, updated
+                            updated = False
+                            if np_any(value_changed):
+                                setattr(nested_obj, attr_key, value)
+                                updated = True
+                            return True, updated
 
             # Check if nested object is a dict
             elif isinstance(nested_obj, dict):

@@ -315,3 +315,140 @@ def test_update_compile_settings_nested_not_found(factory):
 
     with pytest.raises(KeyError):
         factory.update_compile_settings(nonexistent_key=42)
+
+
+# --- CUDAFactoryConfig tests ---
+
+def test_cuda_factory_config_values_hash():
+    """Test that CUDAFactoryConfig produces consistent hashes."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 10
+        value2: str = "test"
+
+    config1 = TestConfig()
+    config2 = TestConfig()
+
+    # Same values should produce same hash
+    assert config1.values_hash == config2.values_hash
+    assert len(config1.values_hash) == 64  # SHA256 hex digest
+
+
+def test_cuda_factory_config_values_tuple():
+    """Test that values_tuple returns tuple of serialized field values."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 42
+        value2: str = "hello"
+
+    config = TestConfig()
+    vt = config.values_tuple
+
+    assert isinstance(vt, tuple)
+    assert "42" in vt
+    assert "hello" in vt
+
+
+def test_cuda_factory_config_update():
+    """Test the update() method on CUDAFactoryConfig."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 10
+        value2: str = "test"
+
+    config = TestConfig()
+    old_hash = config.values_hash
+
+    recognized, changed = config.update({"value1": 20})
+    assert "value1" in recognized
+    assert "value1" in changed
+    assert config.value1 == 20
+    assert config.values_hash != old_hash
+
+
+def test_cuda_factory_config_update_unchanged():
+    """Test that update() reports no change when value is same."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 10
+
+    config = TestConfig()
+    old_hash = config.values_hash
+
+    recognized, changed = config.update({"value1": 10})
+    assert "value1" in recognized
+    assert "value1" not in changed
+    assert config.values_hash == old_hash
+
+
+def test_cuda_factory_config_nested_hash():
+    """Test that nested CUDAFactoryConfig objects are included in hash."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class InnerConfig(CUDAFactoryConfig):
+        inner_value: int = 5
+
+    @attrs.define
+    class OuterConfig(CUDAFactoryConfig):
+        outer_value: int = 10
+        nested: InnerConfig = attrs.Factory(InnerConfig)
+
+    config1 = OuterConfig()
+    config2 = OuterConfig()
+
+    assert config1.values_hash == config2.values_hash
+
+    # Change nested value
+    config2.nested.inner_value = 999
+    config2.nested._regenerate_hash()
+    config2._regenerate_hash()
+
+    assert config1.values_hash != config2.values_hash
+
+
+def test_cuda_factory_config_hash_property():
+    """Test that CUDAFactory.config_hash uses compile_settings.values_hash."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 10
+
+    class TestFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    factory = TestFactory()
+    factory.setup_compile_settings(TestConfig())
+
+    # config_hash should return the compile_settings.values_hash
+    assert factory.config_hash == factory.compile_settings.values_hash
+    assert len(factory.config_hash) == 64
+
+
+def test_cuda_factory_config_eq_false_excluded():
+    """Test that fields with eq=False are excluded from hash."""
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value1: int = 10
+        callback: object = attrs.field(default=None, eq=False)
+
+    config1 = TestConfig(callback=lambda: 1)
+    config2 = TestConfig(callback=lambda: 2)
+
+    # Hash should be same despite different callbacks
+    assert config1.values_hash == config2.values_hash
