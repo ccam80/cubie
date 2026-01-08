@@ -112,6 +112,16 @@
   - `mean_std_rms` - composite metric for efficient computation of mean, standard deviation, and RMS
 * Buffer sharing optimization: `mean_std_rms` uses 50% less buffer space (2 slots) compared to computing mean, std, and rms separately (4 slots)
 
+### Breaking Changes
+
+* **ODELoopConfig**: Removed `controller_local_len` and `algorithm_local_len` fields
+  - These metadata fields were not used in build() or buffer registration
+  - Child factories (step_controller, algorithm_step) manage their own buffer allocation via buffer_registry
+  - If you were explicitly setting these parameters, simply remove them from your code
+  - Buffer sizing information remains available from child factories if needed:
+    * Controller buffer size: `loop._step_controller.local_memory_elements`
+    * Algorithm buffer size: `loop._algorithm_step.local_memory_elements`
+
 ## [0.0.5](https://github.com/ccam80/cubie/compare/v0.0.4...v0.0.5) (2025-11-04)
 
 
