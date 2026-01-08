@@ -54,9 +54,8 @@ class TestCacheInvalidationMinimal:
     def test_essential_parameters_affect_equality(self):
         """Verify that essential loop parameters affect config equality.
         
-        Parameters like n_states, save_every, and buffer locations are used
-        in build() and should affect config equality (and thus cache
-        invalidation).
+        Parameters like n_states and buffer locations are used in build()
+        and should affect config equality (and thus cache invalidation).
         """
         base_config = ODELoopConfig(
             n_states=3,
@@ -79,15 +78,6 @@ class TestCacheInvalidationMinimal:
         assert base_config != different_location, (
             "Configs with different buffer locations should not be equal"
         )
-        
-        different_timing = ODELoopConfig(
-            n_states=3,
-            precision=float32,
-            _save_every=0.1,
-        )
-        assert base_config != different_timing, (
-            "Configs with different timing parameters should not be equal"
-        )
 
     def test_config_equality_basics(self):
         """Verify that identical configs are equal.
@@ -100,14 +90,12 @@ class TestCacheInvalidationMinimal:
             n_parameters=2,
             precision=float32,
             state_location='local',
-            _save_every=0.1,
         )
         config2 = ODELoopConfig(
             n_states=3,
             n_parameters=2,
             precision=float32,
             state_location='local',
-            _save_every=0.1,
         )
         
         assert config1 == config2, (
