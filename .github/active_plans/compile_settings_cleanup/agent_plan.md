@@ -1,424 +1,464 @@
-# Compile Settings Cleanup - Agent Plan
+# Agent Plan: Compile Settings Cleanup
 
 ## Objective
 
-Systematically identify and remove redundant variables from all compile_settings attrs classes used by CUDAFactory subclasses. A variable is redundant if it is NOT used anywhere in the build() method chain and does NOT derive parameters that are used in the build() chain.
+Systematically analyze every CUDAFactory subclass and its config object to identify and remove compile settings fields that are never used during compilation. This prepares the codebase for efficient caching by minimizing spurious cache invalidations.
 
-## Architectural Context
+## Analysis Methodology
 
-### CUDAFactory Build Chain Pattern
+### Isolation Principle
 
-Every CUDAFactory subclass follows this pattern:
+Each CUDAFactory subclass MUST be analyzed in complete isolation:
 
-1. **Initialization**: Receives parameters and creates a compile_settings attrs class
-2. **setup_compile_settings()**: Stores the compile_settings object
-3. **build()**: Compiles CUDA device functions using values from compile_settings
-4. **Properties**: May expose compile_settings values through properties
+1. Open only files related to the specific factory being analyzed
+2. Do not reference or load files from other factories during analysis
+3. Close all files before moving to the next factory
+4. Document findings per factory before proceeding
 
-The build chain includes:
-- The build() method itself
-- Any methods called by build()
-- Any helper functions that receive compile_settings values
-- Child factory build() methods if parent passes settings to children
+This prevents confusion between different config objects and ensures accurate usage tracking.
 
-### Cache Invalidation Mechanism
+### Usage Criteria
 
-When `update_compile_settings()` is called:
-1. CUDAFactory compares new settings to old settings using `__eq__`
-2. If ANY field differs, cache is invalidated
-3. Next property access triggers rebuild
+A config field is **USED** if:
 
-**Problem**: Currently, changing ANY compile_settings field invalidates cache, even fields not used in build().
+1. **Direct access**: `self.compile_settings.field_name` appears in build() or helper methods
+2. **Property derivation**: Field is accessed by a property that is itself used in build()
+3. **Buffer registration**: Field is used in `register_buffers()` which provides allocators to build()
+4. **Factory function parameter**: Field is passed to a factory function called in build()
+5. **Nested compilation**: Field is passed to child CUDAFactory's config during nested build()
+6. **Closure capture**: Field is captured in closure within build() method
+
+A config field is **REDUNDANT** if:
+
+1. Never accessed in build() method or any methods it calls
+2. Not used by properties accessed in build() chain
+3. Not used in buffer registration that affects build()
+4. Not passed to any factory functions or child configs
+5. Stored but never read during compilation
+
+### Base Class Config Handling
+
+For config classes shared by multiple CUDAFactory subclasses:
+
+1. Analyze ALL subclasses that use the base config
+2. Keep field if used by ANY subclass
+3. Remove field only if unused across ALL subclasses
+4. Document which subclass(es) use each field
+
+Example: `BaseStepConfig` is used by all algorithm steps - analyze all algorithms before removing any field.
 
 ### Build Chain Tracing
 
-To determine if a variable is redundant, trace from build() method:
+For each factory, trace the complete build chain:
 
-```python
-def build(self):
-    config = self.compile_settings
-    
-    # Variable IS used if:
-    x = config.some_var  # 1. Directly accessed
-    y = helper(config.derived_var)  # 2. Passed to helper
-    
-    # Variable is REDUNDANT if:
-    # - Never accessed in build() or its callees
-    # - Only used to compute OTHER redundant variables
+1. **Entry point**: `build()` method
+2. **Helper methods**: Any methods called by build()
+3. **Factory functions**: External factory functions (e.g., `save_state_factory()`)
+4. **Nested builds**: Child CUDAFactory instances built within parent's build()
+5. **Buffer allocators**: Allocators retrieved from buffer registry (created in `register_buffers()`)
+6. **Closures**: Values captured in device function closures
+
+### Property Tracing
+
+Properties may access config fields indirectly:
+
+1. Identify all properties of the factory class
+2. For each property used in build(), trace which config fields it accesses
+3. Keep all config fields accessed by used properties
+4. Do NOT assume all properties are used - verify actual usage in build()
+
+## Factory Analysis Checklist
+
+For each CUDAFactory subclass:
+
+### Step 1: Identify Factory and Config
+
+- [ ] Locate CUDAFactory subclass file
+- [ ] Identify config class used in `setup_compile_settings()`
+- [ ] Locate config class definition (may be in separate file)
+- [ ] List all fields in config class
+
+### Step 2: Trace Build Method
+
+- [ ] Read build() method completely
+- [ ] Note all `self.compile_settings.field` accesses
+- [ ] Note all property accesses on self
+- [ ] Note all helper method calls
+- [ ] Note all child factory instantiations
+
+### Step 3: Trace Helper Methods
+
+- [ ] For each helper method, trace config field usage
+- [ ] Follow entire call chain from build()
+
+### Step 4: Trace Buffer Registration
+
+- [ ] Read `register_buffers()` method if present
+- [ ] Identify which config fields are used for buffer registration
+- [ ] Confirm these fields affect allocators used in build()
+
+### Step 5: Trace Properties
+
+- [ ] List all properties accessed in build() chain
+- [ ] For each property, identify config fields it reads
+- [ ] Mark those config fields as used
+
+### Step 6: Trace Factory Functions
+
+- [ ] List all factory functions called in build()
+- [ ] For each factory call, identify which config fields are passed as arguments
+- [ ] Mark those config fields as used
+
+### Step 7: Create Usage Map
+
+Create a table:
+
+| Config Field | Used In | Used By | Keep/Remove | Notes |
+|--------------|---------|---------|-------------|-------|
+| field_name   | build() | Line 123| Keep        | Direct access |
+| other_field  | N/A     | N/A     | Remove      | Never accessed |
+
+### Step 8: Validate Removal Decisions
+
+- [ ] Double-check all "Remove" decisions
+- [ ] Verify field is not used in derived parameters
+- [ ] Verify field is not needed for buffer registry
+- [ ] Verify field is not part of shared base config used elsewhere
+
+### Step 9: Document Before Removal
+
+- [ ] Create documentation of removal decisions
+- [ ] Note any edge cases or concerns
+
+### Step 10: Test After Removal
+
+- [ ] Run linters (flake8, ruff)
+- [ ] Run relevant test file for this factory
+- [ ] Fix any import errors or test failures
+- [ ] Commit changes with clear message
+
+## Factory Analysis Order
+
+Analyze factories in dependency order (children before parents):
+
+### Tier 1: Leaf Components (No Dependencies)
+
+1. **Summary Metrics**
+   - `SummaryMetric` → `MetricConfig`
+   - Each metric is independent
+
+2. **BaseODE System Data**
+   - `BaseODE` → `ODEData`
+   - System data container
+
+### Tier 2: Low-Level Components
+
+3. **Array Interpolator**
+   - `ArrayInterpolator` → `ArrayInterpolatorConfig`
+   - Used by loops but has no dependencies
+
+4. **Matrix-Free Solvers**
+   - `LinearSolver` → `LinearSolverConfig`
+   - `NewtonKrylov` → `NewtonKrylovConfig`
+   - Used by implicit algorithms
+
+### Tier 3: Algorithm Steps
+
+5. **Base Algorithm**
+   - `BaseAlgorithmStep` → `BaseStepConfig`
+   - Must analyze ALL subclasses before removing base fields
+
+6. **Explicit Algorithms**
+   - ERK variants
+   - ExplicitEuler
+   - Other explicit methods
+
+7. **Implicit Algorithms**
+   - DIRK variants
+   - FIRK variants
+   - RosenbrockW variants
+   - BackwardsEuler
+   - CrankNicolson
+   - Other implicit methods
+
+### Tier 4: Step Controllers
+
+8. **Base Controller**
+   - `BaseStepController` → `BaseStepControllerConfig`
+   - Must analyze ALL subclasses before removing base fields
+
+9. **Fixed Controller**
+   - `FixedStepController` → `FixedStepControlConfig`
+
+10. **Adaptive Controllers**
+    - `AdaptiveIController`
+    - `AdaptivePIController`
+    - `AdaptivePIDController`
+    - `GustafssonController`
+
+### Tier 5: Output Handling
+
+11. **Output Functions**
+    - `OutputFunctions` → `OutputConfig`
+    - Used by loops
+
+### Tier 6: Integration Loops
+
+12. **IVP Loop**
+    - `IVPLoop` → `ODELoopConfig`
+    - Uses algorithms, controllers, output functions
+
+### Tier 7: High-Level Integrators
+
+13. **Single Integrator Run Core**
+    - `SingleIntegratorRunCore` → Config from settings
+    - Composes loops, algorithms, controllers
+
+### Tier 8: Batch Solving
+
+14. **Batch Solver Kernel**
+    - `BatchSolverKernel` → `BatchSolverConfig`
+    - Uses SingleIntegratorRun
+
+## Expected Interactions and Dependencies
+
+### Component Relationships
+
+```
+BaseODE (ODEData)
+    ↓
+OutputFunctions (OutputConfig)
+    ↓
+IVPLoop (ODELoopConfig)
+    ↓
+SingleIntegratorRunCore
+    ↓
+BatchSolverKernel (BatchSolverConfig)
+
+IVPLoop uses:
+- Algorithm Step (BaseStepConfig + subclass configs)
+- Step Controller (BaseStepControllerConfig + subclass configs)
+- OutputFunctions
+- ArrayInterpolator (ArrayInterpolatorConfig)
+
+Implicit algorithms use:
+- NewtonKrylov (NewtonKrylovConfig)
+- LinearSolver (LinearSolverConfig)
+
+OutputFunctions uses:
+- SummaryMetric instances (MetricConfig)
 ```
 
-**Special Cases**:
-- **Buffer location parameters** (`*_location`): Used via buffer_registry.register(), counts as used
-- **Device function callbacks**: If stored and passed to compiled kernel, counts as used
-- **Properties only**: If variable is only accessed via property but never in build(), it's redundant
-- **Base class fields**: If base class has field but only subclass build() uses it, keep in base
+### Buffer Registry Integration
 
-## Component-by-Component Analysis Plan
+Many config objects include `*_location` fields (e.g., `state_location`, `error_location`):
 
-### Phase 1: Core Infrastructure
+- These fields are used in `register_buffers()` method
+- Buffer registry creates allocators based on these locations
+- Allocators are retrieved in build() via `buffer_registry.get_allocator()`
+- **These fields ARE used** - do not remove
 
-#### 1.1 BaseODE and ODEData
-**Location**: `src/cubie/odesystems/baseODE.py`, `src/cubie/odesystems/ODEData.py`
+### Data Structures Used
 
-**Compile Settings**: ODEData attrs class
+**Config Objects to Analyze:**
 
-**Build Chain Analysis**:
-- `BaseODE.build()` is abstract, actual implementation in subclasses
-- SymbolicODE.build() uses: precision, values, system structure
-- Check: Are all fields in ODEData used by SymbolicODE.build()?
+1. `ODEData` (BaseODE compile settings)
+2. `ArrayInterpolatorConfig`
+3. `BaseStepConfig` (base for all algorithms)
+4. Algorithm-specific configs (ERKStepConfig, DIRKStepConfig, etc.)
+5. `BaseStepControllerConfig` (base for all controllers)
+6. Controller-specific configs
+7. `LinearSolverConfig`
+8. `NewtonKrylovConfig`
+9. `MetricConfig` (for each summary metric)
+10. `OutputConfig`
+11. `ODELoopConfig`
+12. Config used by `SingleIntegratorRunCore`
+13. `BatchSolverConfig`
 
-**Expected Redundancies**:
-- Metadata fields that aren't passed to codegen
-- Cached values that aren't part of compilation
+### Integration Points to Watch
 
-#### 1.2 OutputFunctions and OutputConfig
-**Location**: `src/cubie/outputhandling/output_functions.py`, `src/cubie/outputhandling/output_config.py`
+**Parent-Child Relationships:**
 
-**Compile Settings**: OutputConfig attrs class
+- IVPLoop creates buffer allocations for child components (algorithm, controller)
+- Parent's `register_buffers()` may register child's buffer needs
+- Child configs may be updated from parent
 
-**Build Chain Analysis**:
-- `OutputFunctions.build()` calls:
-  - `save_state_factory()` 
-  - `update_summary_factory()`
-  - `save_summary_factory()`
-- Each factory uses subset of OutputConfig
+**Config Parameter Passing:**
 
-**Expected Redundancies**:
-- Helper computed properties not used in factories
-- Sizing metadata computed but not passed to device code
-- sample_summaries_every if not used in metric compilation
+- OutputConfig derives sizes passed to loop config
+- Loop config receives function references from output, algorithm, controller
+- Algorithm configs receive solver configs for implicit methods
 
-**Cross-reference**: Check `ALL_OUTPUT_FUNCTION_PARAMETERS` set
+**Shared Constants:**
 
-### Phase 2: Integration Components
+- ALL_*_PARAMETERS sets define recognized config keys
+- These must be updated if config fields are removed
+- Examples: `ALL_OUTPUT_FUNCTION_PARAMETERS`, `ALL_LOOP_SETTINGS`, `ALL_ALGORITHM_STEP_PARAMETERS`
 
-#### 2.1 IVPLoop and ODELoopConfig
-**Location**: `src/cubie/integrators/loops/ode_loop.py`, `src/cubie/integrators/loops/ode_loop_config.py`
+## Edge Cases to Consider
 
-**Compile Settings**: ODELoopConfig attrs class
+### 1. Derived Values in Properties
 
-**Build Chain Analysis**:
-- `IVPLoop.build()` uses:
-  - Device function callbacks (save_state_fn, update_summaries_fn, etc.)
-  - Timing parameters (save_every, summarise_every, sample_summaries_every)
-  - Size parameters (n_states, n_parameters, etc.)
-  - Buffer location parameters (via register_buffers())
-  - compile_flags
+If a config field is accessed ONLY in a property, and that property is used in build(), the field is USED.
 
-**Expected Redundancies**:
-- controller_local_len, algorithm_local_len (may be sizing only, not used in build)
-- Derived properties that aren't passed to device code
-- Boolean flags like save_last, save_regularly if not referenced in loop compilation
-
-**Critical Check**: Verify timing parameters are actually captured in device function closures
-
-**Cross-reference**: Check `ALL_LOOP_SETTINGS` set
-
-#### 2.2 BaseAlgorithmStep and Subclasses
-**Location**: `src/cubie/integrators/algorithms/`
-
-**Files to Check**:
-- `base_algorithm_step.py` - BaseStepConfig, ButcherTableau
-- `ode_explicitstep.py` - ExplicitStepConfig
-- `ode_implicitstep.py` - ImplicitStepConfig
-- All concrete algorithm implementations (explicit_euler.py, backwards_euler.py, etc.)
-
-**Build Chain Analysis**:
-- Each algorithm has build_step() method
-- Parameters used: evaluate_f, evaluate_observables, evaluate_driver_at_t, numba_precision, n, n_drivers
-- Implicit methods also use: solver helpers, Newton/Krylov settings, tableau coefficients
-- Buffer locations used via buffer_registry
-
-**Expected Redundancies**:
-- Settings used for controller defaults but not in build_step()
-- Helper metadata not passed to device compilation
-
-**Cross-reference**: Check `ALL_ALGORITHM_STEP_PARAMETERS` set
-
-#### 2.3 BaseStepController and Subclasses
-**Location**: `src/cubie/integrators/step_control/`
-
-**Files to Check**:
-- `base_step_controller.py` - BaseStepControllerConfig
-- `fixed_step_controller.py` - FixedStepControlConfig
-- `adaptive_I_controller.py`, `adaptive_PI_controller.py`, `adaptive_PID_controller.py`
-
-**Build Chain Analysis**:
-- Controller build() methods compile control device functions
-- Parameters used: precision, n, controller-specific tuning (kp, ki, kd, safety, etc.)
-- Buffer locations used via buffer_registry
-
-**Expected Redundancies**:
-- dt_min, dt_max, dt0 if not captured in controller device function
-- For fixed controller, most parameters are redundant (just returns dt)
-
-**Cross-reference**: Check `ALL_STEP_CONTROLLER_PARAMETERS` set
-
-#### 2.4 SingleIntegratorRunCore
-**Location**: `src/cubie/integrators/SingleIntegratorRunCore.py`
-
-**Build Chain Analysis**:
-- Composes IVPLoop with algorithm and controller
-- May not have explicit compile_settings (uses child factories)
-- Check if it stores any redundant configuration
-
-**Expected Redundancies**:
-- Coordination metadata not used in actual build()
-
-### Phase 3: Solver Infrastructure
-
-#### 3.1 NewtonKrylov and LinearSolver
-**Location**: `src/cubie/integrators/matrix_free_solvers/`
-
-**Build Chain Analysis**:
-- These compile iterative solvers
-- Parameters: tolerance, max_iters, precision, n
-- Buffer locations via buffer_registry
-
-**Expected Redundancies**:
-- Reporting/diagnostic fields not used in solver compilation
-
-#### 3.2 BatchSolverKernel
-**Location**: `src/cubie/batchsolving/BatchSolverKernel.py`
-
-**Build Chain Analysis**:
-- Top-level kernel compilation
-- Delegates to SingleIntegratorRun
-- May store batch coordination metadata
-
-**Expected Redundancies**:
-- Batch sizing that doesn't affect kernel compilation
-- Chunking parameters (runtime, not compile-time)
-
-#### 3.3 ArrayInterpolator
-**Location**: `src/cubie/integrators/array_interpolator.py`
-
-**Build Chain Analysis**:
-- Compiles driver interpolation functions
-- Uses: precision, interpolation method, array sizes
-
-**Expected Redundancies**:
-- Metadata about driver sources not used in interpolation device code
-
-### Phase 4: Output and Metrics
-
-#### 4.1 SummaryMetric Subclasses
-**Location**: `src/cubie/outputhandling/summarymetrics/`
-
-**Files**: `metrics.py`, `mean.py`, `max.py`, `rms.py`, `peaks.py`
-
-**Build Chain Analysis**:
-- Each metric compiles update and save device functions
-- Parameters: precision, metric-specific tuning
-
-**Expected Redundancies**:
-- Helper fields that don't affect metric calculation device code
-
-## Deletion Rules
-
-### Rule 1: Direct Usage
-**Keep** if variable appears in build() or methods called by build():
+Example:
 ```python
+# In config
+_value: float = field()
+
+# In factory
+@property
+def derived(self):
+    return self.compile_settings.value * 2
+
+# In build()
 def build(self):
-    x = self.compile_settings.my_var  # KEEP my_var
+    x = self.derived  # Uses 'value' indirectly
 ```
 
-### Rule 2: Derived Usage
-**Keep** if variable is used to compute another variable that IS used:
-```python
-def build(self):
-    # If my_var is used to compute derived_var, and derived_var is used:
-    derived_var = self.compile_settings.my_var * 2  # KEEP my_var
-    use_in_device_code(derived_var)
-```
+### 2. Underscore Fields with Properties
 
-**Delete** if variable is used to compute another variable that is NOT used:
+Attrs classes often store floats with underscore prefix and expose via property:
+
 ```python
+@define
 class Config:
-    my_var: float  # DELETE
+    _dt0: float = field()
     
     @property
-    def unused_derived(self):
-        return self.my_var * 2  # This property is never called in build()
+    def dt0(self):
+        return self.precision(self._dt0)
 ```
 
-### Rule 3: Base Class Fields
-**Keep** if ANY subclass uses it in their build():
+If `dt0` property is used, `_dt0` field must be kept.
+
+### 3. Function Reference Storage
+
+Some configs store function references:
+
 ```python
-class BaseConfig:
-    shared_field: int  # KEEP if any subclass build() uses it
-
-class SubclassA(BaseConfig):
-    def build(self):
-        use(self.compile_settings.shared_field)  # Uses it
-```
-
-### Rule 4: Buffer Locations
-**Keep** ALL `*_location` parameters - they're used via buffer_registry.register()
-
-### Rule 5: Device Function Callbacks
-**Keep** ALL device function references - they're compiled into closures
-
-### Rule 6: Properties Only
-**Delete** if variable is only exposed via property but never used in build():
-```python
+@define
 class Config:
-    metadata: str  # DELETE
-    
-    @property
-    def get_metadata(self):
-        return self.metadata  # Property never called in build()
+    step_function: Callable = field()
 ```
 
-## Property Handling
+If the function is called in build(), the field is used. Do NOT remove.
 
-When deleting a compile_settings variable that has a property wrapper:
+### 4. Buffer Sizes for Nested Allocations
 
-### Strategy 1: Reroute to Child
-If a child object has equivalent property, reroute parent property:
+Configs may store buffer sizes that are used for:
+- Allocating arrays
+- Iteration bounds
+- Stride calculations
+
+These are all USED - do not remove.
+
+### 5. Conditional Compilation Flags
+
+Boolean flags that control `if` statements in build():
+
 ```python
-# Before
-@property
-def my_value(self):
-    return self.compile_settings.my_value
-
-# After (if child has my_value property)
-@property
-def my_value(self):
-    return self._child_object.my_value
+if config.save_state:
+    # compile state saving logic
 ```
 
-### Strategy 2: Delete Property
-If no child has equivalent and property isn't part of public API, delete it:
+The flag is USED even if branch is not taken - it affects compilation.
+
+### 6. Shared Memory Calculation
+
+Fields used to calculate shared memory requirements are USED:
+
 ```python
-# Delete both the compile_settings field AND the property
+shared_size = config.n_states + config.n_parameters
 ```
 
-### Strategy 3: Mark as Deprecated
-If property is part of public API but should be removed:
-- Add deprecation warning
-- Schedule for removal in future version
-- Document in CHANGELOG
+Both `n_states` and `n_parameters` are used.
 
-## ALL_*_PARAMETERS Sets Update
+## Removal Process
 
-After deleting variables from compile_settings, update corresponding ALL_*_PARAMETERS sets:
+### For Each Field to Remove:
 
-**Files to update**:
-- `src/cubie/integrators/loops/ode_loop.py` - ALL_LOOP_SETTINGS
-- `src/cubie/outputhandling/output_functions.py` - ALL_OUTPUT_FUNCTION_PARAMETERS
-- `src/cubie/integrators/algorithms/base_algorithm_step.py` - ALL_ALGORITHM_STEP_PARAMETERS
-- `src/cubie/integrators/step_control/base_step_controller.py` - ALL_STEP_CONTROLLER_PARAMETERS
+1. **Delete field definition** from config class
+2. **Remove from ALL_*_PARAMETERS** set if present
+3. **Update __init__ signature** of CUDAFactory if field was passed to config
+4. **Update tests** that reference the field
+5. **Update documentation** that mentions the field
+6. **Run linters** to catch import/syntax errors
+7. **Run tests** to verify functionality preserved
 
-**Process**:
-1. Identify deleted parameter names
-2. Remove from corresponding ALL_*_PARAMETERS set
-3. Check for any filtering code that references the set
-4. Update filtering logic if needed
+### Test Validation Requirements:
 
-## Integration Points
+After each factory cleanup:
 
-### Buffer Registry
-Variables used in buffer_registry.register() calls are NOT redundant:
-```python
-def register_buffers(self):
-    buffer_registry.register(
-        'buffer_name',
-        self,
-        self.compile_settings.buffer_size,  # KEEP buffer_size
-        self.compile_settings.buffer_location,  # KEEP buffer_location
-        precision=self.compile_settings.precision  # KEEP precision
-    )
+1. Run `flake8 .` for syntax errors
+2. Run `pytest tests/path/to/factory/test_file.py` for functional tests
+3. Fix any failures before proceeding to next factory
+4. Commit changes with descriptive message
+
+### Rollback Criteria:
+
+If removal causes test failures that cannot be quickly fixed:
+
+1. Revert the removal
+2. Mark field as "Keep" with note: "Used in unexpected way - keep for safety"
+3. Document the issue for future investigation
+
+## Documentation Updates
+
+### Files to Update:
+
+- Config class docstrings (remove removed fields)
+- Factory class __init__ docstrings (remove removed parameters)
+- ALL_*_PARAMETERS sets (remove removed parameter names)
+- Any tutorials or examples referencing removed fields
+
+### Commit Message Format:
+
+```
+chore: remove unused field `field_name` from ConfigClass
+
+Analysis showed `field_name` is never accessed in build() chain.
+Verified through:
+- Direct access check in build()
+- Property usage tracing
+- Buffer registration review
+- Factory function parameter tracking
+
+Tests pass: pytest tests/path/to/test.py
 ```
 
-### Child Factory Delegation
-Parent factories that create child factories may pass settings:
-```python
-def build(self):
-    child = ChildFactory(
-        precision=self.compile_settings.precision,  # KEEP precision
-        n=self.compile_settings.n,  # KEEP n
-    )
-    return child.device_function
-```
+## Success Criteria
 
-### Closure Capture
-Variables captured in device function closures are NOT redundant:
-```python
-def build(self):
-    threshold = self.compile_settings.threshold  # KEEP threshold
-    
-    @cuda.jit(device=True)
-    def device_func(...):
-        if value > threshold:  # Captured in closure
-            ...
-```
+For the entire cleanup task:
 
-## Testing Strategy
+1. All CUDAFactory subclasses analyzed
+2. All redundant config fields removed
+3. All tests passing (pytest suite green)
+4. All linters passing (flake8, ruff)
+5. Documentation updated for all changes
+6. Commit history shows systematic, incremental progress
 
-### Pre-Deletion Checks
-1. Run full test suite to establish baseline
-2. Note any pre-existing failures (not our responsibility to fix)
-3. Document test coverage for each affected component
+## Behavior Expectations
 
-### Post-Deletion Validation
-1. Run full test suite - all previously passing tests must pass
-2. Check for property access errors
-3. Verify cache invalidation still works for kept variables
-4. Verify cache NOT invalidated for deleted variables (manually test)
+### Analysis Process:
 
-### Edge Cases to Test
-- Nested compile_settings objects (e.g., compile_flags inside ODELoopConfig)
-- Properties that reference multiple compile_settings fields
-- Inheritance hierarchies where parent properties access child compile_settings
-- Update paths that try to set deleted parameters (should fail gracefully or be silent depending on silent flag)
+1. **Be thorough**: Miss no config fields, miss no usage
+2. **Be conservative**: When uncertain, keep the field
+3. **Be isolated**: Analyze each factory independently
+4. **Be systematic**: Follow the checklist for every factory
+5. **Be documented**: Record all decisions
 
-## Expected Outcomes
+### Removal Process:
 
-### Files Modified
-- 15-30 config/settings attrs classes
-- 10-15 CUDAFactory subclasses  
-- 4-5 ALL_*_PARAMETERS sets
-- Potentially test files if they explicitly set redundant parameters
+1. **Be surgical**: Remove only confirmed redundant fields
+2. **Be tested**: Verify each removal doesn't break tests
+3. **Be committed**: One factory per commit for traceability
+4. **Be clear**: Commit messages explain what and why
 
-### Variables Likely Deleted
-- Unused buffer sizing helpers
-- Metadata fields not passed to device code
-- Properties that compute but don't use results
-- Coordination fields used by parent but not in build()
-- Settings duplicated between parent and child when child is authoritative
+### Communication:
 
-### Variables Definitely Kept
-- All `*_location` buffer parameters
-- All device function callbacks
-- All precision-related fields (precision, numba_precision, simsafe_precision)
-- All size parameters (n_states, n_parameters, n_observables, etc.)
-- All parameters appearing in device function closures
-- All controller tuning parameters (kp, ki, kd, safety, etc.)
-- All solver tolerance/iteration parameters
-
-## Risk Mitigation
-
-### Risk: Deleting Subtly-Used Variable
-**Mitigation**: 
-- Manual review of each deletion
-- Grep for all uses of variable name across codebase
-- Check properties, update methods, and delegation chains
-
-### Risk: Breaking Public API
-**Mitigation**:
-- Identify public-facing properties before deletion
-- Deprecate rather than delete if part of documented API
-- Check documentation for property references
-
-### Risk: Test Failures
-**Mitigation**:
-- Run tests frequently during cleanup
-- Fix test issues incrementally
-- Separate test updates into distinct commits
-
-### Risk: Build Chain Analysis Errors
-**Mitigation**:
-- Conservative approach - when in doubt, keep
-- Peer review of deletion candidates
-- Test cache invalidation behavior manually for borderline cases
+1. **Ask for guidance** when field usage is ambiguous
+2. **Report progress** after each factory completion
+3. **Flag concerns** about shared base class fields
+4. **Document surprises** when usage is found in unexpected places
