@@ -143,7 +143,7 @@ class SymbolicODE(BaseODE):
         precision: PrecisionDType,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        fn_hash: Optional[int] = None,
+        fn_hash: Optional[str] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
     ):
@@ -178,10 +178,13 @@ class SymbolicODE(BaseODE):
         self.all_symbols = all_symbols
 
         if fn_hash is None:
-            dxdt_str = [f"{lhs}={str(rhs)}" for lhs, rhs
-                        in equations]
             constants = all_indexed_bases.constants.default_values
-            fn_hash = hash_system_definition(dxdt_str, constants)
+            fn_hash = hash_system_definition(
+                equations,
+                constants,
+                observable_labels=all_indexed_bases.observables.ref_map.keys(),
+                parameter_labels=all_indexed_bases.parameters.ref_map.keys(),
+            )
         if name is None:
             name = fn_hash
 
@@ -306,7 +309,7 @@ class SymbolicODE(BaseODE):
                            all_indexed_bases=index_map,
                            all_symbols=all_symbols,
                            name=name,
-                           fn_hash=int(fn_hash),
+                           fn_hash=fn_hash,
                            user_functions = functions,
                            precision=precision)
         default_timelogger.stop_event("symbolic_ode_parsing")
@@ -369,7 +372,10 @@ class SymbolicODE(BaseODE):
         constants = self.constants.values_dict
         self._jacobian_aux_count = None
         new_hash = hash_system_definition(
-            self.equations, self.indices.constants.default_values
+            self.equations,
+            self.indices.constants.default_values,
+            observable_labels=self.indices.observables.ref_map.keys(),
+            parameter_labels=self.indices.parameters.ref_map.keys(),
         )
         if new_hash != self.fn_hash:
             self.gen_file = ODEFile(self.name, new_hash)

@@ -1,10 +1,13 @@
 """Utility helpers for symbolic ODE construction."""
 
+from typing import TYPE_CHECKING
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import sympy as sp
 
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.parsing import ParsedEquations
 
 def topological_sort(
     assignments: Union[
@@ -138,73 +141,87 @@ def cse_and_stack(
     return sorted_expressions
 
 def hash_system_definition(
-    dxdt: Union[str, Iterable[str]],
-    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    equations: Union[
+        "ParsedEquations",
+        Iterable[Tuple[sp.Symbol, sp.Expr]],
+    ],
+    constants: Optional[Dict[str, float]] = None,
+    observable_labels: Optional[Iterable[str]] = None,
+    parameter_labels: Optional[Iterable[str]] = None,
 ) -> str:
-    """Generate a hash that captures equations and constant definitions.
+    """Generate deterministic hash for symbolic ODE definitions.
+
+    Produces identical hashes for identical equation sets regardless
+    of input order by sorting equations alphabetically by LHS symbol
+    name before building the hash string.
 
     Parameters
     ----------
-    dxdt
-        Representation of the system right-hand sides. Accepts either a single
-        string or an iterable of equation strings.
+    equations
+        Parsed equations object or iterable of (symbol, expression)
+        tuples representing the system.
     constants
-        Mapping or iterable describing constant names and values. Iterables are
-        interpreted as constant names using their default values.
+        Optional mapping of constant names to values.
+    observable_labels
+        Optional iterable of observable variable names. Sorted
+        alphabetically before inclusion in the hash.
+    parameter_labels
+        Optional iterable of parameter variable names. Sorted
+        alphabetically before inclusion in the hash.
 
     Returns
     -------
     str
-        Deterministic hash string that reflects both equations and constants.
+        Deterministic hash string reflecting equations, constants,
+        observables, and parameters.
 
     Notes
     -----
-    The hash concatenates normalised differential equations with the sorted
-    constant name-value pairs. Any change to either component produces a new
-    hash so cached artifacts can be refreshed.
+    Sorting by LHS symbol name ensures order-independence so that
+    cache hits occur for identical systems regardless of input
+    pathway (string vs SymPy).
     """
-    if isinstance(dxdt, (list, tuple)) and len(dxdt) > 0:
-        first_elem = dxdt[0]
-        if isinstance(first_elem, sp.Equality) or \
-           (isinstance(first_elem, tuple) and 
-            len(first_elem) == 2 and 
-            isinstance(first_elem[0], sp.Symbol)):
-            hash_strings = []
-            for eq in dxdt:
-                if isinstance(eq, sp.Equality):
-                    lhs_str = str(eq.lhs)
-                    rhs_str = str(eq.rhs)
-                elif isinstance(eq, tuple):
-                    lhs_str = str(eq[0])
-                    rhs_str = str(eq[1])
-                else:
-                    lhs_str = str(eq)
-                    rhs_str = ""
-                hash_strings.append(f"{lhs_str} = {rhs_str}")
-            dxdt_str = "\n".join(hash_strings)
-        elif isinstance(first_elem, (list, tuple)):
-            dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
-            dxdt_str = "".join(dxdt)
-        else:
-            dxdt_str = "".join(dxdt)
-    elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
-        dxdt_pairs = [f"{str(symbol)}={str(expr)}" for symbol, expr in dxdt]
-        dxdt_str = "".join(dxdt_pairs)
+    # Extract equations from ParsedEquations or convert from provided tuple
+    if hasattr(equations, 'ordered'):
+        eq_list = list(equations.ordered)
     else:
-        dxdt_str = dxdt
+        eq_list = list(equations)
 
-    # Normalize dxdt by removing whitespace
+    # Sort equations alphabetically by LHS symbol name
+    sorted_eqs = sorted(eq_list, key=lambda eq: str(eq[0]))
+
+    # Join all equations into a single string and remove whitespace
+    eq_strings = [f"{str(lhs)}={str(rhs)}" for lhs, rhs in sorted_eqs]
+    dxdt_str = "|".join(eq_strings)
     normalized_dxdt = "".join(dxdt_str.split())
 
-    # Process constants
+    # Append constants labels and values, sorted by label
     constants_str = ""
     if constants is not None:
-        constants_str = "|".join(f"{k}:{v}" for k, v in constants.items())
+        # Keys in `constants` may be SymPy Symbols (for example from
+        # an index_map) as well as plain strings; SymPy Symbol keys are
+        # not directly orderable, so str() is used to obtain a stable
+        # string-based sort order for all key types.
+        sorted_constants = sorted(constants.items(), key=lambda x: str(x[0]))
+        constants_str = "|".join(f"{k}:{v}" for k, v in sorted_constants)
 
-    # Combine components with separator
-    combined = f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+    # Append sorted observable labels
+    observables_str = ""
+    if observable_labels is not None:
+        sorted_observables = sorted(str(label) for label in observable_labels)
+        observables_str = "|".join(sorted_observables)
 
-    # Generate hash
+    # Append sorted parameter labels
+    parameters_str = ""
+    if parameter_labels is not None:
+        sorted_parameters = sorted(str(label) for label in parameter_labels)
+        parameters_str = "|".join(sorted_parameters)
+
+    # Combine and hash
+    combined = (
+        f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+        f"|observables:{observables_str}|parameters:{parameters_str}"
+    )
     return str(hash(combined))
 
 
