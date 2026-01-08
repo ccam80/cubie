@@ -47,10 +47,6 @@ class ODELoopConfig:
         Height of state summary buffer.
     observable_summaries_buffer_height
         Height of observable summary buffer.
-    controller_local_len
-        Number of persistent local memory elements for the controller.
-    algorithm_local_len
-        Number of persistent local memory elements for the algorithm.
     precision
         Precision used for all loop-managed computations.
     compile_flags
@@ -99,14 +95,6 @@ class ODELoopConfig:
     )
     observable_summaries_buffer_height: int = field(
         default=0, validator=getype_validator(int, 0)
-    )
-    controller_local_len: int = field(
-        default=0,
-        validator=getype_validator(int, 0)
-    )
-    algorithm_local_len: int = field(
-        default=0,
-        validator=getype_validator(int, 0)
     )
 
     # Buffer location settings

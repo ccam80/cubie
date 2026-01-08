@@ -109,13 +109,13 @@ class IVPLoop(CUDAFactory):
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
-        include dt0, dt_min, dt_max, is_adaptive, controller_local_len,
-        algorithm_local_len, and buffer location parameters (state_location,
-        proposed_state_location, parameters_location, drivers_location,
-        proposed_drivers_location, observables_location,
-        proposed_observables_location, error_location, counters_location,
-        state_summary_location, observable_summary_location, dt_location,
-        accept_step_location). None values are ignored.
+        include dt0, dt_min, dt_max, is_adaptive, and buffer location
+        parameters (state_location, proposed_state_location,
+        parameters_location, drivers_location, proposed_drivers_location,
+        observables_location, proposed_observables_location, error_location,
+        counters_location, state_summary_location,
+        observable_summary_location, dt_location, accept_step_location).
+        None values are ignored.
     """
 
     def __init__(
