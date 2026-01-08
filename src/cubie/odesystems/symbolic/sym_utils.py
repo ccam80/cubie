@@ -1,10 +1,13 @@
 """Utility helpers for symbolic ODE construction."""
 
+from typing import TYPE_CHECKING
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import sympy as sp
 
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.parsing import ParsedEquations
 
 def topological_sort(
     assignments: Union[
