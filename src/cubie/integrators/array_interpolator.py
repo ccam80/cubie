@@ -15,7 +15,7 @@ from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
 from cubie.cuda_simsafe import selp
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
@@ -40,7 +40,7 @@ class InterpolatorCache(CUDAFunctionCache):
 
 
 @define
-class ArrayInterpolatorConfig:
+class ArrayInterpolatorConfig(CUDAFactoryConfig):
     """Configuration describing an input-array interpolation problem.
 
     Attributes

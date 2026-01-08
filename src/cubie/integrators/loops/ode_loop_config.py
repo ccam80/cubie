@@ -8,6 +8,7 @@ consistent, ready-to-compile settings.
 from typing import Callable, Optional
 
 from attrs import define, field, validators
+from cubie.CUDAFactory import CUDAFactoryConfig
 from numba import from_dtype as numba_from_dtype
 from numpy import float32
 from warnings import warn
@@ -26,7 +27,7 @@ from cubie.outputhandling.output_config import OutputCompileFlags
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
 @define
-class ODELoopConfig:
+class ODELoopConfig(CUDAFactoryConfig):
     """Compile-critical settings for an integrator loop.
 
     Attributes

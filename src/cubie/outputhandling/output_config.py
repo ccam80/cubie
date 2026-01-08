@@ -113,7 +113,7 @@ class OutputCompileFlags(CUDAFactoryConfig):
 
 
 @define
-class OutputConfig:
+class OutputConfig(CUDAFactoryConfig):
     """Validated configuration for solver outputs and summaries.
 
     Parameters

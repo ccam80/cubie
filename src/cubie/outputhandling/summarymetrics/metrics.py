@@ -19,7 +19,7 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
 
 
 @define
@@ -38,7 +38,7 @@ class MetricFuncCache(CUDAFunctionCache):
     save: Callable = field(default=None)
 
 @define
-class MetricConfig:
+class MetricConfig(CUDAFactoryConfig):
     """Configuration for summary metric compilation.
     
     Attributes

@@ -23,13 +23,13 @@ from cubie._utils import (
     precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @define
-class LinearSolverConfig:
+class LinearSolverConfig(CUDAFactoryConfig):
     """Configuration for LinearSolver compilation.
 
     Attributes

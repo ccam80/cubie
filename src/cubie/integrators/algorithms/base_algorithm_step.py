@@ -16,7 +16,7 @@ from cubie._utils import (
     precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible algorithm step parameters across all algorithm types
@@ -324,7 +324,7 @@ class ButcherTableau:
 
 
 @define
-class StepControlDefaults:
+class StepControlDefaults(CUDAFactoryConfig):
     """Per-algorithm defaults for step controller settings."""
 
     step_controller: Dict[str, Any] = field(factory=dict)
@@ -336,7 +336,7 @@ class StepControlDefaults:
         )
 
 @define
-class BaseStepConfig(ABC):
+class BaseStepConfig(CUDAFactoryConfig, ABC):
     """Configuration shared by explicit and implicit integration steps.
 
     Parameters

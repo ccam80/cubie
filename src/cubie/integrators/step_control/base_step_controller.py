@@ -16,7 +16,7 @@ from numpy import float32
 from numba import from_dtype
 from attrs import define, field, validators
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
 from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
     precision_validator
 from cubie.buffer_registry import buffer_registry
@@ -37,7 +37,7 @@ class ControllerCache(CUDAFunctionCache):
     device_function: Union[Callable, int] = field(default=-1)
 
 @define
-class BaseStepControllerConfig(ABC):
+class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     """Configuration interface for step-size controllers.
 
     Attributes
