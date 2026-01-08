@@ -4,7 +4,7 @@ from abc import abstractmethod
 from typing import Callable, Optional, Union
 from warnings import warn
 
-from numpy import asarray, full, isscalar, ndarray, sqrt
+from numpy import asarray, ndarray, sqrt
 from attrs import Converter, define, field
 from numpy.typing import ArrayLike
 
@@ -14,45 +14,10 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     inrangetype_validator,
+    tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepController, BaseStepControllerConfig, ControllerCache)
-
-
-def tol_converter(
-    value: Union[float, ArrayLike],
-    self_: "AdaptiveStepControlConfig",
-) -> ndarray:
-    """Convert tolerance input into an array with controller precision.
-
-    Parameters
-    ----------
-    value
-        Scalar or array-like tolerance specification.
-    self_
-        Configuration instance providing precision and dimension information.
-
-    Returns
-    -------
-    numpy.ndarray
-        Tolerance array with one value per state variable.
-
-    Raises
-    ------
-    ValueError
-        Raised when ``value`` cannot be broadcast to the expected shape.
-    """
-
-    if isscalar(value):
-        tol = full(self_.n, value, dtype=self_.precision)
-    else:
-        tol = asarray(value, dtype=self_.precision)
-        # Broadcast single-element arrays to shape (n,)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
-    return tol
 
 
 @define

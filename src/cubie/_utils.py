@@ -11,6 +11,7 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
+    asarray,
     dtype as np_dtype,
     empty as np_empty,
     float16 as np_float16,
@@ -18,13 +19,16 @@ from numpy import (
     float64 as np_float64,
     floating as np_floating,
     floor as np_floor,
+    full,
     int32 as np_int32,
     int64 as np_int64,
     integer as np_integer,
     isfinite as np_isfinite,
+    isscalar,
     log10 as np_log10,
     ndarray,
 )
+from numpy.typing import ArrayLike
 from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
@@ -526,6 +530,46 @@ def getype_validator(dtype, min_):
         validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_)
     )
+
+
+def tol_converter(
+    value: Union[float, ArrayLike],
+    self_: Any,
+) -> ndarray:
+    """Convert tolerance input into an array with target precision.
+
+    For use as an attrs Converter with takes_self=True, converting
+    scalar or array-like tolerance specifications into arrays of
+    shape (n,) with dtype matching self_.precision.
+
+    Parameters
+    ----------
+    value
+        Scalar or array-like tolerance specification.
+    self_
+        Configuration instance providing precision and dimension
+        information. Must have `n` (int) and `precision` attributes.
+
+    Returns
+    -------
+    numpy.ndarray
+        Tolerance array with one value per state variable.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``value`` cannot be broadcast to shape (n,).
+    """
+    if isscalar(value):
+        tol = full(self_.n, value, dtype=self_.precision)
+    else:
+        tol = asarray(value, dtype=self_.precision)
+        # Broadcast single-element arrays to shape (n,)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = full(self_.n, tol[0], dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
+            raise ValueError("tol must have shape (n,).")
+    return tol
 
 
 def opt_inrangetype_validator(dtype, min_, max_):

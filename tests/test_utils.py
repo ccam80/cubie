@@ -21,6 +21,7 @@ from cubie._utils import (
     round_sf,
     slice_variable_dimension,
     timing,
+    tol_converter,
     unpack_dict_values,
 )
 
@@ -718,3 +719,58 @@ class TestBuildConfig:
         )
         assert config.value == 42
         assert config.name == 'test'
+
+
+# =============================================================================
+# Tests for tol_converter helper function
+# =============================================================================
+
+
+class MockConfig:
+    """Mock configuration object for tol_converter tests."""
+
+    def __init__(self, n, precision):
+        self.n = n
+        self.precision = precision
+
+
+def test_tol_converter_scalar_to_array():
+    """Verify scalar input is broadcast to array of shape (n,)."""
+    config = MockConfig(n=5, precision=np.float32)
+    result = tol_converter(1e-6, config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (5,)
+    assert result.dtype == np.float32
+    assert np.allclose(result, 1e-6)
+
+
+def test_tol_converter_single_element_broadcast():
+    """Verify single-element array is broadcast when n > 1."""
+    config = MockConfig(n=4, precision=np.float64)
+    result = tol_converter(np.array([0.001]), config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (4,)
+    assert result.dtype == np.float64
+    assert np.allclose(result, 0.001)
+
+
+def test_tol_converter_full_array_passthrough():
+    """Verify full array (n,) passes through with dtype conversion."""
+    config = MockConfig(n=3, precision=np.float32)
+    input_array = np.array([1e-3, 2e-3, 3e-3], dtype=np.float64)
+    result = tol_converter(input_array, config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (3,)
+    assert result.dtype == np.float32
+    assert np.allclose(result, [1e-3, 2e-3, 3e-3])
+
+
+def test_tol_converter_wrong_size_raises():
+    """Verify ValueError raised for wrong size array."""
+    config = MockConfig(n=5, precision=np.float32)
+
+    with pytest.raises(ValueError, match="tol must have shape"):
+        tol_converter(np.array([1e-3, 2e-3]), config)

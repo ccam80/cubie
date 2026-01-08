@@ -316,3 +316,50 @@ def test_linear_solver_scalar_tolerance_backward_compatible(
         rtol=tolerance.rel_loose,
         atol=tolerance.abs_loose,
     )
+
+
+def test_linear_solver_uses_scaled_norm(precision):
+    """Verify LinearSolver creates and uses ScaledNorm for convergence."""
+    from cubie.integrators.norms import ScaledNorm
+
+    n = 3
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+    # Verify the norm factory is created
+    assert hasattr(solver, 'norm')
+    assert isinstance(solver.norm, ScaledNorm)
+    # Verify the norm factory has correct settings
+    assert solver.norm.n == n
+    assert solver.norm.precision == precision
+    assert np.all(solver.norm.atol == precision(1e-6))
+    assert np.all(solver.norm.rtol == precision(1e-4))
+
+
+def test_linear_solver_tolerance_update_propagates(precision):
+    """Verify krylov_atol/krylov_rtol updates propagate to norm factory."""
+    n = 3
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+    # Initial values
+    assert np.all(solver.krylov_atol == precision(1e-6))
+    assert np.all(solver.krylov_rtol == precision(1e-4))
+
+    # Update tolerances
+    new_atol = np.array([1e-8, 1e-7, 1e-9], dtype=precision)
+    new_rtol = np.array([1e-5, 1e-6, 1e-4], dtype=precision)
+    solver.update(krylov_atol=new_atol, krylov_rtol=new_rtol)
+
+    # Verify properties delegate to norm factory
+    assert np.allclose(solver.krylov_atol, new_atol)
+    assert np.allclose(solver.krylov_rtol, new_rtol)
+    # Verify norm factory was updated
+    assert np.allclose(solver.norm.atol, new_atol)
+    assert np.allclose(solver.norm.rtol, new_rtol)

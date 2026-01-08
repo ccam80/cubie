@@ -615,3 +615,58 @@ def test_newton_krylov_scalar_tolerance_backward_compatible(
         rtol=tolerance.rel_loose * 1000,
         atol=tolerance.abs_loose * 1000,
     )
+
+
+def test_newton_krylov_uses_scaled_norm(precision):
+    """Verify NewtonKrylov uses ScaledNorm for convergence checking."""
+    from cubie.integrators.norms import ScaledNorm
+
+    n = 3
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=1e-6,
+        newton_rtol=1e-4,
+    )
+    # Verify norm factory exists and is a ScaledNorm
+    assert hasattr(newton, 'norm')
+    assert isinstance(newton.norm, ScaledNorm)
+    # Verify norm has correct configuration
+    assert newton.norm.n == n
+    assert newton.norm.precision == precision
+    assert np.all(newton.norm.atol == precision(1e-6))
+    assert np.all(newton.norm.rtol == precision(1e-4))
+
+
+def test_newton_krylov_tolerance_update_propagates(precision):
+    """Verify newton_atol/newton_rtol updates reach norm factory."""
+    n = 3
+    initial_atol = 1e-6
+    initial_rtol = 1e-4
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=initial_atol,
+        newton_rtol=initial_rtol,
+    )
+    # Verify initial values
+    assert np.all(newton.newton_atol == precision(initial_atol))
+    assert np.all(newton.newton_rtol == precision(initial_rtol))
+    assert np.all(newton.norm.atol == precision(initial_atol))
+    assert np.all(newton.norm.rtol == precision(initial_rtol))
+
+    # Update tolerances
+    new_atol = 1e-8
+    new_rtol = 1e-6
+    newton.update(newton_atol=new_atol, newton_rtol=new_rtol)
+
+    # Verify properties delegate to norm factory
+    assert np.all(newton.newton_atol == precision(new_atol))
+    assert np.all(newton.newton_rtol == precision(new_rtol))
+    # Verify norm factory was updated
+    assert np.all(newton.norm.atol == precision(new_atol))
+    assert np.all(newton.norm.rtol == precision(new_rtol))

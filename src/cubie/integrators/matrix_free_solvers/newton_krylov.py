@@ -9,21 +9,23 @@ from typing import Callable, Optional, Set, Dict, Any, Union
 
 from attrs import Converter, define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import asarray, dtype as np_dtype, full, int32 as np_int32
-from numpy import isscalar, ndarray
+from numpy import asarray, dtype as np_dtype, int32 as np_int32
+from numpy import ndarray
 from numpy.typing import ArrayLike
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
     float_array_validator,
-    getype_validator,
     gttype_validator,
     inrangetype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
+    tol_converter,
 )
+from cubie.integrators.matrix_free_solvers.base_solver import (
+    MatrixFreeSolverConfig,
+)
+from cubie.integrators.norms import ScaledNorm
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
 from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, compile_kwargs
@@ -32,42 +34,8 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
 
-def tol_converter(
-    value: Union[float, ArrayLike],
-    self_: "NewtonKrylovConfig",
-) -> ndarray:
-    """Convert tolerance input into an array with solver precision.
-
-    Parameters
-    ----------
-    value
-        Scalar or array-like tolerance specification.
-    self_
-        Configuration instance providing precision and dimension info.
-
-    Returns
-    -------
-    numpy.ndarray
-        Tolerance array with one value per state variable.
-
-    Raises
-    ------
-    ValueError
-        Raised when ``value`` cannot be broadcast to the expected shape.
-    """
-    if isscalar(value):
-        tol = full(self_.n, value, dtype=self_.precision)
-    else:
-        tol = asarray(value, dtype=self_.precision)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
-    return tol
-
-
 @define
-class NewtonKrylovConfig:
+class NewtonKrylovConfig(MatrixFreeSolverConfig):
     """Configuration for NewtonKrylov solver compilation.
 
     Attributes
@@ -97,12 +65,6 @@ class NewtonKrylovConfig:
     stage_base_bt_location : str
         Memory location for stage_base_bt buffer.
     """
-
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
-    n: int = field(validator=getype_validator(int, 1))
     residual_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -169,16 +131,6 @@ class NewtonKrylovConfig:
     def newton_damping(self) -> float:
         """Return damping factor in configured precision."""
         return self.precision(self._newton_damping)
-
-    @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -272,6 +224,15 @@ class NewtonKrylov(CUDAFactory):
         )
 
         self.setup_compile_settings(config)
+
+        # Create norm factory for Newton convergence checks
+        self.norm = ScaledNorm(
+            precision=precision,
+            n=n,
+            atol=config.newton_atol,
+            rtol=config.newton_rtol,
+        )
+
         self.register_buffers()
 
 
@@ -343,16 +304,15 @@ class NewtonKrylov(CUDAFactory):
         newton_max_backtracks = config.newton_max_backtracks
 
         numba_precision = config.numba_precision
-        newton_atol = config.newton_atol
-        newton_rtol = config.newton_rtol
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
-        inv_n = numba_precision(1.0 / n)
-        tol_floor = numba_precision(1e-16)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
         max_iters_val = int32(max_newton_iters)
         max_backtracks_val = int32(newton_max_backtracks + 1)
+
+        # Get scaled norm device function from norm factory
+        scaled_norm_fn = self.norm.device_function
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -434,20 +394,11 @@ class NewtonKrylov(CUDAFactory):
                 base_state,
                 residual,
             )
-            norm2_prev = typed_zero
+            # Compute initial residual norm BEFORE negation
+            norm2_prev = scaled_norm_fn(residual, stage_increment)
             for i in range(n_val):
-                residual_value = residual[i]
-                residual[i] = -residual_value
+                residual[i] = -residual[i]
                 delta[i] = typed_zero
-                ref_val = stage_increment[i]
-                abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
-                tol_i = tol_i if tol_i > tol_floor else tol_floor
-                abs_res = residual_value if residual_value >= typed_zero \
-                    else -residual_value
-                ratio = abs_res / tol_i
-                norm2_prev += ratio * ratio
-            norm2_prev = norm2_prev * inv_n
 
             converged = norm2_prev <= typed_one
             final_status = int32(0)
@@ -515,19 +466,7 @@ class NewtonKrylov(CUDAFactory):
                             residual_temp,
                         )
 
-                        norm2_new = typed_zero
-                        for i in range(n_val):
-                            residual_value = residual_temp[i]
-                            ref_val = stage_increment[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            norm2_new += ratio * ratio
-                        norm2_new = norm2_new * inv_n
+                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
 
                         if norm2_new <= typed_one:
                             converged = True
@@ -606,6 +545,17 @@ class NewtonKrylov(CUDAFactory):
         recognized = set()
         recognized |= self.linear_solver.update(all_updates, silent=True)
 
+        # Propagate tolerance updates to norm factory
+        norm_updates = {}
+        if 'newton_atol' in all_updates:
+            norm_updates['atol'] = all_updates['newton_atol']
+        if 'newton_rtol' in all_updates:
+            norm_updates['rtol'] = all_updates['newton_rtol']
+        if norm_updates:
+            self.norm.update(norm_updates, silent=True)
+            # Invalidate our cache since norm changed
+            self._invalidate_cache()
+
         # Update device function, so that cache invalidates if it's changed
         all_updates['linear_solver_function'] = self.linear_solver.device_function
         recognized |= self.update_compile_settings(
@@ -641,12 +591,12 @@ class NewtonKrylov(CUDAFactory):
     @property
     def newton_atol(self) -> ndarray:
         """Return absolute tolerance array."""
-        return self.compile_settings.newton_atol
+        return self.norm.atol
 
     @property
     def newton_rtol(self) -> ndarray:
         """Return relative tolerance array."""
-        return self.compile_settings.newton_rtol
+        return self.norm.rtol
 
     @property
     def max_newton_iters(self) -> int:
