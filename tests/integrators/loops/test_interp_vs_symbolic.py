@@ -107,7 +107,7 @@ def build_single_integrator(
     driver_array=None,
 ):
     """Build a SingleIntegratorRun for a specific system and settings."""
-    driver_function = (
+    evaluate_driver_at_t = (
         driver_array.evaluation_function if driver_array is not None else None
     )
     driver_del_t = (
@@ -121,8 +121,8 @@ def build_single_integrator(
     )
     algorithm_settings["algorithm"] = solver_settings["algorithm"]
     algorithm_settings["n"] = system.sizes.states
-    algorithm_settings["dxdt_function"] = system.dxdt_function
-    algorithm_settings["observables_function"] = system.observables_function
+    algorithm_settings["evaluate_f"] = system.evaluate_f
+    algorithm_settings["evaluate_observables"] = system.evaluate_observables
     algorithm_settings["get_solver_helper_fn"] = system.get_solver_helper
     algorithm_settings["n_drivers"] = system.sizes.drivers
     
@@ -154,7 +154,7 @@ def build_single_integrator(
     
     return SingleIntegratorRun(
         system=system,
-        driver_function=driver_function,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         driver_del_t=driver_del_t,
         algorithm_settings=algorithm_settings,
         step_control_settings=step_control_settings,

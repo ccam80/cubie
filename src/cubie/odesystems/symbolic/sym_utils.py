@@ -1,6 +1,5 @@
 """Utility helpers for symbolic ODE construction."""
 
-import warnings
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 

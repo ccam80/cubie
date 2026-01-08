@@ -22,8 +22,8 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
     'algorithm',
-    'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function', 'get_solver_helper_fn', "driver_del_t",
+    'precision', 'n', 'evaluate_f', 'evaluate_observables',
+    'evaluate_driver_at_t', 'get_solver_helper_fn', "driver_del_t",
     'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
@@ -348,12 +348,12 @@ class BaseStepConfig(ABC):
         Number of state entries advanced by each step call.
     n_drivers
         Number of external driver signals consumed by the step (>= 0).
-    dxdt_function
-        Device function that evaluates the system right-hand side.
-    observables_function
+    evaluate_f
+        Device function that evaluates the system right-hand side f(t, y).
+    evaluate_observables
         Device function that evaluates the system observables.
-    driver_function
-        Device function that evaluates driver arrays for a given time.
+    evaluate_driver_at_t
+        Device function that evaluates driver arrays for a given time t.
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
@@ -366,17 +366,17 @@ class BaseStepConfig(ABC):
 
     n: int = field(default=1, validator=getype_validator(int, 1))
     n_drivers: int = field(default=0, validator=getype_validator(int, 0))
-    dxdt_function: Optional[Callable] = field(
+    evaluate_f: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    observables_function: Optional[Callable] = field(
+    evaluate_observables: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
     )
-    driver_function: Optional[Callable] = field(
+    evaluate_driver_at_t: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False
@@ -678,14 +678,14 @@ class BaseAlgorithmStep(CUDAFactory):
         return self.compile_settings.settings_dict
 
     @property
-    def dxdt_function(self) -> Optional[Callable]:
+    def evaluate_f(self) -> Optional[Callable]:
         """Return the compiled device derivative function."""
-        return self.compile_settings.dxdt_function
+        return self.compile_settings.evaluate_f
 
     @property
-    def observables_function(self) -> Optional[Callable]:
+    def evaluate_observables(self) -> Optional[Callable]:
         """Return the compiled device observables function."""
-        return self.compile_settings.observables_function
+        return self.compile_settings.evaluate_observables
 
 
     @property

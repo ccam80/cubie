@@ -133,9 +133,9 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
@@ -155,13 +155,12 @@ class DIRKStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         tableau
@@ -194,9 +193,9 @@ class DIRKStep(ODEImplicitStep):
                 'precision': precision,
                 'n': n,
                 'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau,
                 'beta': 1.0,
@@ -322,9 +321,9 @@ class DIRKStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -341,7 +340,7 @@ class DIRKStep(ODEImplicitStep):
         stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         multistage = stage_count > 1
         first_same_as_last = self.first_same_as_last
@@ -481,8 +480,8 @@ class DIRKStep(ODEImplicitStep):
                         proposed_drivers[idx] = drivers_buffer[idx]
 
                 else:
-                    if has_driver_function:
-                        driver_function(
+                    if has_evaluate_driver_at_t:
+                        evaluate_driver_at_t(
                             stage_time,
                             driver_coeffs,
                             proposed_drivers,
@@ -509,7 +508,7 @@ class DIRKStep(ODEImplicitStep):
                         )
 
                 # Get obs->dxdt from stage_base
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -517,7 +516,7 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -570,8 +569,8 @@ class DIRKStep(ODEImplicitStep):
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
@@ -602,7 +601,7 @@ class DIRKStep(ODEImplicitStep):
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -610,7 +609,7 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -648,14 +647,14 @@ class DIRKStep(ODEImplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

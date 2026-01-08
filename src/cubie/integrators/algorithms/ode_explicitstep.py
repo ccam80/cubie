@@ -31,16 +31,16 @@ class ODEExplicitStep(BaseAlgorithmStep):
         """
 
         config = self.compile_settings
-        dxdt_function = config.dxdt_function
+        evaluate_f = config.evaluate_f
         numba_precision = config.numba_precision
         n = config.n
-        observables_function = config.observables_function
-        driver_function = config.driver_function
+        evaluate_observables = config.evaluate_observables
+        evaluate_driver_at_t = config.evaluate_driver_at_t
         n_drivers = config.n_drivers
         return self.build_step(
-            dxdt_function,
-            observables_function,
-            driver_function,
+            evaluate_f,
+            evaluate_observables,
+            evaluate_driver_at_t,
             numba_precision,
             n,
             n_drivers,
@@ -49,9 +49,9 @@ class ODEExplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -60,11 +60,11 @@ class ODEExplicitStep(BaseAlgorithmStep):
 
         Parameters
         ----------
-        dxdt_function
-            Device derivative function for the ODE system.
-        observables_function
+        evaluate_f
+            Device function for evaluating the ODE right-hand side f(t, y).
+        evaluate_observables
             Device helper that computes observables for the system.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision for compiled device buffers.

@@ -28,9 +28,9 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         **kwargs,
     ) -> None:
@@ -42,21 +42,20 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
-            Optional device function evaluating spline drivers at arbitrary
-            times.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
         """
         config = ExplicitStepConfig(
             precision=precision,
-            dxdt_function=dxdt_function,
-            observables_function=observables_function,
-            driver_function=driver_function,
+            evaluate_f=evaluate_f,
+            evaluate_observables=evaluate_observables,
+            evaluate_driver_at_t=evaluate_driver_at_t,
             n=n,
         )
 
@@ -64,9 +63,9 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
 
     def build_step(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -75,26 +74,26 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
 
         Parameters
         ----------
-        dxdt_function
-            Device derivative function used within the update.
-        observables_function
-            Device function computing system observables.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         numba_precision
-            Numba precision corresponding to the configured precision.
+            Numba type for device buffers.
         n
-            Dimension of the state vector.
+            State vector dimension.
         n_drivers
-            Number of driver signals provided to the system.
+            Number of driver signals.
 
         Returns
         -------
         StepCache
-            Container holding the compiled step function.
+            Compiled step function.
         """
 
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # no cover: start
@@ -225,7 +224,7 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
 
             # error buffer unused; stage dx/dt in proposed_state instead.
             dxdt_buffer = proposed_state
-            dxdt_function(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -243,13 +242,13 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
                 proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
                 )
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

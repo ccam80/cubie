@@ -22,9 +22,9 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
         krylov_tolerance: Optional[float] = None,
@@ -45,11 +45,11 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
@@ -99,9 +99,9 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             'beta': beta,
             'gamma': gamma,
             'M': M,
-            'dxdt_function': dxdt_function,
-            'observables_function': observables_function,
-            'driver_function': driver_function,
+            'evaluate_f': evaluate_f,
+            'evaluate_observables': evaluate_observables,
+            'evaluate_driver_at_t': evaluate_driver_at_t,
         }
         if preconditioner_order is not None:
             config_kwargs['preconditioner_order'] = preconditioner_order
@@ -151,9 +151,9 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -163,20 +163,20 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
-            Device observable computation helper.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         solver_function
             Device function for the Newton-Krylov nonlinear solver.
         numba_precision
-            Numba precision corresponding to the configured precision.
+            Numba type for device buffers.
         n
-            Dimension of the state vector.
+            State vector dimension.
         n_drivers
-            Number of driver signals provided to the system.
+            Number of driver signals.
 
         Returns
         -------
@@ -186,7 +186,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
 
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
         typed_zero = numba_precision(0.0)
 
@@ -297,7 +297,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             base_state = error
 
             # Evaluate f(state)
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -314,8 +314,8 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                 base_state[idx] = state[idx] + half_dt * dxdt[idx]
 
             # Solve Crank-Nicolson step (main solution)
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -391,7 +391,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                     proposed_state[idx] - (state[idx] + base_state[idx])
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -404,7 +404,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
             # LOGGING: capture stage derivatives
-            dxdt_fn(
+            evaluate_f(
                 proposed_state,
                 parameters,
                 proposed_drivers,

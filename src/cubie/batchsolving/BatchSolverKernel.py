@@ -41,7 +41,6 @@ DEFAULT_MEMORY_SETTINGS = {
     "mem_proportion": None,
 }
 
-
 @define(frozen=True)
 class ChunkParams:
     """Chunked execution parameters calculated for a batch run.
@@ -81,7 +80,7 @@ class BatchSolverKernel(CUDAFactory):
         Mapping of loop configuration forwarded to
         :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
         ``"save_every"`` and ``"summarise_every"``.
-    driver_function
+    evaluate_driver_at_t
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
         Flag enabling CUDA profiling hooks.
@@ -112,7 +111,7 @@ class BatchSolverKernel(CUDAFactory):
         self,
         system: "BaseODE",
         loop_settings: Optional[Dict[str, Any]] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         profileCUDA: bool = False,
         step_control_settings: Optional[Dict[str, Any]] = None,
@@ -149,7 +148,7 @@ class BatchSolverKernel(CUDAFactory):
         self.single_integrator = SingleIntegratorRun(
             system,
             loop_settings=loop_settings,
-            driver_function=driver_function,
+            evaluate_driver_at_t=evaluate_driver_at_t,
             driver_del_t=driver_del_t,
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
@@ -261,6 +260,74 @@ class BatchSolverKernel(CUDAFactory):
             self._cuda_events[base_idx + 2]
         )
 
+    def _validate_timing_parameters(self, duration: float) -> None:
+        """Validate timing parameters to prevent invalid array accesses.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+
+        Raises
+        ------
+        ValueError
+            When timing parameters would result in no outputs or invalid
+            sampling.
+
+        Notes
+        -----
+        Uses dt_min as an absolute tolerance when comparing floating
+        point timing parameters by adding dt_min to the requested
+        duration. Small in-loop timing oversteps smaller than dt_min
+        are treated as valid and do not trigger validation errors.
+        """
+        integrator = self.single_integrator
+        end_time = self.precision(duration) + self.dt_min
+        
+        # Validate time-domain output timing parameters
+        if integrator.has_time_domain_outputs:
+            save_every = integrator.save_every
+            save_last = integrator.save_last
+            if (
+                save_every is not None
+                and save_every > end_time
+                and not save_last
+            ):
+                raise ValueError(
+                    f"save_every ({save_every}) > duration ({duration}) "
+                    f"so this loop will produce no outputs"
+                )
+
+        # Validate summary timing parameters
+        if integrator.has_summary_outputs:
+            sample_summaries_every = integrator.sample_summaries_every
+            summarise_every = integrator.summarise_every
+
+            if sample_summaries_every is None:
+                raise ValueError(
+                    "Summary outputs are enabled but sample_summaries_every "
+                    "is None"
+                )
+            if summarise_every is None:
+                raise ValueError(
+                    "Summary outputs are enabled but summarise_every is None"
+                )
+
+            if sample_summaries_every >= summarise_every:
+                raise ValueError(
+                    f"sample_summaries_every ({sample_summaries_every}) "
+                    f">= summarise_every ({summarise_every}); "
+                    f"The saved summary will be based on 0 samples, so will "
+                    f"result in 0/inf/NaN values."
+                )
+
+            if summarise_every > end_time:
+                raise ValueError(
+                    f"summarise_every ({summarise_every}) > duration "
+                    f"({duration}), so this loop will produce no summary "
+                    f"outputs"
+                )
+
     def run(
         self,
         inits: NDArray[floating],
@@ -329,6 +396,9 @@ class BatchSolverKernel(CUDAFactory):
         # Update the single integrator with requested duration if required
         self.single_integrator.set_summary_timing_from_duration(duration)
 
+        # Validate timing parameters to prevent array index errors
+        self._validate_timing_parameters(duration)
+
         # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
@@ -362,11 +432,21 @@ class BatchSolverKernel(CUDAFactory):
         chunk_warmup = chunk_params.warmup
         chunk_t0 = chunk_params.t0
 
-        # Propagate chunk_duration to single_integrator if required
-        if self.chunks != 1:
+        # Update internal time parameters if duration has been chunked
+        if self.chunks != 1 and chunk_axis == "time":
             self.single_integrator.set_summary_timing_from_duration(
                     chunk_params.duration
             )
+            try:
+                self._validate_timing_parameters(chunk_params.duration)
+            except ValueError as e:
+                raise ValueError(
+                    f"Your timing parameters were OK for the full duration, "
+                    f"but the run was divided into multiple time-chunks due "
+                    f"to GPU memory constraints so they're now invalid. "
+                    f"Adjust timing parameters OR set chunk_axis='run' to "
+                    f"avoid this. Time-check exception: {e}"
+                ) from e
 
         # Use the chunk-local run count for run-chunking, and the full run
         # count for time-chunking.

@@ -128,9 +128,9 @@ def test_solver_helper_cached(built_simple_strict):
 def test_observables_helper_available(built_simple_strict):
     """Symbolic systems should expose an observables-only helper."""
 
-    func = built_simple_strict.observables_function
+    func = built_simple_strict.evaluate_observables
     assert callable(func)
-    cached = built_simple_strict.observables_function
+    cached = built_simple_strict.evaluate_observables
     assert func is cached
 
 
@@ -174,8 +174,8 @@ class TestSympyStringEquivalence:
             name='test_string'
         )
         
-        assert is_devfunc(ode_sympy.dxdt_function)
-        assert is_devfunc(ode_string.dxdt_function)
+        assert is_devfunc(ode_sympy.evaluate_f)
+        assert is_devfunc(ode_string.evaluate_f)
         
         assert ode_sympy.num_states == ode_string.num_states
         assert ode_sympy.num_states == 2
