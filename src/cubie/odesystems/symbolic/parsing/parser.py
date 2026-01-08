@@ -31,6 +31,13 @@ _INDEXED_NAME_PATTERN = re.compile(r"(?P<name>[A-Za-z_]\w*)\[(?P<index>\d+)\]")
 TIME_SYMBOL = sp.Symbol("t", real=True)
 DRIVER_SETTING_KEYS = {"time", "dt", "wrap", "order"}
 
+# Pattern for d(variable, t) function notation - matches explicit
+# derivative syntax like d(x, t), d( velocity , t ) with optional
+# whitespace
+_DERIVATIVE_FUNC_PATTERN = re.compile(
+    r"^d\s*\(\s*([A-Za-z_]\w*)\s*,\s*t\s*\)$"
+)
+
 
 def _detect_input_type(dxdt: Union[str, Iterable]) -> str:
     """Detect whether dxdt contains strings or SymPy expressions.
@@ -775,15 +782,28 @@ def _lhs_pass_sympy(
     
     Notes
     -----
+    Derivative notation is detected using state-aware logic:
+
+    1. Function notation ``d(x, t)`` explicitly marks state ``x``'s
+       derivative
+    2. Prefix notation ``dX`` is a derivative only if ``X`` is a
+       declared state
+    3. Symbols like ``delta_i`` where ``elta_i`` is not a state are
+       auxiliaries
+
+    In non-strict mode, unknown d-prefixed symbols infer new states only
+    when the entire symbol matches the ``dX`` pattern and ``X`` is a
+    valid identifier.
+
     Anonymous auxiliaries ease model authoring but are not persisted as
     saved observables; tracking them ensures generated SymPy code remains
     consistent with the equations.
-    
-    This function uses SymPy's Symbol and Expr objects directly, extracting
-    LHS symbols from equation tuples rather than parsing strings. Symbol
-    categorization logic matches _lhs_pass() to ensure consistent behavior
-    across both input pathways.
-    
+
+    This function uses SymPy's Symbol and Expr objects directly,
+    extracting LHS symbols from equation tuples rather than parsing
+    strings. Symbol categorization logic matches _lhs_pass() to ensure
+    consistent behavior across both input pathways.
+
     Raises
     ------
     ValueError
@@ -793,6 +813,9 @@ def _lhs_pass_sympy(
     assigned_obs = set()
     underived_states = set(indexed_bases.dxdt_names)
     state_names = set(indexed_bases.state_names)
+    # Track if user explicitly declared states; if so, don't infer new
+    # states from d-prefix in non-strict mode
+    had_initial_states = len(state_names) > 0
     observable_names = set(indexed_bases.observable_names)
     param_names = set(indexed_bases.parameter_names)
     constant_names = set(indexed_bases.constant_names)
@@ -803,38 +826,48 @@ def _lhs_pass_sympy(
     
     for lhs_sym, rhs_expr in equations:
         lhs_name = str(lhs_sym)
-        
-        if lhs_name.startswith("d"):
-            state_name = lhs_name[1:]
-            s_sym = sp.Symbol(state_name, real=True)
-            
-            if state_name not in state_names:
-                if state_name in observable_names:
-                    warn(
-                        f"Symbol d{state_name} found in equations, but "
-                        f"{state_name} was listed as an observable. "
-                        f"Converting to state.",
-                        EquationWarning,
-                    )
-                    states.push(s_sym)
-                    dxdt.push(sp.Symbol(f"d{state_name}", real=True))
-                    observables.pop(s_sym)
-                    state_names.add(state_name)
-                    observable_names.discard(state_name)
+
+        # Check for d-prefix with state-aware logic
+        if lhs_name.startswith("d") and len(lhs_name) > 1:
+            potential_state = lhs_name[1:]
+
+            # Only treat as derivative if remainder is a known state
+            if potential_state in state_names:
+                underived_states -= {lhs_name}
+
+            elif potential_state in observable_names:
+                s_sym = sp.Symbol(potential_state, real=True)
+                warn(
+                    f"Symbol d{potential_state} found in equations, but "
+                    f"{potential_state} was listed as an observable. "
+                    f"Converting to state.",
+                    EquationWarning,
+                )
+                states.push(s_sym)
+                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
+                observables.pop(s_sym)
+                state_names.add(potential_state)
+                observable_names.discard(potential_state)
+                underived_states -= {lhs_name}
+
+            elif not strict and not had_initial_states:
+                # Non-strict mode with no user-declared states: infer state
+                # from d-prefix; when states are explicitly declared, unknown
+                # d-prefixed symbols are treated as auxiliaries instead
+                s_sym = sp.Symbol(potential_state, real=True)
+                states.push(s_sym)
+                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
+                state_names.add(potential_state)
+                underived_states.add(f"d{potential_state}")
+                underived_states -= {lhs_name}
+
+            else:
+                # Not a known state - treat as auxiliary variable
+                if lhs_name not in observable_names:
+                    anonymous_auxiliaries[lhs_name] = lhs_sym
                 else:
-                    if strict:
-                        raise ValueError(
-                            f"Unknown state derivative: {lhs_name}. "
-                            f"No state called {state_name} found."
-                        )
-                    else:
-                        states.push(s_sym)
-                        dxdt.push(sp.Symbol(f"d{state_name}", real=True))
-                        state_names.add(state_name)
-                        underived_states.add(f"d{state_name}")
-            
-            underived_states -= {lhs_name}
-        
+                    assigned_obs.add(lhs_name)
+
         elif lhs_name in state_names:
             raise ValueError(
                 f"State {lhs_name} cannot be assigned directly. "
@@ -855,7 +888,7 @@ def _lhs_pass_sympy(
         else:
             if lhs_name not in observable_names:
                 anonymous_auxiliaries[lhs_name] = lhs_sym
-            if lhs_name in observable_names:
+            else:
                 assigned_obs.add(lhs_name)
     
     missing_obs = set(indexed_bases.observable_names) - assigned_obs
@@ -1036,6 +1069,19 @@ def _lhs_pass(
 
     Notes
     -----
+    Derivative notation is detected using state-aware logic:
+
+    1. Function notation ``d(x, t)`` explicitly marks state ``x``'s
+       derivative
+    2. Prefix notation ``dX`` is a derivative only if ``X`` is a
+       declared state
+    3. Symbols like ``delta_i`` where ``elta_i`` is not a state are
+       auxiliaries
+
+    In non-strict mode, unknown d-prefixed symbols infer new states only
+    when the entire symbol matches the ``dX`` pattern and ``X`` is a
+    valid identifier.
+
     Anonymous auxiliaries ease model authoring but are not persisted as
     saved observables; tracking them ensures generated SymPy code remains
     consistent with the equations.
@@ -1044,6 +1090,9 @@ def _lhs_pass(
     assigned_obs = set()
     underived_states = set(indexed_bases.dxdt_names)
     state_names = set(indexed_bases.state_names)
+    # Track if user explicitly declared states; if so, don't infer new
+    # states from d-prefix in non-strict mode
+    had_initial_states = len(state_names) > 0
     observable_names = set(indexed_bases.observable_names)
     param_names = set(indexed_bases.parameter_names)
     constant_names = set(indexed_bases.constant_names)
@@ -1054,15 +1103,19 @@ def _lhs_pass(
 
     for line in lines:
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
-        if lhs.startswith("d"):
-            state_name = lhs[1:]
+
+        # Priority 1: Check for function notation d(name, t)
+        func_match = _DERIVATIVE_FUNC_PATTERN.match(lhs)
+        if func_match:
+            state_name = func_match.group(1)
             s_sym = sp.Symbol(state_name, real=True)
+
             if state_name not in state_names:
                 if state_name in observable_names:
                     warn(
-                        f"Your equation included d{state_name}, but "
-                        f"{state_name} was listed as an observable. It has"
-                        "been converted into a state.",
+                        f"Symbol d({state_name}, t) found in equations, "
+                        f"but {state_name} was listed as an observable. "
+                        f"It has been converted into a state.",
                         EquationWarning,
                     )
                     states.push(s_sym)
@@ -1073,15 +1126,59 @@ def _lhs_pass(
                 else:
                     if strict:
                         raise ValueError(
-                            f"Unknown state derivative: {lhs}. "
-                            f"No state or observable called {state_name} found."
+                            f"Unknown state in derivative notation: "
+                            f"d({state_name}, t). No state called "
+                            f"{state_name} found."
                         )
                     else:
                         states.push(s_sym)
                         dxdt.push(sp.Symbol(f"d{state_name}", real=True))
                         state_names.add(state_name)
                         underived_states.add(f"d{state_name}")
-            underived_states -= {lhs}
+
+            underived_states -= {f"d{state_name}"}
+
+        # Priority 2: State-aware d-prefix check
+        elif lhs.startswith("d") and len(lhs) > 1:
+            potential_state = lhs[1:]
+
+            # Only treat as derivative if remainder is a known state
+            if potential_state in state_names:
+                underived_states -= {lhs}
+
+            elif potential_state in observable_names:
+                # Observable being used as state derivative
+                s_sym = sp.Symbol(potential_state, real=True)
+                warn(
+                    f"Your equation included d{potential_state}, but "
+                    f"{potential_state} was listed as an observable. It "
+                    f"has been converted into a state.",
+                    EquationWarning,
+                )
+                states.push(s_sym)
+                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
+                observables.pop(s_sym)
+                state_names.add(potential_state)
+                observable_names.discard(potential_state)
+                underived_states -= {lhs}
+
+            elif not strict and not had_initial_states:
+                # Non-strict mode with no user-declared states: infer state
+                # from d-prefix; when states are explicitly declared, unknown
+                # d-prefixed symbols are treated as auxiliaries instead
+                s_sym = sp.Symbol(potential_state, real=True)
+                states.push(s_sym)
+                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
+                state_names.add(potential_state)
+                underived_states.add(f"d{potential_state}")
+                underived_states -= {lhs}
+
+            else:
+                # Not a known state - treat as auxiliary variable
+                if lhs not in observable_names:
+                    anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
+                else:
+                    assigned_obs.add(lhs)
 
         elif lhs in state_names:
             raise ValueError(
@@ -1107,7 +1204,7 @@ def _lhs_pass(
         else:
             if lhs not in observable_names:
                 anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
-            if lhs in observable_names:
+            else:
                 assigned_obs.add(lhs)
 
     missing_obs = set(indexed_bases.observable_names) - assigned_obs
@@ -1374,8 +1471,6 @@ def parse_input(
         raw_lines = list(lines)
         lines = _normalise_indexed_tokens(lines)
         
-        constants = index_map.constants.default_values
-        fn_hash = hash_system_definition(dxdt, constants)
         anon_aux = _lhs_pass(lines, index_map, strict=strict)
         all_symbols = index_map.all_symbols.copy()
         all_symbols.setdefault("t", TIME_SYMBOL)
@@ -1415,9 +1510,6 @@ def parse_input(
             new_lhs = lhs.subs(symbol_substitutions, simultaneous=True) if lhs in symbol_substitutions else lhs
             new_rhs = rhs.subs(symbol_substitutions, simultaneous=True)
             substituted_eqs.append((new_lhs, new_rhs))
-        
-        constants = index_map.constants.default_values
-        fn_hash = hash_system_definition(substituted_eqs, constants)
         
         anon_aux = _lhs_pass_sympy(
             substituted_eqs, index_map, strict=strict
@@ -1484,5 +1576,13 @@ def parse_input(
                 all_symbols['__function_aliases__'] = alias_map
 
     parsed_equations = ParsedEquations.from_equations(equation_map, index_map)
+
+    # Compute hash from canonical ParsedEquations form
+    fn_hash = hash_system_definition(
+        parsed_equations,
+        index_map.constants.default_values,
+        observable_labels=index_map.observables.ref_map.keys(),
+        parameter_labels=index_map.parameters.ref_map.keys(),
+    )
 
     return index_map, all_symbols, funcs, parsed_equations, fn_hash
