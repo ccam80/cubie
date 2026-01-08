@@ -181,7 +181,7 @@ def hash_system_definition(
     cache hits occur for identical systems regardless of input
     pathway (string vs SymPy).
     """
-    # Extract equations from ParsedEquations if needed
+    # Extract equations from ParsedEquations or convert from provided tuple
     if hasattr(equations, 'ordered'):
         eq_list = list(equations.ordered)
     else:
@@ -190,27 +190,28 @@ def hash_system_definition(
     # Sort equations alphabetically by LHS symbol name
     sorted_eqs = sorted(eq_list, key=lambda eq: str(eq[0]))
 
-    # Build canonical equation string
+    # Join all equations into a single string and remove whitespace
     eq_strings = [f"{str(lhs)}={str(rhs)}" for lhs, rhs in sorted_eqs]
     dxdt_str = "|".join(eq_strings)
-
-    # Normalize by removing whitespace
     normalized_dxdt = "".join(dxdt_str.split())
 
-    # Process constants (sorted by key for determinism)
+    # Append constants labels and values, sorted by label
     constants_str = ""
     if constants is not None:
-        # str() conversion required: SymPy Symbol keys lack direct comparison
+        # Keys in `constants` may be SymPy Symbols (for example from
+        # an index_map) as well as plain strings; SymPy Symbol keys are
+        # not directly orderable, so str() is used to obtain a stable
+        # string-based sort order for all key types.
         sorted_constants = sorted(constants.items(), key=lambda x: str(x[0]))
         constants_str = "|".join(f"{k}:{v}" for k, v in sorted_constants)
 
-    # Process observable labels (sorted for determinism)
+    # Append sorted observable labels
     observables_str = ""
     if observable_labels is not None:
         sorted_observables = sorted(str(label) for label in observable_labels)
         observables_str = "|".join(sorted_observables)
 
-    # Process parameter labels (sorted for determinism)
+    # Append sorted parameter labels
     parameters_str = ""
     if parameter_labels is not None:
         sorted_parameters = sorted(str(label) for label in parameter_labels)
