@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/derivative_notation_fix/agent_plan.md
 
 ## Task Group 1: Add Function Notation Regex Pattern
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -39,14 +39,20 @@
 **Tests to Run**:
 - None for this task group
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/parser.py (6 lines added)
+- Functions/Methods Added/Modified:
+  * _DERIVATIVE_FUNC_PATTERN constant added at module level (lines 34-39)
+- Implementation Summary:
+  Added regex pattern constant to match function notation `d(variable, t)` for explicit derivative syntax. Pattern handles whitespace variations and captures valid Python identifiers. Uses anchored pattern (^ and $) to match entire LHS string.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Modify _lhs_pass for State-Aware Derivative Detection
-**Status**: [ ]
-**Dependencies**: Task Group 1
+**Status**: [x]
+**Dependencies**: Task Group 1 (completed)
 
 **Required Context**:
 - File: src/cubie/odesystems/symbolic/parsing/parser.py (lines 1015-1138)
@@ -185,13 +191,30 @@
 **Tests to Run**:
 - tests/odesystems/symbolic/test_parser.py::TestLhsPass
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/parser.py (46 lines changed - replaced 57 lines with 103 lines)
+- Functions/Methods Added/Modified:
+  * _lhs_pass() in parser.py - refactored derivative detection logic
+- Implementation Summary:
+  Refactored _lhs_pass function to implement state-aware derivative detection with priority-ordered checks:
+  1. Priority 1: Function notation d(name, t) using _DERIVATIVE_FUNC_PATTERN
+  2. Priority 2: State-aware d-prefix check - only treats dX as derivative if X is a known state
+  3. Priority 3: Direct state assignment check (raises error)
+  4. Priority 4: Immutable input assignment check (raises error)
+  5. Priority 5: Default - treat as auxiliary or observable
+  
+  Key behavior changes:
+  - d-prefixed symbols like "delta_i" are now treated as auxiliaries when "elta_i" is not a declared state
+  - Function notation d(x, t) provides explicit derivative specification
+  - Non-strict mode still infers states from d-prefix patterns
+  - Strict mode now treats unknown d-prefixed symbols as auxiliaries instead of raising errors
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Modify _lhs_pass_sympy for State-Aware Derivative Detection
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -290,13 +313,29 @@
 - tests/odesystems/symbolic/test_parser.py::TestSympyInputPathway
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/parser.py (41 lines changed - replaced 33 lines with 41 lines)
+- Functions/Methods Added/Modified:
+  * _lhs_pass_sympy() in parser.py - refactored derivative detection logic
+- Implementation Summary:
+  Refactored _lhs_pass_sympy function to implement state-aware derivative detection:
+  1. Added length check: `len(lhs_name) > 1` to ensure single 'd' is not treated as derivative
+  2. Changed logic to only treat `dX` as derivative if `X` is a known state
+  3. Observable-to-state conversion: if `potential_state` is an observable, converts with warning
+  4. Non-strict mode: infers state from d-prefix for unknown symbols
+  5. Strict mode: treats unknown d-prefixed symbols as auxiliaries (not raising errors)
+  
+  Key behavior changes:
+  - d-prefixed symbols like "delta_i" are now treated as auxiliaries when "elta_i" is not a declared state
+  - Non-strict mode still infers states from d-prefix patterns
+  - Strict mode now treats unknown d-prefixed symbols as auxiliaries instead of raising errors
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Add Tests for State-Aware Derivative Detection
-**Status**: [ ]
-**Dependencies**: Task Groups 2, 3
+**Status**: [x]
+**Dependencies**: Task Groups 2, 3 (completed)
 
 **Required Context**:
 - File: tests/odesystems/symbolic/test_parser.py (entire file)
@@ -551,14 +590,28 @@
 - tests/odesystems/symbolic/test_parser.py::TestSympyInputPathway::test_sympy_ambiguous_prefix_is_state_is_derivative
 - tests/odesystems/symbolic/test_parser.py::TestParseInput::test_parse_input_mixed_derivatives_and_auxiliaries
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * tests/odesystems/symbolic/test_parser.py (157 lines added)
+- Functions/Methods Added/Modified:
+  * TestDerivativeNotation class (new, 10 test methods)
+  * TestSympyInputPathway.test_sympy_ambiguous_prefix_not_state_is_auxiliary()
+  * TestSympyInputPathway.test_sympy_ambiguous_prefix_is_state_is_derivative()
+  * TestParseInput.test_parse_input_mixed_derivatives_and_auxiliaries()
+- Implementation Summary:
+  Added comprehensive test suite for state-aware derivative detection:
+  - TestDerivativeNotation: 10 tests for string input pathway covering basic derivatives,
+    ambiguous prefixes, function notation d(x,t), strict/non-strict modes, whitespace
+    handling, and single letter 'd' edge case
+  - TestSympyInputPathway: 2 tests for SymPy pathway covering ambiguous prefix detection
+  - TestParseInput: 1 integration test for mixed derivatives and d-prefixed auxiliaries
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Update Docstrings
-**Status**: [ ]
-**Dependencies**: Task Groups 2, 3
+**Status**: [x]
+**Dependencies**: Task Groups 2, 3 (completed)
 
 **Required Context**:
 - File: src/cubie/odesystems/symbolic/parsing/parser.py (lines 1015-1042 for _lhs_pass docstring)
@@ -610,5 +663,17 @@
 **Tests to Run**:
 - None (documentation only)
 
-**Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+**Outcomes**:
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/parser.py (20 lines changed)
+- Functions/Methods Added/Modified:
+  * _lhs_pass() docstring - expanded Notes section
+  * _lhs_pass_sympy() docstring - expanded Notes section
+- Implementation Summary:
+  Updated both _lhs_pass and _lhs_pass_sympy docstrings to document the
+  state-aware derivative notation detection logic. Added detailed Notes
+  sections explaining the three-tier detection priority: function notation
+  d(x, t), prefix notation dX for declared states, and auxiliary treatment
+  for d-prefixed symbols where the remainder is not a state. Documentation
+  follows numpydoc style with 72-character max line length.
+- Issues Flagged: None
