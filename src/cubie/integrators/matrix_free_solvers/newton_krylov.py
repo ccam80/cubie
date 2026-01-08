@@ -669,6 +669,16 @@ class NewtonKrylov(CUDAFactory):
         return self.linear_solver.krylov_tolerance
 
     @property
+    def krylov_atol(self) -> ndarray:
+        """Return the Krylov absolute tolerance array from nested LinearSolver."""
+        return self.linear_solver.krylov_atol
+
+    @property
+    def krylov_rtol(self) -> ndarray:
+        """Return the Krylov relative tolerance array from nested LinearSolver."""
+        return self.linear_solver.krylov_rtol
+
+    @property
     def max_linear_iters(self) -> int:
         """Return max linear iterations from nested linear solver."""
         return self.linear_solver.max_linear_iters

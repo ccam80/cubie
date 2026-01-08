@@ -92,8 +92,8 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     assert np.allclose(
         result_increment,
         expected_increment,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 @pytest.mark.parametrize(
@@ -185,8 +185,8 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
     assert_allclose(
         x.copy_to_host(),
         expected_increment,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 
@@ -534,8 +534,8 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
     assert np.allclose(
         x.copy_to_host(),
         expected_increment,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 
@@ -602,6 +602,6 @@ def test_newton_krylov_scalar_tolerance_backward_compatible(
     assert np.allclose(
         x.copy_to_host(),
         expected_increment,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )

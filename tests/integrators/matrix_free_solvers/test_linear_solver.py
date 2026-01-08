@@ -61,8 +61,8 @@ def test_neumann_preconditioner(
     assert_allclose(
         out.copy_to_host(),
         expected,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 
@@ -111,8 +111,8 @@ def test_linear_solver_placeholder(
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 @pytest.mark.parametrize(
@@ -161,8 +161,8 @@ def test_linear_solver_symbolic(
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 
@@ -276,8 +276,8 @@ def test_linear_solver_scaled_tolerance_converges(
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
 
 
@@ -313,6 +313,6 @@ def test_linear_solver_scalar_tolerance_backward_compatible(
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )

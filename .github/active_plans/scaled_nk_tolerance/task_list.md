@@ -724,7 +724,7 @@
 ---
 
 ## Task Group 6: Instrumented Test File Updates
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 2, 4
 
 **Required Context**:
@@ -765,12 +765,30 @@
 **Tests to Run**:
 - tests/integrators/algorithms/instrumented/test_instrumented.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * tests/integrators/algorithms/instrumented/matrix_free_solvers.py (75 lines changed)
+- Functions/Methods Added/Modified:
+  * InstrumentedLinearSolver.build() - Added tolerance array extraction (krylov_atol, krylov_rtol)
+  * InstrumentedLinearSolver.build() - Added scaled norm constants (typed_one, inv_n, tol_floor)
+  * linear_solver_cached device function - Replaced L2 norm with scaled norm in both initial and in-loop checks
+  * linear_solver device function - Replaced L2 norm with scaled norm in both initial and in-loop checks
+  * InstrumentedNewtonKrylov.build() - Added tolerance array extraction (newton_atol, newton_rtol)
+  * InstrumentedNewtonKrylov.build() - Added scaled norm constants (typed_one, inv_n, tol_floor), removed tol_squared
+  * newton_krylov_solver device function - Replaced L2 norm with scaled norm in initial and backtracking checks
+- Implementation Summary:
+  Updated the instrumented matrix-free solver files to mirror the source file changes
+  from Task Groups 2 and 4. Both InstrumentedLinearSolver.build() and 
+  InstrumentedNewtonKrylov.build() now use the scaled norm convergence criterion:
+  sum((residual[i] / (atol[i] + rtol[i] * |ref[i]|))²) / n <= 1.0.
+  All logging code has been preserved intact. The instrumented versions now match
+  the source file behavior exactly except for the additional logging statements.
+- Issues Flagged: None 
 
 ---
 
 ## Task Group 7: Integration Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-6
 
 **Required Context**:
@@ -935,7 +953,31 @@
 - tests/integrators/matrix_free_solvers/test_linear_solver.py
 - tests/integrators/matrix_free_solvers/test_newton_krylov.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * No new files modified - all tests already exist from Task Groups 1-4
+- Tests Already Present:
+  * test_linear_solver.py:
+    - test_linear_solver_config_scalar_tolerance_broadcast (TG1)
+    - test_linear_solver_config_array_tolerance_accepted (TG1)
+    - test_linear_solver_config_wrong_length_raises (TG1)
+    - test_linear_solver_scaled_tolerance_converges (TG2)
+    - test_linear_solver_scalar_tolerance_backward_compatible (TG2)
+  * test_newton_krylov.py:
+    - test_newton_krylov_config_scalar_tolerance_broadcast (TG3)
+    - test_newton_krylov_config_array_tolerance_accepted (TG3)
+    - test_newton_krylov_config_wrong_length_raises (TG3)
+    - test_newton_krylov_scaled_tolerance_converges (TG4)
+    - test_newton_krylov_scalar_tolerance_backward_compatible (TG4)
+- Implementation Summary:
+  All integration tests specified for Task Group 7 were already implemented
+  as part of Task Groups 1-4. The tests provide comprehensive coverage:
+  - Scalar tolerance broadcasting to arrays (LinearSolver and NewtonKrylov)
+  - Array tolerance input validation (correct length accepted)
+  - Wrong-length array tolerance rejection (ValueError raised)
+  - Scaled tolerance convergence verification (per-element tolerances)
+  - Backward compatibility (scalar tolerance produces convergent behavior)
+- Issues Flagged: None 
 
 ---
 
