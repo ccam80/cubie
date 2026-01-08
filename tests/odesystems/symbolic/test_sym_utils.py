@@ -451,3 +451,120 @@ class TestHashSystemDefinition:
         # Both should produce identical hashes
         assert hash_with_none == hash_explicit_none
         assert isinstance(hash_with_none, str)
+
+    def test_hash_observable_labels_included(self):
+        """Verify observable labels are included in hash."""
+        x = sp.symbols("x")
+        dx = sp.symbols("dx")
+        equations = [(dx, -x)]
+
+        # Same equations, different observables
+        hash_obs_a = hash_system_definition(
+            equations, observable_labels=["obs1", "obs2"]
+        )
+        hash_obs_b = hash_system_definition(
+            equations, observable_labels=["obs3"]
+        )
+
+        # Different observables should produce different hashes
+        assert hash_obs_a != hash_obs_b
+
+    def test_hash_observable_labels_order_independent(self):
+        """Verify observable labels are sorted before hashing."""
+        x = sp.symbols("x")
+        dx = sp.symbols("dx")
+        equations = [(dx, -x)]
+
+        # Same observables in different orders
+        hash_a = hash_system_definition(
+            equations, observable_labels=["alpha", "beta", "gamma"]
+        )
+        hash_b = hash_system_definition(
+            equations, observable_labels=["gamma", "alpha", "beta"]
+        )
+
+        assert hash_a == hash_b
+
+    def test_hash_parameter_labels_included(self):
+        """Verify parameter labels are included in hash."""
+        x = sp.symbols("x")
+        dx = sp.symbols("dx")
+        equations = [(dx, -x)]
+
+        # Same equations, different parameters
+        hash_param_a = hash_system_definition(
+            equations, parameter_labels=["p1", "p2"]
+        )
+        hash_param_b = hash_system_definition(
+            equations, parameter_labels=["p3"]
+        )
+
+        # Different parameters should produce different hashes
+        assert hash_param_a != hash_param_b
+
+    def test_hash_parameter_labels_order_independent(self):
+        """Verify parameter labels are sorted before hashing."""
+        x = sp.symbols("x")
+        dx = sp.symbols("dx")
+        equations = [(dx, -x)]
+
+        # Same parameters in different orders
+        hash_a = hash_system_definition(
+            equations, parameter_labels=["alpha", "beta", "gamma"]
+        )
+        hash_b = hash_system_definition(
+            equations, parameter_labels=["gamma", "alpha", "beta"]
+        )
+
+        assert hash_a == hash_b
+
+    def test_hash_all_components_combined(self):
+        """Verify hash includes equations, constants, observables, params."""
+        x, k = sp.symbols("x k")
+        dx = sp.symbols("dx")
+        equations = [(dx, -k * x)]
+        constants = {"c1": 1.0}
+        observables = ["obs1"]
+        parameters = ["p1"]
+
+        hash_full = hash_system_definition(
+            equations,
+            constants,
+            observable_labels=observables,
+            parameter_labels=parameters,
+        )
+
+        # Changing any component should change the hash
+        hash_diff_eqs = hash_system_definition(
+            [(dx, -x)],  # different equation
+            constants,
+            observable_labels=observables,
+            parameter_labels=parameters,
+        )
+
+        hash_diff_const = hash_system_definition(
+            equations,
+            {"c1": 2.0},  # different constant value
+            observable_labels=observables,
+            parameter_labels=parameters,
+        )
+
+        hash_diff_obs = hash_system_definition(
+            equations,
+            constants,
+            observable_labels=["obs2"],  # different observable
+            parameter_labels=parameters,
+        )
+
+        hash_diff_param = hash_system_definition(
+            equations,
+            constants,
+            observable_labels=observables,
+            parameter_labels=["p2"],  # different parameter
+        )
+
+        # All should differ from base hash
+        assert hash_full != hash_diff_eqs
+        assert hash_full != hash_diff_const
+        assert hash_full != hash_diff_obs
+        assert hash_full != hash_diff_param

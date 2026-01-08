@@ -144,6 +144,8 @@ def hash_system_definition(
         Iterable[Tuple[sp.Symbol, sp.Expr]],
     ],
     constants: Optional[Dict[str, float]] = None,
+    observable_labels: Optional[Iterable[str]] = None,
+    parameter_labels: Optional[Iterable[str]] = None,
 ) -> str:
     """Generate deterministic hash for symbolic ODE definitions.
 
@@ -158,11 +160,18 @@ def hash_system_definition(
         tuples representing the system.
     constants
         Optional mapping of constant names to values.
+    observable_labels
+        Optional iterable of observable variable names. Sorted
+        alphabetically before inclusion in the hash.
+    parameter_labels
+        Optional iterable of parameter variable names. Sorted
+        alphabetically before inclusion in the hash.
 
     Returns
     -------
     str
-        Deterministic hash string reflecting equations and constants.
+        Deterministic hash string reflecting equations, constants,
+        observables, and parameters.
 
     Notes
     -----
@@ -193,8 +202,23 @@ def hash_system_definition(
         sorted_constants = sorted(constants.items(), key=lambda x: str(x[0]))
         constants_str = "|".join(f"{k}:{v}" for k, v in sorted_constants)
 
+    # Process observable labels (sorted for determinism)
+    observables_str = ""
+    if observable_labels is not None:
+        sorted_observables = sorted(str(label) for label in observable_labels)
+        observables_str = "|".join(sorted_observables)
+
+    # Process parameter labels (sorted for determinism)
+    parameters_str = ""
+    if parameter_labels is not None:
+        sorted_parameters = sorted(str(label) for label in parameter_labels)
+        parameters_str = "|".join(sorted_parameters)
+
     # Combine and hash
-    combined = f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+    combined = (
+        f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+        f"|observables:{observables_str}|parameters:{parameters_str}"
+    )
     return str(hash(combined))
 
 

@@ -1482,7 +1482,10 @@ def parse_input(
 
     # Compute hash from canonical ParsedEquations form
     fn_hash = hash_system_definition(
-        parsed_equations, index_map.constants.default_values
+        parsed_equations,
+        index_map.constants.default_values,
+        observable_labels=index_map.observables.ref_map.keys(),
+        parameter_labels=index_map.parameters.ref_map.keys(),
     )
 
     return index_map, all_symbols, funcs, parsed_equations, fn_hash

@@ -179,7 +179,12 @@ class SymbolicODE(BaseODE):
 
         if fn_hash is None:
             constants = all_indexed_bases.constants.default_values
-            fn_hash = hash_system_definition(equations, constants)
+            fn_hash = hash_system_definition(
+                equations,
+                constants,
+                observable_labels=all_indexed_bases.observables.ref_map.keys(),
+                parameter_labels=all_indexed_bases.parameters.ref_map.keys(),
+            )
         if name is None:
             name = fn_hash
 
@@ -367,7 +372,10 @@ class SymbolicODE(BaseODE):
         constants = self.constants.values_dict
         self._jacobian_aux_count = None
         new_hash = hash_system_definition(
-            self.equations, self.indices.constants.default_values
+            self.equations,
+            self.indices.constants.default_values,
+            observable_labels=self.indices.observables.ref_map.keys(),
+            parameter_labels=self.indices.parameters.ref_map.keys(),
         )
         if new_hash != self.fn_hash:
             self.gen_file = ODEFile(self.name, new_hash)
