@@ -18,10 +18,10 @@ from typing import Any, Optional
 from attrs import fields, has
 from numba.cuda.core.caching import (
     _CacheLocator,
-    Cache,
     CacheImpl,
     IndexDataCacheFile,
 )
+from numba.cuda.dispatcher import CUDACache
 from numpy import ndarray
 
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
@@ -56,8 +56,7 @@ def hash_compile_settings(obj: Any) -> str:
     """
     if not has(type(obj)):
         raise TypeError(
-            "obj must be an attrs class instance, "
-            f"got {type(obj).__name__}"
+            f"obj must be an attrs class instance, got {type(obj).__name__}"
         )
 
     parts = []
@@ -129,9 +128,9 @@ class CUBIECacheLocator(_CacheLocator):
         self._system_hash = system_hash
         self._compile_settings_hash = compile_settings_hash
         if custom_cache_dir is not None:
-            self._cache_path = Path(custom_cache_dir)
+            path = Path(custom_cache_dir)
         else:
-            self._cache_path = GENERATED_DIR / system_name / "cache"
+            path = GENERATED_DIR / system_name / "CUDA_cache"
 
     def get_cache_path(self) -> str:
         """Return the directory where cache files are stored.
@@ -207,7 +206,9 @@ class CUBIECacheImpl(CacheImpl):
     ) -> None:
         # Create CUBIECacheLocator directly (not via from_function)
         self._locator = CUBIECacheLocator(
-            system_name, system_hash, compile_settings_hash,
+            system_name,
+            system_hash,
+            compile_settings_hash,
             custom_cache_dir=custom_cache_dir,
         )
         disambiguator = self._locator.get_disambiguator()
@@ -254,6 +255,7 @@ class CUBIECacheImpl(CacheImpl):
             Reconstructed CUDA kernel.
         """
         from numba.cuda.dispatcher import _Kernel
+
         return _Kernel._rebuild(**payload)
 
     def check_cachable(self, data) -> bool:
@@ -269,7 +271,7 @@ class CUBIECacheImpl(CacheImpl):
         return True
 
 
-class CUBIECache(Cache):
+class CUBIECache(CUDACache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating
@@ -306,7 +308,7 @@ class CUBIECache(Cache):
         system_hash: str,
         compile_settings: Any,
         max_entries: int = 10,
-        mode: str = 'hash',
+        mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
         self._system_name = system_name
@@ -332,17 +334,7 @@ class CUBIECache(Cache):
             source_stamp=source_stamp,
         )
         self.enable()
-
-    @property
-    def cache_path(self) -> str:
-        """Return the directory where cache files are stored.
-
-        Returns
-        -------
-        str
-            Absolute path to the cache directory.
-        """
-        return self._cache_path
+        super().__init__()
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.
@@ -365,25 +357,6 @@ class CUBIECache(Cache):
             self._system_hash,
             self._compile_settings_hash,
         )
-
-    def load_overload(self, sig, target_context):
-        """Load cached kernel with CUDA context handling.
-
-        Parameters
-        ----------
-        sig
-            Function signature.
-        target_context
-            CUDA target context.
-
-        Returns
-        -------
-        Optional[_Kernel]
-            Cached kernel or None if not found.
-        """
-        from numba.cuda import utils
-        with utils.numba_target_override():
-            return super().load_overload(sig, target_context)
 
     def enforce_cache_limit(self) -> None:
         """Evict oldest cache entries if count exceeds max_entries.
@@ -416,6 +389,7 @@ class CUBIECache(Cache):
             except OSError as e:
                 # Log warning but continue - file may be locked or deleted
                 import warnings
+
                 warnings.warn(
                     f"Failed to remove cache file {nbi_file}: {e}",
                     RuntimeWarning,
@@ -448,6 +422,7 @@ class CUBIECache(Cache):
         cache directory.
         """
         import shutil
+
         cache_path = Path(self._cache_path)
         if cache_path.exists():
             try:
