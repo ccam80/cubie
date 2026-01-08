@@ -73,10 +73,6 @@ class ODELoopConfig:
         Device function that evaluates observables for the current state.
     _dt0
         Initial timestep prior to controller feedback.
-    _dt_min
-        Minimum allowable timestep.
-    _dt_max
-        Maximum allowable timestep.
     is_adaptive
         Whether the loop operates with an adaptive controller.
     """
@@ -232,14 +228,6 @@ class ODELoopConfig:
         default=0.01,
         validator=opt_gttype_validator(float, 0),
     )
-    _dt_min: Optional[float] = field(
-        default=0.01,
-        validator=opt_gttype_validator(float, 0),
-    )
-    _dt_max: Optional[float] = field(
-        default=0.1,
-        validator=opt_gttype_validator(float, 0),
-    )
     is_adaptive: Optional[bool] = field(
             default=False,
             validator=validators.optional(validators.instance_of(bool)))
@@ -316,16 +304,6 @@ class ODELoopConfig:
     def dt0(self) -> float:
         """Return the initial timestep."""
         return self.precision(self._dt0)
-
-    @property
-    def dt_min(self) -> float:
-        """Return the minimum allowable timestep."""
-        return self.precision(self._dt_min)
-
-    @property
-    def dt_max(self) -> float:
-        """Return the maximum allowable timestep."""
-        return self.precision(self._dt_max)
 
 
 

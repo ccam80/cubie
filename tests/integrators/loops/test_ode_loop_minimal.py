@@ -37,6 +37,32 @@ class TestODELoopConfigMinimal:
             "algorithm manages its own buffers"
         )
 
+    def test_no_dt_min_field(self):
+        """Verify _dt_min was removed from ODELoopConfig.
+        
+        dt_min belongs to the step controller config (AdaptiveStepControlConfig),
+        not the loop config. The loop receives a compiled step_controller_fn
+        with dt_min already baked in.
+        """
+        config_fields = {f.name for f in fields(ODELoopConfig)}
+        assert '_dt_min' not in config_fields, (
+            "_dt_min should be removed from ODELoopConfig; "
+            "it belongs to step controller config"
+        )
+
+    def test_no_dt_max_field(self):
+        """Verify _dt_max was removed from ODELoopConfig.
+        
+        dt_max belongs to the step controller config (AdaptiveStepControlConfig),
+        not the loop config. The loop receives a compiled step_controller_fn
+        with dt_max already baked in.
+        """
+        config_fields = {f.name for f in fields(ODELoopConfig)}
+        assert '_dt_max' not in config_fields, (
+            "_dt_max should be removed from ODELoopConfig; "
+            "it belongs to step controller config"
+        )
+
     def test_essential_size_fields_present(self):
         """Verify essential size fields are retained in ODELoopConfig.
         
@@ -127,8 +153,6 @@ class TestODELoopConfigMinimal:
             '_summarise_every',
             '_sample_summaries_every',
             '_dt0',
-            '_dt_min',
-            '_dt_max',
             'save_last',
             'save_regularly',
             'summarise_regularly',

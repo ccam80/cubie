@@ -114,13 +114,16 @@
 
 ### Breaking Changes
 
-* **ODELoopConfig**: Removed `controller_local_len` and `algorithm_local_len` fields
-  - These metadata fields were not used in build() or buffer registration
+* **ODELoopConfig**: Removed redundant fields that were not used in build() chains
+  - Removed `controller_local_len` and `algorithm_local_len` - metadata fields not used in build() or buffer registration
+  - Removed `_dt_min` and `_dt_max` - these belong to step controller config (AdaptiveStepControlConfig), not loop config
   - Child factories (step_controller, algorithm_step) manage their own buffer allocation via buffer_registry
+  - Step controller receives dt_min/dt_max directly and bakes them into the compiled step_controller_fn
   - If you were explicitly setting these parameters, simply remove them from your code
   - Buffer sizing information remains available from child factories if needed:
     * Controller buffer size: `loop._step_controller.local_memory_elements`
     * Algorithm buffer size: `loop._algorithm_step.local_memory_elements`
+  - dt_min and dt_max values are still available from: `loop._step_controller.dt_min` and `loop._step_controller.dt_max`
 
 ## [0.0.5](https://github.com/ccam80/cubie/compare/v0.0.4...v0.0.5) (2025-11-04)
 
