@@ -58,6 +58,11 @@ def newton_tol_converter(
         tol = full(self_.n, value, dtype=self_.precision)
     else:
         tol = asarray(value, dtype=self_.precision)
+        # Validate array is 1D
+        if tol.ndim != 1:
+            raise ValueError(
+                f"newton_tolerance must be 1-dimensional, got {tol.ndim}D array."
+            )
         # Broadcast single-element arrays to shape (n,)
         if tol.shape[0] == 1 and self_.n > 1:
             tol = full(self_.n, tol[0], dtype=self_.precision)
