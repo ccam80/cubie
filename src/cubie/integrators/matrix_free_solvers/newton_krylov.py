@@ -235,7 +235,6 @@ class NewtonKrylov(CUDAFactory):
 
         self.register_buffers()
 
-
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
         # Register buffers with buffer_registry

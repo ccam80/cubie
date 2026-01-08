@@ -90,18 +90,15 @@ class InstrumentedLinearSolver(LinearSolver):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
-        # Extract tolerance arrays
-        krylov_atol = config.krylov_atol
-        krylov_rtol = config.krylov_rtol
-        
+        # Get scaled norm device function from norm factory
+        scaled_norm_fn = self.norm.device_function
+
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_linear_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
-        inv_n = precision_numba(1.0 / n)
-        tol_floor = precision_numba(1e-16)
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent LinearSolver.register_buffers)
@@ -151,19 +148,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, x, temp
                 )
-                acc = typed_zero
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    ref_val = x[i]
-                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                    tol_i = tol_i if tol_i > tol_floor else tol_floor
-                    abs_res = residual_value if residual_value >= typed_zero \
-                        else -residual_value
-                    ratio = abs_res / tol_i
-                    acc += ratio * ratio
-                acc = acc * inv_n
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
                 converged = acc <= typed_one
                 
@@ -226,35 +213,11 @@ class InstrumentedLinearSolver(LinearSolver):
                     else:
                         alpha = typed_zero
 
-                    acc = typed_zero
                     if not converged:
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
-                    else:
-                        for i in range(n_val):
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
+                    acc = scaled_norm_fn(rhs, x)
 
                     converged = converged or (acc <= typed_one)
                     
@@ -317,19 +280,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     state, parameters, drivers, base_state, t, h, a_ij, x,
                         temp
                 )
-                acc = typed_zero
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    ref_val = x[i]
-                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                    tol_i = tol_i if tol_i > tol_floor else tol_floor
-                    abs_res = residual_value if residual_value >= typed_zero \
-                        else -residual_value
-                    ratio = abs_res / tol_i
-                    acc += ratio * ratio
-                acc = acc * inv_n
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
                 converged = acc <= typed_one
                 
@@ -394,21 +347,10 @@ class InstrumentedLinearSolver(LinearSolver):
                         converged, precision_numba(0.0), alpha
                     )
                     
-                    acc = typed_zero
                     for i in range(n_val):
                         x[i] += alpha_effective * preconditioned_vec[i]
                         rhs[i] -= alpha_effective * temp[i]
-                        residual_value = rhs[i]
-                        ref_val = x[i]
-                        abs_ref = ref_val if ref_val >= typed_zero \
-                            else -ref_val
-                        tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                        tol_i = tol_i if tol_i > tol_floor else tol_floor
-                        abs_res = residual_value if residual_value >= \
-                            typed_zero else -residual_value
-                        ratio = abs_res / tol_i
-                        acc += ratio * ratio
-                    acc = acc * inv_n
+                    acc = scaled_norm_fn(rhs, x)
                     converged = converged or (acc <= typed_one)
                     
                     # Log iteration state (uses 0-based indexing)
@@ -512,17 +454,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         max_backtracks = config.newton_max_backtracks
         precision = config.precision
 
-        # Extract tolerance arrays
-        newton_atol = config.newton_atol
-        newton_rtol = config.newton_rtol
+        # Get scaled norm device function from norm factory
+        scaled_norm_fn = self.norm.device_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
-        inv_n = numba_precision(1.0 / n)
-        tol_floor = numba_precision(1e-16)
         typed_damping = numba_precision(damping)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
@@ -580,10 +519,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             """Solve a nonlinear system with damped Newton-Krylov and logging."""
             
             # Allocate buffers from registry
-            delta = alloc_delta(shared_scratch, shared_scratch)
-            residual = alloc_residual(shared_scratch, shared_scratch)
-            residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
+            delta = alloc_delta(shared_scratch, persistent_scratch)
+            residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
+            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
             lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
@@ -599,10 +538,12 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 residual,
             )
             
-            norm2_prev = typed_zero
             linear_slot_base = int32(stage_index * max_iters_val)
             log_index = int32(0)
             residual_copy = cuda.local.array(n, numba_precision)
+
+            # Compute norm BEFORE negation for correct scaling
+            norm2_prev = scaled_norm_fn(residual, stage_increment)
 
             for i in range(n_val):
                 residual_value = residual[i]
@@ -610,15 +551,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 residual[i] = -residual_value
                 residual_copy[i] = residual_value
                 newton_initial_guesses[stage_index, i] = stage_increment[i]
-                ref_val = stage_increment[i]
-                abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
-                tol_i = tol_i if tol_i > tol_floor else tol_floor
-                abs_res = residual_value if residual_value >= typed_zero \
-                    else -residual_value
-                ratio = abs_res / tol_i
-                norm2_prev += ratio * ratio
-            norm2_prev = norm2_prev * inv_n
             
             # Log first iteration (initial state)
             for i in range(n_val):
@@ -716,21 +648,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             residual_temp,
                         )
                         
-                        norm2_new = typed_zero
+                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
                         for i in range(n_val):
-                            residual_value = residual_temp[i]
                             stage_increment_snapshot[i] = stage_increment[i]
-                            residual_snapshot[i] = residual_value
-                            ref_val = stage_increment[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = newton_atol[i] + newton_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            norm2_new += ratio * ratio
-                        norm2_new = norm2_new * inv_n
+                            residual_snapshot[i] = residual_temp[i]
                         snapshot_ready = True
                         
                         if norm2_new <= typed_one:

@@ -896,7 +896,7 @@
 ---
 
 ## Task Group 6: Update Instrumented Test Files
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 4, Task Group 5
 
 **Required Context**:
@@ -955,7 +955,14 @@
 - tests/integrators/matrix_free_solvers/test_newton_krylov.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/integrators/algorithms/instrumented/matrix_free_solvers.py (85 lines changed)
+- Functions/Methods Added/Modified:
+  * InstrumentedLinearSolver.build() - replaced inline norm loops with scaled_norm_fn calls, removed local tolerance variables
+  * InstrumentedNewtonKrylov.build() - replaced inline norm loops with scaled_norm_fn calls, removed local tolerance variables
+- Implementation Summary:
+  Updated instrumented solver factories to use ScaledNorm device function inherited from parent classes. Replaced inline tolerance-scaled norm computation loops with calls to scaled_norm_fn in both InstrumentedLinearSolver (cached and non-cached variants) and InstrumentedNewtonKrylov. Removed local tolerance variables (atol, rtol, inv_n, tol_floor) that are now encapsulated in the ScaledNorm factory. For InstrumentedNewtonKrylov, the initial residual norm is computed BEFORE negating the residual array. Logging behavior remains identical.
+- Issues Flagged: None
 
 ---
 
