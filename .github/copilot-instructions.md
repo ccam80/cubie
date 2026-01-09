@@ -16,11 +16,9 @@ This repository includes specialized agent skills stored in `.github/skills/`. C
 
 ### Request Recognition
 
-Use the **Pipeline Execution** skill when the user requests:
-- "run pipeline on issue #X"
-- "execute pipeline for issue #X"
-- "run the agent pipeline on #X, return after [level]"
-- "pipeline issue #X"
+| Skill | Request Patterns |
+|-------|------------------|
+| **Pipeline Execution** | "run pipeline on issue #X", "execute pipeline for issue #X", "run the agent pipeline on #X, return after [level]", "pipeline issue #X" |
 
 ## Development Environment
 
