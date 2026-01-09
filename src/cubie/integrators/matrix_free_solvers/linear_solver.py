@@ -641,11 +641,15 @@ class LinearSolver(MatrixFreeSolver):
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
-        Delegates to compile_settings for configuration state.
+        Combines config settings with tolerance arrays from norm factory.
 
         Returns
         -------
         dict
-            Configuration dictionary from LinearSolverConfig.settings_dict
+            Configuration dictionary including krylov_atol and krylov_rtol
+            from the norm factory.
         """
-        return self.compile_settings.settings_dict
+        result = dict(self.compile_settings.settings_dict)
+        result['krylov_atol'] = self.krylov_atol
+        result['krylov_rtol'] = self.krylov_rtol
+        return result

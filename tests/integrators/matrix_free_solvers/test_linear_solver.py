@@ -470,3 +470,30 @@ def test_linear_solver_no_manual_cache_invalidation(precision):
 
     # Verify the solver's norm factory was updated
     assert np.allclose(solver.norm.atol, new_atol)
+
+
+def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
+    """Verify settings_dict includes krylov_atol and krylov_rtol from norm."""
+    n = 3
+    atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=atol,
+        krylov_rtol=rtol,
+    )
+    settings = solver.settings_dict
+
+    # Tolerance arrays should be in settings_dict
+    assert 'krylov_atol' in settings
+    assert 'krylov_rtol' in settings
+    assert np.allclose(settings['krylov_atol'], atol)
+    assert np.allclose(settings['krylov_rtol'], rtol)
+
+    # Other expected settings from config should also be present
+    assert 'krylov_tolerance' in settings
+    assert 'max_linear_iters' in settings
+    assert 'linear_correction_type' in settings
+    assert 'preconditioned_vec_location' in settings
+    assert 'temp_location' in settings

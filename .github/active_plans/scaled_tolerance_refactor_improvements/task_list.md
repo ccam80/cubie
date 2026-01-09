@@ -953,7 +953,7 @@
 ---
 
 ## Task Group 7: Update Instrumented Test Files
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 4, 6
 
 **Required Context**:
@@ -1002,12 +1002,19 @@
 - tests/integrators/algorithms/instrumented/test_instrumented.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/integrators/algorithms/instrumented/matrix_free_solvers.py (2 lines changed)
+- Functions/Methods Added/Modified:
+  * InstrumentedLinearSolver.build(): uses config.norm_device_function instead of self.norm.device_function
+  * InstrumentedNewtonKrylov.build(): uses config.norm_device_function instead of self.norm.device_function
+- Implementation Summary:
+  Updated both instrumented solver build() methods to source scaled_norm_fn from config.norm_device_function rather than self.norm.device_function, mirroring the changes made in Task Groups 4 and 6 for the production LinearSolver and NewtonKrylov classes. This ensures proper cache invalidation through the config mechanism.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 8: Update LinearSolver settings_dict Property
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 3, 4
 
 **Required Context**:
@@ -1051,12 +1058,19 @@
 - tests/integrators/matrix_free_solvers/test_linear_solver.py::test_linear_solver_settings_dict_includes_tolerance_arrays
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/linear_solver.py (11 lines changed)
+  * tests/integrators/matrix_free_solvers/test_linear_solver.py (27 lines added)
+- Functions/Methods Added/Modified:
+  * LinearSolver.settings_dict property: updated to combine config settings with tolerance arrays from norm factory
+- Implementation Summary:
+  Modified LinearSolver.settings_dict property to create a copy of compile_settings.settings_dict and add krylov_atol and krylov_rtol keys from self.krylov_atol and self.krylov_rtol properties (which delegate to the norm factory). This maintains backward-compatible access to tolerance arrays through settings_dict while sourcing them from the norm factory.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 9: Update NewtonKrylov settings_dict Property
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 5, 6
 
 **Required Context**:
@@ -1103,7 +1117,14 @@
 - tests/integrators/matrix_free_solvers/test_newton_krylov.py::test_newton_krylov_settings_dict_includes_tolerance_arrays
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/integrators/matrix_free_solvers/newton_krylov.py (4 lines changed)
+  * tests/integrators/matrix_free_solvers/test_newton_krylov.py (36 lines added)
+- Functions/Methods Added/Modified:
+  * NewtonKrylov.settings_dict property: updated to include newton_atol and newton_rtol from norm factory
+- Implementation Summary:
+  Modified NewtonKrylov.settings_dict property to add newton_atol and newton_rtol keys from self.newton_atol and self.newton_rtol properties (which delegate to the norm factory). Updated docstring to reflect that tolerance arrays are now included. Added test verifying tolerance arrays are in settings_dict along with other Newton and linear solver settings.
+- Issues Flagged: None
 
 ---
 

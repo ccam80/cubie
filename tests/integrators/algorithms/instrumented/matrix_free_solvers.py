@@ -90,8 +90,8 @@ class InstrumentedLinearSolver(LinearSolver):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
-        # Get scaled norm device function from norm factory
-        scaled_norm_fn = self.norm.device_function
+        # Get scaled norm device function from config
+        scaled_norm_fn = config.norm_device_function
 
         # Convert types for device function
         n_val = int32(n)
@@ -454,8 +454,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         max_backtracks = config.newton_max_backtracks
         precision = config.precision
 
-        # Get scaled norm device function from norm factory
-        scaled_norm_fn = self.norm.device_function
+        # Get scaled norm device function from config
+        scaled_norm_fn = config.norm_device_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
@@ -523,7 +523,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             residual = alloc_residual(shared_scratch, persistent_scratch)
             residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
             stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
-            lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
+            lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
             # Evaluate initial residual

@@ -668,14 +668,17 @@ class NewtonKrylov(MatrixFreeSolver):
         """Return merged Newton and linear solver configuration.
 
         Combines Newton-level settings from compile_settings with
-        linear solver settings from nested linear_solver instance.
+        linear solver settings from nested linear_solver instance,
+        plus tolerance arrays from the norm factory.
 
         Returns
         -------
         dict
             Merged configuration dictionary containing both Newton
-            parameters and linear solver parameters
+            parameters, linear solver parameters, and tolerance arrays.
         """
         combined = dict(self.linear_solver.settings_dict)
         combined.update(self.compile_settings.settings_dict)
+        combined['newton_atol'] = self.newton_atol
+        combined['newton_rtol'] = self.newton_rtol
         return combined

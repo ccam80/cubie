@@ -794,3 +794,39 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
     # The norm device function should be updated (may be same or different
     # object depending on caching, but it should exist)
     assert updated_config.norm_device_function is not None
+
+
+def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
+    """Verify settings_dict includes newton_atol and newton_rtol from norm."""
+    n = 3
+    newton_atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    newton_rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=newton_atol,
+        newton_rtol=newton_rtol,
+    )
+    settings = newton.settings_dict
+
+    # Tolerance arrays should be in settings_dict
+    assert 'newton_atol' in settings
+    assert 'newton_rtol' in settings
+    assert np.allclose(settings['newton_atol'], newton_atol)
+    assert np.allclose(settings['newton_rtol'], newton_rtol)
+
+    # Other expected settings from config should also be present
+    assert 'newton_tolerance' in settings
+    assert 'max_newton_iters' in settings
+    assert 'newton_damping' in settings
+    assert 'newton_max_backtracks' in settings
+    assert 'delta_location' in settings
+    assert 'residual_location' in settings
+
+    # Linear solver settings should be merged in as well
+    assert 'krylov_tolerance' in settings
+    assert 'max_linear_iters' in settings
+    assert 'krylov_atol' in settings
+    assert 'krylov_rtol' in settings
