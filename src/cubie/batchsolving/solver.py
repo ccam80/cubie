@@ -37,16 +37,11 @@ from cubie.time_logger import default_timelogger
 
 # Register module-level events
 default_timelogger.register_event(
-    "solve_ivp",
-    "runtime",
-    "Wall-clock time for solve_ivp()"
+    "solve_ivp", "runtime", "Wall-clock time for solve_ivp()"
 )
 default_timelogger.register_event(
-    "solver_solve",
-    "runtime",
-    "Wall-clock time for Solver.solve()"
+    "solver_solve", "runtime", "Wall-clock time for Solver.solve()"
 )
-
 
 
 def solve_ivp(
@@ -238,6 +233,7 @@ class Solver:
 
         super().__init__()
         precision = system.precision
+        kwargs["precision"] = precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
         self.driver_interpolator = ArrayInterpolator(
@@ -253,27 +249,41 @@ class Solver:
         recognized_kwargs: set[str] = set()
 
         output_settings, output_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
-            user_settings=output_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+            user_settings=output_settings,
+        )
         self.convert_output_labels(output_settings)
 
         memory_settings, memory_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
-            user_settings=memory_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+            user_settings=memory_settings,
+        )
 
         step_settings, step_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
-            user_settings=step_control_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+            user_settings=step_control_settings,
+        )
         algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
-            user_settings=algorithm_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+            user_settings=algorithm_settings,
+        )
         algorithm_settings["algorithm"] = algorithm
         loop_settings, loop_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
-            user_settings=loop_settings)
-        recognized_kwargs = (step_recognized | algorithm_recognized
-                             | output_recognized | memory_recognized
-                             | loop_recognized)
+            kwargs=kwargs,
+            valid_keys=ALL_LOOP_SETTINGS,
+            user_settings=loop_settings,
+        )
+        recognized_kwargs = (
+            step_recognized
+            | algorithm_recognized
+            | output_recognized
+            | memory_recognized
+            | loop_recognized
+        )
 
         self.kernel = BatchSolverKernel(
             system,
@@ -318,7 +328,6 @@ class Solver:
             If variable labels are not recognized by the system.
         """
         self.system_interface.merge_variable_labels_and_idxs(output_settings)
-
 
     def solve(
         self,
@@ -414,8 +423,10 @@ class Solver:
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update(
-                {"evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
-                 "driver_del_t": self.driver_interpolator.driver_del_t}
+                {
+                    "evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
+                    "driver_del_t": self.driver_interpolator.driver_del_t,
+                }
             )
 
         self.kernel.run(
@@ -439,7 +450,7 @@ class Solver:
         return SolveResult.from_solver(
             self,
             results_type=results_type,
-            nan_error_trajectories=nan_error_trajectories
+            nan_error_trajectories=nan_error_trajectories,
         )
 
     def build_grid(
@@ -474,8 +485,7 @@ class Solver:
         Examples
         --------
         >>> inits, params = solver.build_grid(
-        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
-        ...     grid_type="combinatorial"
+        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]}, grid_type="combinatorial"
         ... )
         >>> result = solver.solve(inits, params)  # Uses fast path
         """
@@ -534,7 +544,6 @@ class Solver:
             updates_dict["driver_del_t"] = (
                 self.driver_interpolator.driver_del_t
             )
-
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
@@ -652,6 +661,7 @@ class Solver:
             this order is the contiguous dimension on chip.
         """
         self.kernel.set_stride_order(order)
+
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
     ) -> ndarray:
@@ -983,16 +993,16 @@ class Solver:
         Invalidates the current cache, causing a rebuild on next access.
         """
         self.kernel.set_cache_dir(path)
-    
+
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.
-        
+
         Parameters
         ----------
         verbosity : str or None
             New verbosity level. Options are 'default', 'verbose',
             'debug', None, or 'None'.
-        
+
         Notes
         -----
         Updates the global time logger verbosity. This affects all

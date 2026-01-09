@@ -8,14 +8,16 @@ from attrs import define, field, validators
 from numpy import sum as np_sum
 
 from cubie._utils import (
-    PrecisionDType,
     getype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDAFunctionCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+    _CubieConfigBase,
+)
 
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
@@ -71,8 +73,8 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
 }
 
 
-@define(frozen=True)
-class ButcherTableau:
+@define
+class ButcherTableau(_CubieConfigBase):
     """Generic ``Butcher Tableau``` object.
 
     Attributes
@@ -110,7 +112,7 @@ class ButcherTableau:
 
     def __attrs_post_init__(self) -> None:
         """Validate tableau coefficients after initialisation."""
-
+        super().__attrs_post_init__()
         stage_count = self.stage_count
         if self.b_hat is not None:
             if len(self.b_hat) != stage_count:
@@ -385,11 +387,6 @@ class BaseStepConfig(CUDAFactoryConfig, ABC):
         nonlinear solver construction.
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
-
     n: int = field(default=1, validator=getype_validator(int, 1))
     n_drivers: int = field(default=0, validator=getype_validator(int, 0))
     evaluate_f: Optional[Callable] = field(
@@ -457,7 +454,7 @@ class BaseStepConfig(CUDAFactoryConfig, ABC):
 
 
 @define
-class StepCache(CUDAFunctionCache):
+class StepCache(CUDADispatcherCache):
     """Container for compiled device helpers used by an algorithm step.
 
     Parameters

@@ -9,11 +9,16 @@ import attrs
 import numba
 from numpy import float32
 
-from cubie._utils import PrecisionDType, precision_converter, precision_validator
+from cubie.CUDAFactory import CUDAFactoryConfig
+from cubie._utils import (
+    PrecisionDType,
+    precision_converter,
+    precision_validator,
+)
 
 
 @attrs.define
-class IntegratorRunSettings:
+class IntegratorRunSettings(CUDAFactoryConfig):
     """Container for runtime and controller settings used by IVP loops.
 
     Attributes

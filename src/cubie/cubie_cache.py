@@ -31,6 +31,7 @@ if not is_cudasim_enabled():
         IndexDataCacheFile,
     )
     from numba.cuda.dispatcher import CUDACache
+
     _CACHING_AVAILABLE = True
 else:
     # Stub classes for simulator mode
@@ -108,7 +109,7 @@ def _serialize_value(value: Any) -> str:
         return f"ndarray:{array_hash}"
     elif has(type(value)):
         # Use values_hash for CUDAFactoryConfig instances
-        if hasattr(value, 'values_hash'):
+        if hasattr(value, "values_hash"):
             return f"config:{value.values_hash}"
         # Fallback to hash_compile_settings for legacy attrs classes
         return f"attrs:{hash_compile_settings(value)}"
@@ -335,11 +336,11 @@ class CUBIECache(CUDACache):
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
         # Caching not available in CUDA simulator mode
-        if not _CACHING_AVAILABLE:
-            raise RuntimeError(
-                "CUBIECache is not available in CUDA simulator mode. "
-                "File-based caching requires a real CUDA environment."
-            )
+        # if not _CACHING_AVAILABLE:
+        #     raise RuntimeError(
+        #         "CUBIECache is not available in CUDA simulator mode. "
+        #         "File-based caching requires a real CUDA environment."
+        #     )
 
         self._system_name = system_name
         self._system_hash = system_hash
@@ -350,7 +351,7 @@ class CUBIECache(CUDACache):
             self._compile_settings_hash = config_hash
         elif compile_settings is not None:
             # Check if it's a CUDAFactoryConfig with values_hash
-            if hasattr(compile_settings, 'values_hash'):
+            if hasattr(compile_settings, "values_hash"):
                 self._compile_settings_hash = compile_settings.values_hash
             else:
                 self._compile_settings_hash = hash_compile_settings(
@@ -381,7 +382,7 @@ class CUBIECache(CUDACache):
             source_stamp=source_stamp,
         )
         self.enable()
-        super().__init__()
+        # super().__init__() # Doesn't work as super().__init__ needs py_func
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.

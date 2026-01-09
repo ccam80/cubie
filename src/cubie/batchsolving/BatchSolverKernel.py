@@ -3,7 +3,16 @@
 
 import hashlib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 from warnings import warn
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
@@ -12,18 +21,18 @@ from numba import int32
 
 from attrs import define, field
 
-from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs
+from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
 from cubie.cubie_cache import CUBIECache
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays, )
+    OutputArrays,
+)
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig, CacheConfig
 from cubie.odesystems.baseODE import BaseODE
@@ -43,6 +52,7 @@ DEFAULT_MEMORY_SETTINGS = {
     "stream_group": "solver",
     "mem_proportion": None,
 }
+
 
 @define(frozen=True)
 class ChunkParams:
@@ -68,9 +78,11 @@ class ChunkParams:
     size: int
     runs: int
 
+
 @define()
-class BatchSolverCache(CUDAFunctionCache):
+class BatchSolverCache(CUDADispatcherCache):
     solver_kernel: Union[int, Callable] = field(default=-1)
+
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -249,8 +261,8 @@ class BatchSolverKernel(CUDAFactory):
         elif isinstance(cache, Path):
             return CacheConfig(enabled=True, cache_dir=cache)
         elif isinstance(cache, str):
-            if cache == 'flush_on_change':
-                return CacheConfig(enabled=True, mode='flush_on_change')
+            if cache == "flush_on_change":
+                return CacheConfig(enabled=True, mode="flush_on_change")
             else:
                 return CacheConfig(enabled=True, cache_dir=Path(cache))
         else:
@@ -302,7 +314,7 @@ class BatchSolverKernel(CUDAFactory):
         return (
             self._cuda_events[base_idx],
             self._cuda_events[base_idx + 1],
-            self._cuda_events[base_idx + 2]
+            self._cuda_events[base_idx + 2],
         )
 
     def _validate_timing_parameters(self, duration: float) -> None:
@@ -328,7 +340,7 @@ class BatchSolverKernel(CUDAFactory):
         """
         integrator = self.single_integrator
         end_time = self.precision(duration) + self.dt_min
-        
+
         # Validate time-domain output timing parameters
         if integrator.has_time_domain_outputs:
             save_every = integrator.save_every
@@ -480,7 +492,7 @@ class BatchSolverKernel(CUDAFactory):
         # Update internal time parameters if duration has been chunked
         if self.chunks != 1 and chunk_axis == "time":
             self.single_integrator.set_summary_timing_from_duration(
-                    chunk_params.duration
+                chunk_params.duration
             )
             try:
                 self._validate_timing_parameters(chunk_params.duration)
@@ -502,9 +514,7 @@ class BatchSolverKernel(CUDAFactory):
 
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
-        dynamic_sharedmem = int(
-            padded_bytes * min(kernel_runs, blocksize)
-        )
+        dynamic_sharedmem = int(padded_bytes * min(kernel_runs, blocksize))
 
         blocksize, dynamic_sharedmem = self.limit_blocksize(
             blocksize,
@@ -628,9 +638,7 @@ class BatchSolverKernel(CUDAFactory):
                     "solving algorithm."
                 )
             blocksize = int(blocksize // 2)
-            dynamic_sharedmem = int(
-                bytes_per_run * min(numruns, blocksize)
-            )
+            dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
         return blocksize, dynamic_sharedmem
 
     def chunk_run(
@@ -691,8 +699,8 @@ class BatchSolverKernel(CUDAFactory):
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
-        if 'lineinfo' in compile_kwargs:
-            compile_kwargs['lineinfo'] = self.profileCUDA
+        if "lineinfo" in compile_kwargs:
+            compile_kwargs["lineinfo"] = self.profileCUDA
 
         loopfunction = self.single_integrator.device_function
 
@@ -712,7 +720,8 @@ class BatchSolverKernel(CUDAFactory):
 
         # Get memory allocators from buffer registry
         alloc_shared, alloc_persistent = (
-            buffer_registry.get_toplevel_allocators(self))
+            buffer_registry.get_toplevel_allocators(self)
+        )
 
         # no cover: start
         @cuda.jit(
@@ -813,9 +822,7 @@ class BatchSolverKernel(CUDAFactory):
             rx_observables_summaries = observables_summaries_output[
                 :, :, run_index * save_observable_summaries
             ]
-            rx_iteration_counters = iteration_counters_output[
-                :, :, run_index
-            ]
+            rx_iteration_counters = iteration_counters_output[:, :, run_index]
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -834,13 +841,14 @@ class BatchSolverKernel(CUDAFactory):
             if tx == 0:
                 status_codes_output[run_index] = status
             return None
+
         # no cover: end
 
         # Attach file-based caching if enabled and not in simulator mode
         cache_config = self.compile_settings.cache_config
         if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
-            system_name = getattr(system, 'name', 'anonymous')
+            system_name = getattr(system, "name", "anonymous")
             system_hash = system.fn_hash
 
             cache = CUBIECache(
@@ -852,7 +860,6 @@ class BatchSolverKernel(CUDAFactory):
                 custom_cache_dir=cache_config.cache_dir,
             )
             integration_kernel._cache = cache
-
 
         return integration_kernel
 
@@ -905,22 +912,24 @@ class BatchSolverKernel(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= self.single_integrator.update(
-                updates_dict, silent=True
+            updates_dict, silent=True
         )
 
-        updates_dict.update({
-            "loop_fn": self.single_integrator.device_function,
-            "local_memory_elements": (
-                self.single_integrator.local_memory_elements
-            ),
-            "shared_memory_elements": (
-                self.single_integrator.shared_memory_elements
-            ),
-            "compile_flags": self.single_integrator.output_compile_flags,
-        })
+        updates_dict.update(
+            {
+                "loop_fn": self.single_integrator.device_function,
+                "local_memory_elements": (
+                    self.single_integrator.local_memory_elements
+                ),
+                "shared_memory_elements": (
+                    self.single_integrator.shared_memory_elements
+                ),
+                "compile_flags": self.single_integrator.output_compile_flags,
+            }
+        )
 
         all_unrecognized -= self.update_compile_settings(
-                updates_dict, silent=True
+            updates_dict, silent=True
         )
 
         recognised = set(updates_dict.keys()) - all_unrecognized
@@ -1046,16 +1055,16 @@ class BatchSolverKernel(CUDAFactory):
         cache_config = self.compile_settings.cache_config
         if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
-            system_name = getattr(system, 'name', 'anonymous')
+            system_name = getattr(system, "name", "anonymous")
             system_hash = system.fn_hash
 
             cache = CUBIECache(
-                    system_name=system_name,
-                    system_hash=system_hash,
-                    config_hash=self.config_hash,
-                    max_entries=cache_config.max_entries,
-                    mode=cache_config.mode,
-                    custom_cache_dir=cache_config.cache_dir,
+                system_name=system_name,
+                system_hash=system_hash,
+                config_hash=self.config_hash,
+                max_entries=cache_config.max_entries,
+                mode=cache_config.mode,
+                custom_cache_dir=cache_config.cache_dir,
             )
             return cache
         return None
@@ -1114,7 +1123,6 @@ class BatchSolverKernel(CUDAFactory):
         """Shared-memory footprint per run for the compiled kernel."""
 
         return self.single_integrator.shared_memory_bytes
-
 
     @property
     def threads_per_loop(self) -> int:
@@ -1223,7 +1231,7 @@ class BatchSolverKernel(CUDAFactory):
         """Interval between summary reductions from the loop"""
 
         return self.single_integrator.summarise_every
-    
+
     @property
     def sample_summaries_every(self) -> float:
         """Interval between summary metric samples from the loop."""

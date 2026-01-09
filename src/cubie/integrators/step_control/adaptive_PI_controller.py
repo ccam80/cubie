@@ -1,9 +1,9 @@
 """Adaptive proportional–integral controller implementations."""
-from typing import Callable, Optional, Union
+
+from typing import Callable
 
 from numba import cuda, int32
 from numpy import ndarray
-from numpy._typing import ArrayLike
 from attrs import field, define, validators
 
 from cubie._utils import build_config
@@ -26,14 +26,16 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     The simplified PI gain formulation offers faster response for non-stiff
     systems than a pure integral controller.
     """
+
     _kp: float = field(
-        default=1/18,
-        validator=validators.instance_of(_expand_dtype(float))
+        default=1 / 18, validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=1/9,
-        validator=validators.instance_of(_expand_dtype(float))
+        default=1 / 9, validator=validators.instance_of(_expand_dtype(float))
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def kp(self) -> float:
@@ -71,12 +73,11 @@ class AdaptivePIController(BaseAdaptiveStepController):
         """
         config = build_config(
             PIStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
+            required={"precision": precision, "n": n},
+            **kwargs,
         )
 
         super().__init__(config)
-
 
     @property
     def kp(self) -> float:
@@ -97,8 +98,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'kp': self.kp,
-                              'ki': self.ki})
+        settings_dict.update({"kp": self.kp, "ki": self.ki})
         return settings_dict
 
     def build_controller(
@@ -148,7 +148,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             CUDA device function implementing the PI controller.
         """
         alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
+            "timestep_buffer", self
         )
 
         kp = precision(self.kp / ((algorithm_order + 1) * 2))
@@ -161,7 +161,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
-                deadband_max == typed_one
+            deadband_max == typed_one
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
@@ -174,8 +174,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
             **compile_kwargs,
         )
         def controller_PI(
-            dt, state, state_prev, error, niters, accept_out,
-            shared_scratch, persistent_local
+            dt,
+            state,
+            state_prev,
+            error,
+            niters,
+            accept_out,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Proportional–integral accept/step-size controller.
 
@@ -228,9 +234,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
-                within_deadband = (
-                    (gain >= deadband_min)
-                    and (gain <= deadband_max)
+                within_deadband = (gain >= deadband_min) and (
+                    gain <= deadband_max
                 )
                 gain = selp(within_deadband, typed_one, gain)
 

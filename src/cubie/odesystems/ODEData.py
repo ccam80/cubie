@@ -7,25 +7,16 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numpy import float32 as np_float32
 
 from numba import from_dtype as numba_from_dtype
 
+from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie._utils import (
     PrecisionDType,
-    precision_converter,
-    precision_validator,
 )
 from cubie.odesystems.SystemValues import SystemValues
 
-def update_precisions(instance, attribute, value):
-    """Update precision of all values in an ODEData instance."""
-    instance.parameters.precision = value
-    instance.constants.precision = value
-    instance.initial_states.precision = value
-    instance.observables.precision = value
-    return value
 
 @define
 class SystemSizes:
@@ -58,7 +49,7 @@ class SystemSizes:
 
 
 @define
-class ODEData:
+class ODEData(CUDAFactoryConfig):
     """Bundle numerical values and metadata for an ODE system.
 
     Parameters
@@ -112,16 +103,17 @@ class ODEData:
             ),
         ),
     )
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-        on_setattr=update_precisions,
-        default=np_float32
-    )
-    num_drivers: int = field(
-        validator=attrsval_instance_of(int), default=1
-    )
+    num_drivers: int = field(validator=attrsval_instance_of(int), default=1)
     _mass: Any = field(default=None, eq=False)
+
+    def update_precisions(self, updates_dict):
+        """Update precision of all values in the ODEData instance."""
+        if "precision" in updates_dict:
+            precision = updates_dict["precision"]
+            self.parameters.precision = precision
+            self.constants.precision = precision
+            self.initial_states.precision = precision
+            self.observables.precision = precision
 
     @property
     def num_states(self) -> int:

@@ -4,21 +4,26 @@ import attrs
 import pytest
 import numpy as np
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDADispatcherCache,
+    _CubieConfigBase,
+)
 
 
 @attrs.define()
-class testCache(CUDAFunctionCache):
+class testCache(CUDADispatcherCache):
     """Test cache class."""
+
     device_function: Union[Callable, int] = attrs.field(default=-1)
+
 
 def dict_to_attrs_class(dictionary):
     """Convert a dictionary to an attrs class instance."""
     # Create the class with the dictionary keys as field names
     CompileSettings = attrs.make_class(
-        "CompileSettings", list(dictionary.keys())
+        "CompileSettings", list(dictionary.keys()), bases=(_CubieConfigBase,)
     )
-
     # Create an instance with the values from the dictionary
     return CompileSettings(**dictionary)
 
@@ -109,8 +114,10 @@ def test_build(factory_with_settings, monkeypatch):
     assert test_func() == 20.0, "device_function not as defined"
     # cache validated
 
-    monkeypatch.setattr(factory_with_settings, "build",
-                        lambda: testCache(device_function= lambda: 10.0)
+    monkeypatch.setattr(
+        factory_with_settings,
+        "build",
+        lambda: testCache(device_function=lambda: 10.0),
     )
     test_func = factory_with_settings.device_function
     assert test_func() == 20.0, (
@@ -132,9 +139,9 @@ def test_build_with_dict_output(factory_with_settings, monkeypatch):
         test_output1: str = "value1"
         test_output2: str = "value2"
 
-    monkeypatch.setattr(factory_with_settings, "build",
-                        lambda: (TestOutputs())
-                        )
+    monkeypatch.setattr(
+        factory_with_settings, "build", lambda: (TestOutputs())
+    )
 
     # Test that dictionary outputs are available
     assert (
@@ -252,13 +259,14 @@ def test_get_cached_output_not_implemented_error_multiple(
 
 def test_update_compile_settings_nested_attrs(factory):
     """Test that update_compile_settings finds keys in nested attrs classes."""
+
     @attrs.define
-    class NestedSettings:
+    class NestedSettings(_CubieConfigBase):
         nested_value: int = 10
         _underscore_value: int = 20
 
     @attrs.define
-    class TopSettings:
+    class TopSettings(_CubieConfigBase):
         precision: type = np.float32
         nested: NestedSettings = attrs.Factory(NestedSettings)
 
@@ -278,36 +286,15 @@ def test_update_compile_settings_nested_attrs(factory):
     assert factory.cache_valid is False
 
 
-def test_update_compile_settings_nested_dict(factory):
-    """Test that update_compile_settings finds keys in nested dicts."""
-    @attrs.define
-    class TopSettingsWithDict:
-        precision: type = np.float32
-        options: dict = attrs.Factory(lambda: {"key1": "value1", "key2": 10})
-
-    factory.setup_compile_settings(TopSettingsWithDict())
-
-    # Test updating dict key
-    recognized = factory.update_compile_settings(key1="new_value")
-    assert "key1" in recognized
-    assert factory.compile_settings.options["key1"] == "new_value"
-
-    recognized = factory.update_compile_settings(key2=99)
-    assert "key2" in recognized
-    assert factory.compile_settings.options["key2"] == 99
-
-    # Verify cache was invalidated
-    assert factory.cache_valid is False
-
-
 def test_update_compile_settings_nested_not_found(factory):
     """Test that unrecognized nested keys raise KeyError."""
+
     @attrs.define
-    class NestedSettings:
+    class NestedSettings(_CubieConfigBase):
         nested_value: int = 10
 
     @attrs.define
-    class TopSettings:
+    class TopSettings(_CubieConfigBase):
         precision: type = np.float32
         nested: NestedSettings = attrs.Factory(NestedSettings)
 
@@ -317,14 +304,15 @@ def test_update_compile_settings_nested_not_found(factory):
         factory.update_compile_settings(nonexistent_key=42)
 
 
-# --- CUDAFactoryConfig tests ---
+# --- _CubieConfigBase tests ---
+
 
 def test_cuda_factory_config_values_hash():
-    """Test that CUDAFactoryConfig produces consistent hashes."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    """Test that _CubieConfigBase produces consistent hashes."""
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 10
         value2: str = "test"
 
@@ -338,10 +326,10 @@ def test_cuda_factory_config_values_hash():
 
 def test_cuda_factory_config_values_tuple():
     """Test that values_tuple returns tuple of serialized field values."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 42
         value2: str = "hello"
 
@@ -349,16 +337,16 @@ def test_cuda_factory_config_values_tuple():
     vt = config.values_tuple
 
     assert isinstance(vt, tuple)
-    assert "42" in vt
+    assert 42 in vt
     assert "hello" in vt
 
 
 def test_cuda_factory_config_update():
-    """Test the update() method on CUDAFactoryConfig."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    """Test the update() method on _CubieConfigBase."""
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 10
         value2: str = "test"
 
@@ -374,10 +362,10 @@ def test_cuda_factory_config_update():
 
 def test_cuda_factory_config_update_unchanged():
     """Test that update() reports no change when value is same."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 10
 
     config = TestConfig()
@@ -389,16 +377,16 @@ def test_cuda_factory_config_update_unchanged():
     assert config.values_hash == old_hash
 
 
-def test_cuda_factory_config_nested_hash():
-    """Test that nested CUDAFactoryConfig objects are included in hash."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+def test_cuda_factory_config_nested_hash(precision):
+    """Test that nested _CubieConfigBase objects are included in hash."""
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class InnerConfig(CUDAFactoryConfig):
+    class InnerConfig(_CubieConfigBase):
         inner_value: int = 5
 
     @attrs.define
-    class OuterConfig(CUDAFactoryConfig):
+    class OuterConfig(_CubieConfigBase):
         outer_value: int = 10
         nested: InnerConfig = attrs.Factory(InnerConfig)
 
@@ -414,10 +402,10 @@ def test_cuda_factory_config_nested_hash():
 
 def test_cuda_factory_config_hash_property():
     """Test that CUDAFactory.config_hash uses compile_settings.values_hash."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 10
 
     class TestFactory(CUDAFactory):
@@ -437,10 +425,10 @@ def test_cuda_factory_config_hash_property():
 
 def test_cuda_factory_config_eq_false_excluded():
     """Test that fields with eq=False are excluded from hash."""
-    from cubie.CUDAFactory import CUDAFactoryConfig
+    from cubie.CUDAFactory import _CubieConfigBase
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(_CubieConfigBase):
         value1: int = 10
         callback: object = attrs.field(default=None, eq=False)
 

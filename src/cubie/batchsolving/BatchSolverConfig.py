@@ -4,24 +4,18 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import attrs
-import numba
 from attrs import validators as val
-from numpy import float32
 
 from cubie._utils import (
-    PrecisionDType,
     getype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
 )
-from cubie.CUDAFactory import CUDAFactoryConfig
+from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.output_config import OutputCompileFlags
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define
-class CacheConfig(CUDAFactoryConfig):
+class CacheConfig(_CubieConfigBase):
     """Configuration for file-based kernel caching.
 
     Parameters
@@ -43,8 +37,8 @@ class CacheConfig(CUDAFactoryConfig):
         validator=val.instance_of(bool),
     )
     mode: str = attrs.field(
-        default='hash',
-        validator=val.in_(('hash', 'flush_on_change')),
+        default="hash",
+        validator=val.in_(("hash", "flush_on_change")),
     )
     max_entries: int = attrs.field(
         default=10,
@@ -58,7 +52,7 @@ class CacheConfig(CUDAFactoryConfig):
 
 
 @attrs.define
-class ActiveOutputs:
+class ActiveOutputs(_CubieConfigBase):
     """
     Track which output arrays are configured to be produced.
 
@@ -152,15 +146,10 @@ class BatchSolverConfig(CUDAFactoryConfig):
         Boolean compile-time controls for output features.
     """
 
-    precision: PrecisionDType = attrs.field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     loop_fn: Optional[Callable] = attrs.field(
         default=None,
         validator=attrs.validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     local_memory_elements: int = attrs.field(
         default=0,
@@ -170,33 +159,21 @@ class BatchSolverConfig(CUDAFactoryConfig):
         default=0,
         validator=getype_validator(int, 0),
     )
-    compile_flags: OutputCompileFlags = attrs.field(
+    compile_flags: Optional[OutputCompileFlags] = attrs.field(
         factory=OutputCompileFlags,
-        validator=attrs.validators.instance_of(OutputCompileFlags),
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(OutputCompileFlags)
+        ),
     )
     cache_config: CacheConfig = attrs.field(
         factory=CacheConfig,
         validator=attrs.validators.instance_of(CacheConfig),
     )
 
-    @property
-    def caching_enabled(self) -> bool:
-        """Whether caching is enabled (backwards-compatible alias)."""
-        return self.cache_config.enabled
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def active_outputs(self) -> ActiveOutputs:
         """Derive ActiveOutputs from compile_flags."""
         return ActiveOutputs.from_compile_flags(self.compile_flags)
-
-    @property
-    def numba_precision(self) -> type:
-        """Numba precision type corresponding to ``precision``."""
-
-        return numba.from_dtype(self.precision)
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Simulator-safe precision compatible with CUDA kernels."""
-
-        return simsafe_dtype(self.precision)

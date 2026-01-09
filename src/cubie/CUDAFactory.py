@@ -79,38 +79,19 @@ def attribute_is_hashable(attribute: Attribute, value: Any) -> bool:
 
 
 @define
-class CUDAFactoryConfig:
-    """Base class for CUDAFactory compile settings containers.
+class _CubieConfigBase:
+    """Base class for any configuration container which holds session state.
+    Contains updating, serialising, and hashing logic."""
 
-    Provides infrastructure for tracking configuration values and computing
-    stable hashes for cache key generation. Subclasses should be defined
-    with @attrs.define decorator.
-
-    .. warning::
-
-        **All field modifications MUST be done via the :meth:`update` method.**
-
-        Direct attribute assignment (e.g., ``config.field = value``) will
-        break cache invalidation and hashing logic. The ``update()`` method
-        ensures ``values_tuple`` and ``values_hash`` are regenerated after
-        any change, which is required for correct cache key generation.
-
-    Notes
-    -----
-    The values_tuple and values_hash properties enable efficient cache
-    invalidation by comparing configuration states. Fields with eq=False
-    are excluded from hashing (typically callables or device functions).
-    """
-
-    precision: PrecisionDType = field(
-        validator=precision_validator, converter=precision_converter
-    )
     _unhashable_fields: Set[str] = field(
-        default={}, init=False, repr=False, eq=False
+        factory=set, init=False, repr=False, eq=False
     )
     _values_hash: str = field(default="", init=False, repr=False, eq=False)
     _field_map: Dict[str, Attribute] = field(
         factory=dict, init=False, repr=False, eq=False
+    )
+    _nested_attrs: Set[str] = field(
+        factory=set, init=False, repr=False, eq=False
     )
 
     def __attrs_post_init__(self):
@@ -201,8 +182,8 @@ class CUDAFactoryConfig:
             nested_obj = getattr(self, name)
 
             nested_recognized, nested_changed = nested_obj.update(updates_dict)
-            recognized.update({nested_recognized})
-            changed.update({nested_changed})
+            recognized.update(nested_recognized)
+            changed.update(nested_changed)
 
         # Regenerate hash after updates
         if changed:
@@ -215,14 +196,24 @@ class CUDAFactoryConfig:
         Called automatically after __init__ and update() (only if any fields
         were modified, in the latter case).
         """
-        values = astuple(self, recurse=True, filter=attribute_is_hashable)
-        return _hash_tuple(values)
+        return _hash_tuple(self.values_tuple)
 
     @property
     def cache_dict(self):
         """Return a dict of all attrs fields without eq=False, for saving
         and loading complete state."""
         return asdict(self, recurse=True, filter=attribute_is_hashable)
+
+    @property
+    def values_tuple(self) -> Tuple:
+        """Tuple of all attrs field values without eq=False.
+
+        Returns
+        -------
+        tuple
+            Tuple of configuration values representing the current state.
+        """
+        return astuple(self, recurse=True, filter=attribute_is_hashable)
 
     @property
     def values_hash(self) -> str:
@@ -234,6 +225,38 @@ class CUDAFactoryConfig:
             64-character hex string representing the configuration state.
         """
         return self._values_hash
+
+
+@define
+class CUDAFactoryConfig(_CubieConfigBase):
+    """Base class for CUDAFactory compile settings containers.
+
+    Provides infrastructure for tracking configuration values and computing
+    stable hashes for cache key generation. Subclasses should be defined
+    with @attrs.define decorator.
+
+    .. warning::
+
+        **All field modifications MUST be done via the :meth:`update` method.**
+
+        Direct attribute assignment (e.g., ``config.field = value``) will
+        break cache invalidation and hashing logic. The ``update()`` method
+        ensures ``values_tuple`` and ``values_hash`` are regenerated after
+        any change, which is required for correct cache key generation.
+
+    Notes
+    -----
+    The values_tuple and values_hash properties enable efficient cache
+    invalidation by comparing configuration states. Fields with eq=False
+    are excluded from hashing (typically callables or device functions).
+    """
+
+    precision: PrecisionDType = field(
+        validator=precision_validator, converter=precision_converter
+    )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def numba_precision(self) -> type:
@@ -249,7 +272,7 @@ class CUDAFactoryConfig:
 
 
 @define
-class CUDAFunctionCache:
+class CUDADispatcherCache:
     """Base class for CUDAFactory device function Dispatchers."""
 
     pass
@@ -281,7 +304,7 @@ class CUDAFactory(ABC):
     _cache_valid : bool
         Indicates whether cached outputs are valid.
     _cache : attrs class or None
-        Container for cached outputs (CUDAFunctionCache subclass).
+        Container for cached outputs (CUDADispatcherCache subclass).
 
     Notes
     -----
@@ -457,16 +480,16 @@ class CUDAFactory(ABC):
         return recognized
 
     def _invalidate_cache(self):
-        """Mark cached outputs as invalid."""
+        """Mark cached Dispatchers as invalid."""
         self._cache_valid = False
 
     def _build(self):
         """Rebuild cached outputs if they are invalid."""
         build_result = self.build()
 
-        if not isinstance(build_result, CUDAFunctionCache):
+        if not isinstance(build_result, CUDADispatcherCache):
             raise TypeError(
-                "build() must return an attrs class (CUDAFunctionCache "
+                "build() must return an attrs class (CUDADispatcherCache "
                 "subclass)"
             )
 
@@ -509,6 +532,7 @@ class CUDAFactory(ABC):
             )
         return cache_contents
 
+    @property
     def precision(self) -> type:
         """Return the precision dtype used by compiled device functions."""
         return self.compile_settings.precision
@@ -524,4 +548,3 @@ class CUDAFactory(ABC):
         """Return the CUDA-simulator-safe dtype for the functions."""
 
         return self.compile_settings.simsafe_precision
-
