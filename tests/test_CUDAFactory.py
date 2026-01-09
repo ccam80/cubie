@@ -8,6 +8,7 @@ from cubie.CUDAFactory import (
     CUDAFactory,
     CUDADispatcherCache,
     _CubieConfigBase,
+    CUDAFactoryConfig,
 )
 
 
@@ -437,3 +438,48 @@ def test_cuda_factory_config_eq_false_excluded():
 
     # Hash should be same despite different callbacks
     assert config1.values_hash == config2.values_hash
+
+
+def test_cuda_factory_config_update_applies_converter():
+    from numpy import float32, float64
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        pass
+
+    config = TestConfig(precision=float32)
+    # Update with a dtype that needs conversion
+    config.update({"precision": "float64"})
+    # Verify converter was applied
+    assert config.precision == float64
+
+
+def test_cuda_factory_config_update_nested_applies_converter():
+    def x2_converter(value):
+        return value * 2
+
+    @attrs.define
+    class InnerConfig(_CubieConfigBase):
+        a = attrs.field(
+            default=1,
+            converter=x2_converter,
+        )
+
+    @attrs.define
+    class OuterConfig(_CubieConfigBase):
+        nested: InnerConfig = attrs.field(factory=InnerConfig)
+        b = attrs.field(
+            default=2,
+            converter=x2_converter,
+        )
+
+    config = OuterConfig()
+
+    # converters fire on init
+    assert config.nested.a == 2
+    assert config.b == 4
+
+    config.update({"a": 3, "b": 5})
+    # Verify converter was applied in nested config
+    assert config.nested.a == 6
+    assert config.b == 10

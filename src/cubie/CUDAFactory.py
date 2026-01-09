@@ -6,7 +6,6 @@ from typing import Set, Any, Tuple, Dict
 
 from attrs import define, field, fields, has, Attribute, astuple, asdict
 from numpy import (
-    any as np_any,
     array_equal,
     asarray,
     ndarray,
@@ -47,7 +46,7 @@ def _hash_tuple(input: Tuple) -> str:
             parts.append(f"ndarray:{array_hash}")
         else:
             parts.append(str(value))
-        combined = "|".join(parts)
+    combined = "|".join(parts)
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
@@ -104,17 +103,25 @@ class _CubieConfigBase:
 
         self._field_map = field_map
         self._nested_attrs = {
-            name for name, _field in field_map.items() if has(_field.type)
+            fld.name for fld in fields(type(self)) if has(fld.type)
         }
         self._unhashable_fields = {
             field for field in fields(type(self)) if field.eq is False
         }
         self._values_hash = self._generate_values_hash()
-        if any(fld.type is dict for fld in field_map.values()):
+        from typing import get_origin
+
+        if any(
+            (get_origin(fld.type) is dict or fld.type is dict)
+            and fld not in self._unhashable_fields
+            for fld in field_map.values()
+        ):
             raise TypeError(
                 "Fields of type 'dict' are not supported in "
                 "CUDAFactoryConfig subclasses, as they're not hashable, "
-                "cacheable, or updatable (by Cubie's update method)."
+                "cacheable, and their entries are not easily updated by the "
+                "update() method. Please create an attrs class for the "
+                "compile-critical data you're adding."
             )
 
     def update(
@@ -170,7 +177,6 @@ class _CubieConfigBase:
                 value_changed = not array_equal(
                     asarray(old_value), asarray(value)
                 )
-                value_changed = bool(np_any(value_changed))
             else:
                 value_changed = old_value != value
 

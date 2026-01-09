@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from attrs import define, field, validators
 from cubie.CUDAFactory import CUDAFactoryConfig
+from numba import from_dtype as numba_from_dtype
 from warnings import warn
 
 from cubie._utils import (

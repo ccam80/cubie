@@ -8,6 +8,8 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 
+from numba import from_dtype as numba_from_dtype
+
 from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie._utils import (
     PrecisionDType,

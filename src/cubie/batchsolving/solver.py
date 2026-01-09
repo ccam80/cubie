@@ -994,6 +994,7 @@ class Solver:
         """
         self.kernel.set_cache_dir(path)
 
+
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.
 

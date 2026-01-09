@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
+from numba import from_dtype
 from attrs import define, field, validators
 
 from cubie.CUDAFactory import (
@@ -21,6 +22,7 @@ from cubie.CUDAFactory import (
 )
 from cubie._utils import PrecisionDType, getype_validator
 from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
@@ -68,6 +70,9 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     timestep_memory_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()

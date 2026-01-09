@@ -28,6 +28,7 @@ from cubie.cuda_simsafe import (
     any_sync,
     compile_kwargs,
 )
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
