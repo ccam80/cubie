@@ -1,7 +1,6 @@
 """Tests for cubie_cache module."""
 
 import pytest
-from numba_cuda.numba.cuda.core.caching import NullCache
 from numpy import array, float32, float64
 
 from attrs import define, field
@@ -208,11 +207,7 @@ def test_cache_impl_check_cachable():
 def test_cubie_cache_init():
     """Verify CUBIECache initializes with system info."""
     settings = MockCompileSettings()
-    cache = CUBIECache(
-        system_name="test_system",
-        system_hash="abc123",
-        compile_settings=settings,
-    )
+    cache = CUBIECache(system_name="test_system", system_hash="abc123")
     assert cache._system_name == "test_system"
     assert cache._system_hash == "abc123"
     assert cache._compile_settings_hash == hash_compile_settings(settings)
@@ -223,11 +218,7 @@ def test_cubie_cache_init():
 def test_cubie_cache_index_key():
     """Verify _index_key includes system and settings hashes."""
     settings = MockCompileSettings()
-    cache = CUBIECache(
-        system_name="test_system",
-        system_hash="abc123",
-        compile_settings=settings,
-    )
+    cache = CUBIECache(system_name="test_system", system_hash="abc123")
 
     # Create a mock codegen object
     class MockCodegen:
@@ -251,11 +242,7 @@ def test_cubie_cache_index_key():
 def test_cubie_cache_path():
     """Verify cache_path property returns expected path."""
     settings = MockCompileSettings()
-    cache = CUBIECache(
-        system_name="test_system",
-        system_hash="abc123",
-        compile_settings=settings,
-    )
+    cache = CUBIECache(system_name="test_system", system_hash="abc123")
     assert "test_system" in cache.cache_path
     assert "cache" in cache.cache_path
 

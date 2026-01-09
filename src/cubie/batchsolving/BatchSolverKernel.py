@@ -42,7 +42,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie._utils import unpack_dict_values
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -940,7 +940,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
-
 
     @property
     def local_memory_elements(self) -> int:

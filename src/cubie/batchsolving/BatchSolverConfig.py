@@ -56,6 +56,9 @@ class ActiveOutputs(_CubieConfigBase):
         default=False, validator=val.instance_of(bool)
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @classmethod
     def from_compile_flags(cls, flags: OutputCompileFlags) -> "ActiveOutputs":
         """

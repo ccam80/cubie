@@ -166,10 +166,7 @@ class TestCUBIECacheMaxEntries:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-            max_entries=5,
+            system_name="test_system", system_hash="abc123", max_entries=5
         )
         assert cache._max_entries == 5
 
@@ -178,11 +175,7 @@ class TestCUBIECacheMaxEntries:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-        )
+        cache = CUBIECache(system_name="test_system", system_hash="abc123")
         assert cache._max_entries == 10
 
 
@@ -206,10 +199,7 @@ class TestEnforceCacheLimitNoEviction:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-            max_entries=10,
+            system_name="test_system", system_hash="abc123", max_entries=10
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -245,10 +235,7 @@ class TestEnforceCacheLimitEviction:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-            max_entries=3,
+            system_name="test_system", system_hash="abc123", max_entries=3
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -287,10 +274,7 @@ class TestEnforceCacheLimitDisabled:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-            max_entries=0,  # Disable eviction
+            system_name="test_system", system_hash="abc123", max_entries=0
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -326,10 +310,7 @@ class TestEnforceCacheLimitPairs:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-            max_entries=2,
+            system_name="test_system", system_hash="abc123", max_entries=2
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -364,7 +345,6 @@ class TestCUBIECacheModeStored:
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
-            compile_settings=compile_settings,
             mode="flush_on_change",
         )
         assert cache._mode == "flush_on_change"
@@ -374,11 +354,7 @@ class TestCUBIECacheModeStored:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-        )
+        cache = CUBIECache(system_name="test_system", system_hash="abc123")
         assert cache._mode == "hash"
 
 
@@ -400,11 +376,7 @@ class TestFlushCacheRemovesFiles:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-        )
+        cache = CUBIECache(system_name="test_system", system_hash="abc123")
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
 
@@ -430,11 +402,7 @@ class TestFlushCacheRecreatesDirectory:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-        )
+        cache = CUBIECache(system_name="test_system", system_hash="abc123")
         cache._cache_path = str(cache_dir)
 
         cache.flush_cache()
@@ -451,11 +419,7 @@ class TestFlushCacheRecreatesDirectory:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(
-            system_name="test_system",
-            system_hash="abc123",
-            compile_settings=compile_settings,
-        )
+        cache = CUBIECache(system_name="test_system", system_hash="abc123")
         cache._cache_path = str(cache_dir)
 
         # Should not raise an error
@@ -479,7 +443,6 @@ class TestCustomCacheDir:
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
-            compile_settings=compile_settings,
             custom_cache_dir=custom_dir,
         )
 
@@ -493,7 +456,6 @@ class TestCustomCacheDir:
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
-            compile_settings=compile_settings,
             custom_cache_dir=None,
         )
 

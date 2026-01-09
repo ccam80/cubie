@@ -12,18 +12,15 @@ updates when numba-cuda versions change. When running under CUDA
 simulator mode, caching is disabled and stub classes are provided.
 """
 
-import hashlib
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
-from attrs import fields, has
-from numpy import ndarray
+from attrs import field, validators as val, define, converters
 
+from cubie._utils import getype_validator
 from cubie.cuda_simsafe import is_cudasim_enabled
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
-# Conditional imports for CUDA caching classes
-# These are not available in CUDA simulator mode
 if not is_cudasim_enabled():
     from numba.cuda.core.caching import (
         _CacheLocator,
@@ -42,79 +39,41 @@ else:
     _CACHING_AVAILABLE = False
 
 
-def hash_compile_settings(obj: Any) -> str:
-    """Compute a stable hash from attrs compile settings.
-
-    Traverses attrs class fields and computes a deterministic hash
-    of all field values suitable for cache key construction.
+@define
+class CacheConfig:
+    """Configuration for file-based kernel caching.
 
     Parameters
     ----------
-    obj
-        An attrs class instance containing compile settings.
-
-    Returns
-    -------
-    str
-        SHA256 hash string of the serialized settings.
-
-    Raises
-    ------
-    TypeError
-        If obj is not an attrs class instance.
-
-    Notes
-    -----
-    Fields marked with ``eq=False`` (typically callables) are skipped.
-    Numpy arrays are hashed via ``tobytes()`` for determinism.
-    Nested attrs classes are recursively processed.
+    enabled
+        Whether file-based caching is enabled.
+    mode
+        Caching mode: 'hash' for content-addressed caching,
+        'flush_on_change' to clear cache when settings change.
+    max_entries
+        Maximum number of cache entries before LRU eviction.
+        Set to 0 to disable eviction.
+    cache_dir
+        Custom cache directory. None uses default location.
     """
-    if not has(type(obj)):
-        raise TypeError(
-            f"obj must be an attrs class instance, got {type(obj).__name__}"
-        )
 
-    parts = []
-    for field in fields(type(obj)):
-        # Skip fields with eq=False (e.g., callables, device functions)
-        if field.eq is False:
-            continue
-
-        value = getattr(obj, field.name)
-        serialized = _serialize_value(value)
-        parts.append(f"{field.name}={serialized}")
-
-    combined = "|".join(parts)
-    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
-
-
-def _serialize_value(value: Any) -> str:
-    """Serialize a value to a string for hashing.
-
-    Parameters
-    ----------
-    value
-        Value to serialize.
-
-    Returns
-    -------
-    str
-        String representation suitable for hashing.
-    """
-    if value is None:
-        return "None"
-    elif isinstance(value, ndarray):
-        # Hash array bytes for deterministic result
-        array_hash = hashlib.sha256(value.tobytes()).hexdigest()
-        return f"ndarray:{array_hash}"
-    elif has(type(value)):
-        # Use values_hash for CUDAFactoryConfig instances
-        if hasattr(value, "values_hash"):
-            return f"config:{value.values_hash}"
-        # Fallback to hash_compile_settings for legacy attrs classes
-        return f"attrs:{hash_compile_settings(value)}"
-    else:
-        return str(value)
+    enabled: bool = field(
+        default=True,
+        validator=val.instance_of(bool),
+    )
+    mode: str = field(
+        default="hash",
+        validator=val.in_(("hash", "flush_on_change")),
+    )
+    max_entries: int = field(
+        default=10,
+        validator=getype_validator(int, 0),
+    )
+    cache_dir: Optional[Path] = field(
+        default=None,
+        validator=val.optional(val.instance_of((str, Path))),
+        converter=converters.optional(Path),
+    )
 
 
 class CUBIECacheLocator(_CacheLocator):
@@ -301,13 +260,8 @@ class CUBIECache(CUDACache):
         Name of the ODE system.
     system_hash
         Hash representing the ODE system definition.
-    compile_settings
-        Attrs class instance of compile settings, or None if config_hash
-        is provided directly.
     config_hash
-        Pre-computed hash of the compile settings. When provided,
-        compile_settings is ignored. This is the preferred approach
-        for CUDAFactoryConfig-based settings.
+        Pre-computed hash of the compile settings.
     max_entries
         Maximum number of cache entries before LRU eviction.
         Set to 0 to disable eviction.
@@ -329,7 +283,6 @@ class CUBIECache(CUDACache):
         self,
         system_name: str,
         system_hash: str,
-        compile_settings: Any = None,
         config_hash: Optional[str] = None,
         max_entries: int = 10,
         mode: str = "hash",
@@ -345,22 +298,7 @@ class CUBIECache(CUDACache):
         self._system_name = system_name
         self._system_hash = system_hash
 
-        # Use config_hash directly if provided, otherwise compute from
-        # compile_settings
-        if config_hash is not None:
-            self._compile_settings_hash = config_hash
-        elif compile_settings is not None:
-            # Check if it's a CUDAFactoryConfig with values_hash
-            if hasattr(compile_settings, "values_hash"):
-                self._compile_settings_hash = compile_settings.values_hash
-            else:
-                self._compile_settings_hash = hash_compile_settings(
-                    compile_settings
-                )
-        else:
-            raise ValueError(
-                "Either compile_settings or config_hash must be provided"
-            )
+        self._compile_settings_hash = config_hash
 
         self._name = f"CUBIECache({system_name})"
         self._max_entries = max_entries
@@ -412,6 +350,10 @@ class CUBIECache(CUDACache):
         Uses filesystem mtime for LRU ordering. Evicts .nbi/.nbc
         file pairs together.
         """
+        # AI review note: this method is implementing a lot of our own
+        # logic. Instead, we should use exiting Numba IndexCacheFile
+        # mechanics to remove certain entries by index, or resave only
+        # certain indices.
         if self._max_entries == 0:
             return  # Eviction disabled
 
@@ -427,7 +369,6 @@ class CUBIECache(CUDACache):
         # Sort by mtime (oldest first)
         nbi_files.sort(key=lambda f: f.stat().st_mtime)
 
-        # Evict oldest until at or under limit
         files_to_remove = len(nbi_files) - self._max_entries + 1
         for nbi_file in nbi_files[:files_to_remove]:
             base = nbi_file.stem
@@ -469,6 +410,7 @@ class CUBIECache(CUDACache):
         Removes all .nbi and .nbc files, then recreates an empty
         cache directory.
         """
+        # AI review note: Can't we just use existing Numba cache flush logic?
         import shutil
 
         cache_path = Path(self._cache_path)
