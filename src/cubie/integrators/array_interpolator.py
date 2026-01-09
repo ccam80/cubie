@@ -119,7 +119,7 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
     )
 
     def __attrs_post_init__(self):
-        super.__attrs_post_init__(self)
+        super().__attrs_post_init__()
 
 
 class ArrayInterpolator(CUDAFactory):
