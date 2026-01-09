@@ -75,7 +75,7 @@ def solver_device(request, placeholder_operator, precision):
         n=3,
         linear_correction_type=request.param,
         krylov_tolerance=1e-12,
-        max_linear_iters=32,
+        kyrlov_max_iters=32,
     )
     solver.update(operator_apply=placeholder_operator)
     return solver.device_function
@@ -144,7 +144,7 @@ def test_linear_solver_symbolic(
         n=n,
         linear_correction_type=linear_correction_type,
         krylov_tolerance=1e-8,
-        max_linear_iters=1000,
+        kyrlov_max_iters=1000,
     )
     solver.update(operator_apply=operator, preconditioner=precond)
     solver = solver.device_function
@@ -181,7 +181,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
         n=n,
         linear_correction_type="minimal_residual",
         krylov_tolerance=1e-20,
-        max_linear_iters=16,
+        kyrlov_max_iters=16,
     )
     solver.update(operator_apply=zero_operator)
     solver = solver.device_function
@@ -397,7 +397,7 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision)
 
     # Other expected settings should be present
     assert 'krylov_tolerance' in settings
-    assert 'max_linear_iters' in settings
+    assert 'kyrlov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings
     assert 'temp_location' in settings
@@ -429,7 +429,7 @@ def test_linear_solver_update_preserves_original_dict(precision):
     original_updates = {
         'krylov_atol': 1e-8,
         'krylov_rtol': 1e-5,
-        'max_linear_iters': 50,
+        'kyrlov_max_iters': 50,
     }
     # Make a copy to compare later
     updates_copy = dict(original_updates)
@@ -492,7 +492,7 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
 
     # Other expected settings from config should also be present
     assert 'krylov_tolerance' in settings
-    assert 'max_linear_iters' in settings
+    assert 'kyrlov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings
     assert 'temp_location' in settings

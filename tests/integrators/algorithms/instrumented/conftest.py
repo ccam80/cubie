@@ -264,9 +264,9 @@ def instrumented_step_results(
     if stage_count_attr is None:
         stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
     stage_count = int32(stage_count_attr or 1)
-    max_newton_iters = int32(solver_settings["max_newton_iters"])
+    newton_max_iters = int32(solver_settings["newton_max_iters"])
     max_newton_backtracks = int32(solver_settings["newton_max_backtracks"])
-    linear_max_iters = int32(solver_settings["max_linear_iters"])
+    linear_max_iters = int32(solver_settings["kyrlov_max_iters"])
 
     params = np.asarray(step_inputs["parameters"], dtype=precision)
     driver_coefficients = np.asarray(
@@ -405,7 +405,7 @@ def instrumented_step_results(
         state_size=n_states,
         observable_size=n_observables,
         driver_size=drivers.shape[0],
-        newton_max_iters=max_newton_iters,
+        newton_max_iters=newton_max_iters,
         newton_max_backtracks=max_newton_backtracks,
         linear_max_iters=linear_max_iters,
         num_steps=num_steps,
@@ -664,9 +664,9 @@ def instrumented_cpu_step_results(
         driver_evaluator,
         solver_settings["algorithm"],
         newton_tol=solver_settings["newton_tolerance"],
-        newton_max_iters=solver_settings["max_newton_iters"],
+        newton_max_iters=solver_settings["newton_max_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
-        linear_max_iters=solver_settings["max_linear_iters"],
+        linear_max_iters=solver_settings["kyrlov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,

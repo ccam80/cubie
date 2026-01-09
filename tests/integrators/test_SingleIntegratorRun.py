@@ -189,7 +189,7 @@ class TestSingleIntegratorRun:
             "ki": "ki",
             "kd": "kd",
             "gamma": "gamma",
-            "max_newton_iters": "max_newton_iters",
+            "newton_max_iters": "newton_max_iters",
         }
         algo_props: Dict[str, str] = {
             "threads_per_step": "threads_per_step",
@@ -203,10 +203,10 @@ class TestSingleIntegratorRun:
             "mass_matrix": "mass_matrix",
             "preconditioner_order": "preconditioner_order",
             "linear_solver_tolerance": "krylov_tolerance",
-            "max_linear_iterations": "max_linear_iters",
+            "max_linear_iterations": "kyrlov_max_iters",
             "linear_correction_type": "linear_correction_type",
             "newton_tolerance": "newton_tolerance",
-            "newton_iterations_limit": "max_newton_iters",
+            "newton_iterations_limit": "newton_max_iters",
             "newton_damping": "newton_damping",
             "newton_max_backtracks": "newton_max_backtracks",
             "integration_step_size": "dt",

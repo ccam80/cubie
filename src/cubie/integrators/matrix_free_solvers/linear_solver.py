@@ -24,9 +24,8 @@ from cubie.integrators.matrix_free_solvers.base_solver import (
     MatrixFreeSolver,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
+from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @define
@@ -51,7 +50,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Line-search strategy ('steepest_descent' or 'minimal_residual').
     krylov_tolerance : float
         Target on squared residual norm for convergence (legacy scalar).
-    max_linear_iters : int
+    kyrlov_max_iters : int
         Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
@@ -66,6 +65,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
     norm factory and accessed via LinearSolver.krylov_atol/krylov_rtol
     properties.
     """
+
     operator_apply: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -83,7 +83,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
     _krylov_tolerance: float = field(
         default=1e-6, validator=gttype_validator(float, 0)
     )
-    max_linear_iters: int = field(
+    kyrlov_max_iters: int = field(
         default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     preconditioned_vec_location: str = field(
@@ -113,7 +113,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         """
         return {
             "krylov_tolerance": self.krylov_tolerance,
-            "max_linear_iters": self.max_linear_iters,
+            "kyrlov_max_iters": self.kyrlov_max_iters,
             "linear_correction_type": self.linear_correction_type,
             "preconditioned_vec_location": self.preconditioned_vec_location,
             "temp_location": self.temp_location,
@@ -163,8 +163,8 @@ class LinearSolver(MatrixFreeSolver):
             norm factory. None values are ignored.
         """
         # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop('krylov_atol', None)
-        rtol = kwargs.pop('krylov_rtol', None)
+        atol = kwargs.pop("krylov_atol", None)
+        rtol = kwargs.pop("krylov_rtol", None)
 
         # Initialize base class with norm factory
         super().__init__(
@@ -229,7 +229,7 @@ class LinearSolver(MatrixFreeSolver):
         n = config.n
         linear_correction_type = config.linear_correction_type
         krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
+        kyrlov_max_iters = config.kyrlov_max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
 
@@ -243,7 +243,7 @@ class LinearSolver(MatrixFreeSolver):
 
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(max_linear_iters)
+        max_iters_val = int32(kyrlov_max_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -559,10 +559,10 @@ class LinearSolver(MatrixFreeSolver):
 
         # Mark tolerance parameters as recognized
         if norm_updates:
-            if 'atol' in norm_updates:
-                recognized.add('krylov_atol')
-            if 'rtol' in norm_updates:
-                recognized.add('krylov_rtol')
+            if "atol" in norm_updates:
+                recognized.add("krylov_atol")
+            if "rtol" in norm_updates:
+                recognized.add("krylov_rtol")
 
         # Update norm and propagate to config
         self._update_norm_and_config(norm_updates)
@@ -614,9 +614,9 @@ class LinearSolver(MatrixFreeSolver):
         return self.norm.rtol
 
     @property
-    def max_linear_iters(self) -> int:
+    def kyrlov_max_iters(self) -> int:
         """Return maximum iterations."""
-        return self.compile_settings.max_linear_iters
+        return self.compile_settings.kyrlov_max_iters
 
     @property
     def use_cached_auxiliaries(self) -> bool:
@@ -651,6 +651,6 @@ class LinearSolver(MatrixFreeSolver):
             from the norm factory.
         """
         result = dict(self.compile_settings.settings_dict)
-        result['krylov_atol'] = self.krylov_atol
-        result['krylov_rtol'] = self.krylov_rtol
+        result["krylov_atol"] = self.krylov_atol
+        result["krylov_rtol"] = self.krylov_rtol
         return result

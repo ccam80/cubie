@@ -725,8 +725,8 @@ def test_comprehensive_config_plumbing(
         # Algorithm settings (only for implicit, but included)
         "krylov_tolerance": precision(5e-7),
         "newton_tolerance": precision(5e-7),
-        "max_linear_iters": 300,
-        "max_newton_iters": 300,
+        "kyrlov_max_iters": 300,
+        "newton_max_iters": 300,
         "newton_damping": precision(0.75),
         "preconditioner_order": 1,
     }

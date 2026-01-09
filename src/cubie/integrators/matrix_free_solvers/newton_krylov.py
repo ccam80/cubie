@@ -57,7 +57,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         Device function for solving linear systems.
     newton_tolerance : float
         Residual norm threshold for convergence (legacy scalar).
-    max_newton_iters : int
+    newton_max_iters : int
         Maximum Newton iterations permitted (alias for max_iters).
     newton_damping : float
         Step shrink factor for backtracking.
@@ -91,7 +91,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
     _newton_tolerance: float = field(
         default=1e-3, validator=gttype_validator(float, 0)
     )
-    max_newton_iters: int = field(
+    newton_max_iters: int = field(
         default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     _newton_damping: float = field(
@@ -140,7 +140,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         """
         return {
             "newton_tolerance": self.newton_tolerance,
-            "max_newton_iters": self.max_newton_iters,
+            "newton_max_iters": self.newton_max_iters,
             "newton_damping": self.newton_damping,
             "newton_max_backtracks": self.newton_max_backtracks,
             "delta_location": self.delta_location,
@@ -285,7 +285,7 @@ class NewtonKrylov(MatrixFreeSolver):
 
         n = config.n
         newton_tolerance = config.newton_tolerance
-        max_newton_iters = config.max_newton_iters
+        newton_max_iters = config.newton_max_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
 
@@ -294,7 +294,7 @@ class NewtonKrylov(MatrixFreeSolver):
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
-        max_iters_val = int32(max_newton_iters)
+        max_iters_val = int32(newton_max_iters)
         max_backtracks_val = int32(newton_max_backtracks + 1)
 
         # Get scaled norm device function from config
@@ -601,9 +601,9 @@ class NewtonKrylov(MatrixFreeSolver):
         return self.norm.rtol
 
     @property
-    def max_newton_iters(self) -> int:
+    def newton_max_iters(self) -> int:
         """Return maximum Newton iterations."""
-        return self.compile_settings.max_newton_iters
+        return self.compile_settings.newton_max_iters
 
     @property
     def newton_damping(self) -> float:
@@ -631,9 +631,9 @@ class NewtonKrylov(MatrixFreeSolver):
         return self.linear_solver.krylov_rtol
 
     @property
-    def max_linear_iters(self) -> int:
+    def kyrlov_max_iters(self) -> int:
         """Return max linear iterations from nested linear solver."""
-        return self.linear_solver.max_linear_iters
+        return self.linear_solver.kyrlov_max_iters
 
     @property
     def linear_correction_type(self) -> str:

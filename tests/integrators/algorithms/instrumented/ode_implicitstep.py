@@ -22,10 +22,10 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
         _controller_defaults: StepControlDefaults,
         solver_type: str = "newton",
         krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
+        kyrlov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
         newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
+        newton_max_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         **kwargs,
@@ -35,10 +35,10 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 _controller_defaults=_controller_defaults,
                 solver_type=solver_type,
                 krylov_tolerance=krylov_tolerance,
-                max_linear_iters=max_linear_iters,
+                kyrlov_max_iters=kyrlov_max_iters,
                 linear_correction_type=linear_correction_type,
                 newton_tolerance=newton_tolerance,
-                max_newton_iters=max_newton_iters,
+                newton_max_iters=newton_max_iters,
                 newton_damping=newton_damping,
                 newton_max_backtracks=newton_max_backtracks,
                 **kwargs,
@@ -50,7 +50,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 n=config.n,
                 correction_type=linear_correction_type,
                 krylov_tolerance=krylov_tolerance,
-                max_linear_iters=max_linear_iters,
+                kyrlov_max_iters=kyrlov_max_iters,
             )
 
             if solver_type == "newton":
@@ -59,7 +59,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                     n=config.n,
                     linear_solver=linear_solver,
                     newton_tolerance=newton_tolerance,
-                    max_newton_iters=max_newton_iters,
+                    newton_max_iters=newton_max_iters,
                     newton_damping=newton_damping,
                     newton_max_backtracks=newton_max_backtracks,
                 )

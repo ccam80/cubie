@@ -90,7 +90,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         'krylov_tolerance',
         'krylov_atol',
         'krylov_rtol',
-        'max_linear_iters',
+        'kyrlov_max_iters',
         'preconditioned_vec_location',
         'temp_location',
     })
@@ -100,7 +100,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         'newton_tolerance',
         'newton_atol',
         'newton_rtol',
-        'max_newton_iters',
+        'newton_max_iters',
         'newton_damping',
         'newton_max_backtracks',
         'delta_location',
@@ -127,7 +127,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         solver_type
             Type of solver to create: 'newton' or 'linear'.
         **kwargs
-            Optional solver parameters (krylov_tolerance, max_linear_iters,
+            Optional solver parameters (krylov_tolerance, kyrlov_max_iters,
             newton_tolerance, etc.). None values are ignored and defaults
             from solver config classes are used.
         """
@@ -371,9 +371,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return self.solver.krylov_rtol
 
     @property
-    def max_linear_iters(self) -> int:
+    def kyrlov_max_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
-        return int(self.solver.max_linear_iters)
+        return int(self.solver.kyrlov_max_iters)
 
     @property
     def linear_correction_type(self) -> str:
@@ -396,9 +396,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return getattr(self.solver, 'newton_rtol', None)
 
     @property
-    def max_newton_iters(self) -> Optional[int]:
+    def newton_max_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
-        val = getattr(self.solver, 'max_newton_iters', None)
+        val = getattr(self.solver, 'newton_max_iters', None)
         return int(val) if val is not None else None
 
     @property
