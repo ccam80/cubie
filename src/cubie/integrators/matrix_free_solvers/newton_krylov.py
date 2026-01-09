@@ -18,19 +18,23 @@ from cubie._utils import (
     gttype_validator,
     inrangetype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie.cuda_simsafe import activemask, all_sync, selp, any_sync, compile_kwargs
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
+from cubie.cuda_simsafe import (
+    activemask,
+    all_sync,
+    selp,
+    any_sync,
+    compile_kwargs,
+)
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
 
 @define
-class NewtonKrylovConfig:
+class NewtonKrylovConfig(CUDAFactoryConfig):
     """Configuration for NewtonKrylov solver compilation.
 
     Attributes
@@ -61,56 +65,43 @@ class NewtonKrylovConfig:
         Memory location for stage_base_bt buffer.
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
     n: int = field(validator=getype_validator(int, 1))
     residual_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     linear_solver_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     _newton_tolerance: float = field(
-        default=1e-3,
-        validator=gttype_validator(float, 0)
+        default=1e-3, validator=gttype_validator(float, 0)
     )
     max_newton_iters: int = field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767)
+        default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     _newton_damping: float = field(
-        default=0.5,
-        validator=inrangetype_validator(float, 0, 1)
+        default=0.5, validator=inrangetype_validator(float, 0, 1)
     )
     newton_max_backtracks: int = field(
-        default=8,
-        validator=inrangetype_validator(int, 1, 32767)
+        default=8, validator=inrangetype_validator(int, 1, 32767)
     )
     delta_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     residual_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     residual_temp_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     stage_base_bt_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     krylov_iters_local_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
 
     @property
@@ -151,20 +142,20 @@ class NewtonKrylovConfig:
             - stage_base_bt_location: Buffer location for stage_base_bt
         """
         return {
-            'newton_tolerance': self.newton_tolerance,
-            'max_newton_iters': self.max_newton_iters,
-            'newton_damping': self.newton_damping,
-            'newton_max_backtracks': self.newton_max_backtracks,
-            'delta_location': self.delta_location,
-            'residual_location': self.residual_location,
-            'residual_temp_location': self.residual_temp_location,
-            'stage_base_bt_location': self.stage_base_bt_location,
-            'krylov_iters_local_location': self.krylov_iters_local_location,
+            "newton_tolerance": self.newton_tolerance,
+            "max_newton_iters": self.max_newton_iters,
+            "newton_damping": self.newton_damping,
+            "newton_max_backtracks": self.newton_max_backtracks,
+            "delta_location": self.delta_location,
+            "residual_location": self.residual_location,
+            "residual_temp_location": self.residual_temp_location,
+            "stage_base_bt_location": self.stage_base_bt_location,
+            "krylov_iters_local_location": self.krylov_iters_local_location,
         }
 
 
 @define
-class NewtonKrylovCache(CUDAFunctionCache):
+class NewtonKrylovCache(CUDADispatcherCache):
     """Cache container for NewtonKrylov outputs.
 
     Attributes
@@ -173,9 +164,7 @@ class NewtonKrylovCache(CUDAFunctionCache):
         Compiled CUDA device function for Newton-Krylov solving.
     """
 
-    newton_krylov_solver: Callable = field(
-        validator=is_device_validator
-    )
+    newton_krylov_solver: Callable = field(validator=is_device_validator)
 
 
 class NewtonKrylov(CUDAFactory):
@@ -214,15 +203,14 @@ class NewtonKrylov(CUDAFactory):
         config = build_config(
             NewtonKrylovConfig,
             required={
-                'precision': precision,
-                'n': n,
+                "precision": precision,
+                "n": n,
             },
-            **kwargs
+            **kwargs,
         )
 
         self.setup_compile_settings(config)
         self.register_buffers()
-
 
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
@@ -231,39 +219,35 @@ class NewtonKrylov(CUDAFactory):
         precision = config.precision
 
         buffer_registry.register(
-            'delta',
-            self,
-            config.n,
-            config.delta_location,
-            precision=precision
+            "delta", self, config.n, config.delta_location, precision=precision
         )
         buffer_registry.register(
-            'residual',
+            "residual",
             self,
             config.n,
             config.residual_location,
-            precision=precision
+            precision=precision,
         )
         buffer_registry.register(
-            'residual_temp',
+            "residual_temp",
             self,
             config.n,
             config.residual_temp_location,
-            precision=precision
+            precision=precision,
         )
         buffer_registry.register(
-            'stage_base_bt',
+            "stage_base_bt",
             self,
             config.n,
             config.stage_base_bt_location,
-            precision=precision
+            precision=precision,
         )
         buffer_registry.register(
-            'krylov_iters_local',
+            "krylov_iters_local",
             self,
             1,
             config.krylov_iters_local_location,
-            precision=np_int32
+            precision=np_int32,
         )
 
     def build(self) -> NewtonKrylovCache:
@@ -302,11 +286,11 @@ class NewtonKrylov(CUDAFactory):
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
-        alloc_delta = get_alloc('delta', self)
-        alloc_residual = get_alloc('residual', self)
-        alloc_residual_temp = get_alloc('residual_temp', self)
-        alloc_stage_base_bt = get_alloc('stage_base_bt', self)
-        alloc_krylov_iters_local = get_alloc('krylov_iters_local', self)
+        alloc_delta = get_alloc("delta", self)
+        alloc_residual = get_alloc("residual", self)
+        alloc_residual_temp = get_alloc("residual_temp", self)
+        alloc_stage_base_bt = get_alloc("stage_base_bt", self)
+        alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
 
         # Get child allocators for linear solver
         alloc_lin_shared, alloc_lin_persistent = (
@@ -314,11 +298,7 @@ class NewtonKrylov(CUDAFactory):
         )
 
         # no cover: start
-        @cuda.jit(
-            device=True,
-            inline=True,
-            **compile_kwargs
-        )
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
         def newton_krylov_solver(
             stage_increment,
             parameters,
@@ -365,10 +345,16 @@ class NewtonKrylov(CUDAFactory):
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
-            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(
+                shared_scratch, persistent_scratch
+            )
+            stage_base_bt = alloc_stage_base_bt(
+                shared_scratch, persistent_scratch
+            )
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
-            lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
+            lin_persistent = alloc_lin_persistent(
+                shared_scratch, persistent_scratch
+            )
 
             residual_function(
                 stage_increment,
@@ -407,7 +393,9 @@ class NewtonKrylov(CUDAFactory):
                     break
 
                 active = not done
-                iters_count = selp(active, int32(iters_count + int32(1)), iters_count)
+                iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
+                )
 
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
@@ -425,7 +413,9 @@ class NewtonKrylov(CUDAFactory):
                     krylov_iters_local,
                 )
 
-                total_krylov_iters += selp(active, krylov_iters_local[0], int32(0))
+                total_krylov_iters += selp(
+                    active, krylov_iters_local[0], int32(0)
+                )
                 last_lin_status = selp(active, lin_status, last_lin_status)
 
                 for i in range(n_val):
@@ -440,7 +430,9 @@ class NewtonKrylov(CUDAFactory):
 
                     if active_bt:
                         for i in range(n_val):
-                            stage_increment[i] = stage_base_bt[i] + alpha * delta[i]
+                            stage_increment[i] = (
+                                stage_base_bt[i] + alpha * delta[i]
+                            )
 
                         residual_function(
                             stage_increment,
@@ -471,7 +463,9 @@ class NewtonKrylov(CUDAFactory):
 
                     alpha *= typed_damping
 
-                backtrack_failed = active and (not found_step) and (not converged)
+                backtrack_failed = (
+                    active and (not found_step) and (not converged)
+                )
                 last_backtrack_failed = active and backtrack_failed
 
                 if backtrack_failed:
@@ -505,7 +499,7 @@ class NewtonKrylov(CUDAFactory):
         self,
         updates_dict: Optional[Dict[str, Any]] = None,
         silent: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Set[str]:
         """Update compile settings and invalidate cache if changed.
 
@@ -536,10 +530,12 @@ class NewtonKrylov(CUDAFactory):
         recognized |= self.linear_solver.update(all_updates, silent=True)
 
         # Update device function, so that cache invalidates if it's changed
-        all_updates['linear_solver_function'] = self.linear_solver.device_function
+        all_updates["linear_solver_function"] = (
+            self.linear_solver.device_function
+        )
         recognized |= self.update_compile_settings(
-                updates_dict=all_updates, silent=True
-            )
+            updates_dict=all_updates, silent=True
+        )
 
         # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)

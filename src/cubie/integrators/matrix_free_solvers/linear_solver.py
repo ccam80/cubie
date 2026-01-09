@@ -19,17 +19,15 @@ from cubie._utils import (
     gttype_validator,
     inrangetype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @define
-class LinearSolverConfig:
+class LinearSolverConfig(CUDAFactoryConfig):
     """Configuration for LinearSolver compilation.
 
     Attributes
@@ -56,40 +54,32 @@ class LinearSolverConfig:
         Whether to use cached auxiliary arrays (determines signature).
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
     n: int = field(validator=getype_validator(int, 1))
     operator_apply: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     preconditioner: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     linear_correction_type: str = field(
         default="minimal_residual",
-        validator=validators.in_(["steepest_descent", "minimal_residual"])
+        validator=validators.in_(["steepest_descent", "minimal_residual"]),
     )
     _krylov_tolerance: float = field(
-        default=1e-6,
-        validator=gttype_validator(float, 0)
+        default=1e-6, validator=gttype_validator(float, 0)
     )
     max_linear_iters: int = field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767)
+        default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     preconditioned_vec_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     temp_location: str = field(
-        default='local',
-        validator=validators.in_(["local", "shared"])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     use_cached_auxiliaries: bool = field(default=False)
 
@@ -123,16 +113,16 @@ class LinearSolverConfig:
             - temp_location: Buffer location for temporary vector
         """
         return {
-            'krylov_tolerance': self.krylov_tolerance,
-            'max_linear_iters': self.max_linear_iters,
-            'linear_correction_type': self.linear_correction_type,
-            'preconditioned_vec_location': self.preconditioned_vec_location,
-            'temp_location': self.temp_location,
+            "krylov_tolerance": self.krylov_tolerance,
+            "max_linear_iters": self.max_linear_iters,
+            "linear_correction_type": self.linear_correction_type,
+            "preconditioned_vec_location": self.preconditioned_vec_location,
+            "temp_location": self.temp_location,
         }
 
 
 @define
-class LinearSolverCache(CUDAFunctionCache):
+class LinearSolverCache(CUDADispatcherCache):
     """Cache container for LinearSolver outputs.
 
     Attributes
@@ -141,9 +131,7 @@ class LinearSolverCache(CUDAFunctionCache):
         Compiled CUDA device function for linear solving.
     """
 
-    linear_solver: Callable = field(
-        validator=is_device_validator
-    )
+    linear_solver: Callable = field(validator=is_device_validator)
 
 
 class LinearSolver(CUDAFactory):
@@ -177,10 +165,10 @@ class LinearSolver(CUDAFactory):
         config = build_config(
             LinearSolverConfig,
             required={
-                'precision': precision,
-                'n': n,
+                "precision": precision,
+                "n": n,
             },
-            **kwargs
+            **kwargs,
         )
         self.setup_compile_settings(config)
         self.register_buffers()
@@ -190,18 +178,18 @@ class LinearSolver(CUDAFactory):
 
         config = self.compile_settings
         buffer_registry.register(
-            'preconditioned_vec',
+            "preconditioned_vec",
             self,
             config.n,
             config.preconditioned_vec_location,
-            precision=config.precision
+            precision=config.precision,
         )
         buffer_registry.register(
-            'temp',
+            "temp",
             self,
             config.n,
             config.temp_location,
-            precision=config.precision
+            precision=config.precision,
         )
 
     def build(self) -> LinearSolverCache:
@@ -243,8 +231,8 @@ class LinearSolver(CUDAFactory):
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
-        alloc_precond = get_alloc('preconditioned_vec', self)
-        alloc_temp = get_alloc('temp', self)
+        alloc_precond = get_alloc("preconditioned_vec", self)
+        alloc_temp = get_alloc("temp", self)
 
         # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
@@ -276,8 +264,16 @@ class LinearSolver(CUDAFactory):
                 temp = alloc_temp(shared, persistent_local)
 
                 operator_apply(
-                    state, parameters, drivers, cached_aux, base_state, t, h,
-                    a_ij, x, temp
+                    state,
+                    parameters,
+                    drivers,
+                    cached_aux,
+                    base_state,
+                    t,
+                    h,
+                    a_ij,
+                    x,
+                    temp,
                 )
                 acc = typed_zero
                 for i in range(n_val):
@@ -362,7 +358,6 @@ class LinearSolver(CUDAFactory):
 
             # no cover: end
             return LinearSolverCache(linear_solver=linear_solver_cached)
-
 
         else:
             # Device function for non-cached variant
@@ -525,7 +520,7 @@ class LinearSolver(CUDAFactory):
         self,
         updates_dict: Optional[Dict[str, Any]] = None,
         silent: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Set[str]:
         """Update compile settings and invalidate cache if changed.
 
@@ -554,7 +549,9 @@ class LinearSolver(CUDAFactory):
         if not all_updates:
             return recognized
 
-        recognized |= self.update_compile_settings(updates_dict=all_updates, silent=True)
+        recognized |= self.update_compile_settings(
+            updates_dict=all_updates, silent=True
+        )
 
         # Buffer locations will trigger cache invalidation in compile settings
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
