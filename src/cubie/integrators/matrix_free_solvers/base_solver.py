@@ -6,24 +6,19 @@ Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
 
 from typing import Any, Callable, Dict, Optional
 
-from numpy import dtype as np_dtype
-from numba import from_dtype
 from attrs import define, field
 
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
-    precision_converter,
-    precision_validator,
 )
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig
 from cubie.integrators.norms import ScaledNorm
 
 
 @define
-class MatrixFreeSolverConfig:
+class MatrixFreeSolverConfig(CUDAFactoryConfig):
     """Base configuration for matrix-free solver factories.
 
     Provides common attributes shared by LinearSolverConfig and
@@ -43,29 +38,14 @@ class MatrixFreeSolverConfig:
         norm factory rebuilds; changes invalidate solver cache.
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
     n: int = field(validator=getype_validator(int, 1))
     max_iters: int = field(
-        default=100,
-        validator=inrangetype_validator(int, 1, 32767)
+        default=100, validator=inrangetype_validator(int, 1, 32767)
     )
-    norm_device_function: Optional[Callable] = field(
-        default=None,
-        eq=False
-    )
+    norm_device_function: Optional[Callable] = field(default=None, eq=False)
 
-    @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np_dtype(self.precision))
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
 
 class MatrixFreeSolver(CUDAFactory):
@@ -85,14 +65,15 @@ class MatrixFreeSolver(CUDAFactory):
         Factory for scaled norm device function used in convergence checks.
     """
 
-    settings_prefix: str = ""
-
     def __init__(
         self,
         precision: PrecisionDType,
+        settings_prefix: str,
         n: int,
         atol: Optional[Any] = None,
         rtol: Optional[Any] = None,
+        max_iters: int = 100,
+        **kwargs,
     ) -> None:
         """Initialize base solver with norm factory.
 
@@ -107,14 +88,15 @@ class MatrixFreeSolver(CUDAFactory):
         rtol : array-like, optional
             Relative tolerance for scaled norm.
         """
+        self.settings_prefix = settings_prefix
         super().__init__()
 
         # Build norm kwargs, filtering None values
         norm_kwargs = {}
         if atol is not None:
-            norm_kwargs['atol'] = atol
+            norm_kwargs["atol"] = atol
         if rtol is not None:
-            norm_kwargs['rtol'] = rtol
+            norm_kwargs["rtol"] = rtol
 
         self.norm = ScaledNorm(
             precision=precision,
@@ -148,9 +130,9 @@ class MatrixFreeSolver(CUDAFactory):
         prefixed_rtol = f"{prefix}rtol"
 
         if prefixed_atol in updates:
-            norm_updates['atol'] = updates.pop(prefixed_atol)
+            norm_updates["atol"] = updates.pop(prefixed_atol)
         if prefixed_rtol in updates:
-            norm_updates['rtol'] = updates.pop(prefixed_rtol)
+            norm_updates["rtol"] = updates.pop(prefixed_rtol)
 
         return norm_updates
 

@@ -8,14 +8,13 @@ Newton iterations suitable for CUDA device execution.
 from typing import Callable, Optional, Set, Dict, Any
 
 from attrs import define, field, validators
-from numba import cuda, int32, from_dtype
+from numba import cuda, int32
 from numpy import int32 as np_int32
 from numpy import ndarray
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    gttype_validator,
     inrangetype_validator,
     is_device_validator,
 )
@@ -24,7 +23,7 @@ from cubie.integrators.matrix_free_solvers.base_solver import (
     MatrixFreeSolver,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
+from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
     activemask,
     all_sync,
@@ -32,7 +31,6 @@ from cubie.cuda_simsafe import (
     any_sync,
     compile_kwargs,
 )
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
@@ -78,6 +76,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
     norm factory and accessed via NewtonKrylov.newton_atol/newton_rtol
     properties.
     """
+
     residual_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -87,9 +86,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False,
-    )
-    _newton_tolerance: float = field(
-        default=1e-3, validator=gttype_validator(float, 0)
     )
     newton_max_iters: int = field(
         default=100, validator=inrangetype_validator(int, 1, 32767)
@@ -116,10 +112,8 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         default="local", validator=validators.in_(["local", "shared"])
     )
 
-    @property
-    def newton_tolerance(self) -> float:
-        """Return tolerance in configured precision."""
-        return self.precision(self._newton_tolerance)
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def newton_damping(self) -> float:
@@ -139,7 +133,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "newton_tolerance": self.newton_tolerance,
             "newton_max_iters": self.newton_max_iters,
             "newton_damping": self.newton_damping,
             "newton_max_backtracks": self.newton_max_backtracks,
@@ -197,12 +190,13 @@ class NewtonKrylov(MatrixFreeSolver):
             norm factory. None values are ignored.
         """
         # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop('newton_atol', None)
-        rtol = kwargs.pop('newton_rtol', None)
+        atol = kwargs.pop("newton_atol", None)
+        rtol = kwargs.pop("newton_rtol", None)
 
         # Initialize base class with norm factory
         super().__init__(
             precision=precision,
+            settings_prefix="newton_",
             n=n,
             atol=atol,
             rtol=rtol,
@@ -284,7 +278,6 @@ class NewtonKrylov(MatrixFreeSolver):
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
-        newton_tolerance = config.newton_tolerance
         newton_max_iters = config.newton_max_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
@@ -460,7 +453,9 @@ class NewtonKrylov(MatrixFreeSolver):
                             residual_temp,
                         )
 
-                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
+                        norm2_new = scaled_norm_fn(
+                            residual_temp, stage_increment
+                        )
 
                         if norm2_new <= typed_one:
                             converged = True
@@ -548,16 +543,18 @@ class NewtonKrylov(MatrixFreeSolver):
 
         # Mark tolerance parameters as recognized
         if norm_updates:
-            if 'atol' in norm_updates:
-                recognized.add('newton_atol')
-            if 'rtol' in norm_updates:
-                recognized.add('newton_rtol')
+            if "atol" in norm_updates:
+                recognized.add("newton_atol")
+            if "rtol" in norm_updates:
+                recognized.add("newton_rtol")
 
         # Update norm and propagate to config
         self._update_norm_and_config(norm_updates)
 
         # Update device function reference from linear solver
-        all_updates['linear_solver_function'] = self.linear_solver.device_function
+        all_updates["linear_solver_function"] = (
+            self.linear_solver.device_function
+        )
 
         # Update compile settings with remaining parameters
         recognized |= self.update_compile_settings(
@@ -584,11 +581,6 @@ class NewtonKrylov(MatrixFreeSolver):
     def n(self) -> int:
         """Return vector size."""
         return self.compile_settings.n
-
-    @property
-    def newton_tolerance(self) -> float:
-        """Return convergence tolerance."""
-        return self.compile_settings.newton_tolerance
 
     @property
     def newton_atol(self) -> ndarray:
@@ -680,6 +672,6 @@ class NewtonKrylov(MatrixFreeSolver):
         """
         combined = dict(self.linear_solver.settings_dict)
         combined.update(self.compile_settings.settings_dict)
-        combined['newton_atol'] = self.newton_atol
-        combined['newton_rtol'] = self.newton_rtol
+        combined["newton_atol"] = self.newton_atol
+        combined["newton_rtol"] = self.newton_rtol
         return combined

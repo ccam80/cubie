@@ -21,7 +21,7 @@ from cubie._utils import (
     precision_validator,
     tol_converter,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.cuda_simsafe import compile_kwargs
 
 
@@ -74,7 +74,7 @@ class ScaledNormConfig:
 
 
 @define
-class ScaledNormCache(CUDAFunctionCache):
+class ScaledNormCache(CUDADispatcherCache):
     """Cache container for ScaledNorm outputs.
 
     Attributes

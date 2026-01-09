@@ -94,6 +94,9 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
     )
     use_cached_auxiliaries: bool = field(default=False)
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @property
     def krylov_tolerance(self) -> float:
         """Return tolerance in configured precision."""
@@ -140,8 +143,6 @@ class LinearSolver(MatrixFreeSolver):
     for solving linear systems without forming Jacobian matrices.
     """
 
-    settings_prefix = "krylov_"
-
     def __init__(
         self,
         precision: PrecisionDType,
@@ -169,6 +170,7 @@ class LinearSolver(MatrixFreeSolver):
         # Initialize base class with norm factory
         super().__init__(
             precision=precision,
+            settings_prefix="krylov_",
             n=n,
             atol=atol,
             rtol=rtol,
@@ -228,7 +230,6 @@ class LinearSolver(MatrixFreeSolver):
         preconditioner = config.preconditioner
         n = config.n
         linear_correction_type = config.linear_correction_type
-        krylov_tolerance = config.krylov_tolerance
         kyrlov_max_iters = config.kyrlov_max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries

@@ -87,7 +87,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
     # Parameters accepted by LinearSolver
     _LINEAR_SOLVER_PARAMS = frozenset({
         'linear_correction_type',
-        'krylov_tolerance',
         'krylov_atol',
         'krylov_rtol',
         'kyrlov_max_iters',
@@ -97,7 +96,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
     # Parameters accepted by NewtonKrylov
     _NEWTON_KRYLOV_PARAMS = frozenset({
-        'newton_tolerance',
         'newton_atol',
         'newton_rtol',
         'newton_max_iters',
@@ -127,8 +125,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         solver_type
             Type of solver to create: 'newton' or 'linear'.
         **kwargs
-            Optional solver parameters (krylov_tolerance, kyrlov_max_iters,
-            newton_tolerance, etc.). None values are ignored and defaults
+            Optional solver parameters (krylov_atol, kyrlov_max_iters,
+            newton_rtol, etc.). None values are ignored and defaults
             from solver config classes are used.
         """
         super().__init__(config, _controller_defaults)
@@ -381,11 +379,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return self.solver.linear_correction_type
 
     @property
-    def newton_tolerance(self) -> Optional[float]:
-        """Return the Newton solve tolerance."""
-        return getattr(self.solver, 'newton_tolerance', None)
-
-    @property
     def newton_atol(self) -> Optional[ndarray]:
         """Return the Newton absolute tolerance array."""
         return getattr(self.solver, 'newton_atol', None)
@@ -426,7 +419,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             - Base step settings (n, n_drivers, precision) from BaseStepConfig
             - Implicit step settings (beta, gamma, M, preconditioner_order,
               get_solver_helper_fn) from ImplicitStepConfig
-            - Solver settings (newton_tolerance, krylov_tolerance, etc.)
+            - Solver settings (newton_atol, krylov_rtol, etc.)
               from NewtonKrylov or LinearSolver
             - All buffer location parameters from solver hierarchy
         """
