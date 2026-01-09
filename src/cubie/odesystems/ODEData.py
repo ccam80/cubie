@@ -8,10 +8,7 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 
-from numba import from_dtype as numba_from_dtype
-
 from cubie.CUDAFactory import CUDAFactoryConfig
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie._utils import (
     PrecisionDType,
 )
@@ -145,16 +142,6 @@ class ODEData(CUDAFactoryConfig):
             constants=self.num_constants,
             drivers=self.num_drivers,
         )
-
-    @property
-    def numba_precision(self) -> type:
-        """Numba representation of the configured precision."""
-        return numba_from_dtype(self.precision)
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Precision promoted for CUDA simulator compatibility."""
-        return simsafe_dtype(self.precision)
 
     @property
     def beta(self) -> float:

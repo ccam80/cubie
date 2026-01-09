@@ -28,7 +28,6 @@ from cubie.cuda_simsafe import (
     any_sync,
     compile_kwargs,
 )
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
@@ -113,16 +112,6 @@ class NewtonKrylovConfig(CUDAFactoryConfig):
     def newton_damping(self) -> float:
         """Return damping factor in configured precision."""
         return self.precision(self._newton_damping)
-
-    @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -547,11 +536,6 @@ class NewtonKrylov(CUDAFactory):
     def device_function(self) -> Callable:
         """Return cached Newton-Krylov solver device function."""
         return self.get_cached_output("newton_krylov_solver")
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
 
     @property
     def n(self) -> int:

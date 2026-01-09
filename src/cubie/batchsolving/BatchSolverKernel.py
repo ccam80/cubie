@@ -941,11 +941,6 @@ class BatchSolverKernel(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
 
-    @property
-    def precision(self) -> PrecisionDType:
-        """Precision dtype used in computations."""
-
-        return self.compile_settings.precision
 
     @property
     def local_memory_elements(self) -> int:
