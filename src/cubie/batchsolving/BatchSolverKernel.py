@@ -12,6 +12,8 @@ from typing import (
     Union,
 )
 from warnings import warn
+from hashlib import sha256
+from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
 from numba import cuda, float64
@@ -1031,7 +1033,7 @@ class BatchSolverKernel(CUDAFactory):
                 if hasattr(system, "system_hash"):
                     system_hash = system.system_hash
                 else:
-                    system_hash = hashlib.sha256(b"").hexdigest()
+                    system_hash = sha256(b"").hexdigest()
                 cache = CUBIECache(
                     system_name=system_name,
                     system_hash=system_hash,
