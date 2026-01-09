@@ -1,6 +1,5 @@
 """Compile-time configuration for batch solver kernels."""
 
-from pathlib import Path
 from typing import Callable, Optional
 
 import attrs
@@ -13,6 +12,7 @@ from cubie._utils import (
 from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.cubie_cache import CacheConfig
+
 
 @attrs.define
 class ActiveOutputs(_CubieConfigBase):
@@ -134,6 +134,7 @@ class BatchSolverConfig(CUDAFactoryConfig):
     cache_config: CacheConfig = attrs.field(
         factory=CacheConfig,
         validator=attrs.validators.instance_of(CacheConfig),
+        eq=False,  # Not relevant for equality/hashing for cache keys
     )
 
     def __attrs_post_init__(self):

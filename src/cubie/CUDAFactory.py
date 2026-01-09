@@ -525,11 +525,11 @@ class CUDAFactory(ABC):
         If the factory has child factories, their hashes will be hashed and
         the individual hashes will be concatenated and re-hashed.
         """
-        own_hash = self.compile_settings.config_hash
+        own_hash = self.compile_settings.values_hash
         child_hashes = tuple()
         for child_factory in self._iter_child_factories():
             #
-            child_hashes.append(child_factory.config_hash)
+            child_hashes = child_hashes + (child_factory.config_hash,)
         if child_hashes:
             # Combine all nested hashes and re-hash
             hash_str = own_hash.join(child_hashes)
@@ -546,7 +546,7 @@ class CUDAFactory(ABC):
         alphabetically by name for deterministic ordering.
         """
         seen = set()
-        for val in sorted(vars(self).values()):
+        for val in sorted(vars(self).keys()):
             if isinstance(val, CUDAFactory):
                 oid = id(val)
                 if oid not in seen:

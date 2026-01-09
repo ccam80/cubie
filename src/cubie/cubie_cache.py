@@ -17,6 +17,7 @@ from typing import Optional
 
 from attrs import field, validators as val, define, converters
 
+from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
 from cubie.cuda_simsafe import is_cudasim_enabled
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
@@ -40,7 +41,7 @@ else:
 
 
 @define
-class CacheConfig:
+class CacheConfig(_CubieConfigBase):
     """Configuration for file-based kernel caching.
 
     Parameters

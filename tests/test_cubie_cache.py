@@ -1,12 +1,11 @@
 """Tests for cubie_cache module."""
 
 import pytest
-from numpy import array, float32, float64
+from numpy import array, float32
 
 from attrs import define, field
 
 from cubie.cubie_cache import (
-    hash_compile_settings,
     CUBIECacheLocator,
     CUBIECacheImpl,
     CUBIECache,
@@ -46,81 +45,6 @@ class MockSettingsWithArray:
 
     precision: type = float32
     data: object = field(factory=lambda: array([1.0, 2.0, 3.0]))
-
-
-# --- hash_compile_settings tests ---
-
-
-def test_hash_compile_settings_basic():
-    """Verify hash is produced for simple attrs class."""
-    settings = MockCompileSettings()
-    result = hash_compile_settings(settings)
-    assert isinstance(result, str)
-    assert len(result) == 64  # SHA256 hex digest length
-
-
-def test_hash_compile_settings_with_arrays():
-    """Verify numpy arrays produce deterministic hashes."""
-    settings = MockSettingsWithArray()
-    hash1 = hash_compile_settings(settings)
-    hash2 = hash_compile_settings(settings)
-    assert hash1 == hash2
-
-
-def test_hash_compile_settings_skips_eq_false():
-    """Verify fields with eq=False are excluded from hash."""
-    settings1 = MockSettingsWithCallable(callback=lambda: 1)
-    settings2 = MockSettingsWithCallable(callback=lambda: 2)
-    # Hashes should be identical despite different callbacks
-    assert hash_compile_settings(settings1) == hash_compile_settings(settings2)
-
-
-def test_hash_compile_settings_nested_attrs():
-    """Verify nested attrs classes are recursively hashed."""
-    settings = MockNestedSettings()
-    result = hash_compile_settings(settings)
-    assert isinstance(result, str)
-    assert len(result) == 64
-
-
-def test_hash_compile_settings_changes_on_value_change():
-    """Verify hash changes when any field value changes."""
-    settings1 = MockCompileSettings(value=1)
-    settings2 = MockCompileSettings(value=2)
-    assert hash_compile_settings(settings1) != hash_compile_settings(settings2)
-
-
-def test_hash_compile_settings_raises_for_non_attrs():
-    """Verify TypeError is raised for non-attrs objects."""
-    with pytest.raises(TypeError, match="must be an attrs class instance"):
-        hash_compile_settings({"not": "attrs"})
-
-
-def test_hash_compile_settings_different_precision():
-    """Verify hash changes when precision field changes."""
-    settings1 = MockCompileSettings(precision=float32)
-    settings2 = MockCompileSettings(precision=float64)
-    assert hash_compile_settings(settings1) != hash_compile_settings(settings2)
-
-
-def test_hash_compile_settings_array_content_matters():
-    """Verify hash changes when array contents change."""
-    settings1 = MockSettingsWithArray(data=array([1.0, 2.0, 3.0]))
-    settings2 = MockSettingsWithArray(data=array([1.0, 2.0, 4.0]))
-    assert hash_compile_settings(settings1) != hash_compile_settings(settings2)
-
-
-def test_hash_compile_settings_none_value():
-    """Verify None values are handled correctly."""
-
-    @define
-    class SettingsWithNone:
-        value: object = None
-
-    settings = SettingsWithNone()
-    result = hash_compile_settings(settings)
-    assert isinstance(result, str)
-    assert len(result) == 64
 
 
 # --- CUBIECacheLocator tests ---
@@ -210,7 +134,6 @@ def test_cubie_cache_init():
     cache = CUBIECache(system_name="test_system", system_hash="abc123")
     assert cache._system_name == "test_system"
     assert cache._system_hash == "abc123"
-    assert cache._compile_settings_hash == hash_compile_settings(settings)
     assert cache._name == "CUBIECache(test_system)"
 
 
@@ -235,8 +158,6 @@ def test_cubie_cache_index_key():
     assert key[0] == sig
     assert key[1] == ("magic", "tuple")
     assert key[2] == "abc123"
-    assert key[3] == hash_compile_settings(settings)
-
 
 @pytest.mark.nocudasim
 def test_cubie_cache_path():
