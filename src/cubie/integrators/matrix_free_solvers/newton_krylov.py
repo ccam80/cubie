@@ -9,7 +9,7 @@ from typing import Callable, Optional, Set, Dict, Any
 
 from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import dtype as np_dtype, int32 as np_int32
+from numpy import int32 as np_int32
 from numpy import ndarray
 
 from cubie._utils import (

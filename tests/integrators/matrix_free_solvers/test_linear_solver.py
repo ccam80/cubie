@@ -455,7 +455,6 @@ def test_linear_solver_no_manual_cache_invalidation(precision):
 
     # Get the current norm device function from config
     config1 = solver.compile_settings
-    norm_fn1 = config1.norm_device_function
 
     # Update tolerance - should update config's norm_device_function
     new_atol = np.array([1e-8, 1e-7, 1e-9], dtype=precision)

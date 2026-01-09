@@ -4,7 +4,7 @@ This module provides shared configuration infrastructure for the
 Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
 """
 
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional
 
 from numpy import dtype as np_dtype
 from numba import from_dtype
