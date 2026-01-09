@@ -528,11 +528,9 @@ class CUDAFactory(ABC):
         own_hash = self.compile_settings.values_hash
         child_hashes = tuple()
         for child_factory in self._iter_child_factories():
-            #
             child_hashes = child_hashes + (child_factory.config_hash,)
         if child_hashes:
             # Combine all nested hashes and re-hash
-            hash_str = own_hash.join(child_hashes)
             hash_str = own_hash.join(child_hashes)
             return sha256(hash_str.encode("utf-8")).hexdigest()
         else:
@@ -546,7 +544,8 @@ class CUDAFactory(ABC):
         alphabetically by name for deterministic ordering.
         """
         seen = set()
-        for val in sorted(vars(self).keys()):
+        for name in sorted(vars(self).keys()):
+            val = getattr(self, name)
             if isinstance(val, CUDAFactory):
                 oid = id(val)
                 if oid not in seen:

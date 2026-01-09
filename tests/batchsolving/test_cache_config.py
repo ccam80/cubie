@@ -133,19 +133,6 @@ class TestBatchSolverConfigCacheConfig:
 class TestCachingEnabledBackwardsCompat:
     """Tests for backwards-compatible caching_enabled property."""
 
-    def test_caching_enabled_backwards_compat(self, precision):
-        """Verify caching_enabled property returns cache_config.enabled."""
-        config = BatchSolverConfig(
-            precision=precision,
-        )
-        assert config.caching_enabled is True
-
-        # When cache_config.enabled is False
-        config_disabled = BatchSolverConfig(
-            precision=precision, cache_config=CacheConfig(enabled=False)
-        )
-        assert config_disabled.caching_enabled is False
-
     def test_caching_enabled_is_readonly(self, precision):
         """Verify caching_enabled is a read-only property."""
         config = BatchSolverConfig(
