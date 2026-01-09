@@ -1,6 +1,5 @@
 """Compile-time configuration for batch solver kernels."""
 
-from pathlib import Path
 from typing import Callable, Optional
 
 import attrs
@@ -12,43 +11,6 @@ from cubie._utils import (
 )
 from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.output_config import OutputCompileFlags
-
-
-@attrs.define
-class CacheConfig(_CubieConfigBase):
-    """Configuration for file-based kernel caching.
-
-    Parameters
-    ----------
-    enabled
-        Whether file-based caching is enabled.
-    mode
-        Caching mode: 'hash' for content-addressed caching,
-        'flush_on_change' to clear cache when settings change.
-    max_entries
-        Maximum number of cache entries before LRU eviction.
-        Set to 0 to disable eviction.
-    cache_dir
-        Custom cache directory. None uses default location.
-    """
-
-    enabled: bool = attrs.field(
-        default=True,
-        validator=val.instance_of(bool),
-    )
-    mode: str = attrs.field(
-        default="hash",
-        validator=val.in_(("hash", "flush_on_change")),
-    )
-    max_entries: int = attrs.field(
-        default=10,
-        validator=getype_validator(int, 0),
-    )
-    cache_dir: Optional[Path] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of((str, Path))),
-        converter=attrs.converters.optional(Path),
-    )
 
 
 @attrs.define
@@ -164,10 +126,6 @@ class BatchSolverConfig(CUDAFactoryConfig):
         validator=attrs.validators.optional(
             attrs.validators.instance_of(OutputCompileFlags)
         ),
-    )
-    cache_config: CacheConfig = attrs.field(
-        factory=CacheConfig,
-        validator=attrs.validators.instance_of(CacheConfig),
     )
 
     def __attrs_post_init__(self):
