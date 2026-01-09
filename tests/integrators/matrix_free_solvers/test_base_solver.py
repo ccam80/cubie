@@ -98,15 +98,16 @@ def test_matrix_free_solver_config_norm_device_function_field():
 
 def test_matrix_free_solver_creates_norm():
     """Verify MatrixFreeSolver creates ScaledNorm in constructor."""
+
     # Create a concrete subclass for testing (MatrixFreeSolver is abstract)
     class TestSolver(MatrixFreeSolver):
         def build(self):
             pass
 
-    solver = TestSolver(precision=np.float64, n=3)
+    solver = TestSolver(precision=np.float64, n=3, solver_type="newton")
 
     # Verify norm attribute exists and is a ScaledNorm instance
-    assert hasattr(solver, 'norm')
+    assert hasattr(solver, "norm")
     assert isinstance(solver.norm, ScaledNorm)
 
     # Verify norm has correct precision and n
@@ -116,44 +117,44 @@ def test_matrix_free_solver_creates_norm():
 
 def test_matrix_free_solver_extract_prefixed_tolerance():
     """Verify _extract_prefixed_tolerance correctly maps prefixed keys."""
-    class TestSolver(MatrixFreeSolver):
-        settings_prefix = "krylov_"
 
+    class TestSolver(MatrixFreeSolver):
         def build(self):
             pass
 
-    solver = TestSolver(precision=np.float64, n=3)
+    solver = TestSolver(precision=np.float64, n=3, solver_type="krylov_")
 
     # Test extraction of prefixed tolerance keys
     updates = {
-        'krylov_atol': np.array([1e-8]),
-        'krylov_rtol': np.array([1e-6]),
-        'other_param': 42,
+        "krylov_atol": np.array([1e-8]),
+        "krylov_rtol": np.array([1e-6]),
+        "other_param": 42,
     }
 
     norm_updates = solver._extract_prefixed_tolerance(updates)
 
     # Verify prefixed keys were extracted and mapped to unprefixed
-    assert 'atol' in norm_updates
-    assert 'rtol' in norm_updates
-    assert np.array_equal(norm_updates['atol'], np.array([1e-8]))
-    assert np.array_equal(norm_updates['rtol'], np.array([1e-6]))
+    assert "atol" in norm_updates
+    assert "rtol" in norm_updates
+    assert np.array_equal(norm_updates["atol"], np.array([1e-8]))
+    assert np.array_equal(norm_updates["rtol"], np.array([1e-6]))
 
     # Verify prefixed keys were removed from original dict
-    assert 'krylov_atol' not in updates
-    assert 'krylov_rtol' not in updates
+    assert "krylov_atol" not in updates
+    assert "krylov_rtol" not in updates
 
     # Verify other parameters remain
-    assert updates['other_param'] == 42
+    assert updates["other_param"] == 42
 
 
 def test_matrix_free_solver_norm_update_propagates_to_config():
     """Verify _update_norm_and_config sets norm_device_function in config."""
+
     class TestSolver(MatrixFreeSolver):
         def build(self):
             pass
 
-    solver = TestSolver(precision=np.float64, n=3)
+    solver = TestSolver(precision=np.float64, n=3, solver_type="krylov_")
 
     # Set up compile settings (required by _update_norm_and_config)
     config = MatrixFreeSolverConfig(precision=np.float64, n=3)
@@ -167,12 +168,14 @@ def test_matrix_free_solver_norm_update_propagates_to_config():
 
     # Verify config now has the norm device function
     assert solver.compile_settings.norm_device_function is not None
-    assert solver.compile_settings.norm_device_function == \
-        solver.norm.device_function
+    assert (
+        solver.compile_settings.norm_device_function
+        == solver.norm.device_function
+    )
 
     # Test with actual tolerance updates
     new_atol = np.array([1e-10, 1e-10, 1e-10])
-    solver._update_norm_and_config({'atol': new_atol})
+    solver._update_norm_and_config({"atol": new_atol})
 
     # Verify norm was updated and config still has device function
     assert np.array_equal(solver.norm.atol, new_atol)
