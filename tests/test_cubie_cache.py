@@ -159,6 +159,7 @@ def test_cubie_cache_index_key():
     assert key[1] == ("magic", "tuple")
     assert key[2] == "abc123"
 
+
 @pytest.mark.nocudasim
 def test_cubie_cache_path():
     """Verify cache_path property returns expected path."""
