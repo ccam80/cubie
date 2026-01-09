@@ -551,9 +551,9 @@ def run_reference_loop_with_history(
         evaluator,
         evaluate_driver_at_t,
         solver_settings["algorithm"],
-        newton_tol=implicit_step_settings["newton_tolerance"],
+        newton_tol=implicit_step_settings["newton_atol"],
         newton_max_iters=implicit_step_settings["newton_max_iters"],
-        linear_tol=implicit_step_settings["krylov_tolerance"],
+        linear_tol=implicit_step_settings["krylov_atol"],
         linear_max_iters=implicit_step_settings["kyrlov_max_iters"],
         linear_correction_type=implicit_step_settings[
             "linear_correction_type"

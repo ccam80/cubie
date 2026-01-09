@@ -445,13 +445,24 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def linear_solver_tolerance(self) -> Optional[float]:
-        """Return the linear solve tolerance."""
+    def krylov_atol(self) -> Optional[Any]:
+        """Return the linear solve absolute tolerance array."""
 
         step = self._algo_step
         return (
-            step.krylov_tolerance
-            if hasattr(step, "krylov_tolerance")
+            step.krylov_atol
+            if hasattr(step, "krylov_atol")
+            else None
+        )
+
+    @property
+    def krylov_rtol(self) -> Optional[Any]:
+        """Return the linear solve relative tolerance array."""
+
+        step = self._algo_step
+        return (
+            step.krylov_rtol
+            if hasattr(step, "krylov_rtol")
             else None
         )
 
@@ -478,13 +489,24 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def newton_tolerance(self) -> Optional[float]:
-        """Return the nonlinear solve tolerance."""
+    def newton_atol(self) -> Optional[Any]:
+        """Return the nonlinear solve absolute tolerance array."""
 
         step = self._algo_step
         return (
-            step.newton_tolerance
-            if hasattr(step, "newton_tolerance")
+            step.newton_atol
+            if hasattr(step, "newton_atol")
+            else None
+        )
+
+    @property
+    def newton_rtol(self) -> Optional[Any]:
+        """Return the nonlinear solve relative tolerance array."""
+
+        step = self._algo_step
+        return (
+            step.newton_rtol
+            if hasattr(step, "newton_rtol")
             else None
         )
 

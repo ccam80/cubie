@@ -80,7 +80,6 @@ class InstrumentedLinearSolver(LinearSolver):
         preconditioner = config.preconditioner
         n = config.n
         linear_correction_type = config.linear_correction_type
-        krylov_tolerance = config.krylov_tolerance
         kyrlov_max_iters = config.kyrlov_max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
@@ -448,7 +447,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
-        tolerance = config.newton_tolerance
         max_iters = config.newton_max_iters
         damping = config.newton_damping
         max_backtracks = config.newton_max_backtracks
