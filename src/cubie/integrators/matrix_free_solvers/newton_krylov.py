@@ -194,7 +194,7 @@ class NewtonKrylov(MatrixFreeSolver):
         # Initialize base class with norm factory
         super().__init__(
             precision=precision,
-            solver_type="newton_",
+            solver_type="newton",
             n=n,
             atol=atol,
             rtol=rtol,
@@ -522,7 +522,7 @@ class NewtonKrylov(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates into a COPY to preserve original dict
+        # Merge updates for forwarding and buffer registry
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -536,31 +536,19 @@ class NewtonKrylov(MatrixFreeSolver):
         # Forward krylov-prefixed params to linear solver
         recognized |= self.linear_solver.update(all_updates, silent=True)
 
-        # Extract prefixed tolerance parameters (modifies all_updates in place)
-        norm_updates = self._extract_prefixed_tolerance(all_updates)
-
-        # Mark tolerance parameters as recognized
-        if norm_updates:
-            if "atol" in norm_updates:
-                recognized.add("newton_atol")
-            if "rtol" in norm_updates:
-                recognized.add("newton_rtol")
-
-        # Update norm and propagate to config
-        self._update_norm_and_config(norm_updates)
+        # Delegate tolerance extraction and compile settings to base class
+        recognized |= super().update(all_updates, silent=True)
 
         # Update device function reference from linear solver
-        all_updates["linear_solver_function"] = (
-            self.linear_solver.device_function
-        )
-
-        # Update compile settings with remaining parameters
-        recognized |= self.update_compile_settings(
-            updates_dict=all_updates, silent=True
+        self.update_compile_settings(
+            linear_solver_function=self.linear_solver.device_function,
+            silent=True,
         )
 
         # Buffer locations handled by registry
-        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
         self.register_buffers()
 
         return recognized

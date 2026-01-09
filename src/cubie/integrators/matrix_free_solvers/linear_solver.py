@@ -170,7 +170,7 @@ class LinearSolver(MatrixFreeSolver):
         # Initialize base class with norm factory
         super().__init__(
             precision=precision,
-            solver_type="krylov_",
+            solver_type="krylov",
             n=n,
             atol=atol,
             rtol=rtol,
@@ -544,37 +544,22 @@ class LinearSolver(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates into a COPY to preserve original dict
+        # Merge updates for buffer registry
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
 
-        recognized = set()
-
         if not all_updates:
-            return recognized
+            return set()
 
-        # Extract prefixed tolerance parameters (modifies all_updates in place)
-        norm_updates = self._extract_prefixed_tolerance(all_updates)
-
-        # Mark tolerance parameters as recognized
-        if norm_updates:
-            if "atol" in norm_updates:
-                recognized.add("krylov_atol")
-            if "rtol" in norm_updates:
-                recognized.add("krylov_rtol")
-
-        # Update norm and propagate to config
-        self._update_norm_and_config(norm_updates)
-
-        # Update compile settings with remaining parameters
-        recognized |= self.update_compile_settings(
-            updates_dict=all_updates, silent=True
-        )
+        # Delegate tolerance extraction and compile settings to base class
+        recognized = super().update(all_updates, silent=True)
 
         # Buffer locations handled by registry
-        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
         self.register_buffers()
 
         return recognized

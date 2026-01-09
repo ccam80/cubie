@@ -600,6 +600,51 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
         self.instance_label = instance_label
         super().__init__()
 
+    def transform_prefixed_keys(
+        self, updates_dict: Dict[str, Any] = None, **kwargs
+    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+        """Transform prefixed keys to unprefixed equivalents.
+
+        Separates keys matching ``{instance_label}_*`` from other keys
+        and returns both the transformed dict and a mapping of unprefixed
+        keys back to their original prefixed forms.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of setting names to values.
+        **kwargs
+            Additional settings.
+
+        Returns
+        -------
+        tuple[dict, dict]
+            transformed: Dict with prefixed keys converted to unprefixed.
+            key_mapping: Dict mapping unprefixed keys to original prefixed
+            keys.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = updates_dict.copy()
+        updates_dict.update(kwargs)
+
+        if not updates_dict:
+            return {}, {}
+
+        prefix = f"{self.instance_label}_"
+        transformed = {}
+        key_mapping = {}
+
+        for key, value in updates_dict.items():
+            if key.startswith(prefix):
+                unprefixed = key[len(prefix):]
+                transformed[unprefixed] = value
+                key_mapping[unprefixed] = key
+            else:
+                transformed[key] = value
+
+        return transformed, key_mapping
+
     def update_compile_settings(
         self, updates_dict=None, silent=False, **kwargs
     ) -> Set[str]:
@@ -622,7 +667,8 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
         Returns
         -------
         set[str]
-            Names of settings that were successfully updated.
+            Names of settings that were successfully updated. Returns
+            the ORIGINAL prefixed keys when prefixed versions were used.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -632,16 +678,20 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
         if not updates_dict:
             return set()
 
-        # Transform prefixed keys to unprefixed equivalents
-        prefix = f"{self.instance_label}_"
-        transformed = {}
-        for key, value in updates_dict.items():
-            if key.startswith(prefix):
-                unprefixed = key[len(prefix) :]
-                transformed[unprefixed] = value
-            else:
-                transformed[key] = value
+        # Transform prefixed keys and get mapping
+        transformed, key_mapping = self.transform_prefixed_keys(updates_dict)
 
-        return super().update_compile_settings(
+        # Call parent with transformed dict
+        recognized_unprefixed = super().update_compile_settings(
             updates_dict=transformed, silent=silent
         )
+
+        # Map recognized keys back to original prefixed forms
+        recognized = set()
+        for key in recognized_unprefixed:
+            if key in key_mapping:
+                recognized.add(key_mapping[key])
+            else:
+                recognized.add(key)
+
+        return recognized

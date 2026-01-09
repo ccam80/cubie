@@ -4,7 +4,7 @@ This module provides shared configuration infrastructure for the
 Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 
 from attrs import define, field
 
@@ -107,37 +107,81 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
             **norm_kwargs,
         )
 
-    def _extract_prefixed_tolerance(
+    def update(
         self,
-        updates: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Extract and map prefixed tolerance parameters.
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs,
+    ) -> Set[str]:
+        """Update compile settings with tolerance extraction.
 
-        Looks for `{prefix}atol` and `{prefix}rtol` in updates dict,
-        removes them, and returns dict with unprefixed keys for norm.
+        Handles common parameter processing for all matrix-free solvers:
+        1. Transforms prefixed keys using inherited transform_prefixed_keys
+        2. Extracts atol/rtol from transformed dict for norm factory
+        3. Updates norm and propagates device function to config
+        4. Forwards remaining parameters to update_compile_settings
 
         Parameters
         ----------
-        updates : dict
-            Updates dictionary (modified in place).
+        updates_dict : dict, optional
+            Dictionary of settings to update.
+        silent : bool, default False
+            If True, suppress warnings about unrecognized keys.
+        **kwargs
+            Additional settings as keyword arguments.
 
         Returns
         -------
-        dict
-            Norm updates with unprefixed tolerance keys.
+        set
+            Set of recognized parameter names (original prefixed forms).
         """
-        prefix = self.solver_type
+        # Merge updates into a copy
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+
+        if not all_updates:
+            return set()
+
+        recognized = set()
+
+        # Transform prefixed keys and get mapping
+        transformed, key_mapping = self.transform_prefixed_keys(all_updates)
+
+        # Extract tolerance parameters from transformed dict
         norm_updates = {}
+        if "atol" in transformed:
+            norm_updates["atol"] = transformed.pop("atol")
+        if "rtol" in transformed:
+            norm_updates["rtol"] = transformed.pop("rtol")
 
-        prefixed_atol = f"{prefix}atol"
-        prefixed_rtol = f"{prefix}rtol"
+        # Update norm factory and track recognized keys
+        if norm_updates:
+            self.norm.update(norm_updates, silent=True)
+            # Map tolerance keys back to original prefixed forms
+            for key in norm_updates:
+                if key in key_mapping:
+                    recognized.add(key_mapping[key])
+                else:
+                    recognized.add(key)
 
-        if prefixed_atol in updates:
-            norm_updates["atol"] = updates.pop(prefixed_atol)
-        if prefixed_rtol in updates:
-            norm_updates["rtol"] = updates.pop(prefixed_rtol)
+        # Propagate norm device function to config
+        self._update_norm_and_config({})
 
-        return norm_updates
+        # Forward remaining parameters to compile settings
+        if transformed:
+            recognized_from_settings = super().update_compile_settings(
+                updates_dict=transformed, silent=True
+            )
+            # Map recognized keys back to original prefixed forms
+            for key in recognized_from_settings:
+                if key in key_mapping:
+                    recognized.add(key_mapping[key])
+                else:
+                    recognized.add(key)
+
+        return recognized
 
     def _update_norm_and_config(
         self,

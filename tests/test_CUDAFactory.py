@@ -495,10 +495,10 @@ def test_multiple_instance_factory_prefix_mapping(precision):
     solver = LinearSolver(precision=precision, n=3)
 
     # Update with prefixed key
-    solver.update({"krylov_tolerance": 1e-8})
+    solver.update({"krylov_max_iters": 50})
 
     # Verify the unprefixed setting was updated
-    assert solver.compile_settings.krylov_tolerance == precision(1e-8)
+    assert solver.compile_settings.max_iters == 50
 
 
 def test_multiple_instance_factory_instance_label_stored(precision):
@@ -510,7 +510,7 @@ def test_multiple_instance_factory_instance_label_stored(precision):
     solver = LinearSolver(precision=precision, n=3)
 
     # Verify instance_label is set correctly
-    assert solver.instance_label == "krylov_"
+    assert solver.instance_label == "krylov"
 
 
 def test_multiple_instance_factory_empty_label_raises():
@@ -523,7 +523,7 @@ def test_multiple_instance_factory_empty_label_raises():
     with pytest.raises(ValueError) as exc:
         TestFactory(instance_label="")
 
-    assert "non-empty" in str(exc.value)
+    assert "instance_label" in str(exc.value)
 
 
 def test_multiple_instance_factory_mixed_keys():
