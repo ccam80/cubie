@@ -7,14 +7,8 @@ configuration for the CUDA IVP loop orchestrators.
 
 import attrs
 import numba
-from numpy import float32
 
 from cubie.CUDAFactory import CUDAFactoryConfig
-from cubie._utils import (
-    PrecisionDType,
-    precision_converter,
-    precision_validator,
-)
 
 
 @attrs.define
@@ -31,11 +25,6 @@ class IntegratorRunSettings(CUDAFactoryConfig):
         Name of the step-size controller.
     """
 
-    precision: PrecisionDType = attrs.field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     algorithm: str = attrs.field(
         default="euler",
         validator=attrs.validators.instance_of(str),

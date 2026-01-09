@@ -103,13 +103,19 @@ class _CubieConfigBase:
 
         self._field_map = field_map
         self._nested_attrs = {
-            name for name, _field in field_map.items() if has(_field.type)
+            fld.name for fld in fields(type(self)) if has(fld.type)
         }
         self._unhashable_fields = {
             field for field in fields(type(self)) if field.eq is False
         }
         self._values_hash = self._generate_values_hash()
-        if any(fld.type is dict for fld in field_map.values()):
+        from typing import get_origin
+
+        if any(
+            (get_origin(fld.type) is dict or fld.type is dict)
+            and fld not in self._unhashable_fields
+            for fld in field_map.values()
+        ):
             raise TypeError(
                 "Fields of type 'dict' are not supported in "
                 "CUDAFactoryConfig subclasses, as they're not hashable, "
