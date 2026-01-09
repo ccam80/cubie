@@ -17,7 +17,8 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
     BaseStepConfig,
-    StepCache, StepControlDefaults,
+    StepCache,
+    StepControlDefaults,
 )
 
 
@@ -36,23 +37,21 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order
         Order of the truncated Neumann preconditioner.
     """
+
     _beta: float = field(
-        default=1.0,
-        validator=inrangetype_validator(float, 0, 1)
+        default=1.0, validator=inrangetype_validator(float, 0, 1)
     )
     _gamma: float = field(
-        default=1.0,
-        validator=inrangetype_validator(float, 0, 1)
+        default=1.0, validator=inrangetype_validator(float, 0, 1)
     )
     M: Union[ndarray, sp.Matrix] = field(default=sp.eye(1))
     preconditioner_order: int = field(
-        default=2,
-        validator=inrangetype_validator(int, 1, 32)
+        default=2, validator=inrangetype_validator(int, 1, 32)
     )
     solver_function = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
 
     @property
@@ -71,11 +70,11 @@ class ImplicitStepConfig(BaseStepConfig):
         settings_dict = super().settings_dict
         settings_dict.update(
             {
-                'beta': self.beta,
-                'gamma': self.gamma,
-                'M': self.M,
-                'preconditioner_order': self.preconditioner_order,
-                'get_solver_helper_fn': self.get_solver_helper_fn,
+                "beta": self.beta,
+                "gamma": self.gamma,
+                "M": self.M,
+                "preconditioner_order": self.preconditioner_order,
+                "get_solver_helper_fn": self.get_solver_helper_fn,
             }
         )
         return settings_dict
@@ -85,27 +84,31 @@ class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
     # Parameters accepted by LinearSolver
-    _LINEAR_SOLVER_PARAMS = frozenset({
-        'linear_correction_type',
-        'krylov_atol',
-        'krylov_rtol',
-        'kyrlov_max_iters',
-        'preconditioned_vec_location',
-        'temp_location',
-    })
+    _LINEAR_SOLVER_PARAMS = frozenset(
+        {
+            "linear_correction_type",
+            "krylov_atol",
+            "krylov_rtol",
+            "kyrlov_max_iters",
+            "preconditioned_vec_location",
+            "temp_location",
+        }
+    )
 
     # Parameters accepted by NewtonKrylov
-    _NEWTON_KRYLOV_PARAMS = frozenset({
-        'newton_atol',
-        'newton_rtol',
-        'newton_max_iters',
-        'newton_damping',
-        'newton_max_backtracks',
-        'delta_location',
-        'residual_location',
-        'residual_temp_location',
-        'stage_base_bt_location',
-    })
+    _NEWTON_KRYLOV_PARAMS = frozenset(
+        {
+            "newton_atol",
+            "newton_rtol",
+            "newton_max_iters",
+            "newton_damping",
+            "newton_max_backtracks",
+            "delta_location",
+            "residual_location",
+            "residual_temp_location",
+            "stage_base_bt_location",
+        }
+    )
 
     def __init__(
         self,
@@ -131,18 +134,20 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
         super().__init__(config, _controller_defaults)
 
-        if solver_type not in ['newton', 'linear']:
+        if solver_type not in ["newton", "linear"]:
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
 
         # Extract kwargs for each solver, filtering None values
         linear_kwargs = {
-            k: v for k, v in kwargs.items()
+            k: v
+            for k, v in kwargs.items()
             if k in self._LINEAR_SOLVER_PARAMS and v is not None
         }
         newton_kwargs = {
-            k: v for k, v in kwargs.items()
+            k: v
+            for k, v in kwargs.items()
             if k in self._NEWTON_KRYLOV_PARAMS and v is not None
         }
 
@@ -152,7 +157,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             **linear_kwargs,
         )
 
-        if solver_type == 'newton':
+        if solver_type == "newton":
             self.solver = NewtonKrylov(
                 precision=config.precision,
                 n=config.n,
@@ -163,7 +168,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             self.solver = linear_solver
 
     def register_buffers(self) -> None:
-        """ Register buffers with buffer_registry."""
+        """Register buffers with buffer_registry."""
         pass
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
@@ -289,39 +294,39 @@ class ODEImplicitStep(BaseAlgorithmStep):
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
-    
+
         # Get device functions from ODE system
         preconditioner = get_fn(
-            'neumann_preconditioner',
+            "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
         residual = get_fn(
-            'stage_residual',
+            "stage_residual",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
-            'linear_operator',
+            "linear_operator",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
 
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
             residual_function=residual,
-            n = self.compile_settings.n
+            n=self.compile_settings.n,
         )
 
         self.update_compile_settings(
-                solver_function=self.solver.device_function
+            solver_function=self.solver.device_function
         )
 
     @property
@@ -381,28 +386,28 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @property
     def newton_atol(self) -> Optional[ndarray]:
         """Return the Newton absolute tolerance array."""
-        return getattr(self.solver, 'newton_atol', None)
+        return getattr(self.solver, "newton_atol", None)
 
     @property
     def newton_rtol(self) -> Optional[ndarray]:
         """Return the Newton relative tolerance array."""
-        return getattr(self.solver, 'newton_rtol', None)
+        return getattr(self.solver, "newton_rtol", None)
 
     @property
     def newton_max_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
-        val = getattr(self.solver, 'newton_max_iters', None)
+        val = getattr(self.solver, "newton_max_iters", None)
         return int(val) if val is not None else None
 
     @property
     def newton_damping(self) -> Optional[float]:
         """Return the Newton damping factor."""
-        return getattr(self.solver, 'newton_damping', None)
+        return getattr(self.solver, "newton_damping", None)
 
     @property
     def newton_max_backtracks(self) -> Optional[int]:
         """Return the maximum number of Newton backtracking steps."""
-        val = getattr(self.solver, 'newton_max_backtracks', None)
+        val = getattr(self.solver, "newton_max_backtracks", None)
         return int(val) if val is not None else None
 
     @property
