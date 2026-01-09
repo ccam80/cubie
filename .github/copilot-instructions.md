@@ -3,6 +3,25 @@
 ## Project Overview
 CuBIE (CUDA Batch Integration Engine) is a Python library for high-performance batch integration of ODEs and SDEs using CUDA. It uses Numba to JIT-compile CUDA kernels, providing compiled CUDA speed without writing CUDA code directly. The library is designed for simulating large numbers of systems in parallel on NVIDIA GPUs.
 
+## Available Agent Skills
+
+This repository includes specialized agent skills stored in `.github/skills/`. Copilot will automatically load these skills when relevant to your request.
+
+### Skills Overview
+
+**Pipeline Execution** (`.github/skills/pipeline-execution/SKILL.md`)
+- Orchestrates custom agents through the feature development workflow
+- Coordinates plan_new_feature → detailed_implementer → taskmaster → run_tests → reviewer
+- Manages pipeline termination rules and task group execution
+
+### Request Recognition
+
+Use the **Pipeline Execution** skill when the user requests:
+- "run pipeline on issue #X"
+- "execute pipeline for issue #X"
+- "run the agent pipeline on #X, return after [level]"
+- "pipeline issue #X"
+
 ## Development Environment
 
 ### Setup
@@ -149,35 +168,3 @@ To avoid name clashes with builtins, math functions, or numba functions:
 - Don't call `build()` on CUDAFactory subclasses directly
 - Never modify environment variables in code
 - Always use fixtures over mocks in tests
-## Available Agent Skills
-
-This repository includes specialized agent skills stored in `.github/skills/`. Copilot will automatically load these skills when relevant to your request.
-
-### Skills Overview
-
-**Pipeline Execution** (`.github/skills/pipeline-execution/SKILL.md`)
-- Orchestrates custom agents through the feature development workflow
-- Coordinates plan_new_feature → detailed_implementer → taskmaster → run_tests → reviewer
-- Manages pipeline termination rules and task group execution
-
-**Renamer Coordination** (`.github/skills/renamer-coordination/SKILL.md`)
-- Executes the renamer agent to rationalize function, method, and property names
-- Supports update_list, recommend, and rename operations
-- Manages chunk sizes for large refactoring operations
-
-### Request Recognition
-
-Copilot will use the **Pipeline Execution** skill when you request:
-- "run pipeline on issue #X"
-- "execute pipeline for issue #X"
-- "run the agent pipeline on #X, return after [level]"
-- "pipeline issue #X"
-
-Copilot will use the **Renamer Coordination** skill when you request:
-- "run renamer"
-- "run renamer on [file/directory]"
-- "renamer update for [file/directory]"
-- "renamer recommend for [file/directory]"
-- "renamer rename [file/directory]"
-- "renamer recommend [N] items"
-- "renamer rename [N] items"
