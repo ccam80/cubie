@@ -16,7 +16,7 @@ from warnings import warn
 
 from attrs import define, field
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType, unpack_dict_values
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
@@ -31,7 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
     from cubie.odesystems.baseODE import BaseODE
 
 @define
-class SingleIntegratorRunCache(CUDAFunctionCache):
+class SingleIntegratorRunCache(CUDADispatcherCache):
     """Cache for SingleIntegratorRunCore device function.
     
     Attributes

@@ -5,19 +5,17 @@ compile-critical metadata such as precision, save cadence, and device
 callbacks. They centralise validation so that loop factories receive
 consistent, ready-to-compile settings.
 """
+
 from typing import Callable, Optional
 
 from attrs import define, field, validators
+from cubie.CUDAFactory import CUDAFactoryConfig
 from numba import from_dtype as numba_from_dtype
-from numpy import float32
 from warnings import warn
 
 from cubie._utils import (
-    PrecisionDType,
     getype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
     opt_gttype_validator,
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -25,8 +23,9 @@ from cubie.outputhandling.output_config import OutputCompileFlags
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
+
 @define
-class ODELoopConfig:
+class ODELoopConfig(CUDAFactoryConfig):
     """Compile-critical settings for an integrator loop.
 
     Attributes
@@ -95,142 +94,121 @@ class ODELoopConfig:
 
     # Buffer location settings
     state_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     proposed_state_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     parameters_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     drivers_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     proposed_drivers_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     observables_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     proposed_observables_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     error_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     counters_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     state_summary_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     observable_summary_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     dt_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     accept_step_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
     proposed_counters_location: str = field(
-        default='local',
-        validator=validators.in_(['shared', 'local'])
+        default="local", validator=validators.in_(["shared", "local"])
     )
 
-    precision: PrecisionDType = field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     compile_flags: OutputCompileFlags = field(
-        default=OutputCompileFlags(),
+        factory=OutputCompileFlags,
         validator=validators.instance_of(OutputCompileFlags),
     )
 
     # Loop timing parameters
     _save_every: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0)
+        default=None, validator=opt_gttype_validator(float, 0)
     )
     _summarise_every: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0)
+        default=None, validator=opt_gttype_validator(float, 0)
     )
     _sample_summaries_every: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0)
+        default=None, validator=opt_gttype_validator(float, 0)
     )
 
     # Flags for end-of-run behavior
     save_last: bool = field(
-        default=False,
-        validator=validators.instance_of(bool)
+        default=False, validator=validators.instance_of(bool)
     )
     save_regularly: bool = field(
-        default=False,
-        validator=validators.instance_of(bool)
+        default=False, validator=validators.instance_of(bool)
     )
     summarise_regularly: bool = field(
-        default=False,
-        validator=validators.instance_of(bool)
+        default=False, validator=validators.instance_of(bool)
     )
 
     save_state_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     update_summaries_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     save_summaries_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     step_controller_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     step_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     evaluate_driver_at_t: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     evaluate_observables: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     _dt0: Optional[float] = field(
         default=0.01,
         validator=opt_gttype_validator(float, 0),
     )
     is_adaptive: Optional[bool] = field(
-            default=False,
-            validator=validators.optional(validators.instance_of(bool)))
+        default=False,
+        validator=validators.optional(validators.instance_of(bool)),
+    )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def samples_per_summary(self):
@@ -252,22 +230,21 @@ class ODELoopConfig:
             adjusted = samples_per_summary * self.sample_summaries_every
             if adjusted != self._summarise_every:
                 warn(
-                        f"summarise_every adjusted from "
-                        f"{self._summarise_every} to {adjusted}, the nearest "
-                        f" integer multiple of sample_summaries_every "
-                        f"({self.sample_summaries_every})"
+                    f"summarise_every adjusted from "
+                    f"{self._summarise_every} to {adjusted}, the nearest "
+                    f" integer multiple of sample_summaries_every "
+                    f"({self.sample_summaries_every})"
                 )
             return samples_per_summary
         else:
             raise ValueError(
-                    f"summarise_every ({self._summarise_every}) must be an "
-                    f"integer multiple of sample_summaries_every "
-                    f"({self.sample_summaries_every}). Under these "
-                    f"settings, summaries are calculated every "
-                    f"{raw_ratio:.2f} updates, and the calculation can't run "
-                    f"between samples."
+                f"summarise_every ({self._summarise_every}) must be an "
+                f"integer multiple of sample_summaries_every "
+                f"({self.sample_summaries_every}). Under these "
+                f"settings, summaries are calculated every "
+                f"{raw_ratio:.2f} updates, and the calculation can't run "
+                f"between samples."
             )
-
 
     @property
     def numba_precision(self) -> type:

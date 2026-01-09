@@ -12,32 +12,50 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-from numpy import float32
 from numba import from_dtype
 from attrs import define, field, validators
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
-    precision_validator
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
-    'precision', 'n', 'step_controller', 'dt',
-    'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order',
-    'min_gain', 'max_gain', 'safety',
-    'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
-    'gamma', 'max_newton_iters',
-    'timestep_memory_location'
+    "precision",
+    "n",
+    "step_controller",
+    "dt",
+    "dt_min",
+    "dt_max",
+    "atol",
+    "rtol",
+    "algorithm_order",
+    "min_gain",
+    "max_gain",
+    "safety",
+    "kp",
+    "ki",
+    "kd",
+    "deadband_min",
+    "deadband_max",
+    "gamma",
+    "max_newton_iters",
+    "timestep_memory_location",
 }
 
-@define
-class ControllerCache(CUDAFunctionCache):
-    device_function: Union[Callable, int] = field(default=-1)
 
 @define
-class BaseStepControllerConfig(ABC):
+class ControllerCache(CUDADispatcherCache):
+    device_function: Union[Callable, int] = field(default=-1)
+
+
+@define
+class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     """Configuration interface for step-size controllers.
 
     Attributes
@@ -48,16 +66,13 @@ class BaseStepControllerConfig(ABC):
         Number of state variables controlled per step.
     """
 
-    precision: PrecisionDType = field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     n: int = field(default=1, validator=getype_validator(int, 0))
     timestep_memory_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def numba_precision(self) -> type:
@@ -96,7 +111,7 @@ class BaseStepControllerConfig(ABC):
         """Return a dictionary of configuration settings."""
 
         return {
-            'n': self.n,
+            "n": self.n,
         }
 
 
@@ -122,12 +137,12 @@ class BaseStepController(CUDAFactory):
 
         # Register timestep buffer
         buffer_registry.register(
-            'timestep_buffer',
+            "timestep_buffer",
             self,
             size,
             config.timestep_memory_location,
             persistent=True,
-            precision=precision
+            precision=precision,
         )
 
     @abstractmethod

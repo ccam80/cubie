@@ -393,11 +393,11 @@ class SymbolicODE(BaseODE):
         observables_factory = self.gen_file.import_function(
             "observables_factory", observables_code
         )
-        observables_func = observables_factory(constants, numba_precision)
+        evaluate_observables = observables_factory(constants, numba_precision)
 
         return ODECache(
             dxdt=dxdt_func,
-            observables=observables_func,
+            observables=evaluate_observables,
         )
 
 

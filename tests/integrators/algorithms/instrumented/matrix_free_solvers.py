@@ -8,7 +8,7 @@ from numba import cuda, int32, from_dtype
 
 from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFunctionCache
+from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
     activemask, all_sync, selp, any_sync, compile_kwargs
 )
@@ -21,7 +21,7 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 
 
 @attrs.define
-class InstrumentedLinearSolverCache(CUDAFunctionCache):
+class InstrumentedLinearSolverCache(CUDADispatcherCache):
     """Cache container for InstrumentedLinearSolver outputs.
     
     Attributes
@@ -385,7 +385,7 @@ class InstrumentedLinearSolver(LinearSolver):
         return self.get_cached_output('linear_solver')
 
 @attrs.define
-class InstrumentedNewtonKrylovCache(CUDAFunctionCache):
+class InstrumentedNewtonKrylovCache(CUDADispatcherCache):
     """Cache container for InstrumentedNewtonKrylov outputs.
     
     Attributes

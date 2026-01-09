@@ -1,13 +1,33 @@
 """Utilities for transforming array input samples into CUDA interpolants."""
 
 import math
-from typing import Callable, Dict, Optional, Set, TYPE_CHECKING, Union, Any, \
-    Tuple
+from typing import (
+    Callable,
+    Dict,
+    Optional,
+    Set,
+    TYPE_CHECKING,
+    Union,
+    Any,
+    Tuple,
+)
 
 from numpy import (
-    allclose, any as np_any, arange, array_equal, asarray, ascontiguousarray,
-    column_stack, concatenate, diff, dtype as np_dtype, empty, floating,
-    full_like, transpose as np_transpose, zeros, vstack,
+    allclose,
+    any as np_any,
+    arange,
+    array_equal,
+    asarray,
+    ascontiguousarray,
+    column_stack,
+    concatenate,
+    diff,
+    empty,
+    floating,
+    full_like,
+    transpose as np_transpose,
+    zeros,
+    vstack,
 )
 from numpy.linalg import solve as np_solve
 from attrs import define, field, validators
@@ -15,13 +35,15 @@ from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
 from cubie.cuda_simsafe import selp
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
     gttype_validator,
-    precision_converter,
-    precision_validator,
 )
 
 if TYPE_CHECKING:
@@ -32,7 +54,7 @@ FloatArray = NDArray[floating]
 
 
 @define
-class InterpolatorCache(CUDAFunctionCache):
+class InterpolatorCache(CUDADispatcherCache):
     """Cached device helpers emitted by :class:`ArrayInterpolator`."""
 
     evaluation_function: Optional[Callable] = field(default=None)
@@ -40,7 +62,7 @@ class InterpolatorCache(CUDAFunctionCache):
 
 
 @define
-class ArrayInterpolatorConfig:
+class ArrayInterpolatorConfig(CUDAFactoryConfig):
     """Configuration describing an input-array interpolation problem.
 
     Attributes
@@ -67,10 +89,6 @@ class ArrayInterpolatorConfig:
         transition from and to zero-valued padding samples.
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     order: int = field(
         default=3,
         validator=gttype_validator(int, 0),
@@ -86,14 +104,9 @@ class ArrayInterpolatorConfig:
         ),
     )
     dt: FloatArray = field(
-        init=False,
-        default=1e-16,
-        validator=getype_validator(float, 0)
+        init=False, default=1e-16, validator=getype_validator(float, 0)
     )
-    t0: float = field(
-        default=0.0,
-        validator=getype_validator(float, 0)
-    )
+    t0: float = field(default=0.0, validator=getype_validator(float, 0))
     num_inputs: int = field(
         init=False,
         default=0,
@@ -106,12 +119,13 @@ class ArrayInterpolatorConfig:
     )
 
 
-
 class ArrayInterpolator(CUDAFactory):
     """Factory emitting CUDA device functions for interpolating array-driven
     forcing terms."""
+
     config_keys = ("wrap", "order", "boundary_condition")
     time_info = ("time", "dt", "t0")
+
     def __init__(
         self,
         precision: PrecisionDType,
@@ -125,7 +139,6 @@ class ArrayInterpolator(CUDAFactory):
         self._coefficients = None
         self._input_array = None
         self.update_from_dict(input_dict)
-
 
     def update_from_dict(self, input_dict: Dict[str, Any]) -> bool:
         """Update the factory configuration from a user-supplied dictionary.
@@ -191,8 +204,11 @@ class ArrayInterpolator(CUDAFactory):
         """
 
         config = {k: v for k, v in input_dict.items() if k in self.config_keys}
-        inputs = {k: v for k, v in input_dict.items()
-                   if k not in self.config_keys and k not in self.time_info}
+        inputs = {
+            k: v
+            for k, v in input_dict.items()
+            if k not in self.config_keys and k not in self.time_info
+        }
         time = {k: v for k, v in input_dict.items() if k in self.time_info}
 
         # Update order first, for checks  in _normalise_input_array
@@ -206,33 +222,31 @@ class ArrayInterpolator(CUDAFactory):
 
         dt, t0 = self._validate_time_inputs(time)
         base_segments = self.num_samples - 1
-        config.update({'t0': t0,
-                       'dt': dt,
-                       'num_inputs': self.num_inputs})
+        config.update({"t0": t0, "dt": dt, "num_inputs": self.num_inputs})
 
         # Final update; invalidates cache if settings have changed.
-        wrap_setting = config.get('wrap', self.wrap)
+        wrap_setting = config.get("wrap", self.wrap)
         if wrap_setting:
-            if 'boundary_condition' not in config:
-                config['boundary_condition'] = 'periodic'
+            if "boundary_condition" not in config:
+                config["boundary_condition"] = "periodic"
             num_segments = base_segments
-        elif 'boundary_condition' not in config:
-            config['boundary_condition'] = 'clamped'
+        elif "boundary_condition" not in config:
+            config["boundary_condition"] = "clamped"
             num_segments = base_segments + 2
         else:
-            boundary = config['boundary_condition']
-            if boundary == 'clamped':
+            boundary = config["boundary_condition"]
+            if boundary == "clamped":
                 num_segments = base_segments + 2
             else:
                 num_segments = base_segments
-        config['num_segments'] = num_segments
+        config["num_segments"] = num_segments
         fn_changed |= any(self.update_compile_settings(config))
         self._coefficients = self._compute_coefficients()
 
         return fn_changed
 
     def _normalise_input_array(
-            self, input_dict: Dict[str, FloatArray]
+        self, input_dict: Dict[str, FloatArray]
     ) -> FloatArray:
         """Construct inputs array and check sizes.
 
@@ -261,8 +275,9 @@ class ArrayInterpolator(CUDAFactory):
                     f"to a NumPy array."
                 )
             if array.ndim != 1:
-                raise ValueError(f"Forcing array {key} must be "
-                                 f"one-dimensional.")
+                raise ValueError(
+                    f"Forcing array {key} must be one-dimensional."
+                )
             input_dict[key] = array
         input_vectors = list(input_dict.values())
         if not all(
@@ -281,8 +296,9 @@ class ArrayInterpolator(CUDAFactory):
             )
         return input_array
 
-    def _validate_time_inputs(self, time_dict: Dict[str, Any]
-                              ) -> Tuple[float, float]:
+    def _validate_time_inputs(
+        self, time_dict: Dict[str, Any]
+    ) -> Tuple[float, float]:
         """Process and check time inputs.
 
         Parameters
@@ -314,15 +330,17 @@ class ArrayInterpolator(CUDAFactory):
             if timeArray.ndim != 1:
                 raise ValueError("Time array must be one-dimensional.")
             if timeArray.shape[0] != self.num_samples:
-                raise ValueError("Time array length must match the number of"
-                                 " samples in provided input vectors.")
+                raise ValueError(
+                    "Time array length must match the number of"
+                    " samples in provided input vectors."
+                )
             t0 = timeArray[0]
             time_differences = diff(timeArray)
             if np_any(time_differences <= 0.0):
                 raise ValueError("Time array must be strictly increasing.")
             if not allclose(
                 time_differences,
-                full_like(time_differences,time_differences[0]),
+                full_like(time_differences, time_differences[0]),
                 rtol=1e-6,
                 atol=1e-6,
             ):
@@ -332,7 +350,6 @@ class ArrayInterpolator(CUDAFactory):
             raise ValueError("Either Time array or dt must be provided.")
 
         return dt, t0
-
 
     # ---------------------------------------------------------------------- #
     # Evaluation function machinery
@@ -356,22 +373,21 @@ class ArrayInterpolator(CUDAFactory):
         num_segments = int32(self.num_segments)
         wrap = self.wrap
         boundary_condition = self.boundary_condition
-        pad_clamped = (not wrap) and (boundary_condition == 'clamped')
+        pad_clamped = (not wrap) and (boundary_condition == "clamped")
         zero_value = precision(0.0)
-        evaluation_start = precision(start_time - (
-            resolution if pad_clamped else precision(0.0)))
+        evaluation_start = precision(
+            start_time - (resolution if pad_clamped else precision(0.0))
+        )
+
         # no cover: start
         @cuda.jit(
-                # (numba_precision,
-                #  numba_precision[:,:,::1],
-                #  numba_precision[::1]),
-                device=True,
-                inline=True)
-        def evaluate_all(
-            time,
-            coefficients,
-            out
-        ) -> None:
+            # (numba_precision,
+            #  numba_precision[:,:,::1],
+            #  numba_precision[::1]),
+            device=True,
+            inline=True,
+        )
+        def evaluate_all(time, coefficients, out) -> None:
             """Evaluate all input polynomials at ``time`` on the device.
 
             Parameters
@@ -394,10 +410,11 @@ class ArrayInterpolator(CUDAFactory):
                 tau = precision(scaled - scaled_floor)
                 in_range = True
             else:
-                in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+                in_range = (scaled >= precision(0.0)) and (
+                    scaled <= num_segments
+                )
                 seg = selp(idx < int32(0), int32(0), idx)
-                seg = selp(seg >= num_segments,
-                           int32(num_segments - 1), seg)
+                seg = selp(seg >= num_segments, int32(num_segments - 1), seg)
                 tau = precision(scaled - precision(seg))
 
             # Evaluate polynomials using Horner's rule
@@ -406,15 +423,17 @@ class ArrayInterpolator(CUDAFactory):
                 for k in range(int32(order), int32(-1), int32(-1)):
                     acc = acc * tau + coefficients[seg, input_index, k]
                 out[input_index] = acc if in_range else zero_value
+
         # no cover: end
 
         # no cover: start
         @cuda.jit(
-                # [(numba_precision,
-                #   numba_precision[:,:,::1],
-                #   numba_precision[::1])],
-                device=True,
-                inline=True)
+            # [(numba_precision,
+            #   numba_precision[:,:,::1],
+            #   numba_precision[::1])],
+            device=True,
+            inline=True,
+        )
         def evaluate_time_derivative(
             time,
             coefficients,
@@ -431,28 +450,30 @@ class ArrayInterpolator(CUDAFactory):
                 tau = precision(scaled - scaled_floor)
                 in_range = True
             else:
-                in_range = (scaled >= precision(0.0)) and (scaled <= num_segments)
+                in_range = (scaled >= precision(0.0)) and (
+                    scaled <= num_segments
+                )
                 seg = selp(idx < int32(0), int32(0), idx)
-                seg = selp(seg >= num_segments,
-                           int32(num_segments - 1), seg)
+                seg = selp(seg >= num_segments, int32(num_segments - 1), seg)
                 tau = precision(scaled - precision(seg))
 
             for input_index in range(int32(num_inputs)):
                 acc = zero_value
                 for k in range(int32(order), int32(0), int32(-1)):
-                    acc = acc * tau + precision(k) * (
-                        coefficients[seg, input_index, k]
+                    acc = (
+                        acc * tau
+                        + precision(k) * (coefficients[seg, input_index, k])
                     )
                 out[input_index] = (
                     acc * inv_resolution if in_range else zero_value
                 )
+
         # no cover: end
         cache = InterpolatorCache(
             evaluation_function=evaluate_all,
             driver_del_t=evaluate_time_derivative,
         )
         return cache
-
 
     def update(
         self,
@@ -492,7 +513,6 @@ class ArrayInterpolator(CUDAFactory):
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
 
-
         if not silent and unrecognised:
             raise KeyError(
                 f"Unrecognized parameters in update: {unrecognised}. "
@@ -521,8 +541,7 @@ class ArrayInterpolator(CUDAFactory):
     # Inspection interface
     # ---------------------------------------------------------------------- #
     def get_input_array(self) -> FloatArray:
-        """Return the input array.
-        """
+        """Return the input array."""
         return self._input_array
 
     def get_interpolated(
@@ -576,6 +595,7 @@ class ArrayInterpolator(CUDAFactory):
                     coefficients_device,
                     out_device[idx],
                 )
+
         # no cover: end
 
         times_device = cuda.to_device(times)
@@ -598,11 +618,10 @@ class ArrayInterpolator(CUDAFactory):
 
         return out_device.copy_to_host()
 
-
     def plot_interpolated(
         self,
         eval_times: NDArray[floating],
-    ) -> Tuple[Any, Any]: # pragma: no cover - optional dependency
+    ) -> Tuple[Any, Any]:  # pragma: no cover - optional dependency
         """Plot interpolated drivers against the sampled input data.
 
         Parameters
@@ -698,8 +717,11 @@ class ArrayInterpolator(CUDAFactory):
         inputs_dict: Dict[str, Union[float, bool, FloatArray]],
         system: "SymbolicODE",
     ):
-        input_keys = [key for key in inputs_dict
-            if key not in (
+        input_keys = [
+            key
+            for key in inputs_dict
+            if key
+            not in (
                 ArrayInterpolator.config_keys + ArrayInterpolator.time_info
             )
         ]
@@ -711,9 +733,11 @@ class ArrayInterpolator(CUDAFactory):
                 f"drivers in system ({system.num_drivers})."
             )
         if set(input_keys) != system_driver_keys:
-            raise ValueError(f"input symbols in inputs_dict ("
-                             f"{set(input_keys)}) do not match drivers "
-                             f"symbols in system ({system_driver_keys}).")
+            raise ValueError(
+                f"input symbols in inputs_dict ("
+                f"{set(input_keys)}) do not match drivers "
+                f"symbols in system ({system_driver_keys})."
+            )
 
     # ---------------------------------------------------------------------- #
     # Spline coefficient generation
@@ -735,10 +759,12 @@ class ArrayInterpolator(CUDAFactory):
             configuration or when an unknown boundary condition is supplied.
         """
         boundary_condition = self.boundary_condition
-        if boundary_condition not in {"natural",
-                                      "periodic",
-                                      "clamped",
-                                      "not-a-knot",}:
+        if boundary_condition not in {
+            "natural",
+            "periodic",
+            "clamped",
+            "not-a-knot",
+        }:
             raise ValueError(
                 f"Unsupported boundary condition: {boundary_condition}."
             )
@@ -782,10 +808,9 @@ class ArrayInterpolator(CUDAFactory):
         falling[:, 0] = precision(1.0)
         for derivative in range(1, order + 1):
             for power in range(derivative, order + 1):
-                falling[power, derivative] = (
-                    falling[power, derivative - 1]
-                    * precision(power - (derivative - 1))
-                )
+                falling[power, derivative] = falling[
+                    power, derivative - 1
+                ] * precision(power - (derivative - 1))
 
         # Function value constraints at the left edge of each segment.
         for segment in range(num_segments):
@@ -806,9 +831,13 @@ class ArrayInterpolator(CUDAFactory):
             for derivative in range(1, order):
                 base = coeff_index(segment, 0)
                 for power in range(derivative, order + 1):
-                    matrix[row_index, base + power] = falling[power, derivative]
+                    matrix[row_index, base + power] = falling[
+                        power, derivative
+                    ]
                 next_index = coeff_index(segment + 1, derivative)
-                matrix[row_index, next_index] -= falling[derivative, derivative]
+                matrix[row_index, next_index] -= falling[
+                    derivative, derivative
+                ]
                 row_index += 1
 
         if boundary_condition == "natural":
@@ -816,18 +845,18 @@ class ArrayInterpolator(CUDAFactory):
             derivative = 2
             while remaining > 0 and derivative <= order:
                 base_start = coeff_index(0, 0)
-                matrix[row_index, base_start + derivative] = (
-                    falling[derivative, derivative]
-                )
+                matrix[row_index, base_start + derivative] = falling[
+                    derivative, derivative
+                ]
                 row_index += 1
                 remaining -= 1
                 if remaining == 0:
                     break
                 base_end = coeff_index(num_segments - 1, 0)
                 for power in range(derivative, order + 1):
-                    matrix[row_index, base_end + power] = (
-                        falling[power, derivative]
-                    )
+                    matrix[row_index, base_end + power] = falling[
+                        power, derivative
+                    ]
                 row_index += 1
                 remaining -= 1
                 derivative += 1
@@ -836,9 +865,9 @@ class ArrayInterpolator(CUDAFactory):
             for derivative in range(1, order):
                 base_last = coeff_index(num_segments - 1, 0)
                 for power in range(derivative, order + 1):
-                    matrix[row_index, base_last + power] = (
-                        falling[power, derivative]
-                    )
+                    matrix[row_index, base_last + power] = falling[
+                        power, derivative
+                    ]
                 base_first = coeff_index(0, derivative)
                 matrix[row_index, base_first] -= falling[
                     derivative, derivative
@@ -877,7 +906,7 @@ class ArrayInterpolator(CUDAFactory):
                 # Enforce vanishing forward difference at the start of the grid.
                 start_row = row_index
                 for offset in range(difference_order + 1):
-                    coefficient = ((-1) ** (difference_order - offset))
+                    coefficient = (-1) ** (difference_order - offset)
                     coefficient *= math.comb(difference_order, offset)
                     segment = offset
                     matrix[start_row, coeff_index(segment, highest_power)] = (
@@ -891,7 +920,7 @@ class ArrayInterpolator(CUDAFactory):
                 # Mirror the same finite-difference constraint at the end.
                 end_row = row_index
                 for offset in range(difference_order + 1):
-                    coefficient = ((-1) ** (difference_order - offset))
+                    coefficient = (-1) ** (difference_order - offset)
                     coefficient *= math.comb(difference_order, offset)
                     segment = num_segments - 1 - (difference_order - offset)
                     matrix[end_row, coeff_index(segment, highest_power)] = (

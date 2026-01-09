@@ -6,6 +6,7 @@ from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 
+
 def test_kernel_builds(solverkernel):
     """Test that the solver builds without errors."""
     kernelfunc = solverkernel.kernel
@@ -68,10 +69,10 @@ def test_kernel_builds(solverkernel):
 
 def test_algorithm_change(solverkernel_mutable):
     solverkernel = solverkernel_mutable
-    solverkernel.update({"algorithm": "crank_nicolson",
-                         "step_controller": "pid"})
-    assert (
-        solverkernel.single_integrator._step_controller.atol is not None)
+    solverkernel.update(
+        {"algorithm": "crank_nicolson", "step_controller": "pid"}
+    )
+    assert solverkernel.single_integrator._step_controller.atol is not None
 
 
 def test_getters_get(solverkernel):
@@ -145,8 +146,14 @@ def test_getters_get(solverkernel):
     # device arrays SHOULD be None.
 
 
-def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settings,
-                            algorithm_settings, precision, driver_array):
+def test_all_lower_plumbing(
+    system,
+    solverkernel_mutable,
+    step_controller_settings,
+    algorithm_settings,
+    precision,
+    driver_array,
+):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     solverkernel = solverkernel_mutable
@@ -174,12 +181,14 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
     }
     solverkernel.update(new_settings)
     updated_controller_settings = step_controller_settings.copy()
-    updated_controller_settings.update({
+    updated_controller_settings.update(
+        {
             "dt_min": 0.0001,
             "dt_max": 0.01,
             "atol": 1e-2,
             "rtol": 1e-1,
-        })
+        }
+    )
     output_settings = {
         "saved_state_indices": np.asarray([0, 1, 2]),
         "saved_observable_indices": np.asarray([0, 1, 2]),
@@ -199,39 +208,46 @@ def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settin
         step_control_settings=updated_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
-        loop_settings={"save_every": 0.01, "summarise_every": 0.1,
-                       'sample_summaries_every': 0.05},
+        loop_settings={
+            "save_every": 0.01,
+            "summarise_every": 0.1,
+            "sample_summaries_every": 0.05,
+        },
     )
-    inits = np.ones((3,1), dtype=precision)
-    params = np.ones((3,1), dtype=precision)
+    inits = np.ones((3, 1), dtype=precision)
+    params = np.ones((3, 1), dtype=precision)
     driver_coefficients = driver_array.coefficients
-    freshsolver.run(inits=inits,
-                    params=params,
-                    driver_coefficients=driver_coefficients,
-                    duration=0.1)
-    solverkernel.run(inits=inits,
-                     params=params,
-                     driver_coefficients=driver_coefficients,
-                     duration=0.1)
-    assert (freshsolver.compile_settings.local_memory_elements ==
-            solverkernel.compile_settings.local_memory_elements), (
-        "Local memory mismatch mismatch"
+    freshsolver.run(
+        inits=inits,
+        params=params,
+        driver_coefficients=driver_coefficients,
+        duration=0.1,
     )
+    solverkernel.run(
+        inits=inits,
+        params=params,
+        driver_coefficients=driver_coefficients,
+        duration=0.1,
+    )
+    assert (
+        freshsolver.compile_settings.local_memory_elements
+        == solverkernel.compile_settings.local_memory_elements
+    ), "Local memory mismatch mismatch"
     assert (
         freshsolver.single_integrator.compile_settings
         == solverkernel.single_integrator.compile_settings
     ), "IntegratorRunSettings mismatch"
     assert (
-        freshsolver.single_integrator._step_controller.compile_settings ==
-        solverkernel.single_integrator._step_controller.compile_settings
+        freshsolver.single_integrator._step_controller.compile_settings
+        == solverkernel.single_integrator._step_controller.compile_settings
     )
     assert (
-        freshsolver.single_integrator._algo_step.compile_settings ==
-        solverkernel.single_integrator._algo_step.compile_settings
+        freshsolver.single_integrator._algo_step.compile_settings
+        == solverkernel.single_integrator._algo_step.compile_settings
     )
     assert (
-        freshsolver.single_integrator._loop.compile_settings ==
-        solverkernel.single_integrator._loop.compile_settings
+        freshsolver.single_integrator._loop.compile_settings
+        == solverkernel.single_integrator._loop.compile_settings
     )
     assert (
         freshsolver.single_integrator._output_functions.compile_settings
@@ -275,8 +291,7 @@ class TestTimingParameterValidation:
         params = np.ones((3, 1), dtype=precision)
 
         with pytest.raises(
-            ValueError,
-            match=r"save_every.*>.*duration.*no outputs"
+            ValueError, match=r"save_every.*>.*duration.*no outputs"
         ):
             kernel.run(
                 inits=inits,
@@ -317,7 +332,7 @@ class TestTimingParameterValidation:
             system,
             loop_settings={
                 "summarise_every": 1.0,
-                "sample_summaries_every": 0.1
+                "sample_summaries_every": 0.1,
             },
             output_settings={
                 "output_types": ["mean"],
@@ -330,7 +345,7 @@ class TestTimingParameterValidation:
 
         with pytest.raises(
             ValueError,
-            match=r"summarise_every.*>.*duration.*no summary outputs"
+            match=r"summarise_every.*>.*duration.*no summary outputs",
         ):
             kernel.run(
                 inits=inits,
@@ -347,7 +362,7 @@ class TestTimingParameterValidation:
             system,
             loop_settings={
                 "summarise_every": 0.1,
-                "sample_summaries_every": 0.2
+                "sample_summaries_every": 0.2,
             },
             output_settings={
                 "output_types": ["mean"],
@@ -359,8 +374,7 @@ class TestTimingParameterValidation:
         params = np.ones((3, 1), dtype=precision)
 
         with pytest.raises(
-            ValueError,
-            match=r"sample_summaries_every.*>=.*summarise_every"
+            ValueError, match=r"sample_summaries_every.*>=.*summarise_every"
         ):
             kernel.run(
                 inits=inits,
@@ -378,7 +392,7 @@ class TestTimingParameterValidation:
             loop_settings={
                 "save_every": 0.1,
                 "summarise_every": 0.5,
-                "sample_summaries_every": 0.05
+                "sample_summaries_every": 0.05,
             },
             output_settings={
                 "output_types": ["state", "mean"],
@@ -402,7 +416,7 @@ class TestTimingParameterValidation:
 class TestActiveOutputsFromCompileFlags:
     """Tests for ActiveOutputs.from_compile_flags factory method."""
 
-    def test_all_flags_true(self):
+    def test_all_flags_true(self, precision):
         """Test mapping when all compile flags are enabled."""
         # Use specific flags (summarise_state, summarise_observables) which are
         # what ActiveOutputs.from_compile_flags() reads; the general 'summarise'
@@ -423,7 +437,7 @@ class TestActiveOutputsFromCompileFlags:
         assert active.iteration_counters is True
         assert active.status_codes is True
 
-    def test_all_flags_false(self):
+    def test_all_flags_false(self, precision):
         """Test mapping when all compile flags are disabled."""
         flags = OutputCompileFlags(
             save_state=False,
@@ -442,13 +456,13 @@ class TestActiveOutputsFromCompileFlags:
         # status_codes is ALWAYS True
         assert active.status_codes is True
 
-    def test_status_codes_always_true(self):
+    def test_status_codes_always_true(self, precision):
         """Verify status_codes is always True regardless of flags."""
         flags = OutputCompileFlags()  # All defaults (False)
         active = ActiveOutputs.from_compile_flags(flags)
         assert active.status_codes is True
 
-    def test_partial_flags(self):
+    def test_partial_flags(self, precision):
         """Test with only some flags enabled."""
         flags = OutputCompileFlags(
             save_state=True,
