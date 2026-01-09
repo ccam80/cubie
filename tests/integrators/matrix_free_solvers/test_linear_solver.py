@@ -316,3 +316,183 @@ def test_linear_solver_scalar_tolerance_backward_compatible(
         rtol=tolerance.rel_loose,
         atol=tolerance.abs_loose,
     )
+
+
+def test_linear_solver_uses_scaled_norm(precision):
+    """Verify LinearSolver creates and uses ScaledNorm for convergence."""
+    from cubie.integrators.norms import ScaledNorm
+
+    n = 3
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+    # Verify the norm factory is created
+    assert hasattr(solver, 'norm')
+    assert isinstance(solver.norm, ScaledNorm)
+    # Verify the norm factory has correct settings
+    assert solver.norm.n == n
+    assert solver.norm.precision == precision
+    assert np.all(solver.norm.atol == precision(1e-6))
+    assert np.all(solver.norm.rtol == precision(1e-4))
+
+
+def test_linear_solver_tolerance_update_propagates(precision):
+    """Verify krylov_atol/krylov_rtol updates propagate to norm factory."""
+    n = 3
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+    # Initial values
+    assert np.all(solver.krylov_atol == precision(1e-6))
+    assert np.all(solver.krylov_rtol == precision(1e-4))
+
+    # Update tolerances
+    new_atol = np.array([1e-8, 1e-7, 1e-9], dtype=precision)
+    new_rtol = np.array([1e-5, 1e-6, 1e-4], dtype=precision)
+    solver.update(krylov_atol=new_atol, krylov_rtol=new_rtol)
+
+    # Verify properties delegate to norm factory
+    assert np.allclose(solver.krylov_atol, new_atol)
+    assert np.allclose(solver.krylov_rtol, new_rtol)
+    # Verify norm factory was updated
+    assert np.allclose(solver.norm.atol, new_atol)
+    assert np.allclose(solver.norm.rtol, new_rtol)
+
+
+def test_linear_solver_config_no_tolerance_fields(precision):
+    """Verify LinearSolverConfig no longer has krylov_atol/krylov_rtol fields."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolverConfig,
+    )
+
+    config = LinearSolverConfig(precision=precision, n=3)
+
+    # These fields should no longer exist on the config
+    assert not hasattr(config, 'krylov_atol')
+    assert not hasattr(config, 'krylov_rtol')
+
+    # The legacy scalar tolerance should still exist
+    assert hasattr(config, 'krylov_tolerance')
+    assert config.krylov_tolerance == precision(1e-6)
+
+
+def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision):
+    """Verify settings_dict does not include tolerance arrays."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolverConfig,
+    )
+
+    config = LinearSolverConfig(precision=precision, n=3)
+    settings = config.settings_dict
+
+    # Tolerance arrays should not be in settings_dict
+    assert 'krylov_atol' not in settings
+    assert 'krylov_rtol' not in settings
+
+    # Other expected settings should be present
+    assert 'krylov_tolerance' in settings
+    assert 'max_linear_iters' in settings
+    assert 'linear_correction_type' in settings
+    assert 'preconditioned_vec_location' in settings
+    assert 'temp_location' in settings
+
+
+def test_linear_solver_inherits_from_matrix_free_solver(precision):
+    """Verify LinearSolver is instance of MatrixFreeSolver."""
+    from cubie.integrators.matrix_free_solvers.base_solver import (
+        MatrixFreeSolver,
+    )
+
+    solver = LinearSolver(
+        precision=precision,
+        n=3,
+    )
+    assert isinstance(solver, MatrixFreeSolver)
+    assert hasattr(solver, 'settings_prefix')
+    assert solver.settings_prefix == "krylov_"
+
+
+def test_linear_solver_update_preserves_original_dict(precision):
+    """Verify update() does not modify the input updates_dict."""
+    solver = LinearSolver(
+        precision=precision,
+        n=3,
+    )
+
+    # Create an update dict with tolerance values
+    original_updates = {
+        'krylov_atol': 1e-8,
+        'krylov_rtol': 1e-5,
+        'max_linear_iters': 50,
+    }
+    # Make a copy to compare later
+    updates_copy = dict(original_updates)
+
+    # Call update with the dict
+    solver.update(updates_dict=original_updates)
+
+    # Verify the original dict was not modified
+    assert original_updates == updates_copy
+
+
+def test_linear_solver_no_manual_cache_invalidation(precision):
+    """Verify cache invalidation happens through config update, not manual."""
+    solver = LinearSolver(
+        precision=precision,
+        n=3,
+        krylov_atol=1e-6,
+        krylov_rtol=1e-4,
+    )
+
+    # Access device_function to populate cache
+    _ = solver.device_function
+
+    # Get the current norm device function from config
+    config1 = solver.compile_settings
+
+    # Update tolerance - should update config's norm_device_function
+    new_atol = np.array([1e-8, 1e-7, 1e-9], dtype=precision)
+    solver.update(krylov_atol=new_atol)
+
+    # Verify config was updated with new norm device function
+    config2 = solver.compile_settings
+    norm_fn2 = config2.norm_device_function
+
+    # The norm device function should be set (not None)
+    assert norm_fn2 is not None
+
+    # Verify the solver's norm factory was updated
+    assert np.allclose(solver.norm.atol, new_atol)
+
+
+def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
+    """Verify settings_dict includes krylov_atol and krylov_rtol from norm."""
+    n = 3
+    atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=atol,
+        krylov_rtol=rtol,
+    )
+    settings = solver.settings_dict
+
+    # Tolerance arrays should be in settings_dict
+    assert 'krylov_atol' in settings
+    assert 'krylov_rtol' in settings
+    assert np.allclose(settings['krylov_atol'], atol)
+    assert np.allclose(settings['krylov_rtol'], rtol)
+
+    # Other expected settings from config should also be present
+    assert 'krylov_tolerance' in settings
+    assert 'max_linear_iters' in settings
+    assert 'linear_correction_type' in settings
+    assert 'preconditioned_vec_location' in settings
+    assert 'temp_location' in settings

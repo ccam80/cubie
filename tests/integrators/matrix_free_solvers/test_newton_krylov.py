@@ -615,3 +615,218 @@ def test_newton_krylov_scalar_tolerance_backward_compatible(
         rtol=tolerance.rel_loose * 1000,
         atol=tolerance.abs_loose * 1000,
     )
+
+
+def test_newton_krylov_uses_scaled_norm(precision):
+    """Verify NewtonKrylov uses ScaledNorm for convergence checking."""
+    from cubie.integrators.norms import ScaledNorm
+
+    n = 3
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=1e-6,
+        newton_rtol=1e-4,
+    )
+    # Verify norm factory exists and is a ScaledNorm
+    assert hasattr(newton, 'norm')
+    assert isinstance(newton.norm, ScaledNorm)
+    # Verify norm has correct configuration
+    assert newton.norm.n == n
+    assert newton.norm.precision == precision
+    assert np.all(newton.norm.atol == precision(1e-6))
+    assert np.all(newton.norm.rtol == precision(1e-4))
+
+
+def test_newton_krylov_tolerance_update_propagates(precision):
+    """Verify newton_atol/newton_rtol updates reach norm factory."""
+    n = 3
+    initial_atol = 1e-6
+    initial_rtol = 1e-4
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=initial_atol,
+        newton_rtol=initial_rtol,
+    )
+    # Verify initial values
+    assert np.all(newton.newton_atol == precision(initial_atol))
+    assert np.all(newton.newton_rtol == precision(initial_rtol))
+    assert np.all(newton.norm.atol == precision(initial_atol))
+    assert np.all(newton.norm.rtol == precision(initial_rtol))
+
+    # Update tolerances
+    new_atol = 1e-8
+    new_rtol = 1e-6
+    newton.update(newton_atol=new_atol, newton_rtol=new_rtol)
+
+    # Verify properties delegate to norm factory
+    assert np.all(newton.newton_atol == precision(new_atol))
+    assert np.all(newton.newton_rtol == precision(new_rtol))
+    # Verify norm factory was updated
+    assert np.all(newton.norm.atol == precision(new_atol))
+    assert np.all(newton.norm.rtol == precision(new_rtol))
+
+
+def test_newton_krylov_config_no_tolerance_fields(precision):
+    """Verify NewtonKrylovConfig no longer has newton_atol/newton_rtol fields."""
+    from cubie.integrators.matrix_free_solvers.newton_krylov import (
+        NewtonKrylovConfig,
+    )
+    import attrs
+
+    # Get all field names from NewtonKrylovConfig
+    field_names = {f.name for f in attrs.fields(NewtonKrylovConfig)}
+
+    # Verify tolerance array fields are NOT present
+    assert 'newton_atol' not in field_names
+    assert 'newton_rtol' not in field_names
+
+    # Verify _newton_tolerance (legacy scalar) is still present
+    assert '_newton_tolerance' in field_names
+
+    # Verify we can still instantiate the config
+    config = NewtonKrylovConfig(precision=precision, n=3)
+    assert config.n == 3
+    assert config.precision == precision
+
+
+def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(precision):
+    """Verify settings_dict does not include tolerance arrays."""
+    from cubie.integrators.matrix_free_solvers.newton_krylov import (
+        NewtonKrylovConfig,
+    )
+
+    config = NewtonKrylovConfig(precision=precision, n=3)
+    settings = config.settings_dict
+
+    # Verify tolerance arrays are NOT in settings_dict
+    assert 'newton_atol' not in settings
+    assert 'newton_rtol' not in settings
+
+    # Verify other expected keys ARE present
+    assert 'newton_tolerance' in settings
+    assert 'max_newton_iters' in settings
+    assert 'newton_damping' in settings
+    assert 'newton_max_backtracks' in settings
+    assert 'delta_location' in settings
+    assert 'residual_location' in settings
+    assert 'residual_temp_location' in settings
+    assert 'stage_base_bt_location' in settings
+    assert 'krylov_iters_local_location' in settings
+
+
+def test_newton_krylov_inherits_from_matrix_free_solver(precision):
+    """Verify NewtonKrylov is instance of MatrixFreeSolver."""
+    from cubie.integrators.matrix_free_solvers.base_solver import (
+        MatrixFreeSolver,
+    )
+
+    n = 3
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+    )
+    assert isinstance(newton, MatrixFreeSolver)
+    # Verify settings_prefix is set correctly
+    assert newton.settings_prefix == "newton_"
+
+
+def test_newton_krylov_update_preserves_original_dict(precision):
+    """Verify update() does not modify the input updates_dict."""
+    from numba import cuda
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        out[0] = state[0]
+
+    n = 1
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+    )
+
+    # Create a dict to pass to update
+    original_dict = {
+        'newton_atol': 1e-8,
+        'newton_rtol': 1e-6,
+        'residual_function': residual,
+    }
+    # Make a copy to compare against
+    expected_dict = dict(original_dict)
+
+    # Call update with the dict
+    newton.update(original_dict)
+
+    # Original dict should not be modified
+    assert original_dict == expected_dict
+
+
+def test_newton_krylov_no_manual_cache_invalidation(precision):
+    """Verify cache invalidation happens through config update."""
+    n = 3
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=1e-6,
+        newton_rtol=1e-4,
+    )
+
+    # Verify initial norm_device_function is set in config
+    config = newton.compile_settings
+    assert config.norm_device_function is not None
+
+    # Update tolerance should update config.norm_device_function
+    newton.update(newton_atol=1e-8)
+
+    # Config should have updated norm_device_function
+    updated_config = newton.compile_settings
+    # The norm device function should be updated (may be same or different
+    # object depending on caching, but it should exist)
+    assert updated_config.norm_device_function is not None
+
+
+def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
+    """Verify settings_dict includes newton_atol and newton_rtol from norm."""
+    n = 3
+    newton_atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
+    newton_rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=newton_atol,
+        newton_rtol=newton_rtol,
+    )
+    settings = newton.settings_dict
+
+    # Tolerance arrays should be in settings_dict
+    assert 'newton_atol' in settings
+    assert 'newton_rtol' in settings
+    assert np.allclose(settings['newton_atol'], newton_atol)
+    assert np.allclose(settings['newton_rtol'], newton_rtol)
+
+    # Other expected settings from config should also be present
+    assert 'newton_tolerance' in settings
+    assert 'max_newton_iters' in settings
+    assert 'newton_damping' in settings
+    assert 'newton_max_backtracks' in settings
+    assert 'delta_location' in settings
+    assert 'residual_location' in settings
+
+    # Linear solver settings should be merged in as well
+    assert 'krylov_tolerance' in settings
+    assert 'max_linear_iters' in settings
+    assert 'krylov_atol' in settings
+    assert 'krylov_rtol' in settings

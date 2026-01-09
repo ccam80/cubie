@@ -6,66 +6,31 @@ The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
 and expect caller-supplied operator and preconditioner callbacks.
 """
 
-from typing import Callable, Optional, Set, Dict, Any, Union
+from typing import Callable, Optional, Set, Dict, Any
 
-from attrs import Converter, define, field, validators
+from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import asarray, dtype as np_dtype, full, isscalar, ndarray
-from numpy.typing import ArrayLike
+from numpy import dtype as np_dtype, ndarray
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    float_array_validator,
-    getype_validator,
     gttype_validator,
     inrangetype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
+)
+from cubie.integrators.matrix_free_solvers.base_solver import (
+    MatrixFreeSolverConfig,
+    MatrixFreeSolver,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFunctionCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
-def tol_converter(
-    value: Union[float, ArrayLike],
-    self_: "LinearSolverConfig",
-) -> ndarray:
-    """Convert tolerance input into an array with solver precision.
-
-    Parameters
-    ----------
-    value
-        Scalar or array-like tolerance specification.
-    self_
-        Configuration instance providing precision and dimension info.
-
-    Returns
-    -------
-    numpy.ndarray
-        Tolerance array with one value per state variable.
-
-    Raises
-    ------
-    ValueError
-        Raised when ``value`` cannot be broadcast to the expected shape.
-    """
-    if isscalar(value):
-        tol = full(self_.n, value, dtype=self_.precision)
-    else:
-        tol = asarray(value, dtype=self_.precision)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
-    return tol
-
-
 @define
-class LinearSolverConfig:
+class LinearSolverConfig(MatrixFreeSolverConfig):
     """Configuration for LinearSolver compilation.
 
     Attributes
@@ -74,6 +39,10 @@ class LinearSolverConfig:
         Numerical precision for computations.
     n : int
         Length of residual and search-direction vectors.
+    max_iters : int
+        Maximum solver iterations permitted.
+    norm_device_function : Optional[Callable]
+        Compiled norm function for convergence checks.
     operator_apply : Optional[Callable]
         Device function applying operator F @ v.
     preconditioner : Optional[Callable]
@@ -81,22 +50,22 @@ class LinearSolverConfig:
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
     krylov_tolerance : float
-        Target on squared residual norm for convergence.
+        Target on squared residual norm for convergence (legacy scalar).
     max_linear_iters : int
-        Maximum iterations permitted.
+        Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
     temp_location : str
         Memory location for temp buffer ('local' or 'shared').
     use_cached_auxiliaries : bool
         Whether to use cached auxiliary arrays (determines signature).
-    """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
-    n: int = field(validator=getype_validator(int, 1))
+    Notes
+    -----
+    Tolerance arrays (krylov_atol, krylov_rtol) are managed by the solver's
+    norm factory and accessed via LinearSolver.krylov_atol/krylov_rtol
+    properties.
+    """
     operator_apply: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -114,16 +83,6 @@ class LinearSolverConfig:
     _krylov_tolerance: float = field(
         default=1e-6,
         validator=gttype_validator(float, 0)
-    )
-    krylov_atol: ndarray = field(
-        default=asarray([1e-6]),
-        validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
-    )
-    krylov_rtol: ndarray = field(
-        default=asarray([1e-6]),
-        validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
     )
     max_linear_iters: int = field(
         default=100,
@@ -145,35 +104,19 @@ class LinearSolverConfig:
         return self.precision(self._krylov_tolerance)
 
     @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np_dtype(self.precision))
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
         Returns
         -------
         dict
-            Configuration dictionary containing:
-            - krylov_tolerance: Convergence tolerance for linear solver
-            - krylov_atol: Absolute tolerance array for scaled norm
-            - krylov_rtol: Relative tolerance array for scaled norm
-            - max_linear_iters: Maximum iterations permitted
-            - linear_correction_type: Line-search strategy
-            - preconditioned_vec_location: Buffer location for preconditioned vector
-            - temp_location: Buffer location for temporary vector
+            Configuration dictionary. Note: krylov_atol and krylov_rtol
+            are not included here; access them via solver.krylov_atol
+            and solver.krylov_rtol properties which delegate to the
+            norm factory.
         """
         return {
             'krylov_tolerance': self.krylov_tolerance,
-            'krylov_atol': self.krylov_atol,
-            'krylov_rtol': self.krylov_rtol,
             'max_linear_iters': self.max_linear_iters,
             'linear_correction_type': self.linear_correction_type,
             'preconditioned_vec_location': self.preconditioned_vec_location,
@@ -196,12 +139,14 @@ class LinearSolverCache(CUDAFunctionCache):
     )
 
 
-class LinearSolver(CUDAFactory):
+class LinearSolver(MatrixFreeSolver):
     """Factory for linear solver device functions.
 
     Implements steepest-descent or minimal-residual iterations
     for solving linear systems without forming Jacobian matrices.
     """
+
+    settings_prefix = "krylov_"
 
     def __init__(
         self,
@@ -219,10 +164,21 @@ class LinearSolver(CUDAFactory):
             Length of residual and search-direction vectors.
         **kwargs
             Optional parameters passed to LinearSolverConfig. See
-            LinearSolverConfig for available parameters. None values
-            are ignored.
+            LinearSolverConfig for available parameters. Tolerance
+            parameters (krylov_atol, krylov_rtol) are passed to the
+            norm factory. None values are ignored.
         """
-        super().__init__()
+        # Extract tolerance kwargs for base class norm factory
+        atol = kwargs.pop('krylov_atol', None)
+        rtol = kwargs.pop('krylov_rtol', None)
+
+        # Initialize base class with norm factory
+        super().__init__(
+            precision=precision,
+            n=n,
+            atol=atol,
+            rtol=rtol,
+        )
 
         config = build_config(
             LinearSolverConfig,
@@ -233,6 +189,10 @@ class LinearSolver(CUDAFactory):
             **kwargs
         )
         self.setup_compile_settings(config)
+
+        # Update config with norm device function
+        self._update_norm_and_config({})
+
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -284,9 +244,8 @@ class LinearSolver(CUDAFactory):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
-        # Extract tolerance arrays
-        krylov_atol = config.krylov_atol
-        krylov_rtol = config.krylov_rtol
+        # Get scaled norm device function from config
+        scaled_norm_fn = config.norm_device_function
 
         # Convert types for device function
         n_val = int32(n)
@@ -294,8 +253,6 @@ class LinearSolver(CUDAFactory):
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
-        inv_n = precision_numba(1.0 / n)
-        tol_floor = precision_numba(1e-16)
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -335,19 +292,10 @@ class LinearSolver(CUDAFactory):
                     state, parameters, drivers, cached_aux, base_state, t, h,
                     a_ij, x, temp
                 )
-                acc = typed_zero
+                # Compute initial residual rhs = rhs - temp
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    ref_val = x[i]
-                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                    tol_i = tol_i if tol_i > tol_floor else tol_floor
-                    abs_res = residual_value if residual_value >= typed_zero \
-                        else -residual_value
-                    ratio = abs_res / tol_i
-                    acc += ratio * ratio
-                acc = acc * inv_n
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
                 converged = acc <= typed_one
 
@@ -405,35 +353,11 @@ class LinearSolver(CUDAFactory):
                     else:
                         alpha = typed_zero
 
-                    acc = typed_zero
                     if not converged:
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
-                    else:
-                        for i in range(n_val):
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
+                    acc = scaled_norm_fn(rhs, x)
 
                     converged = converged or (acc <= typed_one)
 
@@ -521,19 +445,10 @@ class LinearSolver(CUDAFactory):
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
                 )
-                acc = typed_zero
+                # Compute initial residual rhs = rhs - temp
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    ref_val = x[i]
-                    abs_ref = ref_val if ref_val >= typed_zero else -ref_val
-                    tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                    tol_i = tol_i if tol_i > tol_floor else tol_floor
-                    abs_res = residual_value if residual_value >= typed_zero \
-                        else -residual_value
-                    ratio = abs_res / tol_i
-                    acc += ratio * ratio
-                acc = acc * inv_n
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
                 converged = acc <= typed_one
 
@@ -589,35 +504,11 @@ class LinearSolver(CUDAFactory):
                     else:
                         alpha = typed_zero
 
-                    acc = typed_zero
                     if not converged:
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
-                    else:
-                        for i in range(n_val):
-                            residual_value = rhs[i]
-                            ref_val = x[i]
-                            abs_ref = ref_val if ref_val >= typed_zero \
-                                else -ref_val
-                            tol_i = krylov_atol[i] + krylov_rtol[i] * abs_ref
-                            tol_i = tol_i if tol_i > tol_floor else tol_floor
-                            abs_res = residual_value if residual_value >= \
-                                typed_zero else -residual_value
-                            ratio = abs_res / tol_i
-                            acc += ratio * ratio
-                        acc = acc * inv_n
+                    acc = scaled_norm_fn(rhs, x)
 
                     converged = converged or (acc <= typed_one)
 
@@ -651,7 +542,7 @@ class LinearSolver(CUDAFactory):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates
+        # Merge updates into a COPY to preserve original dict
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -662,11 +553,28 @@ class LinearSolver(CUDAFactory):
         if not all_updates:
             return recognized
 
-        recognized |= self.update_compile_settings(updates_dict=all_updates, silent=True)
+        # Extract prefixed tolerance parameters (modifies all_updates in place)
+        norm_updates = self._extract_prefixed_tolerance(all_updates)
 
-        # Buffer locations will trigger cache invalidation in compile settings
+        # Mark tolerance parameters as recognized
+        if norm_updates:
+            if 'atol' in norm_updates:
+                recognized.add('krylov_atol')
+            if 'rtol' in norm_updates:
+                recognized.add('krylov_rtol')
+
+        # Update norm and propagate to config
+        self._update_norm_and_config(norm_updates)
+
+        # Update compile settings with remaining parameters
+        recognized |= self.update_compile_settings(
+            updates_dict=all_updates, silent=True
+        )
+
+        # Buffer locations handled by registry
         buffer_registry.update(self, updates_dict=all_updates, silent=True)
         self.register_buffers()
+
         return recognized
 
     @property
@@ -697,12 +605,12 @@ class LinearSolver(CUDAFactory):
     @property
     def krylov_atol(self) -> ndarray:
         """Return absolute tolerance array."""
-        return self.compile_settings.krylov_atol
+        return self.norm.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
         """Return relative tolerance array."""
-        return self.compile_settings.krylov_rtol
+        return self.norm.rtol
 
     @property
     def max_linear_iters(self) -> int:
@@ -733,11 +641,15 @@ class LinearSolver(CUDAFactory):
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
-        Delegates to compile_settings for configuration state.
+        Combines config settings with tolerance arrays from norm factory.
 
         Returns
         -------
         dict
-            Configuration dictionary from LinearSolverConfig.settings_dict
+            Configuration dictionary including krylov_atol and krylov_rtol
+            from the norm factory.
         """
-        return self.compile_settings.settings_dict
+        result = dict(self.compile_settings.settings_dict)
+        result['krylov_atol'] = self.krylov_atol
+        result['krylov_rtol'] = self.krylov_rtol
+        return result
