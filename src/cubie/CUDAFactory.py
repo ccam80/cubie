@@ -593,7 +593,10 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
             include trailing underscore (added automatically).
         """
         if not instance_label:
-            raise ValueError("instance_label must be a non-empty string")
+            raise ValueError(
+                "MultipleInstanceCUDAFactories must have a "
+                "valid instance_label to filter settings."
+            )
         self.instance_label = instance_label
         super().__init__()
 
@@ -634,7 +637,7 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
         transformed = {}
         for key, value in updates_dict.items():
             if key.startswith(prefix):
-                unprefixed = key[len(prefix):]
+                unprefixed = key[len(prefix) :]
                 transformed[unprefixed] = value
             else:
                 transformed[key] = value

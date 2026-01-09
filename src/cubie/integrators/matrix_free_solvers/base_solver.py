@@ -55,13 +55,13 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
     """Base factory for matrix-free solver device functions.
 
     Provides shared infrastructure for tolerance parameter mapping
-    and norm factory management. Subclasses set `settings_prefix`
+    and norm factory management. Subclasses set `solver_type`
     to enable automatic mapping of prefixed parameters (e.g.,
     "krylov_atol" -> "atol" for norm updates).
 
     Attributes
     ----------
-    settings_prefix : str
+    solver_type : str
         Prefix for tolerance parameters (e.g., "krylov_" or "newton_").
         Set by subclasses.
     norm : ScaledNorm
@@ -71,7 +71,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        settings_prefix: str,
+        solver_type: str,
         n: int,
         atol: Optional[Any] = None,
         rtol: Optional[Any] = None,
@@ -91,8 +91,8 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         rtol : array-like, optional
             Relative tolerance for scaled norm.
         """
-        self.settings_prefix = settings_prefix
-        super().__init__(instance_label=settings_prefix)
+        self.solver_type = solver_type
+        super().__init__(instance_label=solver_type)
 
         # Build norm kwargs, filtering None values
         norm_kwargs = {}
@@ -126,7 +126,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         dict
             Norm updates with unprefixed tolerance keys.
         """
-        prefix = self.settings_prefix
+        prefix = self.solver_type
         norm_updates = {}
 
         prefixed_atol = f"{prefix}atol"

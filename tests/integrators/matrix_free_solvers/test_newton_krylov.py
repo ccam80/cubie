@@ -734,8 +734,8 @@ def test_newton_krylov_inherits_from_matrix_free_solver(precision):
         linear_solver=linear_solver,
     )
     assert isinstance(newton, MatrixFreeSolver)
-    # Verify settings_prefix is set correctly
-    assert newton.settings_prefix == "newton_"
+    # Verify solver_type is set correctly
+    assert newton.solver_type == "newton_"
 
 
 def test_newton_krylov_update_preserves_original_dict(precision):

@@ -194,7 +194,7 @@ class NewtonKrylov(MatrixFreeSolver):
         # Initialize base class with norm factory
         super().__init__(
             precision=precision,
-            settings_prefix="newton_",
+            solver_type="newton_",
             n=n,
             atol=atol,
             rtol=rtol,

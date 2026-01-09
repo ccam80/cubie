@@ -117,7 +117,7 @@ def test_matrix_free_solver_creates_norm():
 def test_matrix_free_solver_extract_prefixed_tolerance():
     """Verify _extract_prefixed_tolerance correctly maps prefixed keys."""
     class TestSolver(MatrixFreeSolver):
-        settings_prefix = "krylov_"
+        solver_type = "krylov_"
 
         def build(self):
             pass

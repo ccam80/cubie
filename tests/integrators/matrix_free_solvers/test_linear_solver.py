@@ -414,8 +414,8 @@ def test_linear_solver_inherits_from_matrix_free_solver(precision):
         n=3,
     )
     assert isinstance(solver, MatrixFreeSolver)
-    assert hasattr(solver, 'settings_prefix')
-    assert solver.settings_prefix == "krylov_"
+    assert hasattr(solver, 'solver_type')
+    assert solver.solver_type == "krylov_"
 
 
 def test_linear_solver_update_preserves_original_dict(precision):
