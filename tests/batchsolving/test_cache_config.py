@@ -130,20 +130,6 @@ class TestBatchSolverConfigCacheConfig:
 
 
 @pytest.mark.nocudasim
-class TestCachingEnabledBackwardsCompat:
-    """Tests for backwards-compatible caching_enabled property."""
-
-    def test_caching_enabled_is_readonly(self, precision):
-        """Verify caching_enabled is a read-only property."""
-        config = BatchSolverConfig(
-            precision=precision,
-        )
-
-        with pytest.raises(AttributeError):
-            config.caching_enabled = False
-
-
-@pytest.mark.nocudasim
 class TestCUBIECacheMaxEntries:
     """Tests for CUBIECache max_entries parameter."""
 

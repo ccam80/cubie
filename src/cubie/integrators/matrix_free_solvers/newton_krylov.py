@@ -104,6 +104,9 @@ class NewtonKrylovConfig(CUDAFactoryConfig):
         default="local", validator=validators.in_(["local", "shared"])
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @property
     def newton_tolerance(self) -> float:
         """Return tolerance in configured precision."""

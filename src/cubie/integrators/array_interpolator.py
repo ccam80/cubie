@@ -118,6 +118,9 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
         validator=validators.instance_of(int),
     )
 
+    def __attrs_post_init__(self):
+        super.__attrs_post_init__(self)
+
 
 class ArrayInterpolator(CUDAFactory):
     """Factory emitting CUDA device functions for interpolating array-driven

@@ -12,7 +12,6 @@ from typing import (
     Union,
 )
 from warnings import warn
-from hashlib import sha256
 from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
@@ -1029,10 +1028,8 @@ class BatchSolverKernel(CUDAFactory):
             try:
                 system = self.single_integrator.system
                 system_name = getattr(system, "name", "anonymous")
-                if hasattr(system, "system_hash"):
-                    system_hash = system.system_hash
-                else:
-                    system_hash = sha256(b"").hexdigest()
+                system_hash = system.system_hash
+
                 cache = CUBIECache(
                     system_name=system_name,
                     system_hash=system_hash,

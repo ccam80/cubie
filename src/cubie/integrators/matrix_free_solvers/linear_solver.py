@@ -21,7 +21,11 @@ from cubie._utils import (
     is_device_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 
 
@@ -81,6 +85,9 @@ class LinearSolverConfig(CUDAFactoryConfig):
         default="local", validator=validators.in_(["local", "shared"])
     )
     use_cached_auxiliaries: bool = field(default=False)
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def krylov_tolerance(self) -> float:

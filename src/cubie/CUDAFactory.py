@@ -531,7 +531,7 @@ class CUDAFactory(ABC):
             child_hashes = child_hashes + (child_factory.config_hash,)
         if child_hashes:
             # Combine all nested hashes and re-hash
-            hash_str = own_hash.join(child_hashes)
+            hash_str = "|".join((own_hash,) + child_hashes)
             return sha256(hash_str.encode("utf-8")).hexdigest()
         else:
             return own_hash
