@@ -7,8 +7,8 @@ and matrix-free solvers.
 
 from typing import Callable
 
-from numpy import asarray, dtype as np_dtype, ndarray
-from numba import cuda, from_dtype
+from numpy import asarray, ndarray
+from numba import cuda
 from attrs import Converter, define, field
 
 from cubie._utils import (
@@ -17,22 +17,22 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
     tol_converter,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDADispatcherCache,
+    CUDAFactoryConfig,
+)
 from cubie.cuda_simsafe import compile_kwargs
 
 
 @define
-class ScaledNormConfig:
+class ScaledNormConfig(CUDAFactoryConfig):
     """Configuration for ScaledNorm factory compilation.
 
     Attributes
     ----------
-    precision : PrecisionDType
-        Numerical precision for computations.
     n : int
         Size of vectors to compute norm over.
     atol : ndarray
@@ -41,26 +41,20 @@ class ScaledNormConfig:
         Relative tolerance array of shape (n,).
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator
-    )
     n: int = field(validator=getype_validator(int, 1))
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
+        converter=Converter(tol_converter, takes_self=True),
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
+        converter=Converter(tol_converter, takes_self=True),
     )
 
-    @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def inv_n(self) -> float:
@@ -124,10 +118,10 @@ class ScaledNorm(CUDAFactory):
         config = build_config(
             ScaledNormConfig,
             required={
-                'precision': precision,
-                'n': n,
+                "precision": precision,
+                "n": n,
             },
-            **kwargs
+            **kwargs,
         )
 
         self.setup_compile_settings(config)
@@ -188,12 +182,7 @@ class ScaledNorm(CUDAFactory):
         # no cover: end
         return ScaledNormCache(scaled_norm=scaled_norm)
 
-    def update(
-        self,
-        updates_dict=None,
-        silent=False,
-        **kwargs
-    ):
+    def update(self, updates_dict=None, silent=False, **kwargs):
         """Update compile settings and invalidate cache if changed.
 
         Parameters
