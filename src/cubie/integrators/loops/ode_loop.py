@@ -36,8 +36,6 @@ ALL_LOOP_SETTINGS = {
     "summarise_every",
     "sample_summaries_every",
     "dt0",
-    "dt_min",
-    "dt_max",
     "is_adaptive",
     "save_last",
     "save_regularly",
@@ -109,13 +107,13 @@ class IVPLoop(CUDAFactory):
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
-        include dt0, dt_min, dt_max, is_adaptive, controller_local_len,
-        algorithm_local_len, and buffer location parameters (state_location,
-        proposed_state_location, parameters_location, drivers_location,
-        proposed_drivers_location, observables_location,
-        proposed_observables_location, error_location, counters_location,
-        state_summary_location, observable_summary_location, dt_location,
-        accept_step_location). None values are ignored.
+        include dt0, is_adaptive, and buffer location
+        parameters (state_location, proposed_state_location,
+        parameters_location, drivers_location, proposed_drivers_location,
+        observables_location, proposed_observables_location, error_location,
+        counters_location, state_summary_location,
+        observable_summary_location, dt_location, accept_step_location).
+        None values are ignored.
     """
 
     def __init__(
@@ -190,9 +188,9 @@ class IVPLoop(CUDAFactory):
             Device function that computes observables for proposed states.
         **kwargs
             Optional parameters passed to ODELoopConfig. See ODELoopConfig
-            for available parameters including dt0, dt_min, dt_max,
-            is_adaptive, and buffer location parameters (state_location,
-            proposed_state_location, etc.). None values are ignored.
+            for available parameters including dt0, is_adaptive, and buffer
+            location parameters (state_location, proposed_state_location,
+            etc.). None values are ignored.
         """
         super().__init__()
 
@@ -693,7 +691,7 @@ class IVPLoop(CUDAFactory):
                         accept = bool_(accept and (not step_failed))
                         status = int32(status | controller_status)
 
-                        # If the step size drops below dt_min, we can't recover
+                        # Controller may signal irrecoverable error via status bit
                         irrecoverable = bool_(
                             irrecoverable or (
                                     (controller_status & 0x8) != int32(0))
@@ -909,18 +907,6 @@ class IVPLoop(CUDAFactory):
         """Return the initial step size provided to the loop."""
 
         return self.compile_settings.dt0
-
-    @property
-    def dt_min(self) -> Optional[float]:
-        """Return the minimum allowable step size for the loop."""
-
-        return self.compile_settings.dt_min
-
-    @property
-    def dt_max(self) -> Optional[float]:
-        """Return the maximum allowable step size for the loop."""
-
-        return self.compile_settings.dt_max
 
     @property
     def is_adaptive(self) -> Optional[bool]:
