@@ -749,7 +749,7 @@ def build_config(
     >>> config = build_config(
     ...     DIRKStepConfig,
     ...     required={'precision': np.float32, 'n': 3},
-    ...     krylov_tolerance=1e-8
+    ...     krylov_atol=1e-8
     ... )
 
     Notes

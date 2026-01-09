@@ -472,14 +472,15 @@ class CPUStep:
         return self._linear_correction_type
 
     @property
+    @property
     def preconditioner_order(self) -> int:
         """Return the Neumann-series preconditioner order."""
 
         return self._preconditioner_order
 
     @property
-    def newton_tolerance(self) -> np.floating:
-        """Return the Newton iteration convergence tolerance."""
+    def newton_atol(self) -> np.floating:
+        """Return the Newton iteration absolute tolerance."""
 
         return self._newton_tol
 

@@ -135,12 +135,14 @@ gamma_solver = precision(1.0)
 preconditioner_order = 2
 
 # Linear solver (Krylov) parameters
-krylov_tolerance = precision(1e-6)
+krylov_atol = precision(1e-6)
+krylov_rtol = precision(1e-6)
 kyrlov_max_iters = 200
 linear_correction_type = "minimal_residual"
 
 # Newton-Krylov nonlinear solver parameters
-newton_tolerance = precision(1e-6)
+newton_atol = precision(1e-6)
+newton_rtol = precision(1e-6)
 newton_max_iters = 100
 newton_damping = precision(0.85)
 max_backtracks = 15
@@ -7287,7 +7289,7 @@ elif algorithm_type == "dirk":
         operator_fn,
         n_states,
         preconditioner_fn,
-        krylov_tolerance,
+        krylov_atol,
         kyrlov_max_iters,
         precision,
         linear_correction_type,
@@ -7297,7 +7299,7 @@ elif algorithm_type == "dirk":
         residual_fn,
         linear_solver_fn,
         n_states,
-        newton_tolerance,
+        newton_atol,
         newton_max_iters,
         newton_damping,
         max_backtracks,
@@ -7343,7 +7345,7 @@ elif algorithm_type == "firk":
         operator_fn,
         n_states * tableau.stage_count,  # Note: all_stages_n
         preconditioner_fn,
-        krylov_tolerance,
+        krylov_atol,
         kyrlov_max_iters,
         precision,
         linear_correction_type,
@@ -7353,7 +7355,7 @@ elif algorithm_type == "firk":
         residual_fn,
         linear_solver_fn,
         n_states * tableau.stage_count,  # Note: all_stages_n
-        newton_tolerance,
+        newton_atol,
         newton_max_iters,
         newton_damping,
         max_backtracks,
@@ -7391,7 +7393,7 @@ elif algorithm_type == "rosenbrock":
         operator_fn,
         n_states,
         preconditioner_fn,
-        krylov_tolerance,
+        krylov_atol,
         kyrlov_max_iters,
         precision,
         linear_correction_type,
