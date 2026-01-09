@@ -1,5 +1,6 @@
 """Adaptive proportional–integral–derivative controller implementations."""
-from typing import Callable, Optional, Union
+
+from typing import Callable
 
 from numpy import ndarray
 from numba import cuda, int32
@@ -26,10 +27,14 @@ class PIDStepControlConfig(PIStepControlConfig):
         validator=validators.instance_of(_expand_dtype(float)),
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @property
     def kd(self) -> float:
         """Return the derivative gain."""
         return self.precision(self._kd)
+
 
 class AdaptivePIDController(BaseAdaptiveStepController):
     """Adaptive PID step size controller."""
@@ -56,8 +61,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         """
         config = build_config(
             PIDStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
+            required={"precision": precision, "n": n},
+            **kwargs,
         )
 
         super().__init__(config)
@@ -101,11 +106,11 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         settings_dict = super().settings_dict
         settings_dict.update(
             {
-                'kp': self.kp,
-                'ki': self.ki,
-                'kd': self.kd,
-                'deadband_min': self.deadband_min,
-                'deadband_max': self.deadband_max,
+                "kp": self.kp,
+                "ki": self.ki,
+                "kd": self.kd,
+                "deadband_min": self.deadband_min,
+                "deadband_max": self.deadband_max,
             }
         )
         return settings_dict
@@ -157,7 +162,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             CUDA device function implementing the PID controller.
         """
         alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
+            "timestep_buffer", self
         )
 
         kp = self.kp
@@ -176,11 +181,12 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
-                deadband_max == typed_one
+            deadband_max == typed_one
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             device=True,
@@ -255,9 +261,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             )
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
-                within_deadband = (
-                    (gain >= deadband_min)
-                    and (gain <= deadband_max)
+                within_deadband = (gain >= deadband_min) and (
+                    gain <= deadband_max
                 )
                 gain = selp(within_deadband, typed_one, gain)
 

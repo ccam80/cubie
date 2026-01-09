@@ -13,7 +13,7 @@ from attrs import define, field, validators
 from numpy import int_
 from numpy.typing import ArrayLike, NDArray
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.outputhandling.output_config import OutputCompileFlags, OutputConfig
 from cubie.outputhandling.output_sizes import OutputArrayHeights
 from cubie.outputhandling.save_state import save_state_factory
@@ -37,7 +37,7 @@ ALL_OUTPUT_FUNCTION_PARAMETERS = {
 
 
 @define
-class OutputFunctionCache(CUDAFunctionCache):
+class OutputFunctionCache(CUDADispatcherCache):
     """Cache container for compiled output functions.
 
     Attributes
@@ -171,7 +171,7 @@ class OutputFunctions(CUDAFactory):
         recognised_params |= self.update_compile_settings(
             updates_dict, silent=True
         )
-        self.compile_settings.__attrs_post_init__()  # call validation funcs
+        self.compile_settings.validation_passes()  # call validation funcs
         unrecognised -= recognised_params
 
         if not silent and unrecognised:
@@ -200,7 +200,7 @@ class OutputFunctions(CUDAFactory):
 
         summary_metrics.update(
             sample_summaries_every=config.sample_summaries_every,
-            precision=config.precision
+            precision=config.precision,
         )
 
         # Build functions using output sizes objects
