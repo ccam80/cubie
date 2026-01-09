@@ -980,11 +980,6 @@ class ArrayInterpolator(CUDAFactory):
         return self.compile_settings.num_segments
 
     @property
-    def precision(self) -> PrecisionDType:
-        """Return the numerical precision used for the run."""
-        return self.compile_settings.precision
-
-    @property
     def t0(self) -> float:
         """Return the start time of the input samples."""
         return self.compile_settings.t0

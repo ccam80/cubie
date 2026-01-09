@@ -10,7 +10,6 @@ from typing import Callable, Optional
 
 from attrs import define, field, validators
 from cubie.CUDAFactory import CUDAFactoryConfig
-from numba import from_dtype as numba_from_dtype
 from warnings import warn
 
 from cubie._utils import (
@@ -18,7 +17,6 @@ from cubie._utils import (
     is_device_validator,
     opt_gttype_validator,
 )
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
@@ -245,16 +243,6 @@ class ODELoopConfig(CUDAFactoryConfig):
                 f"{raw_ratio:.2f} updates, and the calculation can't run "
                 f"between samples."
             )
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba precision type."""
-        return numba_from_dtype(self.precision)
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the simulator safe precision."""
-        return simsafe_dtype(self.precision)
 
     @property
     def save_every(self) -> Optional[float]:

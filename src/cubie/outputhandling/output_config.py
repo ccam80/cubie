@@ -659,10 +659,6 @@ class OutputConfig(CUDAFactoryConfig):
         """Time interval between summary metric samples."""
         return self._sample_summaries_every
 
-    @property
-    def precision(self) -> type[np_floating]:
-        """Numerical precision for output calculations."""
-        return self._precision
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
